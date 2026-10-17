@@ -1,0 +1,12 @@
+[package]
+name = "yuzu-fonts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aegisub-style Fonts Collector and embedded fonts/graphics attachments for Yuzu"
+
+[dependencies]
+asscore = { path = "../asscore" }
+fontdb = "0.23"
+ttf-parser = "0.25"
+zip = { version = "2", default-features = false, features = ["deflate"] }
