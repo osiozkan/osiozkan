@@ -1,0 +1,18 @@
+name: yuzu-ci
+on:
+  push:
+    paths: ["yuzu/**", ".github/workflows/**"]
+  pull_request:
+    paths: ["yuzu/**", ".github/workflows/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: yuzu } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: yuzu }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: cargo test --workspace
+      - run: cargo build --release -p yuzu-cli -p yuzu-gui
