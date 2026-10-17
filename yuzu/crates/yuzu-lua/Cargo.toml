@@ -1,0 +1,8 @@
+[package]
+name = "yuzu-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+asscore = { path = "../asscore" }
+mlua = { version = "0.12", features = ["luajit", "vendored"] }

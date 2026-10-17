@@ -1,0 +1,7 @@
+[package]
+name = "asscore"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex = "1"

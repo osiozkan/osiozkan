@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/asscore", "crates/yuzu-lua", "crates/yuzu-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+opt-level = 3
