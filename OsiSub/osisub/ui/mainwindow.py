@@ -30,6 +30,7 @@ from .glossary_panel import GlossaryPanel
 from .qc_panel import QcPanel
 from .spell_ui import SpellService
 from .timing_dialog import TimingDialog
+from .mw_features import FeaturesMixin
 from .video import VideoPanel, mpv_error
 
 VIDEO_EXT = (".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".webm", ".mov", ".wmv", ".flv", ".m4v", ".mpg", ".mpeg")
@@ -39,7 +40,7 @@ ASS_FILTER = "ASS altyazı (*.ass *.ssa);;Tüm dosyalar (*)"
 OPEN_FILTER = IMPORT_FILTER
 
 
-class MainWindow(QMainWindow):
+class MainWindow(FeaturesMixin, QMainWindow):
     def __init__(self, ctx: Context | None = None, headless: bool = False):
         super().__init__()
         init_invoker()
@@ -59,6 +60,8 @@ class MainWindow(QMainWindow):
         self.editbox = EditBox(self.ctx)
         self.grid = SubsGrid(self.ctx, self.acts)
         self.grid.request_edit_focus.connect(self.editbox.focus_text)
+        self.editbox.text.extra_actions = [self.acts[k] for k in ("split_cursor", "split_cursor_keep",
+                                                                  "split_cursor_video", "break_lines")]
         split = QSplitter(Qt.Vertical)
         split.addWidget(self.editbox)
         split.addWidget(self.grid)
@@ -122,6 +125,7 @@ class MainWindow(QMainWindow):
         self.media.progress.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.media.error.connect(self._media_error)
         self.media.index_ready.connect(self._update_counts)
+        self.media.keyframes_changed.connect(self._keyframes_changed)
         self.audio.view.seek_request.connect(self.video.seek_ms)
         self.ctx.active_changed.connect(self._follow_line)
 
@@ -210,6 +214,26 @@ class MainWindow(QMainWindow):
         A("tool_fps", "Kare hızını / hızı değiştir…", lambda: self.show_tool("fps"))
         A("tool_pointsync", "Noktalı senkron…", lambda: self.show_tool("pointsync"),
           tip="Seçili satırların doğru zamanlarını vererek tüm altyazıyı kaydır/esnet")
+        # --- Aegisub araçları (1.3)
+        A("select_lines", "Satır seç…", self.show_select_lines,
+          tip="Metin/stil/aktör/efekte göre satır seç; seçime ekle, çıkar, kesiştir")
+        A("fonts", "Yazı tipi toplayıcı…", self.show_fonts,
+          tip="Kullanılan yazı tiplerini bul, eksik karakterleri (ğ ş ı İ) denetle, klasöre/zip'e topla")
+        A("resample", "Çözünürlüğü yeniden örnekle…", self.show_resample,
+          tip="PlayRes'i değiştir; stiller, konumlar, clip'ler, çizimler ve boyutlar ölçeklenir")
+        A("split_cursor", "İmleçten böl (zamanı tahmin et)", lambda: self.split_at_cursor("estimate"))
+        A("split_cursor_keep", "İmleçten böl (zamanı koru)", lambda: self.split_at_cursor("preserve"))
+        A("split_cursor_video", "İmleçten böl (videodaki karede)", lambda: self.split_at_cursor("video"))
+        A("continuous_start", "Zamanları sürekli yap (başlangıç değişir)", lambda: self.make_continuous("start"))
+        A("continuous_end", "Zamanları sürekli yap (bitiş değişir)", lambda: self.make_continuous("end"))
+        A("dup_shift", "1 kare kaydırarak çoğalt", self.duplicate_shift, "Ctrl+Shift+D",
+          "Kare kare tipografi: seçili satırların bir kare sonrasına kopyası")
+        A("swap_lines", "İki satırın yerini değiştir", self.swap_lines)
+        A("paste_over", "Üstüne yapıştır…", lambda: self.paste_over(),
+          tip="Panodaki satırları (ya da düz metni) seçili satırların üstüne, seçilen alanlarla yaz")
+        A("kf_open", "Anahtar kare dosyası aç…", lambda: self.open_keyframes())
+        A("kf_save", "Anahtar kareleri kaydet…", lambda: self.save_keyframes())
+        A("kf_scenes", "Sahne değişimlerini anahtar karelere kat", self.keyframes_from_scenes)
         A("select_all", "Tüm satırları seç", self.select_all, "Ctrl+Shift+A")
         A("styles", "Stil yöneticisi…", self.show_styles, "Ctrl+Shift+Y")
         A("props", "Betik özellikleri…", self.show_props, "Ctrl+P")
@@ -292,6 +316,7 @@ class MainWindow(QMainWindow):
             a = em.addAction(f"{label} ({ext})…")
             a.triggered.connect(lambda _=False, kk=key: self.export_as(kk))
         m.addAction(self.acts["batch_convert"])
+        m.addAction(self.acts["fonts"])
         m.addSeparator()
         m.addAction(self.acts["props"])
         m.addSeparator()
@@ -299,14 +324,15 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("D&üzen")
         for k in ("undo", "redo", None, "find", "replace", "multi_replace", None, "copy_lines", "cut_lines",
-                  "paste_lines", None, "select_all", "prev_line", "next_line"):
+                  "paste_lines", "paste_over", None, "select_all", "select_lines", "prev_line", "next_line"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
 
         m = mb.addMenu("&Altyazı")
-        for k in ("insert_before", "insert_after", "duplicate", None, "join_concat", "join_space",
-                  "join_keep_first", "split_at_n", None, "break_lines", "unbreak_lines", None,
-                  "toggle_comment", "delete_lines", None, "sort_time", "tool_sort", None,
-                  "tool_case", "tool_hi", "tool_merge", "tool_split", None, "tool_stats", None, "styles"):
+        for k in ("insert_before", "insert_after", "duplicate", "dup_shift", None, "join_concat", "join_space",
+                  "join_keep_first", "split_at_n", "split_cursor", "split_cursor_keep", "split_cursor_video", None,
+                  "break_lines", "unbreak_lines", None, "toggle_comment", "delete_lines", "swap_lines", None,
+                  "sort_time", "tool_sort", None, "tool_case", "tool_hi", "tool_merge", "tool_split", None,
+                  "tool_stats", None, "styles", "resample"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
 
         m = mb.addMenu("&Zamanlama")
@@ -316,8 +342,9 @@ class MainWindow(QMainWindow):
         m.addAction(self.acts["sync"])
         m.addAction(self.acts["sync_ref"])
         m.addSeparator()
-        for k in ("tool_durations", "tool_bridge", "tool_fps", "tool_pointsync"):
-            m.addAction(self.acts[k])
+        for k in ("tool_durations", "tool_bridge", "tool_fps", "tool_pointsync", None, "continuous_start",
+                  "continuous_end"):
+            m.addSeparator() if k is None else m.addAction(self.acts[k])
         m.addSeparator()
         m.addAction(self.acts["set_start_frame"])
         m.addAction(self.acts["set_end_frame"])
@@ -325,8 +352,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Video")
         for k in ("open_video", "close_video", None, "play_pause", "play_line", None, "prev_frame",
                   "next_frame", "prev_kf", "next_kf", "goto", None, "vid_line_start", "vid_line_end",
-                  "set_start_frame", "set_end_frame", None, "follow_line", "scenes", None, "motion", None,
-                  "save_frame", "save_frame_raw"):
+                  "set_start_frame", "set_end_frame", None, "follow_line", "scenes", "kf_scenes", "kf_open",
+                  "kf_save", None, "motion", None, "save_frame", "save_frame_raw"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
         from .visual import TOOLS
         vm = m.addMenu("Görsel tipografi aracı")

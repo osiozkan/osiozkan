@@ -150,6 +150,7 @@ class SubTextEdit(QPlainTextEdit):
         self.setTabChangesFocus(True)
         self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self.highlighter = AssHighlighter(self.document())
+        self.extra_actions = []          # sağ tık menüsünün sonuna eklenecek eylemler (ana pencere doldurur)
 
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -200,6 +201,10 @@ class SubTextEdit(QPlainTextEdit):
                     menu.removeAction(act)
                 menu.insertActions(first, acts)
                 menu.insertSeparator(first)
+        if self.extra_actions:
+            menu.addSeparator()
+            for act in self.extra_actions:
+                menu.addAction(act)
         menu.exec(e.globalPos())
 
     def _replace(self, a, b, rep):

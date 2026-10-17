@@ -23,6 +23,7 @@ class MediaController(QObject):
     audio_ready = Signal()
     spectrum_ready = Signal()
     scenes_ready = Signal()
+    keyframes_changed = Signal()
     speech_ready = Signal()
     audio_closed = Signal()
     position_changed = Signal(int)          # kare
@@ -106,6 +107,17 @@ class MediaController(QObject):
         self.progress.emit(f"Video hazır: {n} kare · {result.avg_fps:.3f} fps ({kind}) · "
                            f"{len(result.keyframes)} anahtar kare")
         self.index_ready.emit()
+
+    def set_keyframes(self, frames) -> int:
+        """Anahtar kareleri değiştir (dosyadan yüklenen ya da sahne değişimlerinden)."""
+        if self.index is None:
+            return 0
+        kfs = sorted({int(f) for f in frames if 0 <= int(f) < len(self.index)})
+        self.index.keyframes = kfs
+        if self.ctx.frame_map is not None:
+            self.ctx.frame_map.keyframes = list(kfs)
+        self.keyframes_changed.emit()
+        return len(kfs)
 
     # ---------------------------------------------------------------- sahneler
     def detect_scenes(self, threshold: float = 10.0):
