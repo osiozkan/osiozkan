@@ -33,6 +33,7 @@ DEFAULTS = {
     "timing_pp": {},                    # zamanlama son işlemcisi son ayarları
     "motion": {},                       # hareket takibi bölmesinin son ayarları
     "sync": {},                         # konuşmaya göre senkron (bsync) son ayarları
+    "compare": {},                      # kaynakla karşılaştır (aligncompare) son ayarları
     "autosave_seconds": 60,             # otomatik yedek aralığı (0 = kapalı)
     "app_log": "INFO",                  # logs/osisub.log ayrıntısı (DEBUG/INFO/WARNING)
     "qc_rules": [],                     # boş = varsayılan kurallar

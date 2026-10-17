@@ -7,6 +7,8 @@
   python -m osisub macro betik.lua "Ad" girdi.ass [-o çıktı.ass] [--sel 1,2] [--active 1]
                                                makroyu arayüzsüz çalıştır
                                                (--sel/--active: 1 tabanlı olay satır numaraları)
+  python -m osisub aligncompare kaynak.srt aday.ass [--marked qc.ass] [--csv qc.csv] [--only-flags] ...
+                                               kaynak ↔ aday karşılaştırması (aligncompare ile aynı seçenekler)
 """
 
 from __future__ import annotations
@@ -84,12 +86,74 @@ def _doctor() -> int:
     return 0 if ok else 1
 
 
+def _aligncompare(argv) -> int:
+    """aligncompare.py ile aynı komut satırı: önce KAYNAK, sonra ADAY."""
+    p = argparse.ArgumentParser(prog="osisub aligncompare",
+                                description="Kaynak (EN) ↔ aday (TR) hizalama ve denetim raporu")
+    p.add_argument("kaynak", help="referans altyazı (.ass / .srt / .vtt)")
+    p.add_argument("aday", help="denetlenecek çeviri (.ass)")
+    p.add_argument("-o", dest="html", help="HTML rapor (vars. <aday>_karsilastirma.html)")
+    p.add_argument("--csv", help="CSV çıktısı (; ayraçlı, Excel için)")
+    p.add_argument("--marked", help="işaretli aday kopyası (.ass)")
+    p.add_argument("--only-flags", action="store_true", help="raporda yalnız bayraklı satırlar")
+    p.add_argument("--shift", default="auto", help='küresel kayma: "auto" ya da saniye (ör. 2.35)')
+    p.add_argument("--shift-range", type=float, default=15.0, help="otomatik arama aralığı ± sn (vars. 15)")
+    p.add_argument("--ratio-min", type=float, default=0.45)
+    p.add_argument("--ratio-max", type=float, default=2.2)
+    p.add_argument("--sim", type=float, default=0.85, help='"İNGİLİZCE?" benzerlik eşiği')
+    p.add_argument("--max-start-diff", type=float, default=0.5, help="ZAMAN bayrağı eşiği (sn)")
+    p.add_argument("--min-overlap", type=float, default=0.25)
+    p.add_argument("--min-len", type=int, default=10, help="UZUNLUK için en kısa kaynak (karakter)")
+    p.add_argument("--skip-styles-src", default="", metavar="RX")
+    p.add_argument("--skip-styles-cand", default="", metavar="RX")
+    p.add_argument("--include-typeset", action="store_true")
+    a = p.parse_args(argv)
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+    from .core.compare import CompareOptions, compare, marked_document, summary_lines, to_csv, to_html
+    from .core.formats import load_any
+    if a.shift != "auto":
+        try:
+            float(a.shift.replace(",", "."))
+        except ValueError:
+            p.error('--shift "auto" ya da sayı olmalı')
+    opts = CompareOptions(shift="auto" if a.shift == "auto" else float(a.shift.replace(",", ".")),
+                          shift_range=a.shift_range, ratio_min=a.ratio_min, ratio_max=a.ratio_max, sim=a.sim,
+                          max_start_diff=a.max_start_diff, min_overlap=a.min_overlap, min_len=a.min_len,
+                          skip_styles_src=a.skip_styles_src, skip_styles_cand=a.skip_styles_cand,
+                          include_typeset=a.include_typeset)
+    src_doc = load_any(a.kaynak)
+    cand_doc = load_any(a.aday)
+    res = compare(src_doc.events, cand_doc.events, opts)
+    for ln in summary_lines(res, os.path.basename(a.kaynak), os.path.basename(a.aday)):
+        print(ln)
+    html_path = a.html or os.path.splitext(a.aday)[0] + "_karsilastirma.html"
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(to_html(res, a.kaynak, a.aday, only_flags=a.only_flags))
+    print(f"HTML rapor: {html_path}")
+    if a.csv:
+        with open(a.csv, "w", encoding="utf-8", newline="") as f:
+            f.write(to_csv(res, only_flags=a.only_flags))
+        print(f"CSV: {a.csv}")
+    if a.marked:
+        if os.path.abspath(a.marked) == os.path.abspath(a.aday):
+            print("İşaretli kopya adayın üstüne yazılamaz; başka bir ad verin.", file=sys.stderr)
+            return 2
+        marked_document(cand_doc, res).save(a.marked)
+        print(f"İşaretli kopya: {a.marked}  (bayraklı satırlarda {{QC: ...}}, EKSİK satırlar sonda Comment)")
+    return 0
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in ("--version", "-V", "version"):
         from . import __version__
         print(f"OsiSub {__version__}")
         return 0
+    if argv and argv[0] in ("aligncompare", "compare"):
+        return _aligncompare(argv[1:])
     cmds = {"doctor", "roundtrip", "macros", "macro"}
     if not argv or argv[0] not in cmds:
         from .ui.app import main as gui_main

@@ -56,6 +56,9 @@ class SubsModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            ref = getattr(self.ctx, "reference", None)
+            if section == C_REF and ref is not None and ref.offset:
+                return f"Referans ({ref.offset / 1000:+.2f} sn)"
             return COLS[section]
         if orientation == Qt.Horizontal and role == Qt.ToolTipRole:
             return {

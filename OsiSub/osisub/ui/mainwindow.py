@@ -86,6 +86,11 @@ class MainWindow(QMainWindow):
         self.dock_ref = self._dock("Referans / aktarma", self.ref_panel, Qt.RightDockWidgetArea)
         self.dock_ref.hide()
         self.reference.changed.connect(self._reference_changed)
+        from .compare_panel import ComparePanel
+        self.compare_panel = ComparePanel(self.ctx, self)
+        self.dock_compare = self._dock("Karşılaştırma", self.compare_panel, Qt.RightDockWidgetArea)
+        self.tabifyDockWidget(self.dock_ref, self.dock_compare)
+        self.dock_compare.hide()
         # yazım denetimi + denetim (QC)
         self.spell = SpellService(self.ctx.config)
         self.ctx.spell = self.spell
@@ -201,6 +206,8 @@ class MainWindow(QMainWindow):
         A("close_ref", "Referansı kapat", lambda: self.reference.close())
         A("transfer", "Referanstan aktar (TR → bu dosya)…", self.transfer_from_reference)
         A("copy_ref", "Referans metnini satıra yaz", lambda: self.editbox.copy_reference(), "Ctrl+Alt+R")
+        A("compare", "Kaynakla karşılaştır (aligncompare)…", self.show_compare, "Ctrl+Alt+K",
+          "Referans (EN) ile bu dosyayı zamanla hizala: EKSİK/FAZLA/İNGİLİZCE?/UZUNLUK/BOŞ/ZAMAN/SAYI")
         A("export_srt", "SRT olarak dışa aktar…", self.export_srt)
         # --- video
         A("open_video", "Video aç…", self.open_video_dialog, "Ctrl+Shift+O")
@@ -296,7 +303,7 @@ class MainWindow(QMainWindow):
         self.acts["follow_line"].setChecked(bool(self.ctx.config["video_seek_on_line"]))
 
         m = mb.addMenu("Çe&viri")
-        for k in ("open_ref", "close_ref", None, "copy_ref", "transfer", None, "glossary", "add_term"):
+        for k in ("open_ref", "close_ref", None, "copy_ref", "transfer", "compare", None, "glossary", "add_term"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
 
         m = mb.addMenu("&Ses")
@@ -312,8 +319,8 @@ class MainWindow(QMainWindow):
         self.tools_menu.aboutToShow.connect(self._fill_tools)
 
         m = mb.addMenu("&Görünüm")
-        for d in (self.dock_video, self.dock_audio, self.dock_strip, self.dock_cpl, self.dock_ref, self.dock_qc,
-                  self.dock_gloss, self.dock_motion):
+        for d in (self.dock_video, self.dock_audio, self.dock_strip, self.dock_cpl, self.dock_ref, self.dock_compare,
+                  self.dock_qc, self.dock_gloss, self.dock_motion):
             m.addAction(d.toggleViewAction())
         m.addSeparator()
         m.addAction(self.acts["theme_dark"])
@@ -901,6 +908,16 @@ class MainWindow(QMainWindow):
             self.ref_panel.show_issues(dlg.plan)
             self.dock_ref.show()
         return dlg
+
+    def show_compare(self):
+        """Karşılaştırma bölmesini aç; kaynak yoksa önce referans altyazıyı sor, sonra karşılaştır."""
+        self.dock_compare.show()
+        self.dock_compare.raise_()
+        if not self.reference.loaded and not self.headless:
+            self.open_reference()
+        if self.reference.loaded:
+            return self.compare_panel.run()
+        return None
 
     def export_srt(self):
         from ..core.formats import to_srt

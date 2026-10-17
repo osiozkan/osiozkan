@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import os
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
@@ -28,7 +30,16 @@ from . import theme
 REF_FILTER = "Altyazı (*.ass *.ssa *.srt *.vtt);;Tüm dosyalar (*)"
 
 
+@dataclass(slots=True)
+class _Span:
+    start: int
+    end: int
+
+
 class ReferenceController(QObject):
+    """Salt okunur referans altyazı. `offset` (ms): referans zamanlarına eklenen kayma —
+    referans belgeden 2,35 sn ERKENSE offset = +2350 olur ve eşleme o kaymayla yapılır
+    (Referans sütunu, düzenleme kutusu, aktarma, yeni satır)."""
     changed = Signal()
 
     def __init__(self, ctx):
@@ -36,6 +47,7 @@ class ReferenceController(QObject):
         self.ctx = ctx
         self.path: str | None = None
         self.events = []
+        self.offset = 0
         self._starts: list[int] = []
         self._maxdur = 0
         self._cache: dict = {}
@@ -54,6 +66,7 @@ class ReferenceController(QObject):
         self._starts = [e.start for e in evs]
         self._maxdur = max((e.end - e.start for e in evs), default=0)
         self.path = path
+        self.offset = 0
         self._cache.clear()
         self.changed.emit()
 
@@ -64,6 +77,7 @@ class ReferenceController(QObject):
         self._starts = [e.start for e in evs]
         self._maxdur = max((e.end - e.start for e in evs), default=0)
         self.path = label
+        self.offset = 0
         self._cache.clear()
         self.changed.emit()
 
@@ -71,14 +85,38 @@ class ReferenceController(QObject):
         self.path = None
         self.events = []
         self._starts = []
+        self.offset = 0
         self._cache.clear()
         self.changed.emit()
+
+    def set_offset(self, ms: int):
+        ms = int(round(ms))
+        if ms != self.offset:
+            self.offset = ms
+            self._cache.clear()
+            self.changed.emit()
+
+    def shifted_events(self) -> list:
+        """Kayma uygulanmış referans satırları (aktarma / yeni satır için)."""
+        if not self.offset:
+            return list(self.events)
+        return [e.replace(start=max(0, e.start + self.offset), end=max(0, e.end + self.offset))
+                for e in self.events]
+
+    def find_offset(self, max_shift_ms: int = 15000) -> tuple[int, float]:
+        """Referansın belgeye göre kaymasını bul (aligncompare'ın kayma araması; typeset hariç)."""
+        from ..core.compare import CompareOptions, collect, find_shift
+        o = CompareOptions()
+        src, _ = collect(self.events, "src", o)
+        cand, _ = collect(self.ctx.doc.events, "cand", o)
+        return find_shift(src, cand, max_shift_ms)
 
     def match(self, ev) -> int | None:
         key = (ev.start, ev.end)
         if key in self._cache:
             return self._cache[key]
-        j, r = best_match(ev, self.events, self._starts, self._maxdur)
+        q = _Span(ev.start - self.offset, ev.end - self.offset) if self.offset else ev
+        j, r = best_match(q, self.events, self._starts, self._maxdur)
         j = j if r > 0 else None
         if len(self._cache) > 50000:
             self._cache.clear()
@@ -135,7 +173,8 @@ class TransferDialog(QDialog):
         bb.accepted.connect(self.apply)
         bb.rejected.connect(self.reject)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(f"Referans: {os.path.basename(ref.path or '')} · {len(ref.events)} satır"))
+        lay.addWidget(QLabel(f"Referans: {os.path.basename(ref.path or '')} · {len(ref.events)} satır" +
+                             (f" · kayma {ref.offset / 1000:+.2f} sn" if ref.offset else "")))
         lay.addLayout(form)
         h = QHBoxLayout()
         h.addWidget(b_prev)
@@ -154,7 +193,7 @@ class TransferDialog(QDialog):
                                insert_orphans=self.orphans.isChecked())
 
     def preview(self):
-        self.plan = plan_transfer(self.ctx.doc.events, self.ref.events, self.options())
+        self.plan = plan_transfer(self.ctx.doc.events, self.ref.shifted_events(), self.options())
         s = self.plan.stats
         self.summary.setText(
             f"{s['filled']}/{s['hosts']} EN satırı doldurulacak · {s['no_ref']} karşılıksız EN (korunur) · "
@@ -184,10 +223,23 @@ class ReferencePanel(QWidget):
         b_close.clicked.connect(ref.close)
         b_tr.clicked.connect(win.transfer_from_reference)
         self.info = QLabel("Referans yok")
+        self.offset = QDoubleSpinBox()
+        self.offset.setRange(-3600, 3600)
+        self.offset.setDecimals(2)
+        self.offset.setSingleStep(0.1)
+        self.offset.setSuffix(" sn")
+        self.offset.setToolTip("Referans kayması: referans zamanlarına eklenir (referans belgeden erkense artı)")
+        self.offset.valueChanged.connect(lambda v: self.ref.set_offset(round(v * 1000)))
+        b_find = QPushButton("Kaymayı bul")
+        b_find.setToolTip("Referans ile belge arasındaki küresel kaymayı bul (±15 sn)")
+        b_find.clicked.connect(self.find_offset)
         top = QHBoxLayout()
         for b in (b_open, b_close, b_tr):
             top.addWidget(b)
         top.addWidget(self.info, 1)
+        top.addWidget(QLabel("Kayma"))
+        top.addWidget(self.offset)
+        top.addWidget(b_find)
 
         self.list = QTreeWidget()
         self.list.setHeaderLabels(["#", "Başlangıç", "Bitiş", "Durum", "Referans metni"])
@@ -227,8 +279,22 @@ class ReferencePanel(QWidget):
         ctx.rows_changed.connect(lambda *_: self._mark_status())
         self.refresh()
 
+    def find_offset(self):
+        if not self.ref.loaded:
+            return None
+        ms, score = self.ref.find_offset()
+        if score < 0.35:
+            self.ctx.status.emit(f"Kayma güvenilir bulunamadı (ilinti %{int(score * 100)}); elle girin")
+            return None
+        self.offset.setValue(ms / 1000)
+        self.ctx.status.emit(f"Referans kayması: {ms / 1000:+.2f} sn (ilinti %{int(score * 100)})")
+        return ms
+
     def refresh(self):
         self.list.clear()
+        self.offset.blockSignals(True)
+        self.offset.setValue(self.ref.offset / 1000)
+        self.offset.blockSignals(False)
         if not self.ref.loaded:
             self.info.setText("Referans yok — .ass/.srt/.vtt aç")
             return
@@ -298,7 +364,7 @@ class ReferencePanel(QWidget):
 
     def _go_ref(self, item, _col=0):
         j = item.data(0, Qt.UserRole)
-        rf = self.ref.events[j]
+        rf = self.ref.shifted_events()[j] if self.ref.offset else self.ref.events[j]
         best, br = None, 0.0
         for i, ev in enumerate(self.ctx.doc.events):
             if ev.comment:
@@ -321,7 +387,7 @@ class ReferencePanel(QWidget):
         if j is None or ev is None:
             self.ctx.status.emit("Önce referans listesinden bir satır seçin")
             return
-        rf = self.ref.events[j]
+        rf = self.ref.shifted_events()[j] if self.ref.offset else self.ref.events[j]
         row = self.ctx.active
         if mode == "write":
             self.ctx.update_events({row: {"text": rf.text}}, "Referans: satıra yaz")
