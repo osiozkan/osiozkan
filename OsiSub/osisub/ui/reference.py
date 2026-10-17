@@ -22,12 +22,12 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..core.asstime import format_time
-from ..core.formats import load_any
+from ..core.formats import IMPORT_FILTER, load_any
 from ..core.textutil import strip_tags
 from ..core.transfer import TransferOptions, best_match, plan_transfer
 from . import theme
 
-REF_FILTER = "Altyazı (*.ass *.ssa *.srt *.vtt);;Tüm dosyalar (*)"
+REF_FILTER = IMPORT_FILTER
 
 
 @dataclass(slots=True)

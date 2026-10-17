@@ -36,6 +36,9 @@ DEFAULTS = {
     "compare": {},                      # kaynakla karşılaştır (aligncompare) son ayarları
     "tools": {},                        # Subtitle Edit araçlarının son ayarları (araç başına)
     "multi_replace": [],                # çoklu değiştir kural grupları (boş = başlangıç kuralları)
+    "batch_convert": {},                # toplu dönüştürme son ayarları
+    "ttml_time": "clock",               # TTML/DFXP dışa aktarma zaman biçimi: clock | ticks
+    "export_lang": "tr",                # TTML xml:lang
     "autosave_seconds": 60,             # otomatik yedek aralığı (0 = kapalı)
     "app_log": "INFO",                  # logs/osisub.log ayrıntısı (DEBUG/INFO/WARNING)
     "qc_rules": [],                     # boş = varsayılan kurallar

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QLabel, Q
 from .. import APP_NAME, __version__
 from ..automation.runtime import LUA_FLAVOR, ScriptManager
 from ..core.assfile import AssDocument, Event
+from ..core.formats import EXPORTERS, IMPORT_EXT, IMPORT_FILTER
 from ..core.textutil import char_count, split_at_linebreak, strip_tags
 from . import theme
 from .automation_ui import (GuiHost, ScriptManagerDialog, init_invoker, run_macro_gui,
@@ -35,7 +36,7 @@ VIDEO_EXT = (".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".webm", ".mov", ".wmv", ".
 AUDIO_EXT = (".wav", ".flac", ".mp3", ".aac", ".m4a", ".opus", ".ogg", ".mka", ".ac3", ".eac3", ".dts", ".wv")
 
 ASS_FILTER = "ASS altyazı (*.ass *.ssa);;Tüm dosyalar (*)"
-OPEN_FILTER = "Altyazı (*.ass *.ssa *.srt *.vtt);;ASS (*.ass *.ssa);;SRT / WebVTT (*.srt *.vtt);;Tüm dosyalar (*)"
+OPEN_FILTER = IMPORT_FILTER
 
 
 class MainWindow(QMainWindow):
@@ -227,6 +228,8 @@ class MainWindow(QMainWindow):
         A("compare", "Kaynakla karşılaştır (aligncompare)…", self.show_compare, "Ctrl+Alt+K",
           "Referans (EN) ile bu dosyayı zamanla hizala: EKSİK/FAZLA/İNGİLİZCE?/UZUNLUK/BOŞ/ZAMAN/SAYI")
         A("export_srt", "SRT olarak dışa aktar…", self.export_srt)
+        A("batch_convert", "Toplu dönüştür…", self.show_batch_convert,
+          tip="Çok sayıda altyazıyı SRT/WebVTT/TTML-DFXP/SBV/MicroDVD/ASS/metin biçimine çevir")
         # --- video
         A("open_video", "Video aç…", self.open_video_dialog, "Ctrl+Shift+O")
         A("close_video", "Videoyu kapat", lambda: self.media.close_video())
@@ -279,8 +282,16 @@ class MainWindow(QMainWindow):
         self.recent_menu = m.addMenu("Son açılanlar")
         self.recent_menu.aboutToShow.connect(self._fill_recent)
         m.addSeparator()
-        for k in ("save", "save_as", "export_srt"):
+        for k in ("save", "save_as"):
             m.addAction(self.acts[k])
+        em = m.addMenu("Dışa aktar")
+        em.addAction(self.acts["export_srt"])
+        for key, (label, ext) in EXPORTERS.items():
+            if key in ("ass", "srt"):
+                continue
+            a = em.addAction(f"{label} ({ext})…")
+            a.triggered.connect(lambda _=False, kk=key: self.export_as(kk))
+        m.addAction(self.acts["batch_convert"])
         m.addSeparator()
         m.addAction(self.acts["props"])
         m.addSeparator()
@@ -435,8 +446,11 @@ class MainWindow(QMainWindow):
     def open_path(self, path, force=False):
         if not force and not self.maybe_save():
             return
+        fps = None
+        if path.lower().endswith(".sub") and self.media.index is not None:
+            fps = self.media.index.avg_fps                  # MicroDVD: açık videonun kare hızı
         try:
-            self.ctx.open_document(path)
+            self.ctx.open_document(path, fps)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Açılamadı", f"{path}\n\n{e}")
             return
@@ -488,7 +502,7 @@ class MainWindow(QMainWindow):
         for u in e.mimeData().urls():
             p = u.toLocalFile()
             low = p.lower()
-            if low.endswith((".ass", ".ssa")):
+            if low.endswith(IMPORT_EXT):
                 self.open_path(p)
                 break
             if low.endswith(VIDEO_EXT):
@@ -981,13 +995,39 @@ class MainWindow(QMainWindow):
         return None
 
     def export_srt(self):
-        from ..core.formats import to_srt
-        base = os.path.splitext(self.ctx.doc.path or getattr(self.ctx.doc, "source_path", "") or "altyazi")[0]
-        p, _ = QFileDialog.getSaveFileName(self, "SRT olarak dışa aktar", base + ".srt", "SRT (*.srt)")
-        if p:
-            with open(p, "wb") as f:
-                f.write(b"\xef\xbb\xbf" + to_srt(self.ctx.doc.events).encode("utf-8"))
-            self.ctx.status.emit(f"Dışa aktarıldı: {p}")
+        return self.export_as("srt")
+
+    def export_as(self, key: str, path: str | None = None):
+        """Açık belgeyi başka biçimde yazar (belge ve yolu değişmez)."""
+        from ..core.formats import export_bytes
+        label, ext = EXPORTERS[key]
+        if path is None:
+            base = os.path.splitext(self.ctx.doc.path or getattr(self.ctx.doc, "source_path", "") or "altyazi")[0]
+            path, _ = QFileDialog.getSaveFileName(self, f"{label} olarak dışa aktar", base + ext, f"{label} (*{ext})")
+            if not path:
+                return None
+        fps = self.media.index.avg_fps if self.media.index is not None else None
+        try:
+            data = export_bytes(self.ctx.doc, key, fps=fps, lang=self.ctx.config["export_lang"] or "tr",
+                                ttml_time=self.ctx.config["ttml_time"] or "clock")
+            with open(path, "wb") as f:
+                f.write(data)
+        except Exception as e:  # noqa: BLE001
+            if self.headless:
+                self.ctx.status.emit(f"Dışa aktarılamadı: {e}")
+            else:
+                QMessageBox.critical(self, "Dışa aktarılamadı", str(e))
+            return None
+        self.ctx.status.emit(f"Dışa aktarıldı: {path}")
+        return path
+
+    def show_batch_convert(self):
+        from .batch_convert import BatchConvertDialog
+        dlg = BatchConvertDialog(self.ctx, self)
+        if self.headless:
+            return dlg
+        dlg.exec()
+        return dlg
 
     # ================================================================ denetim / yazım / sahne
     def run_qc(self):
