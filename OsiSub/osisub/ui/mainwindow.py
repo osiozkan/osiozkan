@@ -57,6 +57,10 @@ class MainWindow(FeaturesMixin, QMainWindow):
 
         self.acts: dict[str, QAction] = {}
         self._make_actions()
+        self.default_shortcuts = {k: a.shortcut() for k, a in self.acts.items()}
+        self.apply_shortcuts()
+        from ..core.textutil import set_cpl_limit
+        set_cpl_limit(self.ctx.config["cpl_limit"] or 42)
         self.editbox = EditBox(self.ctx)
         self.grid = SubsGrid(self.ctx, self.acts)
         self.grid.request_edit_focus.connect(self.editbox.focus_text)
@@ -136,8 +140,13 @@ class MainWindow(FeaturesMixin, QMainWindow):
         self._crash_shown = 0
         self._make_menus()
         self._make_toolbar()
+        self.line_lbl = QLabel("")
+        self.statusBar().addPermanentWidget(self.line_lbl)
         self.status_lbl = QLabel("")
         self.statusBar().addPermanentWidget(self.status_lbl)
+        self.ctx.active_changed.connect(self._update_line_status)
+        self.ctx.selection_changed.connect(self._update_line_status)
+        self.ctx.document_reset.connect(self._update_line_status)
         self.ctx.status.connect(lambda m: self.statusBar().showMessage(m, 6000))
         self.ctx.undo_changed.connect(self._update_title)
         self.ctx.path_changed.connect(self._update_title)
@@ -147,6 +156,8 @@ class MainWindow(FeaturesMixin, QMainWindow):
         self._update_title()
         self._update_counts()
         self._update_undo_actions()
+        self._update_line_status()
+        self._default_state = self.saveState()
         self._restore_layout()
         if not headless:
             QTimer.singleShot(0, self.load_scripts)
@@ -303,6 +314,9 @@ class MainWindow(FeaturesMixin, QMainWindow):
         A("open_logs", "Günlük ve çökme raporları klasörünü aç", self.open_logs)
         A("recovery", "Kurtarma yedekleri…", lambda: self.check_recovery(always=True))
         A("shortcuts", "Kısayollar", self.show_shortcuts, "F1")
+        A("palette", "Komut paleti…", self.show_palette, "Ctrl+Shift+P",
+          "Tüm komutları, makroları ve bölmeleri ara (Türkçe karaktersiz yazılabilir; :123 satıra git)")
+        A("prefs", "Ayarlar…", self.show_prefs, "Ctrl+,", "Tema, CPL/CPS sınırları, düzenleyici, kısayollar, harici araçlar")
 
     def _make_menus(self):
         mb = self.menuBar()
@@ -328,6 +342,7 @@ class MainWindow(FeaturesMixin, QMainWindow):
             m.addAction(self.acts[k])
         m.addSeparator()
         m.addAction(self.acts["props"])
+        m.addAction(self.acts["prefs"])
         m.addSeparator()
         m.addAction(self.acts["exit"])
 
@@ -390,6 +405,10 @@ class MainWindow(FeaturesMixin, QMainWindow):
         self.tools_menu.aboutToShow.connect(self._fill_tools)
 
         m = mb.addMenu("&Görünüm")
+        m.addAction(self.acts["palette"])
+        self.layouts_menu = m.addMenu("Çalışma düzeni")
+        self.layouts_menu.aboutToShow.connect(self._fill_layouts_menu)
+        m.addSeparator()
         for d in (self.dock_video, self.dock_audio, self.dock_strip, self.dock_cpl, self.dock_ref, self.dock_compare,
                   self.dock_qc, self.dock_gloss, self.dock_motion):
             m.addAction(d.toggleViewAction())
@@ -413,7 +432,7 @@ class MainWindow(FeaturesMixin, QMainWindow):
         tb.setObjectName("toolbar_main")
         tb.setMovable(False)
         for k in ("new", "open", "save", None, "undo", "redo", None, "find", "replace", None,
-                  "styles", "props", "shift", None, "scripts", "repeat_macro"):
+                  "styles", "props", "shift", None, "scripts", "repeat_macro", None, "palette", "prefs"):
             tb.addSeparator() if k is None else tb.addAction(self.acts[k])
         self.addToolBar(tb)
 
@@ -738,11 +757,12 @@ class MainWindow(FeaturesMixin, QMainWindow):
                           "Aegisub'ın automation/include dosyaları BSD/ISC lisanslıdır.")
 
     def show_shortcuts(self):
-        rows = []
+        rows = ["<tr><td colspan=2><i>Kısayolları değiştirmek için: Ayarlar (Ctrl+,) > Kısayollar · "
+                "tüm komutlar: Komut paleti (Ctrl+Shift+P)</i></td></tr>"]
         for k, a in self.acts.items():
             if not a.shortcut().isEmpty():
                 rows.append(f"<tr><td>{a.text().replace('&', '')}</td>"
-                            f"<td><b>{a.shortcut().toString(QKeySequence.NativeText)}</b></td></tr>")
+                            f"<td><b>{a.shortcut().toString(QKeySequence.PortableText)}</b></td></tr>")
         rows.append("<tr><td>Metin kutusunda satır kırma (\\N)</td><td><b>Shift+Enter</b></td></tr>")
         rows.append("<tr><td>Onayla ve sonraki satıra geç</td><td><b>Enter</b></td></tr>")
         rows.append("<tr><td>Onayla, satırda kal</td><td><b>Ctrl+Enter</b></td></tr>")

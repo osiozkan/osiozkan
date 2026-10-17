@@ -8,12 +8,134 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtCore import QByteArray
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
 
 from ..core import aegisub_tools as A
 
 
 class FeaturesMixin:
+    # Çalışma düzenleri: hangi bölmeler görünür, hangisi öne gelir
+    LAYOUT_PRESETS = {
+        "Çeviri": {"show": ("dock_ref", "dock_compare", "dock_gloss", "dock_cpl"), "raise": ("dock_ref", "dock_cpl"),
+                   "hide": ("dock_audio", "dock_strip", "dock_motion", "dock_qc")},
+        "Zamanlama": {"show": ("dock_audio", "dock_video", "dock_strip", "dock_cpl"), "raise": ("dock_cpl",),
+                      "hide": ("dock_ref", "dock_compare", "dock_gloss", "dock_motion", "dock_qc")},
+        "Tipografi": {"show": ("dock_video", "dock_motion", "dock_strip"), "raise": ("dock_motion",),
+                      "hide": ("dock_audio", "dock_ref", "dock_compare", "dock_gloss", "dock_qc", "dock_cpl")},
+        "Denetim": {"show": ("dock_qc", "dock_cpl", "dock_compare", "dock_gloss"), "raise": ("dock_qc", "dock_compare"),
+                    "hide": ("dock_audio", "dock_strip", "dock_motion")},
+    }
+
+    # ------------------------------------------------------------ kısayollar / ayarlar / palet
+    def apply_shortcuts(self):
+        """config.json > shortcuts değişikliklerini uygula (varsayılanlar default_shortcuts'ta)."""
+        over = self.ctx.config["shortcuts"] or {}
+        for key, a in self.acts.items():
+            if key in over:
+                a.setShortcut(QKeySequence(over[key]))
+            else:
+                a.setShortcut(self.default_shortcuts.get(key, QKeySequence()))
+
+    def show_palette(self):
+        from .palette import CommandPalette
+        dlg = CommandPalette(self)
+        if self.headless:
+            return dlg
+        dlg.show()
+        dlg.edit.setFocus()
+        return dlg
+
+    def show_prefs(self):
+        from .prefs import PrefsDialog
+        return self._show(PrefsDialog(self))
+
+    def apply_prefs(self, theme_changed: bool = False):
+        from ..core.textutil import set_cpl_limit
+        cfg = self.ctx.config
+        if theme_changed:
+            self.set_theme(cfg["theme"])
+        set_cpl_limit(cfg["cpl_limit"] or 42)
+        self.editbox.set_font_size(cfg["editbox_font_size"] or 13)
+        self.grid.set_font_size(cfg["grid_font_size"] or 10)
+        self.grid.model_.marker = cfg["grid_tag_marker"] or "\u2600"
+        self.grid.model_.reset()
+        self.editbox.load()
+        self.cpl_panel.refresh()
+        self.autosave.set_interval(int(cfg["autosave_seconds"] or 0))
+        self.apply_shortcuts()
+        if cfg["spell_enabled"] and not (self.spell.ready or self.spell.loading) and not self.headless:
+            self.spell.start()
+        self.ctx.status.emit("Ayarlar uygulandı")
+
+    # ------------------------------------------------------------ çalışma düzenleri
+    def apply_layout(self, name: str) -> bool:
+        p = self.LAYOUT_PRESETS.get(name)
+        if p is not None:
+            for d in p["hide"]:
+                getattr(self, d).hide()
+            for d in p["show"]:
+                getattr(self, d).show()
+            for d in p["raise"]:
+                getattr(self, d).raise_()
+            self.ctx.status.emit(f"Çalışma düzeni: {name}")
+            return True
+        saved = (self.ctx.config["layouts"] or {}).get(name)
+        if saved:
+            ok = self.restoreState(QByteArray.fromBase64(saved.encode()))
+            self.ctx.status.emit(f"Çalışma düzeni: {name}")
+            return bool(ok)
+        if name == "Varsayılan" and getattr(self, "_default_state", None) is not None:
+            return bool(self.restoreState(self._default_state))
+        return False
+
+    def save_layout(self, name: str | None = None):
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Düzeni kaydet", "Ad:", text="Benim düzenim")
+            if not ok or not name.strip():
+                return None
+        name = name.strip()
+        lay = dict(self.ctx.config["layouts"] or {})
+        lay[name] = bytes(self.saveState().toBase64()).decode()
+        self.ctx.config["layouts"] = lay
+        self.ctx.config.save()
+        self.ctx.status.emit(f"Düzen kaydedildi: {name}")
+        return name
+
+    def delete_layout(self, name: str):
+        lay = dict(self.ctx.config["layouts"] or {})
+        if lay.pop(name, None) is not None:
+            self.ctx.config["layouts"] = lay
+            self.ctx.config.save()
+
+    def _fill_layouts_menu(self):
+        m = self.layouts_menu
+        m.clear()
+        for name in list(self.LAYOUT_PRESETS) + ["Varsayılan"]:
+            a = m.addAction(name)
+            a.triggered.connect(lambda _=False, n=name: self.apply_layout(n))
+        saved = self.ctx.config["layouts"] or {}
+        if saved:
+            m.addSeparator()
+            for name in saved:
+                a = m.addAction(name)
+                a.triggered.connect(lambda _=False, n=name: self.apply_layout(n))
+            dm = m.addMenu("Kayıtlı düzeni sil")
+            for name in saved:
+                a = dm.addAction(name)
+                a.triggered.connect(lambda _=False, n=name: self.delete_layout(n))
+        m.addSeparator()
+        a = m.addAction("Şimdiki düzeni kaydet…")
+        a.triggered.connect(lambda: self.save_layout())
+
+    def _update_line_status(self, *_):
+        n = len(self.ctx.doc.events)
+        sel = len(self.ctx.selection)
+        txt = f"Satır {self.ctx.active + 1}/{n}" if n else ""
+        if sel > 1:
+            txt += f" · {sel} seçili"
+        self.line_lbl.setText(txt)
     # ------------------------------------------------------------ pencereler
     def _show(self, dlg):
         if self.headless:

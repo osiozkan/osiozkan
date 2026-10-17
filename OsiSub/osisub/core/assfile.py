@@ -558,7 +558,14 @@ class AssDocument:
 
     @property
     def events(self) -> list[Event]:
-        return self.ensure_section("events").items
+        # Sık çağrılır (ızgara her hücrede sorar): bölüm, bölüm listesi aynı kaldıkça önbellekten
+        key = (id(self.sections), len(self.sections))
+        hit = getattr(self, "_ev_sec", None)
+        if hit is not None and hit[0] == key and hit[1] in self.sections:
+            return hit[1].items
+        sec = self.ensure_section("events")
+        self._ev_sec = ((id(self.sections), len(self.sections)), sec)
+        return sec.items
 
     @property
     def styles(self) -> list[Style]:

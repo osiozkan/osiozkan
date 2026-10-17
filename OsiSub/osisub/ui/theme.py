@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QPalette
+import os
+
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QApplication
 
 DARK = {
@@ -34,6 +37,22 @@ def colors() -> dict:
     return _current
 
 
+def _check_icon(color: str) -> str:
+    """Onay işareti resmi (QSS image: için; PNG her Qt kurulumunda okunur). Önbellekte bir kez çizilir."""
+    from ..media.cache import cache_root
+    path = os.path.join(cache_root(), f"ui_check_{color.strip('#')}.png")
+    if not os.path.exists(path):
+        pm = QPixmap(32, 32)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(color), 4.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPolyline([QPointF(7, 17), QPointF(13, 23), QPointF(25, 9)])
+        p.end()
+        pm.save(path)
+    return path.replace("\\", "/")
+
+
 def apply(app: QApplication, name: str = "dark"):
     global _current
     c = DARK if name != "light" else LIGHT
@@ -57,6 +76,7 @@ def apply(app: QApplication, name: str = "dark"):
     pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(c["muted"]))
     pal.setColor(QPalette.Disabled, QPalette.WindowText, QColor(c["muted"]))
     app.setPalette(pal)
+    check = _check_icon(c["hl_text"])
     app.setStyleSheet(f"""
         QToolTip {{ border: 1px solid {c['border']}; padding: 4px; }}
         QHeaderView::section {{ background: {c['button']}; border: 0; border-right: 1px solid {c['border']};
@@ -70,4 +90,14 @@ def apply(app: QApplication, name: str = "dark"):
                          font-weight: 600; min-width: 34px; qproperty-alignment: AlignCenter; }}
         QDockWidget::title {{ padding: 4px; background: {c['button']}; }}
         QStatusBar {{ border-top: 1px solid {c['border']}; }}
+        QCheckBox::indicator, QGroupBox::indicator, QAbstractItemView::indicator {{
+            width: 14px; height: 14px; border: 1px solid {c['muted']}; border-radius: 3px;
+            background: {c['base']}; }}
+        QCheckBox::indicator:hover, QGroupBox::indicator:hover {{ border-color: {c['highlight']}; }}
+        QCheckBox::indicator:checked, QGroupBox::indicator:checked, QAbstractItemView::indicator:checked {{
+            background: {c['highlight']}; border-color: {c['highlight']}; image: url({check}); }}
+        QCheckBox::indicator:disabled, QAbstractItemView::indicator:disabled {{
+            border-color: {c['border']}; background: {c['button']}; }}
+        QCheckBox::indicator:checked:disabled {{ background: {c['mid']}; }}
+        QDialog#commandPalette {{ border: 1px solid {c['highlight']}; border-radius: 6px; }}
     """)

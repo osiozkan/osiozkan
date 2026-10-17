@@ -41,6 +41,10 @@ DEFAULTS = {
     "mux": {},                          # MKV'ye gömme (softsub) son ayarları
     "select_lines": {},                 # Satır seç penceresinin son ayarları
     "paste_over": ["text"],             # Üstüne yapıştır: son seçilen alanlar
+    "shortcuts": {},                    # kısayol değişiklikleri {eylem: "Ctrl+..."} ("" = kısayolsuz)
+    "palette_recent": [],               # komut paletinde son kullanılanlar
+    "layouts": {},                      # kayıtlı çalışma düzenleri {ad: pencere durumu (base64)}
+    "grid_hidden_cols": [],             # ızgarada gizlenen sütunlar
     "ttml_time": "clock",               # TTML/DFXP dışa aktarma zaman biçimi: clock | ticks
     "export_lang": "tr",                # TTML xml:lang
     "autosave_seconds": 60,             # otomatik yedek aralığı (0 = kapalı)

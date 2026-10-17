@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import os
 import shlex
 
@@ -49,39 +50,92 @@ class CplPanel(QWidget):
         self._timer.setSingleShot(True)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self.refresh)
+        # yazarken yalnız değişen satırlar güncellenir (büyük dosyada tüm listeyi yeniden kurmamak için)
+        self._pending: set[int] = set()
+        self._inc_timer = QTimer(self)
+        self._inc_timer.setSingleShot(True)
+        self._inc_timer.setInterval(150)
+        self._inc_timer.timeout.connect(self._apply_pending)
+        self._rows: list[int] = []            # listede görünen satırlar (sıralı)
+        self._status: dict[int, str] = {}      # uyarı/hata durumundaki tüm satırlar (özet için)
         ctx.document_reset.connect(self._timer.start)
-        ctx.rows_changed.connect(lambda *_: self._timer.start())
+        ctx.rows_changed.connect(self._rows_changed)
         self.only_err.toggled.connect(self.refresh)
         self.skip_comments.toggled.connect(self.refresh)
         self.refresh()
 
-    def refresh(self):
+    def _rows_changed(self, rows):
+        if self._timer.isActive() or len(rows) > 50:
+            self._timer.start()
+            return
+        self._pending.update(rows)
+        self._inc_timer.start()
+
+    def _row_state(self, i, ev):
+        if ev.comment and self.skip_comments.isChecked():
+            return None, None
+        info = cpl_info(ev.text)
+        st = info["status"]
+        return (None, None) if st == STATUS_OK else (st, info)
+
+    def _item(self, i, ev, st, info):
         c = theme.colors()
+        it = QTreeWidgetItem([str(i + 1), info["label"], "hata" if st == STATUS_ERROR else "uyarı", ev.text])
+        it.setData(0, Qt.UserRole, i)
+        col = QColor(c["err_fg"] if st == STATUS_ERROR else c["warn_fg"])
+        it.setForeground(1, col)
+        it.setForeground(2, col)
+        return it
+
+    def _listed(self, st) -> bool:
+        return st is not None and not (st == STATUS_WARN and self.only_err.isChecked())
+
+    def _summary(self):
+        ne = sum(1 for v in self._status.values() if v == STATUS_ERROR)
+        self.summary.setText(f"{ne} hata · {len(self._status) - ne} uyarı")
+
+    def _apply_pending(self):
+        evs = self.ctx.doc.events
+        for i in sorted(self._pending):
+            if i >= len(evs):
+                continue
+            st, info = self._row_state(i, evs[i])
+            if st is None:
+                self._status.pop(i, None)
+            else:
+                self._status[i] = st
+            k = bisect.bisect_left(self._rows, i)
+            present = k < len(self._rows) and self._rows[k] == i
+            if self._listed(st):
+                it = self._item(i, evs[i], st, info)
+                if present:
+                    self.tree.takeTopLevelItem(k)
+                else:
+                    self._rows.insert(k, i)
+                self.tree.insertTopLevelItem(k, it)
+            elif present:
+                self.tree.takeTopLevelItem(k)
+                del self._rows[k]
+        self._pending.clear()
+        self._summary()
+
+    def refresh(self):
+        self._pending.clear()
+        self._inc_timer.stop()
         self.tree.clear()
-        nw = ne = 0
+        self._rows = []
+        self._status = {}
         items = []
         for i, ev in enumerate(self.ctx.doc.events):
-            if ev.comment and self.skip_comments.isChecked():
+            st, info = self._row_state(i, ev)
+            if st is None:
                 continue
-            info = cpl_info(ev.text)
-            st = info["status"]
-            if st == STATUS_OK:
-                continue
-            if st == STATUS_WARN:
-                nw += 1
-                if self.only_err.isChecked():
-                    continue
-            else:
-                ne += 1
-            it = QTreeWidgetItem([str(i + 1), info["label"], "hata" if st == STATUS_ERROR else "uyarı",
-                                  ev.text])
-            it.setData(0, Qt.UserRole, i)
-            col = QColor(c["err_fg"] if st == STATUS_ERROR else c["warn_fg"])
-            it.setForeground(1, col)
-            it.setForeground(2, col)
-            items.append(it)
+            self._status[i] = st
+            if self._listed(st):
+                items.append(self._item(i, ev, st, info))
+                self._rows.append(i)
         self.tree.addTopLevelItems(items)
-        self.summary.setText(f"{ne} hata · {nw} uyarı")
+        self._summary()
 
     def _go(self, item, _col=0):
         row = item.data(0, Qt.UserRole)

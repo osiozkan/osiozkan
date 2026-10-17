@@ -99,7 +99,7 @@ class EditBox(QWidget):
         self.cpl_total.setToolTip("Toplam: altyazının tüm görünür karakterleri (boşluk ve noktalama dahil)")
         self.cpl_long = QLabel("0")
         self.cpl_long.setObjectName("cplBox")
-        self.cpl_long.setToolTip("En uzun satırın karakter sayısı (42 sınır)")
+        self.cpl_long.setToolTip("En uzun satırın karakter sayısı (sınır: Ayarlar > Denetim > CPL sınırı)")
         self.cpl_parts = QLabel("")
         self.cpl_parts.setToolTip("Satır uzunlukları (\\N ile bölünmüş parçalar)")
         r2.addWidget(QLabel("Toplam"))
@@ -163,6 +163,11 @@ class EditBox(QWidget):
         ctx.rows_changed.connect(self._rows_changed)
         ctx.styles_changed.connect(self._fill_styles)
         self._on_reset()
+
+    def set_font_size(self, pt: int):
+        f = QFont(self.text.font())
+        f.setPointSize(int(pt))
+        self.text.setFont(f)
 
     # ---------------------------------------------------------- yükleme
     def _on_reset(self):
@@ -310,6 +315,8 @@ class EditBox(QWidget):
 
     def _commit_next(self):
         self.ctx.undo.break_coalesce()
+        if not self.ctx.config["enter_moves_next"]:
+            return                              # Ayarlar: Enter yalnız onaylar (Ctrl+Enter gibi)
         n = len(self.ctx.doc.events)
         row = self.ctx.active
         if row + 1 >= n:

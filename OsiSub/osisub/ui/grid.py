@@ -19,6 +19,20 @@ COLS = ["#", "K", "Başlangıç", "Bitiş", "CPS", "CPL", "Stil", "Aktör", "Efe
 C_NUM, C_LAYER, C_START, C_END, C_CPS, C_CPL, C_STYLE, C_ACTOR, C_EFFECT, C_REF, C_TEXT = range(11)
 
 CPS_WARN, CPS_ERR = 17, 25
+_ROLES = frozenset((Qt.DisplayRole, Qt.ToolTipRole, Qt.TextAlignmentRole, Qt.BackgroundRole, Qt.ForegroundRole,
+                    Qt.FontRole))
+
+
+def _runs(rows):
+    """Sıralı satır numaralarını ardışık [a, b] aralıklarına böler."""
+    out = []
+    for r in rows:
+        if out and r == out[-1][1] + 1:
+            out[-1][1] = r
+        else:
+            out.append([r, r])
+    return out
+TOGGLABLE = (C_LAYER, C_START, C_END, C_CPS, C_CPL, C_STYLE, C_ACTOR, C_EFFECT)   # başlık menüsünden gizlenebilir
 
 
 class SubsModel(QAbstractTableModel):
@@ -35,11 +49,29 @@ class SubsModel(QAbstractTableModel):
     def reset(self):
         self.beginResetModel()
         self._cpl_cache.clear()
+        self._colors = None
         self.endResetModel()
 
     def rows_changed(self, rows):
-        for r in rows:
-            self.dataChanged.emit(self.index(r, 0), self.index(r, len(COLS) - 1))
+        last = len(COLS) - 1
+        if len(rows) <= 3:
+            # Qt görünümü çok hücreli dataChanged'de TÜM görüntü alanını yeniden çizer; yazarken
+            # yalnız değişen satırın hücreleri çizilsin diye hücre hücre bildirilir
+            for r in rows:
+                for c in range(last + 1):
+                    ix = self.index(r, c)
+                    self.dataChanged.emit(ix, ix)
+            return
+        # toplu işlem: ardışık satırlar tek dataChanged (20 000 sinyal yerine birkaç)
+        for a, b in _runs(sorted(rows)):
+            self.dataChanged.emit(self.index(a, 0), self.index(b, last))
+
+    def qcolors(self) -> dict:
+        c = theme.colors()
+        cached = getattr(self, "_colors", None)
+        if cached is None or cached[0] is not c:
+            self._colors = (c, {k: QColor(v) for k, v in c.items()})
+        return self._colors[1]
 
     def _active_changed(self, row):
         for r in (self._last_active, row):
@@ -79,14 +111,14 @@ class SubsModel(QAbstractTableModel):
         return hit
 
     def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
+        if role not in _ROLES or not index.isValid():
             return None
         row, col = index.row(), index.column()
         evs = self.ctx.doc.events
         if row >= len(evs):
             return None
         ev = evs[row]
-        c = theme.colors()
+        c = self.qcolors()
         if role == Qt.DisplayRole:
             if col == C_NUM:
                 return str(row + 1)
@@ -124,30 +156,30 @@ class SubsModel(QAbstractTableModel):
             if col == C_CPL and not ev.comment:
                 st = self._cpl(ev)["status"]
                 if st == STATUS_ERROR:
-                    return QColor(c["err_bg"])
+                    return c["err_bg"]
                 if st == STATUS_WARN:
-                    return QColor(c["warn_bg"])
+                    return c["warn_bg"]
             if col == C_CPS and not ev.comment:
                 v = cps(ev.text, ev.duration)
                 if v >= CPS_ERR:
-                    return QColor(c["err_bg"])
+                    return c["err_bg"]
                 if v >= CPS_WARN:
-                    return QColor(c["warn_bg"])
+                    return c["warn_bg"]
             if row == self.ctx.active:
-                return QColor(c["active_bg"])
+                return c["active_bg"]
             if ev.comment:
-                return QColor(c["comment_bg"])
+                return c["comment_bg"]
         elif role == Qt.ForegroundRole and col == C_REF:
-            return QColor(c["muted"])
+            return c["muted"]
         elif role == Qt.ForegroundRole:
             if col == C_CPL and not ev.comment:
                 st = self._cpl(ev)["status"]
                 if st == STATUS_ERROR:
-                    return QColor(c["err_fg"])
+                    return c["err_fg"]
                 if st == STATUS_WARN:
-                    return QColor(c["warn_fg"])
+                    return c["warn_fg"]
             if ev.comment:
-                return QColor(c["comment_fg"])
+                return c["comment_fg"]
         elif role == Qt.FontRole and ev.comment and col == C_TEXT:
             f = QFont()
             f.setItalic(True)
@@ -176,11 +208,7 @@ class SubsGrid(QTableView):
         self.setTextElideMode(Qt.ElideRight)
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        fs = int(ctx.config["grid_font_size"] or 10)
-        f = self.font()
-        f.setPointSize(fs)
-        self.setFont(f)
-        self.verticalHeader().setDefaultSectionSize(int(fs * 2.3))
+        self.set_font_size(int(ctx.config["grid_font_size"] or 10))
         h = self.horizontalHeader()
         h.setStretchLastSection(True)
         h.setHighlightSections(False)
@@ -189,6 +217,11 @@ class SubsGrid(QTableView):
         for col, w in widths.items():
             self.setColumnWidth(col, w)
         self.setColumnHidden(C_REF, True)        # referans yüklenince açılır
+        for name in ctx.config["grid_hidden_cols"] or []:
+            if name in COLS and COLS.index(name) in TOGGLABLE:
+                self.setColumnHidden(COLS.index(name), True)
+        h.setContextMenuPolicy(Qt.CustomContextMenu)
+        h.customContextMenuRequested.connect(self._header_menu)
         self.selectionModel().selectionChanged.connect(self._on_sel)
         self.selectionModel().currentRowChanged.connect(self._on_current)
         ctx.document_reset.connect(self.sync_from_ctx)
@@ -225,9 +258,9 @@ class SubsGrid(QTableView):
             sm = self.selectionModel()
             sel = QItemSelection()
             last = self.model_.columnCount() - 1
-            for r in sorted(self.ctx.selection):
-                if r < self.model_.rowCount():
-                    sel.select(self.model_.index(r, 0), self.model_.index(r, last))
+            n = self.model_.rowCount()
+            for a, b in _runs(sorted(r for r in self.ctx.selection if r < n)):
+                sel.select(self.model_.index(a, 0), self.model_.index(b, last))
             sm.select(sel, QItemSelectionModel.ClearAndSelect)
             if 0 <= self.ctx.active < self.model_.rowCount():
                 sm.setCurrentIndex(self.model_.index(self.ctx.active, 0), QItemSelectionModel.NoUpdate)
@@ -248,6 +281,28 @@ class SubsGrid(QTableView):
             finally:
                 self._syncing = False
             self.scrollTo(self.model_.index(row, 0), QAbstractItemView.EnsureVisible)
+
+    def set_font_size(self, pt: int):
+        f = self.font()
+        f.setPointSize(int(pt))
+        self.setFont(f)
+        self.verticalHeader().setDefaultSectionSize(int(pt * 2.3))
+
+    def set_column_visible(self, col: int, on: bool):
+        self.setColumnHidden(col, not on)
+        hidden = [COLS[c] for c in TOGGLABLE if self.isColumnHidden(c)]
+        self.ctx.config["grid_hidden_cols"] = hidden
+        self.ctx.config.save()
+        self._fit_reference()
+
+    def _header_menu(self, pos):
+        m = QMenu(self)
+        for col in TOGGLABLE:
+            a = m.addAction("Katman" if col == C_LAYER else COLS[col])
+            a.setCheckable(True)
+            a.setChecked(not self.isColumnHidden(col))
+            a.toggled.connect(lambda on, c=col: self.set_column_visible(c, on))
+        m.exec(self.horizontalHeader().mapToGlobal(pos))
 
     # ------------------------------------------------------------ menü
     def _menu(self, pos):

@@ -12,9 +12,20 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
-CPL_LIMIT = 42          # izin verilen en uzun satır
+CPL_LIMIT = 42          # izin verilen en uzun satır (varsayılan)
 STATUS_OK, STATUS_WARN, STATUS_ERROR = "ok", "warn", "error"
+_limit = CPL_LIMIT      # Ayarlar > Denetim > CPL sınırı (set_cpl_limit)
+
+
+def set_cpl_limit(n: int):
+    global _limit
+    _limit = int(n) if n and int(n) > 0 else CPL_LIMIT
+
+
+def cpl_limit() -> int:
+    return _limit
 
 _BLOCK_RE = re.compile(r"\{[^}]*\}")
 _DRAW_RE = re.compile(r"\\p(\d+)")
@@ -55,7 +66,14 @@ def cpl_lengths(text: str) -> list[int]:
 
 
 def cpl_info(text: str) -> dict:
-    """{'lengths': [43, 16], 'total': 59, 'longest': 43, 'status': 'warn', 'label': '43+16'}"""
+    """{'lengths': [43, 16], 'total': 59, 'longest': 43, 'status': 'warn', 'label': '43+16'}
+    Önbellekli (ızgara, CPL bölmesi, düzenleme kutusu ve denetim aynı metni tekrar tekrar sorar);
+    sonuç paylaşılan sözlüktür — değiştirilmemelidir."""
+    return _cpl_info(text, _limit)
+
+
+@lru_cache(maxsize=65536)
+def _cpl_info(text: str, limit: int) -> dict:
     lengths = cpl_lengths(text)
     total = sum(lengths)
     longest = max(lengths) if lengths else 0
@@ -63,12 +81,13 @@ def cpl_info(text: str) -> dict:
         "lengths": lengths,
         "total": total,
         "longest": longest,
-        "status": cpl_status(lengths),
+        "status": cpl_status(lengths, limit),
         "label": "+".join(str(n) for n in lengths),
     }
 
 
-def cpl_status(lengths: list[int], limit: int = CPL_LIMIT) -> str:
+def cpl_status(lengths: list[int], limit: int | None = None) -> str:
+    limit = _limit if limit is None else limit
     if not lengths:
         return STATUS_OK
     if len(lengths) > 1:

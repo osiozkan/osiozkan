@@ -345,7 +345,31 @@ def _key(ev, o):
     return (ev.style, ev.layer) if o.same_style_only else None
 
 
+class _Nav:
+    """Komşu satır dizini: (stil, katman) grubu başına (başlangıç, satır) sırası.
+    run_qc başında bir kez kurulur; _next_index/_prev_line O(1) olur (eskiden her çağrı O(n) idi)."""
+
+    def __init__(self, events, o):
+        groups: dict = {}
+        for j, e in enumerate(events):
+            if not e.comment:
+                groups.setdefault(_key(e, o), []).append((e.start, j))
+        self.next: dict[int, int] = {}
+        self.prev: dict[int, int] = {}
+        for lst in groups.values():
+            lst.sort()
+            for k in range(len(lst)):
+                j = lst[k][1]
+                if k + 1 < len(lst):
+                    self.next[j] = lst[k + 1][1]
+                if k > 0:
+                    self.prev[j] = lst[k - 1][1]
+
+
 def _next_index(events, i, o):
+    nav = getattr(o, "_nav", None)
+    if nav is not None and not events[i].comment:
+        return nav.next.get(i)
     ev = events[i]
     best = None
     for j, e in enumerate(events):
@@ -363,6 +387,9 @@ def _next_start(events, i, o):
 
 
 def _prev_line(events, i, o):
+    nav = getattr(o, "_nav", None)
+    if nav is not None and not events[i].comment:
+        return nav.prev.get(i)
     ev = events[i]
     best = None
     for j, e in enumerate(events):
@@ -400,6 +427,7 @@ RULES_BY_ID = {r.id: r for r in RULES}
 
 def run_qc(events, rows: list[int], enabled: set[str], opts: QcOptions | None = None) -> list[Issue]:
     o = opts or QcOptions()
+    o._nav = _Nav(events, o)
     out = []
     for i in rows:
         if i < 0 or i >= len(events) or events[i].comment:
@@ -407,6 +435,7 @@ def run_qc(events, rows: list[int], enabled: set[str], opts: QcOptions | None = 
         for r in RULES:
             if r.id in enabled:
                 out.extend(r.check(events, i, o))
+    o._nav = None
     return out
 
 
