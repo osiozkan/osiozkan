@@ -215,6 +215,9 @@ impl App {
         let s = self.snapshot();
         self.undo.push(s);
         if self.undo.len() > 300 { self.undo.remove(0); }
+        // cap total undo memory (~400 MB) so huge scripts stay responsive
+        let per = self.doc.events.len() * 220 + self.doc.events.iter().map(|e| e.text.len()).sum::<usize>();
+        while self.undo.len() > 2 && self.undo.len() * per > 400_000_000 { self.undo.remove(0); }
         self.redo.clear();
         self.dirty = true;
         self.last_edit_key = 0;
@@ -752,17 +755,29 @@ impl App {
                     if self.scripts.is_empty() { ui.label("No scripts loaded"); }
                     let scripts: Vec<(usize, String, Vec<(usize, String, String)>, bool)> = self.scripts.iter().enumerate()
                         .map(|(i, s)| (i, s.name.clone(), s.macros.iter().map(|m| (m.index, m.name.clone(), m.description.clone())).collect(), s.error.is_some())).collect();
+                    let mut groups: Vec<(String, Vec<(usize, usize, String, String)>)> = Vec::new();
                     for (si, name, macros, err) in scripts {
                         if err { ui.add_enabled(false, egui::Button::new(format!("⚠ {}", name))); continue; }
                         for (mi, mn, md) in macros {
-                            // Aegisub convention: "Submenu/Name"
-                            let label = mn.clone();
-                            if ui.add_enabled(self.busy.is_none(), egui::Button::new(label)).on_hover_text(md).clicked() {
-                                ui.close();
-                                self.run_macro(si, mi, &mn);
-                            }
+                            let (g, label) = match mn.split_once('/') { Some((g, l)) => (g.to_string(), l.to_string()), None => (String::new(), mn.clone()) };
+                            match groups.iter_mut().find(|(n, _)| *n == g) { Some(e) => e.1.push((si, mi, label, md)), None => groups.push((g, vec![(si, mi, label, md)])) }
                         }
                     }
+                    let mut run: Option<(usize, usize, String)> = None;
+                    let busy = self.busy.is_some();
+                    for (g, items) in groups.iter().filter(|(g, _)| !g.is_empty()) {
+                        ui.menu_button(g, |ui| {
+                            for (si, mi, label, md) in items {
+                                if ui.add_enabled(!busy, egui::Button::new(label)).on_hover_text(md).clicked() { ui.close(); run = Some((*si, *mi, format!("{}/{}", g, label))); }
+                            }
+                        });
+                    }
+                    for (_, items) in groups.iter().filter(|(g, _)| g.is_empty()) {
+                        for (si, mi, label, md) in items {
+                            if ui.add_enabled(!busy, egui::Button::new(label)).on_hover_text(md).clicked() { ui.close(); run = Some((*si, *mi, label.clone())); }
+                        }
+                    }
+                    if let Some((si, mi, n)) = run { self.run_macro(si, mi, &n); }
                     ui.separator();
                     if ui.button("Reload scripts").clicked() { ui.close(); self.reload_scripts(); }
                     if ui.button("Add script folder…").clicked() {
