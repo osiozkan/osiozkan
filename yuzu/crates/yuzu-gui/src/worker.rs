@@ -147,6 +147,13 @@ fn file_label(p: &Path) -> String {
 /// Find automation scripts in standard locations: Yuzu's own dir plus existing Aegisub dirs.
 pub fn default_script_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
+    // Bundled scripts next to the executable (release zip) and in the source tree (development).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(d) = exe.parent() {
+            v.push(d.join("automation/autoload"));
+            v.push(d.join("../../automation/autoload"));
+        }
+    }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if let Some(h) = &home {
         v.push(h.join(".config/yuzu/automation/autoload"));
