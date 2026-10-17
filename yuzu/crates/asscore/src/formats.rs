@@ -6,6 +6,8 @@
 //! `\N` is a line break and `{\i1}`-style override blocks carry formatting. SRT/VTT/ASS live in
 //! [`crate::subrip`] / [`crate::ass`] and are only dispatched to from here.
 
+#![allow(clippy::regex_creation_in_loops)]
+
 use crate::model::*;
 use crate::tags::{self, Part};
 use crate::time;
@@ -150,10 +152,10 @@ fn sniff(c: &str) -> Option<Format> {
     let t = c.trim_start();
     if t.starts_with('[') || t.starts_with('{') {
         let end = t.trim_end();
-        if (t.starts_with('[') && end.ends_with(']')) || (t.starts_with('{') && end.ends_with('}')) {
-            if parse_json_value(t).is_some() {
-                return Some(Format::Json);
-            }
+        if ((t.starts_with('[') && end.ends_with(']')) || (t.starts_with('{') && end.ends_with('}')))
+            && parse_json_value(t).is_some()
+        {
+            return Some(Format::Json);
         }
     }
     None
@@ -306,7 +308,7 @@ fn from_html(t: &str) -> String {
                         "{\\c}".to_string()
                     } else if let Some(m) = col.captures(&c[3]) {
                         let h = &m[1];
-                        format!("{{\\c&H{}{}{}&}}", &h[4..6].to_ascii_uppercase(), &h[2..4].to_ascii_uppercase(), &h[0..2].to_ascii_uppercase())
+                        format!("{{\\c&H{}{}{}&}}", h[4..6].to_ascii_uppercase(), h[2..4].to_ascii_uppercase(), h[0..2].to_ascii_uppercase())
                     } else {
                         String::new()
                     }
@@ -737,7 +739,7 @@ pub fn write_lrc(sc: &Script, word_level: bool) -> String {
 // Plain text
 // ------------------------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TextImport {
     /// Every line is a cue. When false, paragraphs (separated by blank lines) are cues; a file
     /// without any blank line is treated line-per-cue anyway.
@@ -746,12 +748,6 @@ pub struct TextImport {
     pub duration_ms: Option<i64>,
     pub gap_ms: i64,
     pub start_ms: i64,
-}
-
-impl Default for TextImport {
-    fn default() -> Self {
-        TextImport { per_line: false, duration_ms: None, gap_ms: 0, start_ms: 0 }
-    }
 }
 
 pub fn parse_text(input: &str) -> Script {
@@ -1095,6 +1091,9 @@ fn ttml_open(a: &[(String, String)]) -> (String, String) {
     (o, c)
 }
 
+/// begin, end, dur, text so far, span closers, paragraph closer
+type TtmlPara = (i64, Option<i64>, Option<i64>, String, Vec<String>, String);
+
 pub fn parse_ttml(input: &str) -> Script {
     let input = norm_input(input);
     let tok = Regex::new(r"(?s)<!--.*?-->|<[^>]+>|[^<]+").unwrap();
@@ -1103,7 +1102,8 @@ pub fn parse_ttml(input: &str) -> Script {
     let mut styles: Vec<(String, Vec<(String, String)>)> = Vec::new();
     let mut evs: Vec<Event> = Vec::new();
     // current paragraph
-    let mut cur: Option<(i64, Option<i64>, Option<i64>, String, Vec<String>, String)> = None; // begin,end,dur,text,closers,p-closer
+    let ws = Regex::new(r"[ \t\n]+").unwrap();
+    let mut cur: Option<TtmlPara> = None;
     let style_attrs = |styles: &Vec<(String, Vec<(String, String)>)>, a: &[(String, String)]| -> Vec<(String, String)> {
         let mut m: Vec<(String, String)> = Vec::new();
         if let Some(refs) = attr(a, "style") {
@@ -1155,7 +1155,6 @@ pub fn parse_ttml(input: &str) -> Script {
                 }
                 ("p", true) => {
                     if let Some((b, e, d, text, _, pc)) = cur.take() {
-                        let ws = Regex::new(r"[ \t\n]+").unwrap();
                         // collapse whitespace outside of `\N`
                         let mut txt = ws.replace_all(&text, " ").to_string();
                         txt = txt.replace(" \\N", "\\N").replace("\\N ", "\\N");
@@ -1237,6 +1236,7 @@ pub fn parse_sami(input: &str) -> Script {
     let p_re = Regex::new(r"(?i)<p\b([^>]*)>").unwrap();
     let class_re = Regex::new(r#"(?i)class\s*=\s*["']?([\w\-]+)"#).unwrap();
     let body_end = Regex::new(r"(?i)</body>").unwrap();
+    let p_close = Regex::new(r"(?i)</p>").unwrap();
     let syncs: Vec<_> = sync_re.captures_iter(&input).collect();
     let mut first_class: Option<String> = None;
     let mut rows: Vec<(i64, String)> = Vec::new(); // (start, text; empty = blank)
@@ -1261,7 +1261,7 @@ pub fn parse_sami(input: &str) -> Script {
                 }
             }
         }
-        let text = Regex::new(r"(?i)</p>").unwrap().replace_all(&text, "").replace('\n', " ");
+        let text = p_close.replace_all(&text, "").replace('\n', " ");
         let ass = from_html(&text);
         let ass = decode_entities(&ass).replace('\u{a0}', " ");
         rows.push((start, ass.trim().replace(" \\N", "\\N").replace("\\N ", "\\N")));
@@ -1299,7 +1299,7 @@ pub fn write_sami(sc: &Script) -> String {
 #[derive(Debug, Clone)]
 enum J {
     Null,
-    Bool(bool),
+    Bool,
     Num(f64),
     Str(String),
     Arr(Vec<J>),
@@ -1352,8 +1352,8 @@ impl<'a> JP<'a> {
                 }
             }
             b'"' => self.string().map(J::Str),
-            b't' if self.src[self.i..].starts_with("true") => { self.i += 4; Some(J::Bool(true)) }
-            b'f' if self.src[self.i..].starts_with("false") => { self.i += 5; Some(J::Bool(false)) }
+            b't' if self.src[self.i..].starts_with("true") => { self.i += 4; Some(J::Bool) }
+            b'f' if self.src[self.i..].starts_with("false") => { self.i += 5; Some(J::Bool) }
             b'n' if self.src[self.i..].starts_with("null") => { self.i += 4; Some(J::Null) }
             _ => {
                 let st = self.i;
