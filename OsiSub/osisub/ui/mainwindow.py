@@ -193,6 +193,20 @@ class MainWindow(QMainWindow):
         A("paste_lines", "Satırları yapıştır", self.paste_lines, "Ctrl+Shift+V")
         A("toggle_comment", "Yorum yap / kaldır", self.toggle_comment, "Ctrl+K")
         A("sort_time", "Başlangıç zamanına göre sırala", self.sort_by_time)
+        A("break_lines", "Seçili satırları dengeli kır (CPL)", self.break_lines, "Ctrl+Shift+N",
+          "Osi kuralı: 42'yi aşan satırı noktalama/bağlaç gözeterek iki dengeli satıra kır")
+        A("unbreak_lines", "Satır kırmalarını kaldır", self.unbreak_lines)
+        A("tool_sort", "Sırala…", lambda: self.show_tool("sort"))
+        A("tool_case", "Büyük/küçük harf…", lambda: self.show_tool("case"))
+        A("tool_hi", "İşitme engelli metnini kaldır…", lambda: self.show_tool("hi"))
+        A("tool_merge", "Kısa satırları birleştir…", lambda: self.show_tool("merge"))
+        A("tool_split", "Uzun satırları böl…", lambda: self.show_tool("split"))
+        A("tool_stats", "İstatistikler…", self.show_stats)
+        A("tool_durations", "Süreleri ayarla…", lambda: self.show_tool("durations"))
+        A("tool_bridge", "Boşlukları köprüle…", lambda: self.show_tool("bridge"))
+        A("tool_fps", "Kare hızını / hızı değiştir…", lambda: self.show_tool("fps"))
+        A("tool_pointsync", "Noktalı senkron…", lambda: self.show_tool("pointsync"),
+          tip="Seçili satırların doğru zamanlarını vererek tüm altyazıyı kaydır/esnet")
         A("select_all", "Tüm satırları seç", self.select_all, "Ctrl+Shift+A")
         A("styles", "Stil yöneticisi…", self.show_styles, "Ctrl+Shift+Y")
         A("props", "Betik özellikleri…", self.show_props, "Ctrl+P")
@@ -277,8 +291,9 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Altyazı")
         for k in ("insert_before", "insert_after", "duplicate", None, "join_concat", "join_space",
-                  "join_keep_first", "split_at_n", None, "toggle_comment", "delete_lines", None,
-                  "sort_time", None, "styles"):
+                  "join_keep_first", "split_at_n", None, "break_lines", "unbreak_lines", None,
+                  "toggle_comment", "delete_lines", None, "sort_time", "tool_sort", None,
+                  "tool_case", "tool_hi", "tool_merge", "tool_split", None, "tool_stats", None, "styles"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
 
         m = mb.addMenu("&Zamanlama")
@@ -287,6 +302,9 @@ class MainWindow(QMainWindow):
         m.addAction(self.acts["timing_pp"])
         m.addAction(self.acts["sync"])
         m.addAction(self.acts["sync_ref"])
+        m.addSeparator()
+        for k in ("tool_durations", "tool_bridge", "tool_fps", "tool_pointsync"):
+            m.addAction(self.acts[k])
         m.addSeparator()
         m.addAction(self.acts["set_start_frame"])
         m.addAction(self.acts["set_end_frame"])
@@ -594,6 +612,36 @@ class MainWindow(QMainWindow):
                 new.append(base.fresh().replace(text=ln, effect="", comment=False))
         if new:
             ctx.insert_events(ctx.active + 1, new, "Satırları yapıştır")
+
+    def break_lines(self):
+        from .tools_dialogs import break_changes
+        ch = break_changes(self.ctx, self.ctx.selected_rows())
+        n = len(self.ctx.update_events(ch, "Dengeli kır")) if ch else 0
+        self.ctx.status.emit(f"{n} satır kırıldı" if n else "Kırılacak satır yok (hepsi sınır içinde)")
+        return n
+
+    def unbreak_lines(self):
+        from .tools_dialogs import unbreak_changes
+        ch = unbreak_changes(self.ctx, self.ctx.selected_rows())
+        n = len(self.ctx.update_events(ch, "Kırmaları kaldır")) if ch else 0
+        self.ctx.status.emit(f"{n} satırın kırması kaldırıldı")
+        return n
+
+    def show_tool(self, key: str):
+        from .tools_dialogs import TOOL_DIALOGS
+        dlg = TOOL_DIALOGS[key](self.ctx, self)
+        if self.headless:
+            return dlg
+        dlg.exec()
+        return dlg
+
+    def show_stats(self):
+        from .tools_dialogs import StatsDialog
+        dlg = StatsDialog(self.ctx, self)
+        if self.headless:
+            return dlg
+        dlg.exec()
+        return dlg
 
     def sort_by_time(self):
         ctx = self.ctx

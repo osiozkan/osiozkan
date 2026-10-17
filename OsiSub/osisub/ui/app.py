@@ -6,6 +6,18 @@ import os
 import sys
 
 
+def install_translations(app) -> bool:
+    """Qt'nin kendi Türkçe çevirisi (Tamam/İptal/Evet/Hayır, dosya penceresi...)."""
+    from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+    tr = QTranslator(app)
+    if tr.load(QLocale(QLocale.Turkish, QLocale.Turkey), "qtbase", "_",
+               QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
+        app.installTranslator(tr)
+        app._osisub_translator = tr            # çöp toplayıcı silmesin
+        return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     from PySide6.QtCore import Qt
@@ -25,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)
+    install_translations(app)
     cfg = Config()
     diag.setup_logging(cfg["app_log"] or "INFO")
 

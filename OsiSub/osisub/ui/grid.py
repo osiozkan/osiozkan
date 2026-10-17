@@ -253,7 +253,7 @@ class SubsGrid(QTableView):
     def _menu(self, pos):
         m = QMenu(self)
         for key in ("insert_before", "insert_after", "duplicate", None, "join_concat",
-                    "join_keep_first", "split_at_n", None, "copy_lines", "cut_lines", "paste_lines",
+                    "join_keep_first", "split_at_n", "break_lines", None, "copy_lines", "cut_lines", "paste_lines",
                     None, "toggle_comment", "delete_lines", None, "sort_time"):
             if key is None:
                 m.addSeparator()
