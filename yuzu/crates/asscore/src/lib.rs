@@ -2,6 +2,8 @@
 pub mod ass;
 pub mod encoding;
 pub mod karaoke;
+pub mod fixes;
+pub mod formats;
 pub mod model;
 pub mod ops;
 pub mod subrip;
