@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/asscore", "crates/yuzu-lua", "crates/yuzu-cli"]
+members = ["crates/asscore", "crates/yuzu-lua", "crates/yuzu-cli", "crates/yuzu-gui"]
 
 [workspace.package]
 version = "0.1.0"

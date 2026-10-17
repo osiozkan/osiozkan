@@ -1,0 +1,15 @@
+[package]
+name = "yuzu-gui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yuzu-gui"
+path = "src/main.rs"
+
+[dependencies]
+asscore = { path = "../asscore" }
+yuzu-lua = { path = "../yuzu-lua" }
+eframe = { version = "0.33", default-features = false, features = ["glow", "x11", "wayland", "default_fonts"] }
+egui_extras = "0.33"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
