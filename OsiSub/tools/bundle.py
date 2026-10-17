@@ -19,7 +19,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INCLUDE_EXT = {".py", ".lua", ".moon", ".md", ".txt", ".bat", ".cmd", ".json", ".ass", ".toml",
-               ".cfg", ".ini", ".gitignore", ".spec", ".iss"}
+               ".cfg", ".ini", ".gitignore", ".gitattributes", ".spec", ".iss"}
 SKIP_DIRS = {"__pycache__", ".git", "dist", ".pytest_cache", ".mypy_cache", "build"}
 
 UNPACK_SNIPPET = r'''

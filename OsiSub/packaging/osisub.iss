@@ -1,7 +1,7 @@
-﻿; OsiSub kurulum betiği (Inno Setup 6). BUILD_EXE.bat çağırır:  iscc /DAppVer=1.0.0 packaging\osisub.iss
+﻿; OsiSub kurulum betiği (Inno Setup 6). BUILD_EXE.bat çağırır:  iscc /DAppVer=<surum> packaging\osisub.iss
 ; Yönetici izni İSTEMEZ (kullanıcının kendi Programlar klasörüne kurar).
 #ifndef AppVer
-  #define AppVer "1.2.0"
+  #define AppVer "1.3.0"
 #endif
 
 [Setup]

@@ -20,14 +20,18 @@ get_frame), kareye oturtma, proje dosyası video/ses alanları.
 - Sırada: derinlik tabanlı örtme (Depth Anything ONNX, onnxruntime), maske yayılımı (optik akış),
   ekran dışına taşmanın libass ölçümüne katılması
 - ✅ 1.2.0: bsync (konuşmaya göre parçalı senkron)
+- ✅ 1.3.0: aligncompare (kılavuzdaki tüm bayraklar, otomatik kayma, HTML/CSV/işaretli kopya; uygulama içi bölme
+  + `python -m osisub aligncompare`), referansa göre parçalı senkron (bsnap'in rolü), referans kayması
 - hairtrack: maske/\iclip üretimi, assmotion ön ucu
 - bsync: dalga formuna göre senkron
-- DFXP Basic dönüştürücü: Dışa aktar menüsü
+- ✅ 1.3.0: TTML/DFXP okuma-yazma (Dosya > Dışa aktar). Osi'nin "DFXP Basic" dönüştürücüsü yüklenirse onun
+  kuralları (zaman biçimi, stil/bölge adları, dil) karşılaştırılıp birebir uyarlanacak
 - TR-EN birleştirme: ✅ 0.3.0'da yerleşik (Çeviri menüsü). Osi'nin v1.0 Lua betiği yüklenirse
   davranış farkları karşılaştırılıp eksik kural varsa eklenecek
 - Osi menü betikleri (osi_*.lua): her biri OsiSub'da çalıştırılıp çıktısı Aegisub'ınkiyle bayt bayt karşılaştırılacak
-- **Gereken:** assmotion-1.7.0, hairtrack.py, bsync.py, DFXP dönüştürücü, osi_*.lua dosyaları
-  (kaynaklar bu oturumda yok; yüklenirse yeniden yazılmadan bağlanır)
+- **Gereken:** assmotion-1.7.0, hairtrack.py, bsync.py, bsnap.py, aligncompare.py, asslint, termcheck,
+  DFXP dönüştürücü, osi_*.lua dosyaları (kaynaklar bu oturumlarda yok; 1.3.0'daki aligncompare ve bsnap rolü
+  kılavuzdan yazıldı — kaynak yüklenirse çıktılar karşılaştırılıp fark varsa düzeltilecek)
 
 ## Aşama 4 — Görsel tipografi (0.4.0) ✅
 Taşı (\pos/\move, çoklu satır), döndür Z/XY + \org, ölçek, dikdörtgen/vektör clip (+iclip), damlalık.
@@ -39,8 +43,20 @@ assmotion izleme sonuçlarını tuvalde kare kare gösterip düzeltme.
 - ✅ 0.5.0: yaygın hataları düzelt (19 kural), Türkçe yazım denetimi (Hunspell/spylls), sahne değişimi algılama
 - ✅ 0.6.0: terim sözlüğü denetimi, konuşma algılama (VAD) + konuşmaya yaslama + konuşmadan satır,
   Whisper ile yazıya dökme (referans ya da satır)
-- Sırada: biçim dönüştürme (DFXP/TTML — Osi'nin DFXP dönüştürücüsü yüklenirse onun kuralları),
-  PGS/VobSub OCR, Whisper ile mevcut satırları sözcük düzeyinde hizalama
+- ✅ 1.3.0: dengeli kırma, büyük/küçük harf, işitme engelli metni, süreler, boşluk köprüleme, birleştir/böl,
+  kare hızı/hız/noktalı senkron, sıralama, istatistik, çoklu değiştir, TTML/DFXP/SBV/MicroDVD/WebVTT/metin,
+  toplu dönüştürme, videoya yakma, MKV'ye gömme, gömülü altyazı çıkarma
+- Sırada: makine çevirisi ile taslak (terim sözlüğü ve Osi kurallarıyla; anahtar Ayarlar'da), yazım denetimi
+  penceresi (tek tek gez/değiştir/sözlüğe ekle), PGS/VobSub OCR, Whisper ile mevcut satırları sözcük düzeyinde
+  hizalama, dalga formunda konuşma bölümlerinden otomatik zamanlama önerisi
+
+## Aşama 7 — Aegisub eksikleri ve kullanıcı deneyimi (1.3.0) ✅
+Satır seç, yazı tipi toplayıcı (eksik Türkçe karakter denetimi), çözünürlüğü yeniden örnekle, imleçten böl,
+zamanları sürekli yap, 1 kare kaydırarak çoğalt, üstüne yapıştır, anahtar kare dosyaları; komut paleti,
+Ayarlar + kısayol düzenleyici, çalışma düzenleri, ızgara sütunları; QC ve ızgarada büyük dosya hızı.
+Sırada (Aegisub'dan): **ses bölmesinde karaoke kipi** (hece bölme/birleştirme, \k sürükleme — OP/ED karaokesi için),
+stil yardımcısı (Styling Assistant), video yakınlaştırma/kaydırma, sahte video, zaman kodu (VFR v1/v2) dosyaları,
+MoonScript + DependencyControl (TypesettingTools betikleri).
 
 ## Aşama 6 — Dağıtım (1.0.0) ✅
 PyInstaller .exe, Inno Setup kurulum, otomatik yedek/kurtarma, çökme raporu, günlük.

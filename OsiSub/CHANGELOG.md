@@ -1,5 +1,66 @@
 # Değişiklik günlüğü
 
+## 1.3.0 — tek araç: aligncompare, Subtitle Edit araçları, Aegisub eksikleri, biçimler, hardsub/MKV, kullanıcı deneyimi, hız
+Kod artık git deposunda (osiozkan/osiozkan, OsiSub/ klasörü); her adım ayrı commit.
+
+### Osi'nin araçları
+- core/compare.py + Çeviri > Kaynakla karşılaştır (Ctrl+Alt+K) + `python -m osisub aligncompare`: aligncompare.py'nin
+  kılavuzundaki davranış — zaman örtüşmesiyle 1:1/1:2/2:1 gruplama, otomatik küresel kayma (±15 sn; kapsama ilintisi +
+  satır sınırı darbeleri, platonun ortası), EKSİK/FAZLA/İNGİLİZCE?/UZUNLUK/BOŞ/ZAMAN/SAYI, typeset/ekran yazısı hariç,
+  stil atlama regexleri, HTML (süzgeçli) / CSV (; ayraçlı, BOM) / işaretli kopya. Bölmede satıra git, bayraklıları seç,
+  eksikleri zamanca doğru yere yorum satırı olarak ekle (tek geri al, ikinci kez eklemez)
+- Referans kayması: Referans bölmesinde Kayma kutusu + Kaymayı bul; karşılaştırmanın bulduğu kayma uygulanır
+- Referansa göre senkron (bsnap rolü, Ctrl+Alt+B): bsync'in DP'si referans altyazının diyalog kapsamasıyla
+  (ses yerine); uygulanınca referans kayması sıfırlanır
+
+### Subtitle Edit'ten
+- core/setools.py + ui/tools_dialogs.py: dengeli kırma (Ctrl+Shift+N), kırmaları kaldır, büyük/küçük harf, işitme
+  engelli metni, süreleri ayarla, boşlukları köprüle, kısa satırları birleştir, uzun satırları böl, kare hızı / hız (%),
+  noktalı senkron, çok anahtarlı sıralama, istatistik — önizlemeli ortak pencere, stil süzgeci, tek geri al, ayarlar
+  hatırlanır
+- core/multireplace.py + Düzen > Çoklu değiştir (Ctrl+Alt+H): kural grupları, Türkçe doğru harfe duyarsız eşleşme,
+  akıllı harf, JSON + Subtitle Edit XML içe aktarma, başlangıç grubu (Türkçe sık yazım hataları)
+- core/ttml.py + core/formats.py: TTML/DFXP (Netflix tikleri, kare saati, style başvuruları, iç içe span, bölgeler),
+  YouTube SBV, MicroDVD okuma-yazma; WebVTT ve düz metin yazma; Dosya > Dışa aktar alt menüsü, Toplu dönüştür
+
+### Aegisub'dan eksik olanlar
+- Satır seç; Yazı tipi toplayıcı (core/fonts.py: saf Python sfnt okuyucu, en yakın kalınlık, önbellek, eksik karakter
+  denetimi); Çözünürlüğü yeniden örnekle; imleçten böl (3 kip, düzenleme kutusunun sağ tık menüsünde), zamanları
+  sürekli yap, 1 kare kaydırarak çoğalt (Ctrl+Shift+D), iki satırın yerini değiştir, üstüne yapıştır; anahtar kare
+  dosyası aç/kaydet, sahne değişimlerini anahtar karelere kat
+
+### Video ile
+- media/export.py + ui/media_export.py: videodaki altyazı izleri (aç / referans / kaydet / ekleri çıkar), videoya yak
+  (libass; x264/x265, CRF, tune=animation, ses kopya/aac, aralıklı önizleme), MKV'ye göm (yeniden kodlamasız, dil/
+  başlık/varsayılan, mevcut izleri/ekleri koruma, yazı tipi ekleri doğru mimetype sırasıyla)
+
+### Kullanıcı deneyimi
+- Komut paleti (Ctrl+Shift+P), Ayarlar (Ctrl+,) + kısayol düzenleyici + harici araç düzenleyici, çalışma düzenleri,
+  ızgara sütun göster/gizle, durum çubuğunda satır/seçim, Qt'nin Türkçe çevirisi (Tamam/İptal), koyu temada
+  görünür onay kutuları
+
+### Ölçülmüş sonuçlar
+- Denetim (QC): 500 / 2000 / 5000 / 20 000 satır = 0,05 / 0,12 / 0,28 / 1,0 sn (önce 0,34 / 3,4 / 19,7 / —)
+- 20 000 satırlık belge: tümünü seç 3,8 → 0,7 sn; geri al 3,7 → 0,8 sn; toplu dengeli kırma 5,6 → 3,1 sn;
+  tuş başına ~8 ms (taban 7 ms)
+- Kısmi yakmada (seçili satırlar aralığı) altyazı zamanı piksel düzeyinde doğru: çıktı 0,5 sn = özgün 2,5 sn
+- Yazı tipi denetimi: karakter tablosu sonuçları fontconfig ile ğ ş ı İ için tüm sistem yazı tiplerinde birebir aynı
+- 285 test (85 yeni; 7 atlanan: Whisper ve Türkçe sözlük bu ortamda yok — 1.2.0 ile aynı)
+
+### Bulunan ve düzeltilen hatalar (tekrar düşülmesin)
+- Referans belgeden kaymalıysa Referans sütunu/düzenleme kutusu/aktarma yanlış satırı eşliyordu → referans kayması
+- Denetimde komşu satır araması her satırda tüm belgeyi tarıyordu (O(n²)) → stil+katman başına sıralı dizin
+- Izgara seçimi satır satır aralıklarla kuruluyordu (20 000 aralık) → ardışık satırlar tek aralık; tek satır
+  değişikliğinde Qt tüm görüntü alanını çiziyordu (çok hücreli dataChanged) → hücre hücre bildirim
+- config.json'daki `cpl_limit` ve `enter_moves_next` hiçbir yerde kullanılmıyordu → bağlandı (Ayarlar)
+- Koyu temada işaretsiz onay kutuları neredeyse görünmüyordu → çizilen işaret resmi + kenarlık
+- Qt'nin Türkçe çevirisi kısayolları "Kontrol+Üst Karakter", Alt'ı "Seçenek" yazıyor → her yerde Ctrl+Shift+N biçimi
+- Örtme: temiz videoda kare 0–1 %1 "örtülü" (1.2.0'ın tek başarısız testi). İz doğruydu (≤0,36 px); keskin
+  kenarlarda alt-piksel hizalama farkı ΔE eşiğini aşıyordu, sonuç alanın ±2 px yerine ve x264 sürümüne bağlıydı →
+  fark ±1 px kaydırmanın en küçüğü (shift_tol); yer gerçeği testleri değişmeden geçiyor
+- Python'un re.IGNORECASE'i i'yi ı ile de eşliyor ("kır"/"kir") → çoklu değiştirde Türkçe karakter sınıfları
+- `ffmpeg -dump_attachment` çıktı dosyası verilmediği için hata koduyla biter → yazılan dosyalara bakılır
+
 ## 1.2.0 — konuşmaya göre senkron (bsync)
 - core/sync.py: parçalara bölme (≥ 4 sn boşluk = sahne arası; ≥ 60 sn = blok), çapa seçimi (ekran yazısı `\\N \\N \\N`,
   \\pos/\\move/\\p tabelaları ve OP/ED satırları çapa değil, parçasıyla kayar), OP/ED aralıklarının ve

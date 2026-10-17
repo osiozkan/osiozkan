@@ -78,7 +78,7 @@ Mocha'dan "After Effects Transform Data" kopyaladıysan bölmedeki **AE yapışt
    başka bir bilgisayara kopyalayıp doğrudan çalıştırabilirsin. Yanındaki `OsiSub-konsol.exe doctor`
    ortam denetimidir.
 3. (İsteğe bağlı) **Inno Setup 6** kuruluysa (jrsoftware.org, ücretsiz) aynı betik
-   **`dist\OsiSub-1.0.0-Kurulum.exe`** de üretir: yönetici izni istemez, Başlat menüsüne ve isteğe bağlı
+   **`dist\OsiSub-<sürüm>-Kurulum.exe`** de üretir: yönetici izni istemez, Başlat menüsüne ve isteğe bağlı
    masaüstüne kısayol koyar, ".ass dosyalarını OsiSub ile aç" seçeneği vardır, Programlar'dan kaldırılır.
 
 Not: Whisper paketli .exe'ye dahil değildir (~1 GB); onu kullanmak için kaynak kurulumla (BASLAT.bat) çalıştır.
@@ -117,13 +117,21 @@ Aralık `config.json > autosave_seconds` ile değişir (0 = kapalı).
 | Renk modeli maskesi tabelanın yazısını/arka planı da alıyor | Pozitif tohumu (yeşil) yalnız nesnenin İÇİNE çiz; negatif tohumu (kırmızı) maskeye girmemesi gereken renklerin üstüne çiz (tabelanın yazısı, arka plan). Önce izleme alanını (Videoda çiz) satırın çevresine daralt. |
 | Senkronda bir parça yanlış kaydı | O parçanın kutusunu kaldırıp Uygula; ya da İnce arama aralığını küçült. Şarkı/OP sesi karışıyorsa OP/ED stil desenine o stilin adını ekle. |
 | Toplu izlemede "alan görüntü dışında" | Satırın \\pos'u ekran dışında ya da metin boş; satıra dikdörtgen \\clip koyup alanı elle ver. |
+| Yazı tipi toplayıcıda "BULUNAMADI" | Yazı tipi sistemde kurulu değil. Dosyasını .ass'ın yanındaki `fonts\` klasörüne koy (orası da taranır) ya da Windows'a kur, sonra "Yeniden tara". |
+| Yazı tipi toplayıcıda "Eksik karakter: ğ ş" | O yazı tipinde Türkçe harfler yok; libass başka yazı tipinden tamamlar (farklı görünür). Türkçe destekli bir yazı tipi seç ya da yazı tipini düzenlet. |
+| Videoya yakmada "ass" hatası | ffmpeg libass'lı olmalı (gyan.dev "essentials" yapısında var). Yazı tipi yanlış çıkıyorsa "Kullanılan yazı tiplerini topla" işaretli olsun. |
+| Kaynakla karşılaştırmada her şey EKSİK | Kayma 15 sn'den büyük ya da dosyalar aynı bölümün değil. Önce Zamanlama > Referansa göre senkron (Ctrl+Alt+B) ya da Seçenekler'de kaymayı elle ver. |
+| MicroDVD (.sub) zamanları kaymış | .sub kare tabanlıdır: önce videoyu aç (kare hızı oradan alınır) ya da dosyanın ilk satırına {1}{1}23.976 yaz. |
+| Bir kısayol çalışmıyor | Ayarlar > Kısayollar'da çakışma kırmızı görünür. Ctrl+Alt+harf/rakam birleşimleri Türkçe klavyede AltGr (@ € { } [ ] \\ \| ₺) ile çakışabilir. |
 | BUILD_EXE.bat "PyInstaller" hatası | Önce KURULUM.bat'ı çalıştır; virüs koruması dist klasörünü kilitliyorsa klasörü dışlama listesine ekleyip yeniden dene. |
 | .exe açılmıyor, hiçbir şey olmuyor | `OsiSub-konsol.exe` çalıştır: hata metni pencerede görünür; `%APPDATA%\OsiSub\logs\` içindeki son raporu gönder. |
 | Betik hata veriyor | Automation → Automation betikleri penceresinde hata metni görünür. Bana o metni gönder. |
 
 ## Ayarlar
 
-`%APPDATA%\OsiSub\config.json` — tema, CPL sınırı, harici araçlar vb. Uygulama kapalıyken düzenle.
+**Dosya > Ayarlar… (Ctrl+,)** — tema, CPL/CPS sınırları, yazı boyları, otomatik yedek, kısayollar ve harici araçlar
+pencereden değişir, hemen uygulanır. (Hepsi `%APPDATA%\OsiSub\config.json` dosyasında durur; elle düzenlemek
+gerekirse uygulama kapalıyken düzenle.) Bir komutun yerini bilmiyorsan **Ctrl+Shift+P** (komut paleti) ile ara.
 
 Harici araç örneği (assmotion):
 ```json

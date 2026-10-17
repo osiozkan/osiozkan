@@ -1,9 +1,15 @@
 # OsiSub
 
-Aegisub'ın yerini almak üzere sıfırdan yazılan altyazı düzenleyici.
-Python + PySide6 arayüz, LuaJIT üzerinde **Aegisub Automation 4 uyumlu** betik motoru.
+Aegisub'ın yerini almak üzere sıfırdan yazılan, anime çevirisi/zamanlaması/tipografisi için tek araç olmayı
+hedefleyen altyazı düzenleyici. Python + PySide6 arayüz, LuaJIT üzerinde **Aegisub Automation 4 uyumlu** betik motoru.
+Aegisub'ın çekirdeği + Subtitle Edit'in toplu araçları + Osi'nin kendi araçları (assmotion, hairtrack, bsync,
+aligncompare, bsnap rolü, TR-EN aktarma, asslint/termcheck karşılıkları) tek pencerede.
 
-Sürüm: **1.2.0** (konuşmaya göre senkron — bsync uygulama içinde)
+Sürüm: **1.3.0** (tek araç: aligncompare, Subtitle Edit araçları, Aegisub eksikleri, biçimler, hardsub/MKV,
+komut paleti, Ayarlar, hız)
+
+**En hızlı başlangıç:** her komut **Ctrl+Shift+P** (komut paleti) ile aranabilir — Türkçe karakter yazmadan da
+("yazi tipi", "kirma"). Ayarlar **Ctrl+,**.
 
 ## Neler hazır
 
@@ -40,14 +46,25 @@ Sürüm: **1.2.0** (konuşmaya göre senkron — bsync uygulama içinde)
 | **Harici araçlar** | `config.json > external_tools` ile assmotion, hairtrack, bsync gibi komut satırı araçları `{ass} {video} {sel} {active} {start_ms}…` yer tutucularıyla menüden çalıştırılır; araç dosyayı değiştirirse yeniden yüklenir. |
 | **Dağıtım (1.0)** | `BUILD_EXE.bat` → PyInstaller ile Python gerektirmeyen tek klasör (`OsiSub.exe` pencereli, `OsiSub-konsol.exe` komut satırı); Inno Setup varsa yönetici izni istemeyen `OsiSub-1.0.0-Kurulum.exe` (Başlat menüsü, masaüstü kısayolu, .ass ilişkilendirme). ffmpeg/libmpv `bin/` klasöründen alınır. Paketli sürümde yol çözümü exe klasörüne göre. |
 | **Sağlamlık (1.0)** | 60 sn'de bir otomatik yedek (yalnız değişiklik varsa, atomik), açılışta kurtarma penceresi (yedek özgün dosyanın üstüne kendiliğinden yazılmaz), yakalanmamış hatada program kapanmaz: acil yedek + `logs/cokme-*.txt` raporu; döner günlük dosyası (`logs/osisub.log`, Qt iletileri dahil); uygulama simgesi. |
-| **Komut satırı** | `doctor`, `roundtrip`, `macros`, `macro`, `--version` (makroyu arayüzsüz çalıştırıp çıktıyı Aegisub'ınkiyle bayt bayt karşılaştırmak için). |
-| **Testler** | 200 test (çekirdek, Automation API, Aegisub betikleri, ekransız arayüz, medya yer gerçeği, gerçek libmpv). |
+| **Kaynakla karşılaştır (aligncompare, 1.3)** | Çeviri > Kaynakla karşılaştır (Ctrl+Alt+K) ve `python -m osisub aligncompare kaynak.srt aday.ass` (aligncompare.py ile aynı seçenekler). Satırlar zaman örtüşmesiyle 1:1/1:2/2:1 gruplanır, **küresel kayma kendiliğinden bulunur** (±15 sn); bayraklar EKSİK, FAZLA, İNGİLİZCE?, UZUNLUK, BOŞ, ZAMAN, SAYI. Typeset/ekran yazısı varsayılan dışarıda. HTML (süzgeçli), CSV (Excel), işaretli kopya (`{QC: …}` + EKSİK yorumları). Bölmede satıra git, bayraklıları seç, **eksikleri zamanca doğru yere yorum satırı olarak ekle**. Bulunan kayma Referans sütununa uygulanır. |
+| **Referans kayması (1.3)** | Referans altyazı belgeden kaymalıysa Referans sütunu yanlış satırı gösteriyordu; Referans bölmesinde **Kayma** kutusu ve **Kaymayı bul**, sütun başlığında "Referans (+2.35 sn)". Aktarma ve yeni satır da kaymayla eşler. |
+| **Referansa göre senkron (bsnap rolü, 1.3)** | Zamanlama > Referansa göre senkron (Ctrl+Alt+B): bsync'in parçalı kuralları (yalnız sahne aralarında değişen kayma, OP/ED ve tabela/ekran yazısı çapa değil) konuşma yerine **doğru zamanlı referans altyazının** (resmi EN) kapsamasıyla. |
+| **Subtitle Edit araçları (1.3)** | **Dengeli kır** (Ctrl+Shift+N; Osi'nin 42 kuralı, noktalamadan sonra/bağlaçtan önce, soru eki ve de/da/ki'nin önünden kırmaz, diyalog çizgisi korunur), kırmaları kaldır, **Büyük/küçük harf** (Türkçe i/İ, ı/I), **İşitme engelli metnini kaldır** ([..], (..), ♪..♪, KONUŞMACI:), **Süreleri ayarla** (CPS/yüzde/sabit, sonraki satıra taşmaz), **Boşlukları köprüle**, **Kısa satırları birleştir / uzun satırları böl**, **Kare hızı / hız (%)**, **Noktalı senkron** (iki ya da daha çok satırın doğru zamanıyla esnetme), **çok anahtarlı sıralama**, **İstatistik**. Hepsi önizlemeli, stil süzgeçli, tek geri al. |
+| **Çoklu değiştir (1.3)** | Düzen > Çoklu değiştir (Ctrl+Alt+H): kural grupları, düz/bütün kelime/regex; harfe duyarsız kurallar **Türkçe doğru** (i↔İ, ı↔I) ve baş harfi korur ("Herşey" → "Her şey"); başlangıç grubu: Türkçe sık yazım hataları; JSON dışa/içe aktarma, Subtitle Edit XML içe aktarma. |
+| **Biçimler (1.3)** | Açma: ASS/SSA, SRT, WebVTT, **TTML/DFXP** (Netflix tikleri, kare saati, stiller, üst/alt bölge), **YouTube SBV**, **MicroDVD** (.sub). Dışa aktar: SRT, WebVTT, TTML/DFXP, SBV, MicroDVD, düz metin (zamanlı/zamansız). Dosya > **Toplu dönüştür**. |
+| **Aegisub eksikleri (1.3)** | **Satır seç** (içerir/tam/regex, ekle/çıkar/kesiştir), **Yazı tipi toplayıcı** (kullanılan yazı tiplerini bulur, **eksik karakterleri — Türkçe ğ ş ı İ — yazı tipi başına raporlar**, klasöre/zip'e toplar), **Çözünürlüğü yeniden örnekle** (stiller, \\pos \\move \\org \\clip, \\fs \\bord \\shad \\blur — \\t içinde de —, çizimler), imleçten böl (zaman tahmini/koru/video karesi), zamanları sürekli yap, **1 kare kaydırarak çoğalt** (Ctrl+Shift+D), satır yer değiştir, **üstüne yapıştır** (düz metin çeviriyi zamanlı satırların üstüne), anahtar kare dosyası aç/kaydet (Aegisub v1, XviD, x264 stats), sahne değişimlerini anahtar kare yap. |
+| **Video ile dışa aktarma (1.3)** | **Videodaki altyazılar**: MKV/MP4 içindeki ASS/SRT izini belge ya da referans olarak aç, kaydet, ekli yazı tiplerini çıkar. **Videoya yak (hardsub)**: libass, x264/x265, CRF, anime ayarı, seçili satırlar aralığında hızlı önizleme. **MKV'ye göm (softsub)**: yeniden kodlamadan, dil/başlık/varsayılan, yazı tipleri ek olarak. İkisi de belgenin kaydedilmemiş halini ve toplanan yazı tiplerini kullanır. |
+| **Kullanıcı deneyimi (1.3)** | **Komut paleti** (Ctrl+Shift+P), **Ayarlar** penceresi (artık config.json'u elle düzenlemek gerekmez), **kısayol düzenleyici** (çakışma denetimli), **çalışma düzenleri** (Çeviri/Zamanlama/Tipografi/Denetim + kendi düzenin), ızgarada sütun göster/gizle, durum çubuğunda satır/seçim, koyu temada görünür onay kutuları, Qt pencereleri Türkçe (Tamam/İptal). |
+| **Hız (1.3)** | Denetim (QC) 5000 satırda 19,7 sn → 0,28 sn (komşu satır dizini; sonuçlar birebir aynı). 20 000 satırlık belgede tümünü seç 3,8 → 0,7 sn, geri al 3,7 → 0,8 sn; tek satır düzenlemesinde yalnız o satır yeniden çizilir; CPL bilgisi önbellekli, CPL bölmesi artımlı. |
+| **Komut satırı** | `doctor`, `roundtrip`, `macros`, `macro`, `aligncompare`, `--version` (makroyu arayüzsüz çalıştırıp çıktıyı Aegisub'ınkiyle bayt bayt karşılaştırmak için). |
+| **Testler** | 285 test (çekirdek, Automation API, Aegisub betikleri, ekransız arayüz, medya yer gerçeği, gerçek libmpv, gerçek ffmpeg yakma/gömme, gerçek sistem yazı tipleri). |
 
 ## Henüz olmayanlar (sıradaki aşamalar)
 
-
-derinlik tabanlı örtme, ekran dışına taşmanın ölçülmesi, MoonScript betikleri,
-DependencyControl. Ayrıntı: [docs/YOL_HARITASI.md](docs/YOL_HARITASI.md).
+Ses bölmesinde karaoke zamanlama kipi (hece bölme, \\k), çeviri taslağı için makine çevirisi (terim sözlüğüyle),
+yazım denetimi penceresi (tek tek gez), PGS/VobSub OCR, Whisper ile mevcut satırları sözcük düzeyinde hizalama,
+derinlik tabanlı örtme, ekran dışına taşmanın ölçülmesi, MoonScript betikleri, DependencyControl.
+Ayrıntı: [docs/YOL_HARITASI.md](docs/YOL_HARITASI.md).
 
 ## Çalıştırma
 
@@ -55,8 +72,9 @@ Kurulum adımları (sıfırdan, Windows): [KURULUM.md](KURULUM.md)
 
 ```
 python -m osisub                     # arayüz
-python -m osisub dosya.ass           # dosyayla aç
+python -m osisub dosya.ass           # dosyayla aç (.srt .vtt .dfxp .ttml .sbv .sub da açılır)
 python -m osisub doctor              # ortam denetimi
+python -m osisub aligncompare kaynak_en.srt aday_tr.ass --marked qc.ass --only-flags
 python -m unittest discover -s tests -t .
 ```
 
@@ -66,20 +84,28 @@ python -m unittest discover -s tests -t .
 osisub/
   paths.py diag.py  paketli/kaynak yol çözümü · günlük ve çökme raporu
   core/          asstime, assfile (bayt korumalı model), textutil (CPL/CPS), undo, framemap,
-                 timing (son işlemci), formats (SRT/VTT), transfer (referanstan aktarma), tags (etiket okuma/yazma),
-                 qc (denetim kuralları), spell (yazım denetimi), glossary (terim sözlüğü), asr (Whisper), sync (bsync),
+                 timing (son işlemci), formats (SRT/VTT/SBV/MicroDVD/metin), ttml (TTML/DFXP), transfer (referanstan
+                 aktarma), tags (etiket okuma/yazma), qc (denetim kuralları), spell (yazım denetimi), glossary (terim
+                 sözlüğü), asr (Whisper), sync (bsync + referansa göre senkron), compare (aligncompare),
+                 setools (Subtitle Edit araçları), multireplace (çoklu değiştir), aegisub_tools (satır seç, yeniden
+                 örnekleme, satır işlemleri, anahtar kareler), fonts (yazı tipi toplayıcı, sfnt okuyucu),
                  motion (hareket izi, .assmotiontrack, AE verisi, satıra uygulama)
   media/         probe, frameindex, audio (Peaks, Spectrogram), frames (FrameGrabber), scenes, vad, tracker (OpenCV izleme), occlude (örtme),
-                 batch (toplu izleme), render_qc (libass ile görünürlük), colormask (hairtrack), cache
+                 batch (toplu izleme), render_qc (libass ile görünürlük), colormask (hairtrack), cache,
+                 export (gömülü altyazı çıkarma, hardsub, MKV gömme)
   automation/    runtime (LuaScript, ScriptManager), host, regex_bridge, textmetrics
     lua/         osisub_prelude.lua (aegisub tablosu + subs), osisub_karaoke.lua
       include/   Aegisub include dosyaları + aegisub/*.lua uygulamalarımız
       autoload/  Aegisub ile gelen betikler
-  ui/            mainwindow, context, grid, editbox, widgets, dialogs, panels, video, audio, media_ctl,
+  ui/            mainwindow (+ mw_features), context, grid, editbox, widgets, dialogs, panels, video, audio, media_ctl,
                  framestrip, reference, timing_dialog, visual, qc_panel, spell_ui, glossary_panel, asr_dialog,
-                 motion_panel,
+                 motion_panel, compare_panel, tools_dialogs, multireplace_dialog, aegisub_dialogs, media_export,
+                 batch_convert, palette (komut paleti), prefs (Ayarlar + kısayollar),
                  automation_ui (GuiHost, LuaDialog, ilerleme), theme, app
-tests/           test_core, test_automation, test_ui, test_media, test_video_ui, test_timing_transfer, test_tags, test_visual, test_qc_spell, test_glossary_speech, test_motion, test_release, test_colormask, test_sync, lua/, fixtures/
+tests/           test_core, test_automation, test_ui, test_media, test_video_ui, test_timing_transfer, test_tags, test_visual,
+                 test_qc_spell, test_glossary_speech, test_motion, test_release, test_colormask, test_sync, test_compare,
+                 test_setools, test_tools_ui, test_multireplace, test_formats_ext, test_aegisub_tools, test_media_export,
+                 test_ux, test_perf, test_occlude_tolerance, lua/, fixtures/
 tools/bundle.py  tüm kodu tek .txt'ye paketler / geri açar
 packaging/       osisub.spec (PyInstaller), launcher.py, osisub.iss (Inno Setup); BUILD_EXE.bat çalıştırır
 ```
