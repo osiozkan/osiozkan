@@ -1,0 +1,5 @@
+# Bayt koruması: bu dosyalar git tarafından satır sonu dönüştürmesine uğramasın
+# (.bat/.iss CRLF olmalı; test fikstürü .ass dosyaları BOM + CRLF ile bayt bayt sınanıyor).
+*.ass -text
+*.bat -text
+*.iss -text
