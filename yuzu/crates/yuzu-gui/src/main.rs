@@ -1,5 +1,6 @@
 mod app;
 mod luadialog;
+mod media;
 mod preview;
 mod settings;
 mod worker;
@@ -10,5 +11,5 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1380.0, 860.0]).with_title("Yuzu"),
         ..Default::default()
     };
-    eframe::run_native("Yuzu", opts, Box::new(move |cc| Ok(Box::new(app::App::new(cc, args.first().cloned())))))
+    eframe::run_native("Yuzu", opts, Box::new(move |cc| Ok(Box::new(app::App::new(cc, args.iter().find(|a| !a.starts_with("--") ).cloned(), args.iter().position(|a| a == "--video").and_then(|i| args.get(i + 1).cloned()))))))
 }

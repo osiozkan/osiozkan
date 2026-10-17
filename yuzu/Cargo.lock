@@ -3654,6 +3654,7 @@ dependencies = [
  "egui_extras",
  "rfd",
  "yuzu-lua",
+ "yuzu-media",
 ]
 
 [[package]]
@@ -3666,6 +3667,10 @@ dependencies = [
  "regex",
  "ttf-parser",
 ]
+
+[[package]]
+name = "yuzu-media"
+version = "0.1.0"
 
 [[package]]
 name = "zbus"

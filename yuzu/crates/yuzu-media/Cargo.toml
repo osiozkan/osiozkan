@@ -1,0 +1,6 @@
+[package]
+name = "yuzu-media"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -1,6 +1,7 @@
 use crate::luadialog::{self, LuaDialogState};
 use crate::settings::Settings;
 use crate::worker::{self, Cmd, Msg, ScriptInfo, Worker};
+use crate::media::{self, Drag, LineSpan, MediaMsg, MediaState};
 use crate::preview;
 use asscore::{ass, ops, subrip, tags, time, Event, Script, Style};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, RichText};
@@ -72,6 +73,10 @@ pub struct App {
     show_text_stripped: bool,
     ctx: egui::Context,
     quit_confirm: bool,
+    media: MediaState,
+    wave_drag: Option<Drag>,
+    last_active_seen: usize,
+    wave_height: f32,
 }
 
 fn fps_of(s: &Settings) -> time::Fps { time::Fps { num: s.fps.0, den: s.fps.1 } }
@@ -103,7 +108,7 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<String>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<String>, video: Option<String>) -> App {
         let settings = Settings::load();
         setup_fonts(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(if settings.dark { egui::Visuals::dark() } else { egui::Visuals::light() });
@@ -153,10 +158,15 @@ impl App {
             show_text_stripped: false,
             ctx: cc.egui_ctx.clone(),
             quit_confirm: false,
+            media: MediaState::new(cc.egui_ctx.clone()),
+            wave_drag: None,
+            last_active_seen: usize::MAX,
+            wave_height: 150.0,
         };
         app.doc.events.push(Event::new(0, 2000, "Default", ""));
         app.reload_scripts();
         if let Some(f) = file { app.open_path(PathBuf::from(f)); }
+        if let Some(v) = video { app.media.open(PathBuf::from(v)); }
         app
     }
 
@@ -452,6 +462,7 @@ impl eframe::App for App {
         let title = format!("{}{} — Yuzu", self.path.as_ref().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled".into()), if self.dirty { " *" } else { "" });
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
+        self.media_tick(ctx);
         self.menu_bar(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -470,12 +481,22 @@ impl eframe::App for App {
                 });
             });
         });
-        egui::TopBottomPanel::bottom("editor").resizable(true).min_height(190.0).default_height(250.0).show(ctx, |ui| self.editor_panel(ui));
+        egui::TopBottomPanel::bottom("editor").resizable(true).min_height(190.0).default_height(240.0).show(ctx, |ui| self.editor_panel(ui));
+        if self.media.video.is_some() || self.media.audio.is_some() {
+            egui::TopBottomPanel::bottom("wave").resizable(true).min_height(90.0).default_height(self.wave_height).show(ctx, |ui| {
+                self.wave_height = ui.available_height();
+                self.wave_panel(ui);
+            });
+        }
         if self.show_preview {
             egui::SidePanel::right("preview").resizable(true).default_width(420.0).min_width(260.0).show(ctx, |ui| {
-                ui.heading("Preview");
-                let sz = egui::Vec2::new(ui.available_width(), (ui.available_height() - 6.0).min(ui.available_width() * 0.75));
-                preview::show(ui, &self.doc, self.doc.events.get(self.active), sz);
+                if self.media.info.as_ref().map(|i| i.has_video).unwrap_or(false) {
+                    self.video_panel(ui);
+                } else {
+                    ui.heading("Preview");
+                    let sz = egui::Vec2::new(ui.available_width(), (ui.available_height() - 6.0).min(ui.available_width() * 0.75));
+                    preview::show(ui, &self.doc, self.doc.events.get(self.active), sz);
+                }
                 ui.separator();
                 self.info_box(ui);
             });
@@ -525,6 +546,15 @@ impl App {
             if n >= self.doc.events.len() { self.insert_after_active(); } else { self.select_only(n); self.scroll_to = Some(n); }
         }
         if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::D))) { self.duplicate_selected(); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::NONE, Key::F1))) { self.set_line_time_from_pos(true); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::NONE, Key::F2))) { self.set_line_time_from_pos(false); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::NONE, Key::F3))) { self.play_active_line(0, 0); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::NONE, Key::F4))) { self.play_active_line(-500, 500); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Space))) { self.toggle_play(); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND | Modifiers::SHIFT, Key::ArrowRight))) { self.seek_rel(1000); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND | Modifiers::SHIFT, Key::ArrowLeft))) { self.seek_rel(-1000); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::ArrowRight))) { self.step_frame(1); }
+        if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::ArrowLeft))) { self.step_frame(-1); }
     }
 
     fn menu_bar(&mut self, ctx: &egui::Context) {
@@ -649,6 +679,38 @@ impl App {
                         if let Some(d) = rfd::FileDialog::new().pick_folder() { self.settings.script_dirs.push(d); self.settings.save(); self.reload_scripts(); }
                     }
                     if ui.button("Console").clicked() { ui.close(); self.toggle(Panel::Console); }
+                });
+                ui.menu_button("Video", |ui| {
+                    if ui.button("Open video…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Video / audio", &["mkv", "mp4", "avi", "webm", "m2ts", "ts", "mov", "m4v", "flv", "mka", "mp3", "aac", "flac", "wav", "ogg", "opus", "m4a"]).pick_file() { self.media.open(p); }
+                    }
+                    if ui.button("Open audio only…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().pick_file() { self.media.audio = Some(p.clone()); self.media.load_peaks(p); }
+                    }
+                    if ui.add_enabled(self.media.video.is_some() || self.media.audio.is_some(), egui::Button::new("Close media")).clicked() { ui.close(); self.media.close(); }
+                    ui.separator();
+                    if ui.button("Set line start from video  F1").clicked() { ui.close(); self.set_line_time_from_pos(true); }
+                    if ui.button("Set line end from video  F2").clicked() { ui.close(); self.set_line_time_from_pos(false); }
+                    if ui.button("Play line  F3").clicked() { ui.close(); self.play_active_line(0, 0); }
+                    if ui.button("Play last 500 ms + 500 ms after end  F4").clicked() { ui.close(); self.play_active_line(-500, 500); }
+                    if ui.button("Play / pause  Ctrl+Space").clicked() { ui.close(); self.toggle_play(); }
+                    ui.separator();
+                    if ui.button("Go to line start").clicked() { ui.close(); self.goto_ms(self.doc.events.get(self.active).map(|e| e.start).unwrap_or(0)); }
+                    if ui.button("Go to line end").clicked() { ui.close(); self.goto_ms(self.doc.events.get(self.active).map(|e| e.end).unwrap_or(0)); }
+                    ui.separator();
+                    ui.checkbox(&mut self.media.snap_keyframes, "Snap waveform drags to keyframes");
+                    ui.checkbox(&mut self.media.follow, "Follow active line");
+                    if ui.button("Snap selected to keyframes (±300 ms)").clicked() {
+                        ui.close();
+                        self.push_undo();
+                        let kf = self.media.keyframes.clone();
+                        let pp = ops::PostProc { lead_in: 0, lead_out: 0, keyframe_snap_before: 300, keyframe_snap_after: 300, ..Default::default() };
+                        let idx = self.sel_vec();
+                        ops::post_process(&mut self.doc, &idx, &pp, &kf);
+                        self.buf_key = (usize::MAX, 0, 0);
+                    }
                 });
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.show_preview, "Preview panel");
@@ -1109,5 +1171,171 @@ impl App {
             self.push_undo();
             ops::resample(&mut self.doc, self.resample_xy.0, self.resample_xy.1);
         }
+    }
+}
+
+// ---------------------------------------------------------------- media integration
+impl App {
+    fn fps(&self) -> time::Fps { fps_of(&self.settings) }
+
+    fn goto_ms(&mut self, ms: i64) {
+        self.media.pos_ms = ms.max(0);
+        self.media.stop();
+    }
+
+    fn step_frame(&mut self, n: i64) {
+        let f = self.fps();
+        let cur = f.frame_from_ms(self.media.pos_ms);
+        self.media.stop();
+        self.media.pos_ms = f.start_ms((cur + n).max(0));
+    }
+
+    fn seek_rel(&mut self, d: i64) {
+        self.media.stop();
+        self.media.pos_ms = (self.media.pos_ms + d).max(0);
+    }
+
+    fn toggle_play(&mut self) {
+        if self.media.playing { self.media.stop(); return; }
+        let ass = self.ass_from(self.media.pos_ms, None);
+        self.media.play(ass, None, 800);
+    }
+
+    fn play_active_line(&mut self, pre: i64, post: i64) {
+        let Some(e) = self.doc.events.get(self.active).cloned() else { return };
+        let (start, end) = if pre < 0 { ((e.end + pre).max(e.start.min(e.end)), e.end + post) } else { (e.start, e.end + post) };
+        self.media.stop();
+        self.media.pos_ms = start.max(0);
+        let ass = self.ass_from(start, None);
+        self.media.play(ass, Some(end), 800);
+    }
+
+    fn set_line_time_from_pos(&mut self, start: bool) {
+        if self.active >= self.doc.events.len() { return; }
+        self.begin_edit(0);
+        let t = self.media.pos_ms;
+        let sel = self.sel_vec();
+        for k in sel {
+            if start { self.doc.events[k].start = t; } else { self.doc.events[k].end = t; }
+        }
+        self.buf_key = (usize::MAX, 0, 0);
+    }
+
+    /// Mini ASS covering events overlapping [t, ∞), shifted so that `t` is time 0 (ffmpeg resets timestamps after -ss).
+    fn ass_from(&self, t: i64, only_at: Option<i64>) -> Option<String> {
+        let mut sc = Script::default();
+        sc.info = self.doc.info.clone();
+        sc.styles = self.doc.styles.clone();
+        for e in self.doc.events.iter().filter(|e| !e.comment && e.end > t) {
+            if let Some(at) = only_at { if e.start > at { continue; } }
+            let mut e = e.clone();
+            e.start = (e.start - t).max(-3_600_000);
+            e.end -= t;
+            // negative starts are not representable in ASS: clamp and keep effect timing by leaving as 0
+            if e.start < 0 { e.start = 0; }
+            sc.events.push(e);
+        }
+        Some(ass::write(&sc))
+    }
+
+    fn media_tick(&mut self, ctx: &egui::Context) {
+        for m in self.media.poll(ctx) {
+            if let MediaMsg::Info(Ok(i)) = m {
+                if i.fps_num > 0 { self.settings.fps = (i.fps_num, i.fps_den); self.settings.save(); }
+                if self.doc.info_get("PlayResX").is_none() && i.width > 0 {
+                    self.doc.info_set("PlayResX", &i.width.to_string());
+                    self.doc.info_set("PlayResY", &i.height.to_string());
+                }
+                self.last_status = format!("Video: {}×{} @ {:.3} fps, {:.1}s", i.width, i.height, i.fps_num as f64 / i.fps_den as f64, i.duration_ms as f64 / 1000.0);
+            }
+        }
+        // follow active line
+        if self.last_active_seen != self.active {
+            self.last_active_seen = self.active;
+            if self.media.follow && (self.media.video.is_some() || self.media.audio.is_some()) {
+                if let Some(e) = self.doc.events.get(self.active) {
+                    if !self.media.playing { self.media.pos_ms = e.start; }
+                    let w = 900.0 * self.media.ms_per_px;
+                    if (e.start as f64) < self.media.view_start || (e.end as f64) > self.media.view_start + w { self.media.view_start = e.start as f64 - w * 0.2; }
+                }
+            }
+        }
+        // refresh still frame when position or visible subtitle content changes
+        if self.media.info.as_ref().map(|i| i.has_video).unwrap_or(false) && !self.media.playing {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            self.media.pos_ms.hash(&mut h);
+            for e in self.doc.events.iter().filter(|e| !e.comment && e.start <= self.media.pos_ms + 1 && e.end > self.media.pos_ms) {
+                (e.start, e.end, &e.text, &e.style, e.layer, e.margin_l, e.margin_r, e.margin_v).hash(&mut h);
+            }
+            for s in &self.doc.styles { ass::style_line(s).hash(&mut h); }
+            self.doc.info.hash(&mut h);
+            let key = h.finish();
+            if key != self.media.last_render_key && !self.media.pending {
+                self.media.last_render_key = key;
+                let ass = self.ass_from(self.media.pos_ms, Some(self.media.pos_ms));
+                self.media.request_frame(ass, 960);
+            }
+        }
+        if self.media.playing { ctx.request_repaint(); }
+    }
+
+    fn video_panel(&mut self, ui: &mut egui::Ui) {
+        let fps = self.fps();
+        let avail = ui.available_width();
+        if let Some(t) = &self.media.texture {
+            let sz = t.size_vec2();
+            let h = avail * sz.y / sz.x;
+            let max_h = (ui.available_height() - 90.0).max(120.0);
+            let (w, h) = if h > max_h { (max_h * sz.x / sz.y, max_h) } else { (avail, h) };
+            ui.image((t.id(), egui::Vec2::new(w, h)));
+        } else {
+            ui.label(if self.media.pending { "Rendering frame…" } else { "No frame" });
+        }
+        if let Some(e) = &self.media.error { ui.colored_label(Color32::from_rgb(255, 120, 120), e); }
+        let dur = self.media.duration().max(1);
+        ui.horizontal(|ui| {
+            if ui.button("⏮").on_hover_text("Previous frame (Ctrl+←)").clicked() { self.step_frame(-1); }
+            if ui.button(if self.media.playing { "⏸" } else { "▶" }).on_hover_text("Play / pause (Ctrl+Space)").clicked() { self.toggle_play(); }
+            if ui.button("⏭").on_hover_text("Next frame (Ctrl+→)").clicked() { self.step_frame(1); }
+            ui.label(format!("{}  ·  frame {}", time::format_ass(self.media.pos_ms), fps.frame_from_ms(self.media.pos_ms)));
+        });
+        let mut pos = self.media.pos_ms as f64;
+        ui.spacing_mut().slider_width = (avail - 20.0).max(100.0);
+        if ui.add(egui::Slider::new(&mut pos, 0.0..=dur as f64).show_value(false)).changed() {
+            self.media.stop();
+            self.media.pos_ms = pos as i64;
+        }
+    }
+
+    fn wave_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.small_button("Start=⏱ F1").on_hover_text("Set line start to the playhead").clicked() { self.set_line_time_from_pos(true); }
+            if ui.small_button("End=⏱ F2").on_hover_text("Set line end to the playhead").clicked() { self.set_line_time_from_pos(false); }
+            if ui.small_button("▶ line F3").clicked() { self.play_active_line(0, 0); }
+            if ui.small_button("▶ end F4").clicked() { self.play_active_line(-500, 500); }
+            if ui.small_button("Stop").clicked() { self.media.stop(); }
+            ui.separator();
+            ui.label("Zoom");
+            let mut z = (self.media.ms_per_px).ln();
+            if ui.add(egui::Slider::new(&mut z, 0.5_f64.ln()..=400.0_f64.ln()).show_value(false)).changed() { self.media.ms_per_px = z.exp(); }
+            if self.media.peaks_loading { ui.spinner(); ui.label("decoding audio…"); }
+            if !yuzu_media::ffmpeg_available() { ui.colored_label(Color32::from_rgb(255, 160, 80), "ffmpeg/ffprobe not found in PATH"); }
+        });
+        let spans: Vec<(i64, i64, String, bool, bool)> = {
+            let (a, b) = (self.media.view_start as i64 - 10_000, (self.media.view_start + (ui.available_width() as f64 * self.media.ms_per_px)) as i64 + 10_000);
+            self.doc.events.iter().enumerate().filter(|(_, e)| e.end >= a && e.start <= b).map(|(i, e)| (e.start, e.end, tags::display_text(&e.text).replace('\n', " "), i == self.active, self.selection.contains(&i))).collect()
+        };
+        let spans_ref: Vec<LineSpan> = spans.iter().map(|(s, e, l, a, sel)| LineSpan { start: *s, end: *e, label: l, active: *a, selected: *sel }).collect();
+        let h = ui.available_height().max(60.0);
+        let mut drag = self.wave_drag;
+        let ev = media::waveform(ui, &mut self.media, &spans_ref, h, &mut drag);
+        self.wave_drag = drag;
+        let i = self.active;
+        if ev.drag_begin { self.last_edit_key = 0; self.begin_edit(8_000_000 + i as u64); }
+        if let Some(t) = ev.set_start { if i < self.doc.events.len() { if !ev.drag_begin && self.wave_drag.is_none() { self.begin_edit(0); } self.doc.events[i].start = t; self.buf_key = (usize::MAX, 0, 0); } }
+        if let Some(t) = ev.set_end { if i < self.doc.events.len() { if self.wave_drag.is_none() { self.begin_edit(0); } self.doc.events[i].end = t; self.buf_key = (usize::MAX, 0, 0); } }
+        if let Some(t) = ev.seek { self.media.stop(); self.media.pos_ms = t; }
+        if ev.drag_end { self.last_edit_key = 0; }
     }
 }
