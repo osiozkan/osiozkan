@@ -80,13 +80,19 @@ local function parse_syllables(line)
       local rest = block:sub(1, ks - 1) .. block:sub(ke + 1)
       local fx = rest:match("\\%-([%w_]+)")
       rest = rest:gsub("\\%-[%w_]+", "")
+      local carry = ""
       if cur == nil and #pre > 0 then
-        -- text before first \k becomes a zero-duration syllable
-        kara.n = kara.n + 1
-        kara[kara.n] = { i = kara.n, tag = "k", duration = 0, text = pre, inline_fx = "" }
+        if (pre:gsub("%b{}", "")) == "" then
+          -- only override tags before the first \k: they travel with the first syllable
+          carry = pre
+        else
+          -- visible text before first \k becomes a zero-duration syllable
+          kara.n = kara.n + 1
+          kara[kara.n] = { i = kara.n, tag = "k", duration = 0, text = pre, inline_fx = "" }
+        end
         pre = ""
       end
-      newsyl(ktag, kdur, rest ~= "" and ("{" .. rest .. "}") or "")
+      newsyl(ktag, kdur, carry .. (rest ~= "" and ("{" .. rest .. "}") or ""))
       if fx then cur.inline_fx = fx end
     else
       if cur then cur.text = cur.text .. "{" .. block .. "}" else pre = pre .. "{" .. block .. "}" end
@@ -104,6 +110,9 @@ local function parse_syllables(line)
   local t = 0
   for i = 1, kara.n do
     local s = kara[i]
+    -- furigana: "base#furi1|furi2" (a leading "<" on a furigana part is ignored)
+    local base, furi = s.text:match("^(.-)#(.*)$")
+    if base then s.text = base; s.furi_text = furi end
     s.start_time = t
     t = t + s.duration
     s.end_time = t
@@ -127,6 +136,38 @@ function karaskel.preproc_line_text(meta, styles, line)
   line.text_stripped = line.text:gsub("%b{}", "")
   line.duration = line.end_time - line.start_time
   line.kara = parse_syllables(line)
+  -- furigana syllables: split evenly over the base syllable's duration
+  line.furi = { n = 0 }
+  for i = 1, line.kara.n do
+    local s = line.kara[i]
+    if s.furi_text and s.furi_text ~= "" then
+      s.furi = { n = 0 }
+      local parts = {}
+      for part in (s.furi_text .. "|"):gmatch("(.-)|") do
+        part = part:gsub("^<", "")
+        if part ~= "" then parts[#parts + 1] = part end
+      end
+      for k, part in ipairs(parts) do
+        local f = { isfuri = true, syl = s, inline_fx = s.inline_fx, text = part }
+        f.start_time = s.start_time + math.floor((k - 1) * s.duration / #parts)
+        f.end_time = s.start_time + math.floor(k * s.duration / #parts)
+        f.duration = f.end_time - f.start_time
+        f.kdur = f.duration / 10
+        f.text_stripped = part:gsub("%b{}", "")
+        f.text_spacestripped = f.text_stripped:gsub("^%s+", ""):gsub("%s+$", "")
+        line.furi.n = line.furi.n + 1
+        f.i = line.furi.n
+        line.furi[f.i] = f
+        s.furi.n = s.furi.n + 1
+        s.furi[s.furi.n] = f
+      end
+    end
+  end
+  if line.furi.n > 0 then
+    local t = {}
+    for i = 1, line.kara.n do t[#t + 1] = line.kara[i].text_stripped end
+    line.text_stripped = table.concat(t)
+  end
   -- strip karaoke-related whitespace into per-syllable info is done in parse_syllables
 end
 
@@ -204,6 +245,32 @@ function karaskel.preproc_line_pos(meta, styles, line)
     s.right = s.left + s.width
     s.top, s.middle, s.bottom = line.top, line.middle, line.bottom
     x = s.right + s.postspace
+  end
+
+  -- furigana: laid out centred above their base syllable, in the "<style>-furigana" style
+  if line.furi and line.furi.n > 0 then
+    local fstyle = style.furistyle or styles[style.name .. "-furigana"]
+    for i = 1, line.kara.n do
+      local s = line.kara[i]
+      if s.furi then
+        local total = 0
+        for _, f in ipairs(s.furi) do
+          f.width, f.height, f.descent, f.extlead = ext(fstyle or style, f.text_spacestripped)
+          total = total + f.width
+        end
+        local fx0 = s.center - total / 2
+        for _, f in ipairs(s.furi) do
+          f.left = fx0
+          f.center = f.left + f.width / 2
+          f.right = f.left + f.width
+          fx0 = f.right
+          f.bottom = line.top
+          f.top = f.bottom - f.height
+          f.middle = f.top + f.height / 2
+          f.prespace, f.postspace = 0, 0
+        end
+      end
+    end
   end
 end
 

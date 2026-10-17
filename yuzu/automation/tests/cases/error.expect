@@ -1,0 +1,2 @@
+# runtime errors in templates must fail loudly
+fails: nosuchfunction

@@ -58,3 +58,8 @@ __yuzu_clip_set = Y.clip_set
 __yuzu_fs = Y.fs
 
 unicode = nil
+
+-- Aegisub's include("name.lua") loads a library from the automation include path
+function include(name)
+  return require((name:gsub("%.lua$", "")))
+end

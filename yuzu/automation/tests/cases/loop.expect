@@ -1,0 +1,8 @@
+# loop N / repeat N produce N lines per syllable (j, maxj); fx limits a template to \-name syllables
+total: 8
+has: Dialogue: 0,0:00:00.50,0:00:02.50,Default,,0,0,0,fx,{\pos(100,50)\frz10\alpha&H31&\t(100,150,\bord1)}a
+has: Dialogue: 0,0:00:00.50,0:00:02.50,Default,,0,0,0,fx,{\pos(100,50)\frz30\alpha&H33&\t(300,350,\bord3)}a
+count: 6 ^Dialogue:.*\\frz[0-9]+\\alpha
+has: Dialogue: 0,0:00:00.50,0:00:02.50,Default,,0,0,0,fx,{\spark1/2}b
+has: Dialogue: 0,0:00:00.50,0:00:02.50,Default,,0,0,0,fx,{\spark2/2}b
+count: 2 ^Dialogue:.*\\spark

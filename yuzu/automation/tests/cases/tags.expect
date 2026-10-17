@@ -1,0 +1,6 @@
+# keeptags keeps the syllable's own override tags, notext drops the text, \-name is removed
+total: 4
+has: Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,{\pos(100,50)}{\i1}ab
+re: ^Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,\{\\pos\([0-9.]+,50\)\}cd$
+count: 2 ,fx,\{\\blur2\}$
+none: ^Dialogue:.*\\-n

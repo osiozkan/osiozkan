@@ -1,0 +1,12 @@
+# Lua state shared between code once / line / syl and templates; fxgroup; if / unless
+total: 7
+has: Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,{\1c&H0000FF&\t(0,100,\fscx120)}[odd 0:00:01.00]a
+has: Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,{\1c&H0000FF&\t(0,100,\fscx120)}[odd 0:00:01.00]d
+has: Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,{\1c&H00FF00&\t(0,100,\fscx120)}[odd 0:00:01.00]b
+has: Dialogue: 5,0:00:01.00,0:00:02.00,Default,,0,0,0,fx,{\first}a
+count: 1 ^Dialogue: 5,
+none: \[even 0:00:01
+has: Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,fx,{\1c&H0000FF&}[even 0:00:03.00]x
+has: Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,fx,{\1c&H00FF00&}[even 0:00:03.00]y
+none: \[odd 0:00:03
+idempotent
