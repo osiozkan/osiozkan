@@ -1,0 +1,11 @@
+# every retime() mode; syllables last 1s each, the line is 10.00 - 18.00
+total: 9
+has: Dialogue: 0,0:00:09.90,0:00:11.10,Default,,0,0,0,fx,{\pos(100,50)}one
+has: Dialogue: 0,0:00:10.50,0:00:11.00,Default,,0,0,0,fx,{\a}two
+has: Dialogue: 0,0:00:13.00,0:00:13.30,Default,,0,0,0,fx,{\b}three
+has: Dialogue: 0,0:00:10.00,0:00:13.00,Default,,0,0,0,fx,{\c}x
+has: Dialogue: 0,0:00:15.00,0:00:18.50,Default,,0,0,0,fx,{\d}y
+has: Dialogue: 7,0:00:09.00,0:00:10.00,Default,,0,0,0,fx,{\f}z
+has: Dialogue: 0,0:00:18.00,0:00:19.00,Default,,0,0,0,fx,{\g}w
+has: Dialogue: 0,0:00:00.10,0:00:00.20,Default,,0,0,0,fx,{\h}q
+re: ^Dialogue: 0,0:00:09.80,0:00:18.30,Default,,0,0,0,fx,\{\\fad\(800,0\)\}.*$

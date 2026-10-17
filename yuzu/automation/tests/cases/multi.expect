@@ -1,0 +1,4 @@
+# multi / mixed: all syllables of the line are combined in a single output line
+total: 2
+has: Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,{\an5}{\t(0,500,\1c&H00FFFF&)}a{\t(500,1000,\1c&H00FFFF&)}b{\t(1000,2000,\1c&H00FFFF&)}c
+has: Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,{\an5}{\fscx110}a{\fscx120}b{\fscx130}c

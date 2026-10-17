@@ -1,0 +1,7 @@
+# pre-line prefix, noblank skips the blank syllable, layer comes from the template line
+total: 5
+re: ^Dialogue: 2,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,\{\\an5\\bord2\}\{\\pos\([0-9.]+,[0-9.]+\)\\1c&H0000FF&\\t\(0,250,\\1c&H00FFFF&\)\\fad\(0,100\)\}a$
+re: ^Dialogue: 2,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,\{\\an5\\bord2\}\{\\pos\([0-9.]+,[0-9.]+\)\\1c&H0000FF&\\t\(500,1000,\\1c&H00FFFF&\)\\fad\(250,100\)\}b$
+count: 2 ^Dialogue: 2,
+count: 3 ^Dialogue: 1,.*\{\\an5\\bord2\}\{\\pos
+idempotent

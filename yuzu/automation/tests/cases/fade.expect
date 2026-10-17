@@ -1,0 +1,8 @@
+# a line template and a syl template; the original is commented out
+total: 4
+has: Comment: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,karaoke,{\k50}ka{\k50}ra{\k100}oke
+has: Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,{\fad(300,200)}karaoke
+has: Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,{\pos(100,50)\t(0,500,\1c&H00FFFF&)}ka
+re: ^Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,\{\\pos\([0-9.]+,50\)\\t\(500,1000,\\1c&H00FFFF&\)\}ra$
+re: ^Dialogue: 0,0:00:10.00,0:00:12.00,Default,,0,0,0,fx,\{\\pos\([0-9.]+,50\)\\t\(1000,2000,\\1c&H00FFFF&\)\}oke$
+idempotent
