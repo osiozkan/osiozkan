@@ -33,6 +33,18 @@ class FeaturesMixin:
         from .aegisub_dialogs import ResampleDialog
         return self._show(ResampleDialog(self.ctx, self))
 
+    def show_extract_subs(self, video: str | None = None):
+        from .media_export import ExtractDialog
+        return self._show(ExtractDialog(self, video))
+
+    def show_burn(self):
+        from .media_export import BurnDialog
+        return self._show(BurnDialog(self))
+
+    def show_mux(self):
+        from .media_export import MuxDialog
+        return self._show(MuxDialog(self))
+
     def paste_over(self, text: str | None = None):
         from .aegisub_dialogs import PasteOverDialog
         text = QApplication.clipboard().text() if text is None else text

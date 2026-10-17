@@ -47,13 +47,14 @@ class Context(QObject):
         self.undo.reset(self.doc)
         self._reset_view()
 
-    def open_document(self, path: str, fps: float | None = None):
+    def open_document(self, path: str, fps: float | None = None, remember: bool = True):
         from ..core.formats import load_any
         doc = load_any(path, fps)     # .ass dışı: yeni belge (path yok, Farklı kaydet ister); fps: MicroDVD
         self.doc = doc
         self.undo.reset(doc)
-        self.config.add_recent(os.path.abspath(path))
-        self.config.save()
+        if remember:
+            self.config.add_recent(os.path.abspath(path))
+            self.config.save()
         g = doc.garbage()
         try:
             act = int(g.get("Active Line", "0") or 0)

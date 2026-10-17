@@ -234,6 +234,12 @@ class MainWindow(FeaturesMixin, QMainWindow):
         A("kf_open", "Anahtar kare dosyası aç…", lambda: self.open_keyframes())
         A("kf_save", "Anahtar kareleri kaydet…", lambda: self.save_keyframes())
         A("kf_scenes", "Sahne değişimlerini anahtar karelere kat", self.keyframes_from_scenes)
+        A("extract_subs", "Videodaki altyazıları aç…", lambda: self.show_extract_subs(),
+          tip="MKV/MP4 içindeki ASS/SRT izini belge ya da referans olarak aç; ekli yazı tiplerini çıkar")
+        A("burn", "Videoya yak (hardsub)…", self.show_burn,
+          tip="libass ile altyazıyı videoya yak (x264/x265, CRF, anime ayarı, yazı tipleri toplanır)")
+        A("mux", "MKV'ye göm (softsub)…", self.show_mux,
+          tip="Yeniden kodlamadan MKV: video + ses + bu altyazı (dil/başlık/varsayılan) + yazı tipi ekleri")
         A("select_all", "Tüm satırları seç", self.select_all, "Ctrl+Shift+A")
         A("styles", "Stil yöneticisi…", self.show_styles, "Ctrl+Shift+Y")
         A("props", "Betik özellikleri…", self.show_props, "Ctrl+P")
@@ -318,6 +324,9 @@ class MainWindow(FeaturesMixin, QMainWindow):
         m.addAction(self.acts["batch_convert"])
         m.addAction(self.acts["fonts"])
         m.addSeparator()
+        for k in ("extract_subs", "burn", "mux"):
+            m.addAction(self.acts[k])
+        m.addSeparator()
         m.addAction(self.acts["props"])
         m.addSeparator()
         m.addAction(self.acts["exit"])
@@ -353,7 +362,8 @@ class MainWindow(FeaturesMixin, QMainWindow):
         for k in ("open_video", "close_video", None, "play_pause", "play_line", None, "prev_frame",
                   "next_frame", "prev_kf", "next_kf", "goto", None, "vid_line_start", "vid_line_end",
                   "set_start_frame", "set_end_frame", None, "follow_line", "scenes", "kf_scenes", "kf_open",
-                  "kf_save", None, "motion", None, "save_frame", "save_frame_raw"):
+                  "kf_save", None, "motion", None, "save_frame", "save_frame_raw", None, "extract_subs", "burn",
+                  "mux"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
         from .visual import TOOLS
         vm = m.addMenu("Görsel tipografi aracı")

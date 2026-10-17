@@ -37,6 +37,10 @@ DEFAULTS = {
     "tools": {},                        # Subtitle Edit araçlarının son ayarları (araç başına)
     "multi_replace": [],                # çoklu değiştir kural grupları (boş = başlangıç kuralları)
     "batch_convert": {},                # toplu dönüştürme son ayarları
+    "burn": {},                         # videoya yakma (hardsub) son ayarları
+    "mux": {},                          # MKV'ye gömme (softsub) son ayarları
+    "select_lines": {},                 # Satır seç penceresinin son ayarları
+    "paste_over": ["text"],             # Üstüne yapıştır: son seçilen alanlar
     "ttml_time": "clock",               # TTML/DFXP dışa aktarma zaman biçimi: clock | ticks
     "export_lang": "tr",                # TTML xml:lang
     "autosave_seconds": 60,             # otomatik yedek aralığı (0 = kapalı)
