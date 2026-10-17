@@ -11,6 +11,8 @@ path = "src/main.rs"
 asscore = { path = "../asscore" }
 yuzu-lua = { path = "../yuzu-lua" }
 yuzu-media = { path = "../yuzu-media" }
+yuzu-fonts = { path = "../yuzu-fonts" }
+fontdb = "0.23"
 eframe = { version = "0.33", default-features = false, features = ["glow", "x11", "wayland", "default_fonts"] }
 egui_extras = "0.33"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }

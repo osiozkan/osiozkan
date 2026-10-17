@@ -20,7 +20,7 @@ struct Snapshot {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke }
+enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke, Fonts }
 
 pub struct App {
     doc: Script,
@@ -85,6 +85,8 @@ pub struct App {
     tap_latency_ms: i64,
     encoding: String,
     bom: bool,
+    fonts_report: Vec<String>,
+    reference: Option<Script>,
     tool: Tool,
     tool_anchor: Option<egui::Pos2>,
     tool_alt_clip_inverse: bool,
@@ -188,6 +190,8 @@ impl App {
             kara_text: String::new(),
             tap: None,
             tap_latency_ms: 80,
+            fonts_report: vec![],
+            reference: None,
             encoding: "UTF-8".into(),
             bom: true,
             tool: Tool::None,
@@ -666,6 +670,13 @@ impl App {
                         }
                         ui.checkbox(&mut self.bom, "Write byte-order mark");
                     });
+                    if ui.button("Load reference / original subtitle…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+                            if let Ok(b) = std::fs::read(&p) { self.reference = Some(asscore::load_str(&p.to_string_lossy(), &asscore::encoding::decode(&b).text)); }
+                        }
+                    }
+                    if self.reference.is_some() && ui.button("Close reference").clicked() { ui.close(); self.reference = None; }
                     if ui.button("Script properties…").clicked() { ui.close(); self.open.push(Panel::Props); }
                     ui.separator();
                     if ui.button("Quit").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
@@ -706,6 +717,7 @@ impl App {
                     if ui.button("Styles manager…").clicked() { ui.close(); self.toggle(Panel::Styles); }
                     if ui.button("Quality check…").clicked() { ui.close(); self.run_qc(); self.toggle(Panel::Qc); }
                     if ui.button("Resample resolution…").clicked() { ui.close(); self.toggle(Panel::Resample); }
+                    if ui.button("Fonts collector / embed…").clicked() { ui.close(); self.toggle(Panel::Fonts); }
                     if ui.button("Karaoke editor…").clicked() { ui.close(); self.toggle(Panel::Karaoke); }
                     ui.separator();
                     if ui.button("Clean tags (selected)").clicked() {
@@ -967,6 +979,11 @@ impl App {
             ui.separator();
             if ui.button("Split").on_hover_text("Split line at cursor, dividing time proportionally").clicked() { self.split_at_cursor(); }
         });
+        if let Some(r) = &self.reference {
+            let (st, en) = (self.doc.events[i].start, self.doc.events[i].end);
+            let best = r.events.iter().filter(|e| !e.comment).max_by_key(|e| (e.end.min(en) - e.start.max(st)).max(-1));
+            if let Some(b) = best { if b.end.min(en) > b.start.max(st) { ui.horizontal(|ui| { ui.weak("Reference:"); ui.label(RichText::new(tags::display_text(&b.text).replace('\n', " ⏎ ")).italics()); }); } }
+        }
         // text box
         let id = egui::Id::new("text_edit");
         let mut text = self.doc.events[i].text.clone();
@@ -1050,6 +1067,7 @@ impl App {
                 Panel::Console => { egui::Window::new("Automation console").open(&mut open).default_width(640.0).default_height(300.0).show(ctx, |ui| self.console_ui(ui)); }
                 Panel::Post => { egui::Window::new("Timing post-processor").open(&mut open).show(ctx, |ui| self.post_ui(ui)); }
                 Panel::Resample => { egui::Window::new("Resample resolution").open(&mut open).show(ctx, |ui| self.resample_ui(ui)); }
+                Panel::Fonts => { egui::Window::new("Fonts").open(&mut open).default_width(620.0).show(ctx, |ui| self.fonts_ui(ui)); }
                 Panel::Karaoke => { egui::Window::new("Karaoke editor").open(&mut open).default_width(760.0).show(ctx, |ui| self.karaoke_ui(ui)); }
                 Panel::About => { egui::Window::new("About Yuzu").open(&mut open).show(ctx, |ui| {
                     ui.heading("Yuzu 柚子");
@@ -1593,5 +1611,69 @@ impl App {
         }
         self.buf_key = (usize::MAX, 0, 0);
         self.media.last_render_key = 0;
+    }
+}
+
+// ---------------------------------------------------------------- fonts
+impl App {
+    fn font_db(&self) -> fontdb::Database {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        let mut dirs = yuzu_fonts::user_font_dirs();
+        if let Some(d) = self.path.as_ref().and_then(|p| yuzu_fonts::script_dir(p)) { dirs.push(d); }
+        yuzu_fonts::scan_dirs(&mut db, &dirs);
+        db
+    }
+
+    fn fonts_ui(&mut self, ui: &mut egui::Ui) {
+        let uses = yuzu_fonts::used_fonts(&self.doc);
+        let db = self.font_db();
+        let located = yuzu_fonts::locate_all(&uses, &db);
+        egui::Grid::new("fontgrid").striped(true).show(ui, |ui| {
+            ui.strong("Font"); ui.strong("B/I"); ui.strong("Lines"); ui.strong("File"); ui.end_row();
+            for (u, l) in uses.iter().zip(&located) {
+                ui.label(&u.family);
+                ui.label(format!("{}{}", if u.bold { "B" } else { "" }, if u.italic { "I" } else { "" }));
+                ui.label(u.lines.to_string());
+                match &l.file {
+                    Some(f) if l.exact => { ui.label(f.path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()); }
+                    Some(f) => { ui.colored_label(Color32::from_rgb(235, 190, 80), format!("substitute: {}", f.path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default())); }
+                    None => { ui.colored_label(Color32::from_rgb(255, 90, 90), "MISSING"); }
+                }
+                ui.end_row();
+            }
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Copy fonts to folder…").clicked() {
+                if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                    let opts = yuzu_fonts::Options { dest_dir: Some(d), ..Default::default() };
+                    self.fonts_report = match yuzu_fonts::collect_located(&located, &opts) { Ok(r) => r.listing().lines().map(String::from).collect(), Err(e) => vec![e.to_string()] };
+                }
+            }
+            if ui.button("Save as .zip…").clicked() {
+                if let Some(p) = rfd::FileDialog::new().set_file_name("fonts.zip").save_file() {
+                    let opts = yuzu_fonts::Options { zip_path: Some(p), ..Default::default() };
+                    self.fonts_report = match yuzu_fonts::collect_located(&located, &opts) { Ok(r) => r.listing().lines().map(String::from).collect(), Err(e) => vec![e.to_string()] };
+                }
+            }
+            if ui.button("Embed used fonts into script").clicked() {
+                self.push_undo();
+                let mut out = vec![];
+                for l in located.iter().filter(|l| l.exact) {
+                    if let Some(f) = &l.file { match yuzu_fonts::embed(&mut self.doc, &f.path) { Ok(n) => out.push(format!("embedded {}", n)), Err(e) => out.push(format!("{}: {}", f.path.display(), e)) } }
+                }
+                self.fonts_report = out;
+            }
+        });
+        let emb = yuzu_fonts::extract_embedded(&self.doc);
+        if !emb.is_empty() {
+            ui.separator();
+            ui.label(format!("{} embedded font(s):", emb.len()));
+            let mut remove = None;
+            for (n, d) in &emb { ui.horizontal(|ui| { ui.label(format!("{} ({} KB)", n, d.len() / 1024)); if ui.small_button("remove").clicked() { remove = Some(n.clone()); } if ui.small_button("extract…").clicked() { if let Some(p) = rfd::FileDialog::new().set_file_name(n).save_file() { let _ = std::fs::write(p, d); } } }); }
+            if let Some(n) = remove { self.push_undo(); yuzu_fonts::remove_embedded(&mut self.doc, &n); }
+        }
+        for l in &self.fonts_report { ui.label(l); }
     }
 }
