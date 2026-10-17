@@ -3,6 +3,7 @@ use crate::settings::Settings;
 use crate::worker::{self, Cmd, Msg, ScriptInfo, Worker};
 use crate::media::{self, Drag, LineSpan, MediaMsg, MediaState};
 use crate::preview;
+use asscore::karaoke::{KaraLine, Split};
 use asscore::{ass, ops, subrip, tags, time, Event, Script, Style};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, RichText};
 use egui_extras::{Column, TableBuilder};
@@ -19,7 +20,7 @@ struct Snapshot {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About }
+enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke }
 
 pub struct App {
     doc: Script,
@@ -77,6 +78,18 @@ pub struct App {
     wave_drag: Option<Drag>,
     last_active_seen: usize,
     wave_height: f32,
+    kara: Option<(usize, KaraLine)>,
+    kara_markup: String,
+    kara_text: String,
+    tap: Option<TapState>,
+    tap_latency_ms: i64,
+}
+
+struct TapState {
+    line: usize,
+    started: std::time::Instant,
+    start_ms: i64,
+    taps: Vec<i64>,
 }
 
 fn fps_of(s: &Settings) -> time::Fps { time::Fps { num: s.fps.0, den: s.fps.1 } }
@@ -162,6 +175,11 @@ impl App {
             wave_drag: None,
             last_active_seen: usize::MAX,
             wave_height: 150.0,
+            kara: None,
+            kara_markup: String::new(),
+            kara_text: String::new(),
+            tap: None,
+            tap_latency_ms: 80,
         };
         app.doc.events.push(Event::new(0, 2000, "Default", ""));
         app.reload_scripts();
@@ -628,6 +646,7 @@ impl App {
                     if ui.button("Styles manager…").clicked() { ui.close(); self.toggle(Panel::Styles); }
                     if ui.button("Quality check…").clicked() { ui.close(); self.run_qc(); self.toggle(Panel::Qc); }
                     if ui.button("Resample resolution…").clicked() { ui.close(); self.toggle(Panel::Resample); }
+                    if ui.button("Karaoke editor…").clicked() { ui.close(); self.toggle(Panel::Karaoke); }
                     ui.separator();
                     if ui.button("Clean tags (selected)").clicked() {
                         ui.close();
@@ -971,6 +990,7 @@ impl App {
                 Panel::Console => { egui::Window::new("Automation console").open(&mut open).default_width(640.0).default_height(300.0).show(ctx, |ui| self.console_ui(ui)); }
                 Panel::Post => { egui::Window::new("Timing post-processor").open(&mut open).show(ctx, |ui| self.post_ui(ui)); }
                 Panel::Resample => { egui::Window::new("Resample resolution").open(&mut open).show(ctx, |ui| self.resample_ui(ui)); }
+                Panel::Karaoke => { egui::Window::new("Karaoke editor").open(&mut open).default_width(760.0).show(ctx, |ui| self.karaoke_ui(ui)); }
                 Panel::About => { egui::Window::new("About Yuzu").open(&mut open).show(ctx, |ui| {
                     ui.heading("Yuzu 柚子");
                     ui.label("Anime subtitle editor — Aegisub-compatible Lua automation, Subtitle Edit style tooling.");
@@ -1337,5 +1357,104 @@ impl App {
         if let Some(t) = ev.set_end { if i < self.doc.events.len() { if self.wave_drag.is_none() { self.begin_edit(0); } self.doc.events[i].end = t; self.buf_key = (usize::MAX, 0, 0); } }
         if let Some(t) = ev.seek { self.media.stop(); self.media.pos_ms = t; }
         if ev.drag_end { self.last_edit_key = 0; }
+    }
+}
+
+// ---------------------------------------------------------------- karaoke editor
+impl App {
+    fn karaoke_ui(&mut self, ui: &mut egui::Ui) {
+        let i = self.active;
+        if i >= self.doc.events.len() { return; }
+        // (re)load model when the active line changed externally
+        let stale = match &self.kara { Some((li, _)) => *li != i || self.kara_text != self.doc.events[i].text, None => true };
+        if stale { let k = KaraLine::from_text(&self.doc.events[i].text); self.kara_markup = k.markup(); self.kara_text = self.doc.events[i].text.clone(); self.kara = Some((i, k)); }
+        let ev = self.doc.events[i].clone();
+        let (mut model, mut changed) = (self.kara.take().unwrap().1, false);
+        ui.label(format!("Line {} · {} → {}  ({:.2}s)", i + 1, time::format_ass(ev.start), time::format_ass(ev.end), ev.duration() as f64 / 1000.0));
+        ui.horizontal(|ui| {
+            ui.label("Syllable markup ( | splits )");
+            let r = ui.add(egui::TextEdit::singleline(&mut self.kara_markup).desired_width(420.0).font(egui::TextStyle::Monospace));
+            if r.lost_focus() && self.kara_markup != model.markup() { model.apply_markup(&self.kara_markup); changed = true; }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Auto split:");
+            for (l, st) in [("char", Split::Char), ("word", Split::Word), ("romaji", Split::Romaji), ("kana", Split::Kana)] {
+                if ui.button(l).clicked() { model.resplit(st); changed = true; }
+            }
+            ui.separator();
+            ui.label("Effect:");
+            for k in ["k", "kf", "ko"] { if ui.button(format!("\\{}", k)).clicked() { model.set_kind(k); changed = true; } }
+            ui.separator();
+            if ui.button("Even").clicked() { let t = model.total_cs().max(ev.duration() / 10); model.distribute_evenly(t); changed = true; }
+            if ui.button("Fit to line").on_hover_text("Scale durations to the line's length").clicked() { model.fit_total(ev.duration() / 10); changed = true; }
+        });
+        // syllable strip
+        ui.separator();
+        egui::ScrollArea::horizontal().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let n = model.syls.len();
+                for k in 0..n {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(if model.plain(k).is_empty() { "∅".to_string() } else { model.plain(k) }).size(18.0));
+                        let mut d = model.syls[k].duration_cs;
+                        if ui.add(egui::DragValue::new(&mut d).range(0..=100000).suffix(" cs")).changed() {
+                            let delta = d - model.syls[k].duration_cs;
+                            if k + 1 < n && ui.input(|i| !i.modifiers.shift) { model.move_boundary(k, delta); } else { model.syls[k].duration_cs = d; }
+                            changed = true;
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.small_button("✂").on_hover_text("Split in half").clicked() { let c = model.plain(k).chars().count() / 2; model.split(k, c.max(1)); changed = true; }
+                            if k + 1 < n && ui.small_button("⛓").on_hover_text("Join with next").clicked() { model.join(k); changed = true; }
+                        });
+                    });
+                    ui.separator();
+                }
+            });
+        });
+        // Total + tap timing
+        let total = model.total_cs();
+        let line_cs = ev.duration() / 10;
+        ui.horizontal(|ui| {
+            let col = if total == line_cs { ui.visuals().text_color() } else { Color32::from_rgb(235, 190, 80) };
+            ui.colored_label(col, format!("Total {} cs / line {} cs", total, line_cs));
+            ui.separator();
+            ui.label("Tap latency");
+            ui.add(egui::DragValue::new(&mut self.tap_latency_ms).range(0..=400).suffix(" ms"));
+            let tapping = self.tap.is_some();
+            if !tapping {
+                if ui.button("● Tap timing").on_hover_text("Plays the line; press Space at the end of each syllable").clicked() {
+                    self.media.stop();
+                    self.media.pos_ms = ev.start;
+                    let ass = self.ass_from(ev.start, None);
+                    self.media.play(ass, Some(ev.end + 400), 640);
+                    self.tap = Some(TapState { line: i, started: std::time::Instant::now(), start_ms: ev.start, taps: vec![] });
+                }
+            } else if ui.button("■ Cancel tapping").clicked() { self.tap = None; self.media.stop(); }
+        });
+        if let Some(t) = &mut self.tap {
+            let n = model.syls.len();
+            ui.colored_label(Color32::from_rgb(255, 120, 120), format!("Tapping… {}/{} — press Space", t.taps.len(), n));
+            if ui.input(|inp| inp.key_pressed(Key::Space)) {
+                let now = t.start_ms + t.started.elapsed().as_millis() as i64 - self.tap_latency_ms;
+                t.taps.push(now.clamp(t.start_ms, ev.end + 400));
+            }
+            if t.taps.len() >= n {
+                let (start, taps) = (t.start_ms, t.taps.clone());
+                model.apply_taps(start, &taps);
+                changed = true;
+                self.tap = None;
+                self.media.stop();
+            }
+            ui.ctx().request_repaint();
+        }
+        if changed {
+            self.begin_edit(0);
+            self.doc.events[i].text = model.to_text();
+            self.kara_text = self.doc.events[i].text.clone();
+            self.kara_markup = model.markup();
+            self.run_qc();
+        }
+        self.kara = Some((i, model));
+        ui.weak("Tip: drag a syllable's duration to move the boundary with its neighbour (hold Shift to change only that syllable).");
     }
 }

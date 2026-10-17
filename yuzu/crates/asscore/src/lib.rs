@@ -1,5 +1,6 @@
 //! asscore — subtitle document model and operations for Yuzu.
 pub mod ass;
+pub mod karaoke;
 pub mod model;
 pub mod ops;
 pub mod subrip;
