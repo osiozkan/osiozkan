@@ -180,6 +180,8 @@ class MainWindow(QMainWindow):
         A("redo", "Yinele", self.ctx.do_redo, "Ctrl+Y")
         A("find", "Bul…", lambda: self.show_find(False), QKeySequence.Find)
         A("replace", "Bul ve değiştir…", lambda: self.show_find(True), "Ctrl+H")
+        A("multi_replace", "Çoklu değiştir…", self.show_multi_replace, "Ctrl+Alt+H",
+          "Kural listeleriyle toplu değiştirme (Subtitle Edit Multiple replace); Türkçe doğru harf eşleşmesi")
         A("insert_before", "Önüne satır ekle", lambda: self.insert_line(False), "Ctrl+Shift+I")
         A("insert_after", "Arkasına satır ekle", lambda: self.insert_line(True), "Ctrl+I")
         A("duplicate", "Çoğalt", self.duplicate_lines, "Ctrl+D")
@@ -285,7 +287,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.acts["exit"])
 
         m = mb.addMenu("D&üzen")
-        for k in ("undo", "redo", None, "find", "replace", None, "copy_lines", "cut_lines",
+        for k in ("undo", "redo", None, "find", "replace", "multi_replace", None, "copy_lines", "cut_lines",
                   "paste_lines", None, "select_all", "prev_line", "next_line"):
             m.addSeparator() if k is None else m.addAction(self.acts[k])
 
@@ -626,6 +628,14 @@ class MainWindow(QMainWindow):
         n = len(self.ctx.update_events(ch, "Kırmaları kaldır")) if ch else 0
         self.ctx.status.emit(f"{n} satırın kırması kaldırıldı")
         return n
+
+    def show_multi_replace(self):
+        from .multireplace_dialog import MultiReplaceDialog
+        dlg = MultiReplaceDialog(self.ctx, self)
+        if self.headless:
+            return dlg
+        dlg.exec()
+        return dlg
 
     def show_tool(self, key: str):
         from .tools_dialogs import TOOL_DIALOGS

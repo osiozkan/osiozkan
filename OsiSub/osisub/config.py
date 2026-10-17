@@ -35,6 +35,7 @@ DEFAULTS = {
     "sync": {},                         # konuşmaya göre senkron (bsync) son ayarları
     "compare": {},                      # kaynakla karşılaştır (aligncompare) son ayarları
     "tools": {},                        # Subtitle Edit araçlarının son ayarları (araç başına)
+    "multi_replace": [],                # çoklu değiştir kural grupları (boş = başlangıç kuralları)
     "autosave_seconds": 60,             # otomatik yedek aralığı (0 = kapalı)
     "app_log": "INFO",                  # logs/osisub.log ayrıntısı (DEBUG/INFO/WARNING)
     "qc_rules": [],                     # boş = varsayılan kurallar
