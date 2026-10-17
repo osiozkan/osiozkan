@@ -1,10 +1,12 @@
 //! asscore — subtitle document model and operations for Yuzu.
 pub mod ass;
+pub mod encoding;
 pub mod karaoke;
 pub mod model;
 pub mod ops;
 pub mod subrip;
 pub mod tags;
+pub mod typeset;
 pub mod time;
 
 pub use model::*;
@@ -17,15 +19,7 @@ pub fn load_str(name: &str, content: &str) -> Script {
     else { ass::parse(content) }
 }
 
-/// Decode bytes: UTF-8 (with/without BOM), UTF-16 LE/BE with BOM, fallback lossy.
+/// Decode bytes with encoding detection (UTF-8/16 BOMs, legacy code pages such as Windows-1254).
 pub fn decode_bytes(b: &[u8]) -> String {
-    if b.starts_with(&[0xFF, 0xFE]) {
-        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-        String::from_utf16_lossy(&u)
-    } else if b.starts_with(&[0xFE, 0xFF]) {
-        let u: Vec<u16> = b[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
-        String::from_utf16_lossy(&u)
-    } else {
-        String::from_utf8_lossy(b).into_owned()
-    }
+    encoding::decode(b).text
 }

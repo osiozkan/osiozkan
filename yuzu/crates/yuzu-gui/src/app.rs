@@ -83,7 +83,15 @@ pub struct App {
     kara_text: String,
     tap: Option<TapState>,
     tap_latency_ms: i64,
+    encoding: String,
+    bom: bool,
+    tool: Tool,
+    tool_anchor: Option<egui::Pos2>,
+    tool_alt_clip_inverse: bool,
 }
+
+#[derive(PartialEq, Clone, Copy)]
+enum Tool { None, Pos, Org, Rotate, Clip }
 
 struct TapState {
     line: usize,
@@ -180,6 +188,11 @@ impl App {
             kara_text: String::new(),
             tap: None,
             tap_latency_ms: 80,
+            encoding: "UTF-8".into(),
+            bom: true,
+            tool: Tool::None,
+            tool_anchor: None,
+            tool_alt_clip_inverse: false,
         };
         app.doc.events.push(Event::new(0, 2000, "Default", ""));
         app.reload_scripts();
@@ -259,7 +272,10 @@ impl App {
     fn open_path(&mut self, p: PathBuf) {
         match std::fs::read(&p) {
             Ok(b) => {
-                let txt = asscore::decode_bytes(&b);
+                let dec = asscore::encoding::decode(&b);
+                self.encoding = dec.encoding.clone();
+                self.bom = dec.had_bom || dec.encoding == "UTF-8";
+                let txt = dec.text;
                 let mut sc = asscore::load_str(&p.to_string_lossy(), &txt);
                 if sc.events.is_empty() { sc.events.push(Event::new(0, 2000, "Default", "")); }
                 self.doc = sc;
@@ -276,15 +292,53 @@ impl App {
                 self.resample_xy = (x, y);
                 self.last_status = format!("Opened {}", p.display());
                 self.run_qc();
+                self.restore_project(&p);
             }
             Err(e) => self.last_status = format!("Open failed: {}", e),
         }
     }
 
+    fn garbage_set(&mut self, key: &str, value: &str) {
+        if let Some(e) = self.doc.garbage.iter_mut().find(|(k, _)| k == key) { e.1 = value.to_string(); } else { self.doc.garbage.push((key.to_string(), value.to_string())); }
+    }
+
+    fn garbage_get(&self, key: &str) -> Option<String> {
+        self.doc.garbage.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+
+    /// Store a media path relative to the script when possible (Aegisub project garbage convention).
+    fn rel_media_path(&self, media: &std::path::Path, script: &std::path::Path) -> String {
+        script.parent().and_then(|d| media.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| media.to_string_lossy().to_string())
+    }
+
+    fn sync_garbage(&mut self, script: &std::path::Path) {
+        if let Some(v) = self.media.video.clone() { let r = self.rel_media_path(&v, script); self.garbage_set("Video File", &r); self.garbage_set("Video Position", &self.settings_frame().to_string()); }
+        if let Some(a) = self.media.audio.clone() { if self.media.video.as_ref() != Some(&a) { let r = self.rel_media_path(&a, script); self.garbage_set("Audio File", &r); } }
+        self.garbage_set("Active Line", &self.active.to_string());
+    }
+
+    fn settings_frame(&self) -> i64 { fps_of(&self.settings).frame_from_ms(self.media.pos_ms) }
+
+    fn restore_project(&mut self, script: &std::path::Path) {
+        let resolve = |s: &str| -> Option<PathBuf> {
+            let p = PathBuf::from(s);
+            let full = if p.is_absolute() { p } else { script.parent()?.join(p) };
+            full.exists().then_some(full)
+        };
+        if let Some(v) = self.garbage_get("Video File").and_then(|s| resolve(&s)) {
+            self.media.open(v);
+            if let Some(f) = self.garbage_get("Video Position").and_then(|s| s.parse::<i64>().ok()) { self.media.pos_ms = fps_of(&self.settings).start_ms(f); }
+        }
+        if let Some(a) = self.garbage_get("Audio File").and_then(|s| resolve(&s)) { self.media.audio = Some(a.clone()); self.media.load_peaks(a); }
+        if let Some(l) = self.garbage_get("Active Line").and_then(|s| s.parse::<usize>().ok()) { if l < self.doc.events.len() { self.select_only(l); self.scroll_to = Some(l); } }
+    }
+
     fn save_to(&mut self, p: PathBuf) {
         let lower = p.to_string_lossy().to_ascii_lowercase();
-        let out = if lower.ends_with(".srt") { subrip::write_srt(&self.doc) } else if lower.ends_with(".vtt") { subrip::write_vtt(&self.doc) } else { format!("\u{feff}{}", ass::write(&self.doc)) };
-        match std::fs::write(&p, out) {
+        if !lower.ends_with(".srt") && !lower.ends_with(".vtt") { self.sync_garbage(&p); }
+        let out = if lower.ends_with(".srt") { subrip::write_srt(&self.doc) } else if lower.ends_with(".vtt") { subrip::write_vtt(&self.doc) } else { ass::write(&self.doc) };
+        let bytes = asscore::encoding::encode(&out, &self.encoding, self.bom && !lower.ends_with(".vtt"));
+        match std::fs::write(&p, bytes) {
             Ok(_) => {
                 if !lower.ends_with(".srt") && !lower.ends_with(".vtt") { self.path = Some(p.clone()); self.dirty = false; }
                 self.last_status = format!("Saved {}", p.display());
@@ -495,7 +549,7 @@ impl eframe::App for App {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let d = &self.doc;
                     let (x, y) = d.res();
-                    ui.label(format!("{} lines · {}×{} · {:.3} fps · QC {}", d.events.len(), x, y, fps_of(&self.settings).as_f64(), self.qc_issues.len()));
+                    ui.label(format!("{} lines · {}×{} · {:.3} fps · {} · QC {}", d.events.len(), x, y, fps_of(&self.settings).as_f64(), self.encoding, self.qc_issues.len()));
                 });
             });
         });
@@ -606,6 +660,12 @@ impl App {
                         if let Some(p) = rfd::FileDialog::new().add_filter("WebVTT", &["vtt"]).set_file_name("subtitles.vtt").save_file() { self.save_to(p); }
                     }
                     ui.separator();
+                    ui.menu_button(format!("Save encoding: {}", self.encoding), |ui| {
+                        for (label, name) in asscore::encoding::COMMON_ENCODINGS {
+                            if ui.radio(self.encoding.eq_ignore_ascii_case(label), *name).clicked() { self.encoding = label.to_string(); ui.close(); }
+                        }
+                        ui.checkbox(&mut self.bom, "Write byte-order mark");
+                    });
                     if ui.button("Script properties…").clicked() { ui.close(); self.open.push(Panel::Props); }
                     ui.separator();
                     if ui.button("Quit").clicked() { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
@@ -1308,11 +1368,19 @@ impl App {
             let h = avail * sz.y / sz.x;
             let max_h = (ui.available_height() - 90.0).max(120.0);
             let (w, h) = if h > max_h { (max_h * sz.x / sz.y, max_h) } else { (avail, h) };
-            ui.image((t.id(), egui::Vec2::new(w, h)));
+            let img = ui.add(egui::Image::new((t.id(), egui::Vec2::new(w, h))).sense(egui::Sense::click_and_drag()));
+            self.typeset_overlay(ui, &img);
         } else {
             ui.label(if self.media.pending { "Rendering frame…" } else { "No frame" });
         }
         if let Some(e) = &self.media.error { ui.colored_label(Color32::from_rgb(255, 120, 120), e); }
+        ui.horizontal(|ui| {
+            ui.label("Tool:");
+            for (t, l, hint) in [(Tool::None, "–", "No tool"), (Tool::Pos, "Pos", "Click/drag to set \\pos"), (Tool::Org, "Org", "Set \\org"), (Tool::Rotate, "Rot", "Drag around the origin to set \\frz"), (Tool::Clip, "Clip", "Drag a rectangle to set \\clip")] {
+                ui.selectable_value(&mut self.tool, t, l).on_hover_text(hint);
+            }
+            if self.tool == Tool::Clip { ui.checkbox(&mut self.tool_alt_clip_inverse, "inverse"); }
+        });
         let dur = self.media.duration().max(1);
         ui.horizontal(|ui| {
             if ui.button("⏮").on_hover_text("Previous frame (Ctrl+←)").clicked() { self.step_frame(-1); }
@@ -1456,5 +1524,74 @@ impl App {
         }
         self.kara = Some((i, model));
         ui.weak("Tip: drag a syllable's duration to move the boundary with its neighbour (hold Shift to change only that syllable).");
+    }
+}
+
+// ---------------------------------------------------------------- visual typesetting
+impl App {
+    fn typeset_overlay(&mut self, ui: &mut egui::Ui, img: &egui::Response) {
+        use asscore::typeset as ts;
+        let rect = img.rect;
+        let (rx, ry) = self.doc.res();
+        let (rx, ry) = (rx.max(1) as f64, ry.max(1) as f64);
+        let to_script = |p: egui::Pos2| ((p.x - rect.left()) as f64 / rect.width() as f64 * rx, (p.y - rect.top()) as f64 / rect.height() as f64 * ry);
+        let to_screen = |x: f64, y: f64| egui::Pos2::new(rect.left() + (x / rx) as f32 * rect.width(), rect.top() + (y / ry) as f32 * rect.height());
+        let i = self.active;
+        let Some(ev) = self.doc.events.get(i).cloned() else { return };
+        let painter = ui.painter_at(rect);
+        let st = self.doc.style_or_default(&ev.style);
+        let an = ts::get_tag(&ev.text, "an").and_then(|a| a.trim().parse().ok()).unwrap_or(st.alignment);
+        let anchor = ts::get_pos(&ev.text).unwrap_or_else(|| ts::default_anchor(an, (rx as i32, ry as i32), if ev.margin_l > 0 { ev.margin_l } else { st.margin_l }, if ev.margin_r > 0 { ev.margin_r } else { st.margin_r }, if ev.margin_v > 0 { ev.margin_v } else { st.margin_v }));
+        if self.tool != Tool::None {
+            let a = to_screen(anchor.0, anchor.1);
+            painter.circle_stroke(a, 7.0, egui::Stroke::new(2.0, Color32::from_rgb(255, 210, 60)));
+            painter.line_segment([a - egui::Vec2::new(12.0, 0.0), a + egui::Vec2::new(12.0, 0.0)], egui::Stroke::new(1.0, Color32::from_rgb(255, 210, 60)));
+            painter.line_segment([a - egui::Vec2::new(0.0, 12.0), a + egui::Vec2::new(0.0, 12.0)], egui::Stroke::new(1.0, Color32::from_rgb(255, 210, 60)));
+            if let Some(o) = ts::get_org(&ev.text) {
+                let p = to_screen(o.0, o.1);
+                painter.circle_filled(p, 4.0, Color32::from_rgb(120, 220, 255));
+            }
+            if ui.rect_contains_pointer(rect) { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+        }
+        let Some(pp) = img.interact_pointer_pos() else {
+            if img.drag_stopped() { self.tool_anchor = None; self.last_edit_key = 0; }
+            return;
+        };
+        let (mx, my) = to_script(pp);
+        let (mut mx, mut my) = (mx.clamp(0.0, rx), my.clamp(0.0, ry));
+        if ui.input(|i| i.modifiers.shift) { if let Some(a) = self.tool_anchor { let (ax, ay) = to_script(a); if (mx - ax).abs() > (my - ay).abs() { my = ay; } else { mx = ax; } } }
+        let active_drag = img.dragged() || img.clicked() || img.drag_started();
+        if !active_drag || self.tool == Tool::None { return; }
+        if img.drag_started() || img.clicked() { self.tool_anchor = Some(pp); }
+        let sel = self.sel_vec();
+        match self.tool {
+            Tool::Pos => {
+                self.begin_edit(9_000_000 + i as u64);
+                let (dx, dy) = (mx.round() - anchor.0, my.round() - anchor.1);
+                for &k in &sel {
+                    if k == i { self.doc.events[k].text = ts::set_pos(&ev.text, mx.round(), my.round()); }
+                    else if let Some(p) = ts::get_pos(&self.doc.events[k].text) { let t = self.doc.events[k].text.clone(); self.doc.events[k].text = ts::set_pos(&t, p.0 + dx, p.1 + dy); }
+                }
+            }
+            Tool::Org => { self.begin_edit(9_100_000 + i as u64); self.doc.events[i].text = ts::set_org(&ev.text, mx.round(), my.round()); }
+            Tool::Rotate => {
+                let o = ts::get_org(&ev.text).unwrap_or(anchor);
+                let ang = -((my - o.1).atan2(mx - o.0)).to_degrees();
+                self.begin_edit(9_200_000 + i as u64);
+                self.doc.events[i].text = ts::set_frz(&ev.text, ang);
+            }
+            Tool::Clip => {
+                if let Some(a) = self.tool_anchor {
+                    let (ax, ay) = to_script(a);
+                    self.begin_edit(9_300_000 + i as u64);
+                    self.doc.events[i].text = ts::set_clip_rect(&ev.text, ax.round(), ay.round(), mx.round(), my.round(), self.tool_alt_clip_inverse);
+                    let (p0, p1) = (to_screen(ax, ay), to_screen(mx, my));
+                    painter.rect_stroke(egui::Rect::from_two_pos(p0, p1), 0.0, egui::Stroke::new(1.5, Color32::from_rgb(120, 255, 160)), egui::StrokeKind::Inside);
+                }
+            }
+            Tool::None => {}
+        }
+        self.buf_key = (usize::MAX, 0, 0);
+        self.media.last_render_key = 0;
     }
 }
