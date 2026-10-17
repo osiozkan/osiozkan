@@ -199,8 +199,10 @@ class MainWindow(QMainWindow):
         A("shift", "Zamanları kaydır…", self.show_shift, "Ctrl+Shift+H")
         A("snap_frames", "Seçili satırları kareye oturt", self.snap_to_frames)
         A("timing_pp", "Zamanlama son işlemcisi…", self.show_timing_pp, "Ctrl+Shift+T")
-        A("sync", "Konuşmaya göre senkron (bsync)…", self.show_sync, "Ctrl+Shift+B",
+        A("sync", "Konuşmaya göre senkron (bsync)…", lambda: self.show_sync("audio"), "Ctrl+Shift+B",
           "Altyazıyı ses dalgasındaki konuşmaya hizala; kayma yalnız sahne aralarında değişir")
+        A("sync_ref", "Referansa göre senkron (bsnap)…", lambda: self.show_sync("ref"), "Ctrl+Alt+B",
+          "Altyazıyı doğru zamanlı referans altyazıya (ör. resmi EN) parçalı olarak hizala")
         # --- çeviri
         A("open_ref", "Referans altyazı aç…", self.open_reference, "Ctrl+Alt+O")
         A("close_ref", "Referansı kapat", lambda: self.reference.close())
@@ -284,6 +286,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.acts["snap_frames"])
         m.addAction(self.acts["timing_pp"])
         m.addAction(self.acts["sync"])
+        m.addAction(self.acts["sync_ref"])
         m.addSeparator()
         m.addAction(self.acts["set_start_frame"])
         m.addAction(self.acts["set_end_frame"])
@@ -1046,12 +1049,20 @@ MainWindow.on_crash = _mw_on_crash
 MainWindow.open_logs = _mw_open_logs
 
 
-def _mw_show_sync(self):
-    if self.media.audio is None:
-        self.statusBar().showMessage("Konuşmaya göre senkron için önce ses açın", 6000)
+def _mw_show_sync(self, source: str | None = None):
+    has_ref, has_audio = self.reference.loaded, self.media.audio is not None
+    msg = None
+    if source == "ref" and not has_ref:
+        msg = "Referansa göre senkron için önce referans altyazıyı açın (Çeviri > Referans altyazı aç)"
+    elif source == "audio" and not has_audio:
+        msg = "Konuşmaya göre senkron için önce ses açın"
+    elif source is None and not (has_ref or has_audio):
+        msg = "Senkron için önce ses ya da referans altyazı açın"
+    if msg:
+        self.statusBar().showMessage(msg, 6000)
         return None
     from .sync_dialog import SyncDialog
-    dlg = SyncDialog(self.ctx, self.media, self)
+    dlg = SyncDialog(self.ctx, self.media, self, source=source)
     if self.headless:
         return dlg
     dlg.exec()

@@ -1,7 +1,9 @@
-"""Konuşmaya göre senkron penceresi (bsync).
+"""Parçalı senkron penceresi: konuşmaya göre (bsync) ya da referans altyazıya göre (bsnap rolü).
 
 Hesapla -> parça tablosu (satır sayısı, zaman, önerilen kayma, güven, not). İşaretli parçalar
 Uygula ile tek geri al adımında kaydırılır. Güveni düşük parçalar kırmızı ve varsayılan olarak işaretsiz.
+Kaynak "Referans altyazı" ise zaman çizgisi doğru zamanlı referansın (ör. resmi EN) diyalog kapsamıdır;
+uygulandıktan sonra belge referansla aynı eksende olduğundan referans kayması sıfırlanır.
 """
 
 from __future__ import annotations
@@ -21,13 +23,26 @@ LOW_CONF = 0.03
 
 
 class SyncDialog(QDialog):
-    def __init__(self, ctx, media, parent=None):
+    def __init__(self, ctx, media, parent=None, source: str | None = None):
         super().__init__(parent)
         self.ctx = ctx
         self.media = media
-        self.setWindowTitle("Konuşmaya göre senkron (bsync)")
         self.resize(820, 560)
         cfg = dict(ctx.config["sync"] or {})
+        self.source = QComboBox()
+        self.source.addItem("Ses (konuşma algılama)", "audio")
+        self.source.addItem("Referans altyazı (doğru zamanlı, ör. resmi EN)", "ref")
+        ref = getattr(ctx, "reference", None)
+        if source is None:
+            source = "audio" if media.audio is not None else "ref"
+        self.source.setCurrentIndex(max(0, self.source.findData(source)))
+        self.source.setItemData(1, "Belgeyi referansın zamanlamasına hizalar (bsnap)", Qt.ToolTipRole)
+        self.source.currentIndexChanged.connect(self._update_title)
+        self._update_title()
+        if ref is None or not ref.loaded:
+            self.source.model().item(1).setEnabled(False)
+        if media.audio is None:
+            self.source.model().item(0).setEnabled(False)
         self.scope = QComboBox()
         self.scope.addItems(["Tüm satırlar", "Seçili satırlar"])
         self.fine = QSpinBox()
@@ -56,6 +71,7 @@ class SyncDialog(QDialog):
         self.song.setValue(int(cfg.get("song", 45000)))
         self.song.setToolTip("Bundan uzun kesintisiz ses şarkı sayılıp bastırılır (0 = kapalı)")
         form = QFormLayout()
+        form.addRow("Zaman kaynağı", self.source)
         form.addRow("Kapsam", self.scope)
         form.addRow("İnce arama (± parça başına)", self.fine)
         form.addRow("Kaba arama (± blok başına)", self.coarse)
@@ -95,14 +111,22 @@ class SyncDialog(QDialog):
         self.error = None
         self.busy = False
         self._snap = None
+        self._total = 0
+        self._used_ref = False
         if self.ctx.selected_rows() and len(self.ctx.selected_rows()) > 1:
             self.scope.setCurrentIndex(int(cfg.get("scope", 0)) % 2)
 
+    def _update_title(self, *_):
+        self.setWindowTitle("Referansa göre senkron (bsnap)" if self.source.currentData() == "ref"
+                            else "Konuşmaya göre senkron (bsync)")
+
     def options(self) -> S.SyncOptions:
         rows = self.ctx.selected_rows() if self.scope.currentIndex() == 1 else None
+        # referans kipinde "kesintisiz uzun etkinlik = şarkı" kuralı anlamsız (yoğun diyalog birleşir)
+        song = 0 if self.source.currentData() == "ref" else self.song.value()
         return S.SyncOptions(coarse_range_ms=self.coarse.value(), fine_range_ms=self.fine.value(),
                              scene_gap_ms=self.gap.value(), oped_regex=self.oped.text() or "$^",
-                             oped_max_ms=self.song.value(), rows=rows)
+                             oped_max_ms=song, rows=rows)
 
     def _save_cfg(self):
         self.ctx.config["sync"] = {"fine": self.fine.value(), "coarse": self.coarse.value(),
@@ -111,8 +135,13 @@ class SyncDialog(QDialog):
         self.ctx.config.save()
 
     def calculate(self):
+        use_ref = self.source.currentData() == "ref"
         ad = self.media.audio
-        if ad is None:
+        ref = getattr(self.ctx, "reference", None)
+        if use_ref and (ref is None or not ref.loaded):
+            self.info.setText("Önce referans altyazıyı açın (Çeviri > Referans altyazı aç)")
+            return False
+        if not use_ref and ad is None:
             self.info.setText("Önce ses açın (Ses > Ses aç ya da videodan)")
             return False
         try:
@@ -125,7 +154,14 @@ class SyncDialog(QDialog):
         opts = self.options()
         events = list(self.ctx.doc.events)
         self._snap = events
-        pcm, rate, total = ad.pcm, ad.rate, ad.duration_ms
+        if use_ref:
+            ref_events = list(ref.events)
+            pcm, rate = None, 0
+            total = S.reference_total_ms(ref_events, events, opts.coarse_range_ms)
+        else:
+            pcm, rate, total = ad.pcm, ad.rate, ad.duration_ms
+        self._total = total
+        self._used_ref = use_ref
         self.busy = True
         self.error = None
         self.b_calc.setEnabled(False)
@@ -134,9 +170,12 @@ class SyncDialog(QDialog):
 
         def work():
             try:
-                from ..media.vad import speech_activity
                 state["p"] = 0.05
-                act = speech_activity(pcm, rate)
+                if use_ref:
+                    act = S.activity_from_reference(ref_events, total, opts.oped_regex)
+                else:
+                    from ..media.vad import speech_activity
+                    act = speech_activity(pcm, rate)
                 state["p"] = 0.4
                 self.segs, self.removed = S.plan(events, act, total, opts,
                                                  progress=lambda p: state.__setitem__("p", 0.4 + 0.6 * p))
@@ -220,12 +259,19 @@ class SyncDialog(QDialog):
             self.info.setText("Hesaplamadan sonra satırlar değişti; yeniden Hesapla")
             return None
         segs = self.chosen()
-        ad = self.media.audio
-        ch, warns = S.changes(evs, segs, ad.duration_ms if ad else 10 ** 9)
+        if self._used_ref:
+            total = 10 ** 9                       # referans kipinde üst sınır yok (yalnız 0'a kırpılır)
+        else:
+            ad = self.media.audio
+            total = ad.duration_ms if ad else 10 ** 9
+        ch, warns = S.changes(evs, segs, total)
         if not ch:
             self.info.setText("Kaydırılacak satır yok")
             return None
-        self.ctx.update_events(ch, "Konuşmaya göre senkron")
+        self.ctx.update_events(ch, "Referansa göre senkron" if self._used_ref else "Konuşmaya göre senkron")
+        ref = getattr(self.ctx, "reference", None)
+        if self._used_ref and ref is not None and ref.offset:
+            ref.set_offset(0)                     # belge artık referansın ekseninde
         self._snap = list(self.ctx.doc.events)
         self.info.setText(f"{len(ch)} satır kaydırıldı ({len(segs)} parça)" + ("; " + "; ".join(warns) if warns else ""))
         self.ctx.status.emit(self.info.text())

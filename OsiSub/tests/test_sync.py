@@ -216,5 +216,83 @@ class TestSyncDialog(unittest.TestCase):
             win.close()
 
 
+
+class TestReferenceSync(unittest.TestCase):
+    """Referansa göre senkron: doğru zamanlı referans (EN) satırlarının kapsaması konuşmanın yerine geçer."""
+
+    def ref_and_doc(self, shifts):
+        scenes, total = make_scenes(n_scenes=len(shifts), start=4000)
+        ref = [Event(start=a, end=b, text="EN line") for sc in scenes for a, b in sc]
+        # referansın tabela/OP satırları kapsamaya girmez
+        ref.append(Event(start=scenes[0][0][0], end=scenes[0][0][0] + 30000, text="{\\pos(5,5)}SIGN"))
+        ref.append(Event(start=1000, end=3500, text="la la", style="OP"))
+        doc = subs_for(scenes, shifts, lead=0, tail=0)       # belge = doğru − düzeltme
+        return scenes, ref, doc
+
+    def test_piecewise_to_reference(self):
+        shifts = [-1500, -1500, 2200, 600]
+        scenes, ref, doc = self.ref_and_doc(shifts)
+        total = S.reference_total_ms(ref, doc)
+        act = S.activity_from_reference(ref, total)
+        self.assertEqual(act[scenes[0][0][0] // 10 + 1], 1.0)
+        self.assertEqual(act[2000 // 10], 0.0)                    # OP satırı yok sayıldı
+        segs, _ = S.plan(doc, act, total, S.SyncOptions(oped_max_ms=0))
+        self.assertEqual(len(segs), 4)
+        for sg, sh in zip(segs, shifts):
+            self.assertLess(abs(sg.shift - sh), 60, (sg.shift, sh))
+        ch, warns = S.changes(doc, segs, 10 ** 9)
+        self.assertEqual(len(ch), 40)
+        self.assertEqual(warns, [])
+
+    def test_dialog_reference_source(self):
+        from PySide6.QtWidgets import QApplication
+
+        from osisub.config import Config
+        from osisub.core.assfile import AssDocument
+        from osisub.core.formats import to_srt
+        from osisub.ui.context import Context
+        from osisub.ui.mainwindow import MainWindow
+        QApplication.instance() or QApplication([])
+        shifts = [-1200, 900, 300]
+        scenes, ref, doc_ev = self.ref_and_doc(shifts)
+        d = tempfile.mkdtemp()
+        sp = os.path.join(d, "ref.srt")
+        with open(sp, "w", encoding="utf-8") as f:
+            f.write(to_srt([e for e in ref if "pos" not in e.text and e.style != "OP"]))
+        doc = AssDocument.new()
+        doc.ensure_section("events").items[:] = doc_ev
+        ass = os.path.join(d, "a.ass")
+        doc.save(ass)
+        cfg = Config(os.path.join(d, "c.json"))
+        cfg["load_aegisub_scripts"] = False
+        cfg["auto_load_media"] = False
+        ctx = Context(cfg)
+        win = MainWindow(ctx, headless=True)
+        try:
+            win.open_path(ass, force=True)
+            self.assertIsNone(win.show_sync("ref"))               # referans yok
+            self.assertIsNone(win.show_sync())                    # ne ses ne referans
+            win.open_reference(sp)
+            win.reference.set_offset(700)                         # senkrondan sonra sıfırlanmalı
+            self.assertIsNone(win.show_sync("audio"))             # ses yok
+            dlg = win.show_sync()                                 # ses yok -> kaynak referans
+            self.assertEqual(dlg.source.currentData(), "ref")
+            self.assertIn("Referansa göre", dlg.windowTitle())
+            self.assertTrue(dlg.calculate())
+            self.assertTrue(dlg.wait(60))
+            self.assertIsNone(dlg.error, dlg.error)
+            self.assertEqual(dlg.table.rowCount(), 3)
+            before = [e.start for e in ctx.doc.events]
+            ch = dlg.apply()
+            self.assertEqual(len(ch), 30)
+            after = [e.start for e in ctx.doc.events]
+            for i, sh in enumerate(shifts):
+                self.assertLess(abs((after[i * 10] - before[i * 10]) - sh), 60)
+            self.assertEqual(win.reference.offset, 0)
+            self.assertEqual(ctx.undo.undo_desc(), "Referansa göre senkron")
+        finally:
+            win.close()
+
+
 if __name__ == "__main__":
     unittest.main()

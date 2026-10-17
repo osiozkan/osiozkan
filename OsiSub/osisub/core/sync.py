@@ -1,4 +1,4 @@
-"""Konuşmaya göre senkron (bsync'in uygulama içi hali).
+"""Konuşmaya göre senkron (bsync'in uygulama içi hali) ve referans altyazıya göre senkron.
 
 Osi'nin bsync kuralları (aynen):
   * Kayma bölüm boyunca SABİT DEĞİLDİR.
@@ -18,6 +18,10 @@ Boru hattı:
      puan = çapa satırlarının konuşmayla örtüşmesi (sessizlik cezalı), kayma değişimi `change_penalty` ile
      cezalı, parçaların sırası bozulamaz (bir parça sonrakinin içine kayamaz).
   6. Güven: en iyi puan ile ≥ 300 ms uzaktaki en iyi puan farkı / çapa süresi. Çapasız parçalar komşularını izler.
+
+Referansa göre senkron (bsnap'in rolü): 1. adımdaki konuşma etkinliği yerine doğru zamanlı bir
+referans altyazının (ör. resmi EN) kapsaması kullanılır (`activity_from_reference`); geri kalan
+kurallar ve DP aynıdır. Referansın da ekran yazısı/tabela/OP-ED satırları kapsamaya girmez.
 """
 
 from __future__ import annotations
@@ -77,6 +81,20 @@ def activity_from_segments(segs, total_ms: int) -> np.ndarray:
     for s, e in segs:
         a[max(0, s // RES):max(0, min(n, e // RES))] = 1.0
     return a
+
+
+def activity_from_reference(ref_events, total_ms: int, oped_regex: str = SyncOptions.oped_regex) -> np.ndarray:
+    """Referans altyazının diyalog kapsaması (10 ms): konuşma etkinliğinin yerine geçer."""
+    rx = re.compile(oped_regex or "$^")
+    segs = [(e.start, e.end) for e in ref_events
+            if not e.comment and not is_screen_text(e) and not is_typeset(e) and not is_oped(e, rx)]
+    return activity_from_segments(segs, total_ms)
+
+
+def reference_total_ms(ref_events, events, margin_ms: int = 60000) -> int:
+    """Referans kipinde zaman ekseninin uzunluğu (kırpma için ses sonu yerine)."""
+    ends = [e.end for e in ref_events] + [e.end for e in events]
+    return (max(ends) if ends else 0) + margin_ms
 
 
 def suppress(act: np.ndarray, ranges, max_run_ms: int) -> tuple[np.ndarray, list]:
