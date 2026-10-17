@@ -9,7 +9,10 @@ Yöntem (warp-fark):
   1. Model, izin o kareye ait benzerlik dönüşümüyle çarpıtılır: tabela
      örtülmeseydi bu karede nasıl görüneceğinin tahmini.
   2. Gerçek kare ile tahmin arasındaki renk farkı (CIELAB ΔE, hafif bulanıklaştırılmış)
-     izlenen alanın içinde eşik üstündeyse orası "örtülü".
+     izlenen alanın içinde eşik üstündeyse orası "örtülü". Fark, tahminin ±`shift_tol` piksel
+     kaydırılmışlarının EN KÜÇÜĞÜdür: izin alt-piksel hatası keskin kenarlarda (tabelanın yazısı)
+     büyük ΔE üretip yanlış alarm veriyordu (temiz videoda kare 0–1 %1 "örtülü" — x264 sürümüne
+     ve alanın ±2 px yerine göre değişen sınırda bir sonuç); gerçek örten hiçbir kaydırmayla eşleşmez.
   3. Açma (kenar hizalama hatalarından gelen ince çizgileri atar), kapama, delik doldurma,
      küçük bileşenleri atma, `grow` piksel genişletme.
   4. Maske dış konturları Ramer-Douglas-Peucker ile sadeleşir -> \\iclip çizimi.
@@ -47,6 +50,7 @@ class OcclusionOptions:
     epsilon: float = 1.0         # kontur sadeleştirme (px)
     model: str = "median"        # "median" (temiz görünüm modeli) | "ref" (yalnız referans kare)
     samples: int = 31            # ortanca için en çok kare
+    shift_tol: int = 1           # fark ±bu kadar piksel kaydırmaya toleranslı (alt-piksel iz hatası)
 
 
 @dataclass
@@ -150,7 +154,7 @@ def detect(get_rgb, track, roi=None, opts: OcclusionOptions | None = None, frame
                     raise Cancelled()
             model = np.median(np.stack(stack), axis=0).astype(np.float32)
             # referans karenin kendisi örtülü müydü?
-            rd = (np.sqrt(((ref_lab - model) ** 2).sum(axis=2)) > opts.threshold).astype(np.uint8)
+            rd = (_shift_min_de(ref_lab, model, opts.shift_tol) > opts.threshold).astype(np.uint8)
             if opts.open_px:
                 rd = cv2.morphologyEx(rd, cv2.MORPH_OPEN, _disk(max(2, opts.open_px)))
             rr = float(rd.mean())
@@ -186,7 +190,7 @@ def detect(get_rgb, track, roi=None, opts: OcclusionOptions | None = None, frame
         pred = cv2.warpAffine(model, Mx, (x1 - x0, y1 - y0), flags=cv2.INTER_LINEAR,
                               borderMode=cv2.BORDER_REPLICATE)
         cur = _lab(get_rgb(k)[y0:y1, x0:x1], opts.blur)
-        d = np.sqrt(((cur - pred) ** 2).sum(axis=2))
+        d = _shift_min_de(cur, pred, opts.shift_tol)
         region = full_mask[y0:y1, x0:x1]
         if opts.edge_margin > 0:
             region = cv2.erode(region, _disk(opts.edge_margin))
@@ -216,6 +220,22 @@ def detect(get_rgb, track, roi=None, opts: OcclusionOptions | None = None, frame
         if progress:
             progress((n + 1) / len(ks), k)
     return OcclusionResult(out, ref, opts, notes)
+
+
+def _shift_min_de(cur, pred, tol: int):
+    """ΔE(cur, pred) ile ΔE(cur, pred'in ±tol piksel kaydırılmışları) arasında piksel başına en küçüğü."""
+    d = np.sqrt(((cur - pred) ** 2).sum(axis=2))
+    if tol <= 0:
+        return d
+    import cv2
+    H, W = d.shape
+    pad = cv2.copyMakeBorder(pred, tol, tol, tol, tol, cv2.BORDER_REPLICATE)
+    for dy in range(-tol, tol + 1):
+        for dx in range(-tol, tol + 1):
+            if dx or dy:
+                sh = pad[tol + dy:tol + dy + H, tol + dx:tol + dx + W]
+                np.minimum(d, np.sqrt(((cur - sh) ** 2).sum(axis=2)), out=d)
+    return d
 
 
 def _lab(rgb, blur):
