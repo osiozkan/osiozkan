@@ -20,7 +20,7 @@ struct Snapshot {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke, Fonts }
+enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke, Fonts, Fix }
 
 pub struct App {
     doc: Script,
@@ -87,6 +87,9 @@ pub struct App {
     bom: bool,
     fonts_report: Vec<String>,
     reference: Option<Script>,
+    fixes: asscore::fixes::CommonFixes,
+    fix_preview: Vec<(String, usize)>,
+    export_fmt: usize,
     tool: Tool,
     tool_anchor: Option<egui::Pos2>,
     tool_alt_clip_inverse: bool,
@@ -192,6 +195,9 @@ impl App {
             tap_latency_ms: 80,
             fonts_report: vec![],
             reference: None,
+            fixes: asscore::fixes::CommonFixes::default(),
+            fix_preview: vec![],
+            export_fmt: 0,
             encoding: "UTF-8".into(),
             bom: true,
             tool: Tool::None,
@@ -283,7 +289,7 @@ impl App {
                 self.encoding = dec.encoding.clone();
                 self.bom = dec.had_bom || dec.encoding == "UTF-8";
                 let txt = dec.text;
-                let mut sc = asscore::load_str(&p.to_string_lossy(), &txt);
+                let mut sc = asscore::formats::load_any(&p.to_string_lossy(), &txt, &asscore::formats::FormatOptions { fps: fps_of(&self.settings).as_f64(), ..Default::default() }).unwrap_or_else(|| asscore::load_str(&p.to_string_lossy(), &txt));
                 if sc.events.is_empty() { sc.events.push(Event::new(0, 2000, "Default", "")); }
                 self.doc = sc;
                 self.path = Some(p.clone());
@@ -604,7 +610,7 @@ impl App {
         if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Y))) { self.do_redo(); }
         if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::S))) { self.save(); }
         if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::O))) {
-            if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt"]).pick_file() { self.open_path(p); }
+            if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt", "sub", "sbv", "lrc", "ttml", "dfxp", "xml", "smi", "sami", "json", "csv", "txt"]).pick_file() { self.open_path(p); }
         }
         if ctx.input_mut(|i| i.consume_shortcut(&sc(Modifiers::COMMAND, Key::F))) { if !self.is_open(Panel::Find) { self.open.push(Panel::Find); } }
         if !editing {
@@ -648,7 +654,7 @@ impl App {
                     }
                     if ui.button("Open…  Ctrl+O").clicked() {
                         ui.close();
-                        if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt"]).pick_file() { self.open_path(p); }
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt", "sub", "sbv", "lrc", "ttml", "dfxp", "xml", "smi", "sami", "json", "csv", "txt"]).pick_file() { self.open_path(p); }
                     }
                     ui.menu_button("Open recent", |ui| {
                         for r in self.settings.recent.clone().into_iter().take(10) {
@@ -658,6 +664,19 @@ impl App {
                     ui.separator();
                     if ui.button("Save  Ctrl+S").clicked() { ui.close(); self.save(); }
                     if ui.button("Save as…").clicked() { ui.close(); self.save_as(); }
+                    ui.menu_button("Export as…", |ui| {
+                        for f in asscore::formats::Format::ALL {
+                            if f == asscore::formats::Format::Ass { continue; }
+                            if ui.button(f.name()).clicked() {
+                                ui.close();
+                                if let Some(p) = rfd::FileDialog::new().set_file_name(format!("subtitles.{}", f.extension())).save_file() {
+                                    let out = asscore::formats::save_any(f, &self.doc, &asscore::formats::FormatOptions { fps: fps_of(&self.settings).as_f64(), ..Default::default() });
+                                    let _ = std::fs::write(&p, asscore::encoding::encode(&out, &self.encoding, self.bom));
+                                    self.last_status = format!("Exported {}", p.display());
+                                }
+                            }
+                        }
+                    });
                     if ui.button("Export SRT…").clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("SubRip", &["srt"]).set_file_name("subtitles.srt").save_file() { self.save_to(p); }
@@ -720,6 +739,14 @@ impl App {
                     if ui.button("Styles manager…").clicked() { ui.close(); self.toggle(Panel::Styles); }
                     if ui.button("Quality check…").clicked() { ui.close(); self.run_qc(); self.toggle(Panel::Qc); }
                     if ui.button("Resample resolution…").clicked() { ui.close(); self.toggle(Panel::Resample); }
+                    if ui.button("Fix common errors…").clicked() { ui.close(); self.toggle(Panel::Fix); }
+                    if ui.button("Netflix-style quality check").clicked() {
+                        ui.close();
+                        self.qc_issues = asscore::fixes::qc_netflix(&self.doc, &asscore::fixes::NetflixConfig::default());
+                        self.qc_by_line.clear();
+                        for i in &self.qc_issues { let e = self.qc_by_line.entry(i.index).or_insert(0); *e = (*e).max(2); }
+                        if !self.is_open(Panel::Qc) { self.open.push(Panel::Qc); }
+                    }
                     if ui.button("Fonts collector / embed…").clicked() { ui.close(); self.toggle(Panel::Fonts); }
                     if ui.button("Karaoke editor…").clicked() { ui.close(); self.toggle(Panel::Karaoke); }
                     ui.separator();
@@ -1082,6 +1109,7 @@ impl App {
                 Panel::Console => { egui::Window::new("Automation console").open(&mut open).default_width(640.0).default_height(300.0).show(ctx, |ui| self.console_ui(ui)); }
                 Panel::Post => { egui::Window::new("Timing post-processor").open(&mut open).show(ctx, |ui| self.post_ui(ui)); }
                 Panel::Resample => { egui::Window::new("Resample resolution").open(&mut open).show(ctx, |ui| self.resample_ui(ui)); }
+                Panel::Fix => { egui::Window::new("Fix common errors").open(&mut open).default_width(420.0).show(ctx, |ui| self.fix_ui(ui)); }
                 Panel::Fonts => { egui::Window::new("Fonts").open(&mut open).default_width(620.0).show(ctx, |ui| self.fonts_ui(ui)); }
                 Panel::Karaoke => { egui::Window::new("Karaoke editor").open(&mut open).default_width(760.0).show(ctx, |ui| self.karaoke_ui(ui)); }
                 Panel::About => { egui::Window::new("About Yuzu").open(&mut open).show(ctx, |ui| {
@@ -1690,5 +1718,43 @@ impl App {
             if let Some(n) = remove { self.push_undo(); yuzu_fonts::remove_embedded(&mut self.doc, &n); }
         }
         for l in &self.fonts_report { ui.label(l); }
+    }
+}
+
+// ---------------------------------------------------------------- common error fixes
+impl App {
+    fn fix_ui(&mut self, ui: &mut egui::Ui) {
+        use asscore::fixes::{Lang, QuoteStyle};
+        let f = &mut self.fixes;
+        ui.horizontal(|ui| {
+            ui.label("Language");
+            for (l, n) in [(Lang::English, "English"), (Lang::Turkish, "Türkçe"), (Lang::Other, "Other")] { ui.selectable_value(&mut f.lang, l, n); }
+        });
+        egui::Grid::new("fixg").num_columns(2).show(ui, |ui| {
+            ui.checkbox(&mut f.overlaps, "Fix overlaps"); ui.checkbox(&mut f.short_durations, "Fix too-short durations"); ui.end_row();
+            ui.checkbox(&mut f.long_durations, "Fix too-long durations"); ui.checkbox(&mut f.double_spaces, "Double spaces"); ui.end_row();
+            ui.checkbox(&mut f.missing_spaces, "Missing spaces"); ui.checkbox(&mut f.unneeded_spaces, "Unneeded spaces"); ui.end_row();
+            ui.checkbox(&mut f.all_caps, "ALL CAPS → sentence case"); ui.checkbox(&mut f.i_confusion, "I / l / İ / ı confusion"); ui.end_row();
+            ui.checkbox(&mut f.dashes, "Dialogue dashes"); ui.checkbox(&mut f.ellipsis, "Ellipsis"); ui.end_row();
+            ui.checkbox(&mut f.hearing_impaired, "Remove [sound] / ♪ / NAME:"); ui.checkbox(&mut f.auto_break, "Auto-balance line breaks"); ui.end_row();
+            ui.checkbox(&mut f.merge_duplicates, "Merge duplicate lines"); ui.checkbox(&mut f.empty_lines, "Remove empty lines"); ui.end_row();
+        });
+        let mut curly = f.quotes == Some(QuoteStyle::Curly);
+        if ui.checkbox(&mut curly, "Curly quotes").changed() { f.quotes = if curly { Some(QuoteStyle::Curly) } else { None }; }
+        let scope_sel = self.selection.len() > 1;
+        ui.horizontal(|ui| {
+            if ui.button(if scope_sel { "Apply to selection" } else { "Apply to all lines" }).clicked() {
+                let sel = if scope_sel { self.sel_vec() } else { vec![] };
+                self.push_undo();
+                let fixes = self.fixes.clone();
+                let res = asscore::fixes::fix_common_errors(&mut self.doc, &sel, &fixes);
+                self.fix_preview = res.into_iter().map(|(n, c)| (n.to_string(), c.len())).filter(|(_, c)| *c > 0).collect();
+                self.clamp_sel();
+                self.run_qc();
+                self.buf_key = (usize::MAX, 0, 0);
+            }
+        });
+        for (n, c) in &self.fix_preview { ui.label(format!("{}: {} change(s)", n, c)); }
+        if self.fix_preview.is_empty() { ui.weak("Undo (Ctrl+Z) reverts the whole run."); }
     }
 }

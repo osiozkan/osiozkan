@@ -4,8 +4,8 @@ Her gece bir sonraki sürüm bu listeden ilerler. `[x]` tamamlandı.
 
 ## Çekirdek
 - [x] ASS/SSA/SRT/VTT, etiket ayrıştırıcı, karaoke bölme
-- [ ] Alt biçimler: MicroDVD, SBV, LRC, TTML, SAMI, CSV, JSON (ajan modülü)
-- [ ] Subtitle Edit "yaygın hataları düzelt" kümesi, Türkçe büyük/küçük harf
+- [x] Alt biçimler: MicroDVD, SBV, LRC, TTML, SAMI, CSV, JSON (ajan modülü)
+- [x] Subtitle Edit "yaygın hataları düzelt" kümesi, Türkçe büyük/küçük harf
 - [ ] Proje dosyası (zaman kodları, anahtar kareler, video yolu, betik ayarları)
 
 ## Aegisub eşdeğerliği
@@ -13,13 +13,13 @@ Her gece bir sonraki sürüm bu listeden ilerler. `[x]` tamamlandı.
 - [x] Dalga formu zamanlama, anahtar kare yakalama, video + libass önizleme
 - [ ] Spektrum görünümü, karaoke modu (hece bölme/zamanlama)
 - [ ] Görsel dizgi araçları (konum/döndürme/ölçek/klip sürükleme)
-- [ ] Font toplayıcı + gömme (ajan modülü)
+- [x] Font toplayıcı + gömme (ajan modülü)
 - [ ] Çeviri asistanı, zaman asistanı, kısayol özelleştirme
 - [ ] Stil kataloğu / depolama, kaydedilmiş arama-değiştirme
 
 ## Lua
 - [x] macro/filter, karaskel, utils, unicode, re, dialog
-- [ ] Karaoke şablon motoru (kara-templater) — ajan modülü
+- [x] Karaoke şablon motoru (kara-templater) — ajan modülü
 - [ ] ILL/zeref/ASSFoundation gibi yaygın kütüphanelerle uyumluluk testleri
 - [ ] Betik sandbox ayarları, hata izi, otomatik yeniden yükleme
 

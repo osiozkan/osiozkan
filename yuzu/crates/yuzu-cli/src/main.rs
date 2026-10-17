@@ -39,11 +39,16 @@ USAGE:\n  yuzu info <file>\n  yuzu convert <in> <out>            (ass|srt|vtt by
 
 pub fn read(path: &str) -> Script {
     let bytes = std::fs::read(path).unwrap_or_else(|e| { eprintln!("{}: {}", path, e); std::process::exit(1) });
-    asscore::load_str(path, &asscore::decode_bytes(&bytes))
+    { let t = asscore::decode_bytes(&bytes); asscore::formats::load_any(path, &t, &Default::default()).unwrap_or_else(|| asscore::load_str(path, &t)) }
 }
 
 pub fn write(path: &str, sc: &Script) {
     let lower = path.to_ascii_lowercase();
+    if let Some(f) = asscore::formats::detect(path, "").filter(|f| *f != asscore::formats::Format::Ass) {
+        let out = asscore::formats::save_any(f, sc, &Default::default());
+        std::fs::write(path, out).unwrap_or_else(|e| { eprintln!("{}: {}", path, e); std::process::exit(1) });
+        return;
+    }
     let out = if lower.ends_with(".srt") { subrip::write_srt(sc) } else if lower.ends_with(".vtt") { subrip::write_vtt(sc) } else { format!("\u{feff}{}", ass::write(sc)) };
     std::fs::write(path, out).unwrap_or_else(|e| { eprintln!("{}: {}", path, e); std::process::exit(1) });
 }
