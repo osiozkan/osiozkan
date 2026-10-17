@@ -54,8 +54,8 @@ pub fn show(ui: &mut egui::Ui, sc: &Script, ev: Option<&Event>, size: Vec2) {
     for i in 1..3 {
         let x = rect.left() + rect.width() * i as f32 / 3.0;
         let y = rect.top() + rect.height() * i as f32 / 3.0;
-        p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0, Color32::from_gray(40)));
-        p.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], Stroke::new(1.0, Color32::from_gray(40)));
+        p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, Color32::from_gray(40)));
+        p.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], Stroke::new(1.0_f32, Color32::from_gray(40)));
     }
     let Some(ev) = ev else { return };
     let st: Style = sc.style_or_default(&ev.style);

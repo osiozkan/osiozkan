@@ -298,8 +298,8 @@ pub fn waveform(ui: &mut egui::Ui, m: &mut MediaState, spans: &[LineSpan], heigh
         let r = Rect::from_min_max(Pos2::new(x0.max(rect.left()), rect.top()), Pos2::new(x1.min(rect.right()), rect.bottom()));
         p.rect_filled(r, 0.0, col);
         let edge = if s.active { Color32::from_rgb(90, 180, 255) } else { Color32::from_gray(90) };
-        p.line_segment([Pos2::new(x0, rect.top()), Pos2::new(x0, rect.bottom())], Stroke::new(if s.active { 2.0 } else { 1.0 }, edge));
-        p.line_segment([Pos2::new(x1, rect.top()), Pos2::new(x1, rect.bottom())], Stroke::new(if s.active { 2.0 } else { 1.0 }, edge));
+        p.line_segment([Pos2::new(x0, rect.top()), Pos2::new(x0, rect.bottom())], Stroke::new(if s.active { 2.0_f32 } else { 1.0 }, edge));
+        p.line_segment([Pos2::new(x1, rect.top()), Pos2::new(x1, rect.bottom())], Stroke::new(if s.active { 2.0_f32 } else { 1.0 }, edge));
         if x1 - x0 > 40.0 {
             p.with_clip_rect(r).text(Pos2::new(x0.max(rect.left()) + 3.0, rect.top() + 2.0), egui::Align2::LEFT_TOP, s.label, egui::FontId::proportional(11.0), Color32::from_gray(190));
         }
@@ -321,14 +321,14 @@ pub fn waveform(ui: &mut egui::Ui, m: &mut MediaState, spans: &[LineSpan], heigh
         let (mut mn, mut mx) = (127i16, -128i16);
         for b in &bins[b0..b1.min(bins.len())] { mn = mn.min(b.0 as i16); mx = mx.max(b.1 as i16); }
         let x = rect.left() + px as f32 + 0.5;
-        p.line_segment([Pos2::new(x, mid - mx as f32 / 128.0 * amp), Pos2::new(x, mid - mn as f32 / 128.0 * amp - 1.0)], Stroke::new(1.0, wave));
+        p.line_segment([Pos2::new(x, mid - mx as f32 / 128.0 * amp), Pos2::new(x, mid - mn as f32 / 128.0 * amp - 1.0)], Stroke::new(1.0_f32, wave));
     }
-    p.line_segment([Pos2::new(rect.left(), mid), Pos2::new(rect.right(), mid)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
+    p.line_segment([Pos2::new(rect.left(), mid), Pos2::new(rect.right(), mid)], Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
 
     // keyframes
     for &k in &m.keyframes {
         let x = ms_to_x(k as f64, m);
-        if x >= rect.left() && x <= rect.right() { p.line_segment([Pos2::new(x, rect.bottom() - 10.0), Pos2::new(x, rect.bottom())], Stroke::new(2.0, Color32::from_rgb(230, 200, 60))); }
+        if x >= rect.left() && x <= rect.right() { p.line_segment([Pos2::new(x, rect.bottom() - 10.0), Pos2::new(x, rect.bottom())], Stroke::new(2.0_f32, Color32::from_rgb(230, 200, 60))); }
     }
     // time ruler
     let step_ms = [100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0].into_iter().find(|s| s / m.ms_per_px > 70.0).unwrap_or(120000.0);
@@ -337,13 +337,13 @@ pub fn waveform(ui: &mut egui::Ui, m: &mut MediaState, spans: &[LineSpan], heigh
         let t = k as f64 * step_ms;
         let x = ms_to_x(t, m);
         if t < 0.0 || x < rect.left() || x > rect.right() { continue; }
-        p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 6.0)], Stroke::new(1.0, Color32::from_gray(120)));
+        p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 6.0)], Stroke::new(1.0_f32, Color32::from_gray(120)));
         let s = (t / 1000.0) as i64;
         p.text(Pos2::new(x + 2.0, rect.top() + 6.0), egui::Align2::LEFT_TOP, format!("{}:{:02}{}", s / 60, s % 60, if step_ms < 1000.0 { format!(".{:01}", ((t as i64 % 1000) / 100)) } else { String::new() }), egui::FontId::proportional(10.0), Color32::from_gray(140));
     }
     // playhead
     let px = ms_to_x(m.pos_ms as f64, m);
-    if px >= rect.left() && px <= rect.right() { p.line_segment([Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())], Stroke::new(1.5, Color32::from_rgb(255, 90, 90))); }
+    if px >= rect.left() && px <= rect.right() { p.line_segment([Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())], Stroke::new(1.5_f32, Color32::from_rgb(255, 90, 90))); }
 
     // interaction: handles of the active line
     let active = spans.iter().find(|s| s.active);

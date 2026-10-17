@@ -1544,9 +1544,9 @@ impl App {
         let anchor = ts::get_pos(&ev.text).unwrap_or_else(|| ts::default_anchor(an, (rx as i32, ry as i32), if ev.margin_l > 0 { ev.margin_l } else { st.margin_l }, if ev.margin_r > 0 { ev.margin_r } else { st.margin_r }, if ev.margin_v > 0 { ev.margin_v } else { st.margin_v }));
         if self.tool != Tool::None {
             let a = to_screen(anchor.0, anchor.1);
-            painter.circle_stroke(a, 7.0, egui::Stroke::new(2.0, Color32::from_rgb(255, 210, 60)));
-            painter.line_segment([a - egui::Vec2::new(12.0, 0.0), a + egui::Vec2::new(12.0, 0.0)], egui::Stroke::new(1.0, Color32::from_rgb(255, 210, 60)));
-            painter.line_segment([a - egui::Vec2::new(0.0, 12.0), a + egui::Vec2::new(0.0, 12.0)], egui::Stroke::new(1.0, Color32::from_rgb(255, 210, 60)));
+            painter.circle_stroke(a, 7.0, egui::Stroke::new(2.0_f32, Color32::from_rgb(255, 210, 60)));
+            painter.line_segment([a - egui::Vec2::new(12.0, 0.0), a + egui::Vec2::new(12.0, 0.0)], egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 210, 60)));
+            painter.line_segment([a - egui::Vec2::new(0.0, 12.0), a + egui::Vec2::new(0.0, 12.0)], egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 210, 60)));
             if let Some(o) = ts::get_org(&ev.text) {
                 let p = to_screen(o.0, o.1);
                 painter.circle_filled(p, 4.0, Color32::from_rgb(120, 220, 255));
@@ -1586,7 +1586,7 @@ impl App {
                     self.begin_edit(9_300_000 + i as u64);
                     self.doc.events[i].text = ts::set_clip_rect(&ev.text, ax.round(), ay.round(), mx.round(), my.round(), self.tool_alt_clip_inverse);
                     let (p0, p1) = (to_screen(ax, ay), to_screen(mx, my));
-                    painter.rect_stroke(egui::Rect::from_two_pos(p0, p1), 0.0, egui::Stroke::new(1.5, Color32::from_rgb(120, 255, 160)), egui::StrokeKind::Inside);
+                    painter.rect_stroke(egui::Rect::from_two_pos(p0, p1), 0.0, egui::Stroke::new(1.5_f32, Color32::from_rgb(120, 255, 160)), egui::StrokeKind::Inside);
                 }
             }
             Tool::None => {}

@@ -16,7 +16,9 @@ pub fn parse(input: &str) -> Script {
         let line = raw.trim_end_matches('\r');
         let t = line.trim();
         if t.is_empty() { continue; }
-        if t.starts_with('[') && t.ends_with(']') {
+        let in_raw_data = sec == Sec::Raw && sc.raw_sections.last().map(|(h, _)| h.eq_ignore_ascii_case("[Fonts]") || h.eq_ignore_ascii_case("[Graphics]")).unwrap_or(false);
+        let known_header = matches!(t.to_ascii_lowercase().as_str(), "[script info]" | "[v4+ styles]" | "[v4 styles]" | "[events]" | "[fonts]" | "[graphics]" | "[aegisub project garbage]" | "[aegisub extradata]");
+        if t.starts_with('[') && t.ends_with(']') && (!in_raw_data || known_header) {
             let name = t.to_ascii_lowercase();
             sec = match name.as_str() {
                 "[script info]" => Sec::Info,

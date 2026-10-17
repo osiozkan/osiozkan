@@ -546,9 +546,10 @@ impl LuaScript {
     fn selection_table(&self, sel: &[usize]) -> LResult<Table> {
         let t = self.lua.create_table()?;
         let s = self.subs.borrow();
+        let ev_lua: Vec<usize> = s.lines.iter().enumerate().filter(|(_, l)| matches!(l, doc::LuaLine::Event(_))).map(|(i, _)| i).collect();
         let mut n = 0;
         for &e in sel {
-            if let Some(i) = s.lua_index_of_event(e) {
+            if let Some(&i) = ev_lua.get(e) {
                 n += 1;
                 t.set(n, i as i64 + 1)?;
             }
@@ -591,9 +592,14 @@ impl LuaScript {
                 let vals: Vec<Value> = vals.into_iter().collect();
                 let taken = std::mem::take(&mut *self.subs.borrow_mut());
                 let (new_sel, new_active) = {
+                    let mut ev_of: Vec<Option<usize>> = Vec::with_capacity(taken.lines.len());
+                    let mut cnt = 0usize;
+                    for l in &taken.lines {
+                        if matches!(l, doc::LuaLine::Event(_)) { ev_of.push(Some(cnt)); cnt += 1; } else { ev_of.push(None); }
+                    }
                     let map = |li: i64| -> Option<usize> {
                         if li < 1 { return None; }
-                        taken.event_index_of(li as usize - 1)
+                        ev_of.get(li as usize - 1).copied().flatten()
                     };
                     let sel_out = match vals.first() {
                         Some(Value::Table(t)) => {
