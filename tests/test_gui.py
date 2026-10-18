@@ -92,3 +92,26 @@ def test_karaoke_wave_drag():
     assert w.doc.events[0].text == r"{\k150}ka{\k50}ra{\k100}oke"
     w.history.mark_saved()
     w.close()
+
+
+def test_run_macro_gui(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from osisub.gui.app import MainWindow
+    from osisub.core.ass import Document, Event
+    app = QApplication.instance() or QApplication([])
+    p = tmp_path / "m.lua"
+    p.write_text('''aegisub.register_macro("U","",function(subs,sel)
+      for i,l in ipairs(subs) do aegisub.progress.set(50) if l.class=="dialogue" then l.text="X"..l.text subs[i]=l end end
+      return {sel[1]} end)''')
+    w = MainWindow()
+    d = Document.new(); d.events = [Event(text="a"), Event(text="b")]
+    w.set_document(d)
+    s = w.engine.load_script(str(p))
+    assert not s.error, s.error
+    w.select_rows([1])
+    w.run_macro(s.macros[0])
+    assert [e.text for e in w.doc.events] == ["Xa", "Xb"]
+    assert w.selected_rows() == [1]
+    w.undo()
+    assert [e.text for e in w.doc.events] == ["a", "b"]
+    w.history.mark_saved(); w.close()

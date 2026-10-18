@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
                              file_dialog_handler=self._automation_file_dialog, log_handler=self._automation_log)
         self.model.max_cps = self.pref("max_cps", 20.0)
         self.macro_log: list[str] = []
+        self._progress = None
         self.player = AudioPlayer()
         self.play_timer = QTimer(self, interval=40)
         self.play_timer.timeout.connect(self._play_tick)
@@ -1056,13 +1057,38 @@ class MainWindow(QMainWindow):
             self._load_edit(min(self.current_row(), len(self.doc.events) - 1))
         self.status(f"{label} tamamlandı")
 
+    def _progress_begin(self, title):
+        dlg = QProgressDialog(title, "İptal", 0, 100, self)
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(400)
+        dlg.canceled.connect(lambda: setattr(self.engine, "cancel_flag", True))
+        self._progress = dlg
+
+        def handler(kind, v):
+            if kind == "set":
+                dlg.setValue(int(max(0, min(100, v))))
+            elif kind in ("task", "title"):
+                dlg.setLabelText(str(v))
+            QApplication.processEvents()
+        self.engine.progress_handler = handler
+
+    def _progress_end(self):
+        if self._progress:
+            self._progress.reset()
+            self._progress = None
+        self.engine.progress_handler = None
+
     def run_macro(self, mac):
         self._flush_edit()
         sel = self.selected_rows()
         self.engine.clipboard_text = QApplication.clipboard().text()
         if not self.engine.validate_macro(mac, self.doc, sel, self.current_row()):
             self.status("Bu makro mevcut seçim için geçerli değil"); return
-        res = self.engine.run_macro(mac, self.doc, sel, self.current_row())
+        self._progress_begin(mac.name)
+        try:
+            res = self.engine.run_macro(mac, self.doc, sel, self.current_row())
+        finally:
+            self._progress_end()
         QApplication.clipboard().setText(self.engine.clipboard_text)
         self._apply_result(mac.name, res)
 
@@ -1072,7 +1098,11 @@ class MainWindow(QMainWindow):
         if flt.lua[b"config"] is not None:
             from ..automation.runtime import from_lua
             self.engine._doc = self.doc
-        res = self.engine.run_filter(flt, self.doc, cfg)
+        self._progress_begin(flt.name)
+        try:
+            res = self.engine.run_filter(flt, self.doc, cfg)
+        finally:
+            self._progress_end()
         self._apply_result(flt.name, res)
 
     # ------------------------------------------------------------ recent / dnd / goto
