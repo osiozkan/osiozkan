@@ -1,0 +1,19 @@
+[project]
+name = "osisub"
+version = "0.1.0"
+description = "Anime subtitle editor: Aegisub-compatible (ASS + Lua automation) with Subtitle Edit style tooling"
+requires-python = ">=3.10"
+dependencies = ["lupa>=2.0", "PySide6-Essentials>=6.5"]
+
+[project.scripts]
+osisub = "osisub.cli:main"
+osisub-gui = "osisub.gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["osisub*"]
+
+[tool.setuptools.package-data]
+osisub = ["automation/lua/*.lua"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

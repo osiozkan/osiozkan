@@ -1,0 +1,2 @@
+-- utils.lua: helper functions (string.trim, table.copy, ass_color, ...) are built into the Osisub runtime.
+-- This file exists so that include("utils.lua") succeeds exactly like in Aegisub.
