@@ -132,3 +132,43 @@ def keyframes(path: str) -> list[int]:
             except ValueError:
                 pass
     return sorted(set(out))
+
+
+class AudioPlayer:
+    """Plays an audio range through ffplay (no Qt multimedia dependency). Position is tracked by wall clock."""
+
+    def __init__(self) -> None:
+        self.proc: Optional[subprocess.Popen] = None
+        self.start_ms = 0
+        self.end_ms = 0
+        self._t0 = 0.0
+
+    @staticmethod
+    def available() -> bool:
+        return bool(shutil.which("ffplay"))
+
+    def play(self, path: str, start_ms: int, end_ms: int = 0) -> None:
+        import time
+        self.stop()
+        exe = shutil.which("ffplay")
+        if not exe:
+            return
+        cmd = [exe, "-v", "quiet", "-nodisp", "-autoexit", "-ss", f"{start_ms / 1000:.3f}"]
+        if end_ms > start_ms:
+            cmd += ["-t", f"{(end_ms - start_ms) / 1000:.3f}"]
+        cmd.append(path)
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.start_ms, self.end_ms, self._t0 = start_ms, end_ms, time.monotonic()
+
+    def position(self) -> int:
+        import time
+        return self.start_ms + int((time.monotonic() - self._t0) * 1000)
+
+    @property
+    def playing(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def stop(self) -> None:
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+        self.proc = None

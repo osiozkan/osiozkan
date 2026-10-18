@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, media
+from ..media import AudioPlayer
 from ..automation import Engine
 from ..core import tools, assutil
 from ..core.ass import Document, Event
@@ -59,6 +60,12 @@ class MainWindow(QMainWindow):
         self.engine = Engine(include_dirs=self._automation_dirs(), dialog_handler=self._automation_dialog,
                              file_dialog_handler=self._automation_file_dialog, log_handler=self._automation_log)
         self.macro_log: list[str] = []
+        self.player = AudioPlayer()
+        self.play_timer = QTimer(self, interval=40)
+        self.play_timer.timeout.connect(self._play_tick)
+        self.ref_doc = None
+        self.recent: list[str] = [p for p in (self.settings.value("recent", []) or []) if p]
+        self.setAcceptDrops(True)
         self._build_ui()
         self._build_menus()
         self._peak_sig = _PeakSignal()
@@ -105,6 +112,12 @@ class MainWindow(QMainWindow):
         self.log_dock.setWidget(self.log_view)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.log_dock)
         self.log_dock.hide()
+        self.ref_dock = QDockWidget("Referans altyazı", self)
+        self.ref_view = QPlainTextEdit(readOnly=True)
+        self.ref_dock.setWidget(self.ref_view)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.ref_dock)
+        self.ref_dock.hide()
+        self.preview.clicked.connect(self._preview_clicked)
 
     def _build_edit_panel(self) -> QWidget:
         w = QWidget()
@@ -161,7 +174,10 @@ class MainWindow(QMainWindow):
         self._act(f, "Kaydet", self.save, "Ctrl+S")
         self._act(f, "Farklı kaydet…", self.save_as, "Ctrl+Shift+S")
         f.addSeparator()
+        self.recent_menu = f.addMenu("Son açılanlar")
+        self._rebuild_recent()
         self._act(f, "Video aç…", self.open_video)
+        self._act(f, "Referans altyazı aç…", self.open_reference)
         self._act(f, "Betik bilgisi (Script Info)…", self.script_info)
         f.addSeparator()
         self._act(f, "Çıkış", self.close, "Ctrl+Q")
@@ -176,6 +192,7 @@ class MainWindow(QMainWindow):
         self._act(e, "Seçili satırları birleştir", self.merge_lines, "Ctrl+M")
         self._act(e, "Satırı böl (imleçten)", self.split_line, "Ctrl+B")
         self._act(e, "Tümünü seç", lambda: self.table.selectAll(), "Ctrl+A")
+        self._act(e, "Satıra git…", self.goto_line, "Ctrl+G")
         s = mb.addMenu("&Altyazı")
         self._act(s, "Stil yöneticisi…", self.style_manager, "Ctrl+Shift+T")
         c = s.addMenu("Harf büyüklüğü")
@@ -205,6 +222,10 @@ class MainWindow(QMainWindow):
         self._act(t, "Anahtar karelere oturt", self.snap_keyframes)
         self._act(t, "Kare hızı dönüştür…", self.convert_fps)
         self._act(t, "İki nokta ile eşitle…", self.two_point_sync)
+        self._act(t, "Seçili satırı çal", self.play_line, "Ctrl+P")
+        self._act(t, "Çalmayı durdur", self.stop_play, "Escape")
+        self.pick_action = self._act(t, "Konum seç modu (önizlemede tıkla → \\pos)", self.toggle_pick, "Ctrl+L")
+        self.pick_action.setCheckable(True)
         self._act(t, "Başlangıcı oynatma konumuna al", lambda: self.set_from_playhead(True), "Ctrl+1")
         self._act(t, "Bitişi oynatma konumuna al", lambda: self.set_from_playhead(False), "Ctrl+2")
         a = mb.addMenu("&Araçlar")
@@ -319,6 +340,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, APP, f"Açılamadı:\n{e}")
             return
         self.settings.setValue("last_dir", os.path.dirname(path))
+        self._remember(path)
         if not doc.filename:
             doc.filename = None
         self.set_document(doc)
@@ -351,6 +373,7 @@ class MainWindow(QMainWindow):
         self.status(f"Kaydedildi: {p}")
 
     def closeEvent(self, e):
+        self.stop_play()
         if not self._confirm_discard():
             e.ignore()
             return
@@ -393,6 +416,7 @@ class MainWindow(QMainWindow):
         finally:
             self._loading_edit = False
         self._refresh_preview()
+        self._update_reference()
 
     def _update_info(self, row):
         e = self.doc.events[row]
@@ -753,8 +777,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ media
     def open_video(self):
         p, _ = QFileDialog.getOpenFileName(self, "Video aç", self.settings.value("last_dir", ""), "Video (*.mkv *.mp4 *.avi *.webm *.mov *.m2ts);;Tümü (*)")
-        if not p:
-            return
+        if p:
+            self.load_video(p)
+
+    def load_video(self, p: str):
         if not media.available():
             QMessageBox.warning(self, APP, "ffmpeg/ffprobe bulunamadı.")
             return
@@ -907,6 +933,99 @@ class MainWindow(QMainWindow):
             self.engine._doc = self.doc
         res = self.engine.run_filter(flt, self.doc, cfg)
         self._apply_result(flt.name, res)
+
+    # ------------------------------------------------------------ recent / dnd / goto
+    def _rebuild_recent(self):
+        self.recent_menu.clear()
+        for p in self.recent[:10]:
+            self._act(self.recent_menu, p, lambda p=p: self.open_path(p))
+
+    def _remember(self, path):
+        self.recent = [path] + [p for p in self.recent if p != path]
+        self.settings.setValue("recent", self.recent[:10])
+        self._rebuild_recent()
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for u in e.mimeData().urls():
+            p = u.toLocalFile()
+            if p.lower().endswith((".ass", ".ssa", ".srt", ".vtt")):
+                self.open_path(p); return
+            if p.lower().endswith((".mkv", ".mp4", ".avi", ".webm", ".mov", ".m2ts")):
+                self.load_video(p); return
+            if p.lower().endswith(".lua"):
+                self.engine.load_script(p); self.rebuild_automation_menu(); return
+
+    def goto_line(self):
+        n, ok = QInputDialog.getInt(self, "Satıra git", "Satır no:", max(1, self.current_row() + 1), 1, max(1, len(self.doc.events)))
+        if ok:
+            self.select_rows([n - 1])
+
+    # ------------------------------------------------------------ playback / pick / reference
+    def play_line(self):
+        row = self.current_row()
+        if row < 0 or not self.video or not AudioPlayer.available():
+            self.status("Çalmak için video açın (ffplay gerekir)"); return
+        e = self.doc.events[row]
+        self.player.play(self.video.path, e.start, e.end)
+        self.play_timer.start()
+
+    def stop_play(self):
+        self.player.stop()
+        self.play_timer.stop()
+
+    def _play_tick(self):
+        if not self.player.playing:
+            self.play_timer.stop(); return
+        ms = self.player.position()
+        self.wave.pos_ms = ms
+        self.wave.center_on(ms)
+        self._update_reference(ms)
+
+    def toggle_pick(self):
+        self.preview.pick_mode = self.pick_action.isChecked()
+        self.preview.setCursor(Qt.CrossCursor if self.preview.pick_mode else Qt.ArrowCursor)
+
+    def _preview_clicked(self, x, y):
+        row = self.current_row()
+        if row < 0:
+            return
+        import re
+        e = self.doc.events[row]
+        pos = "\\pos(%d,%d)" % (round(x), round(y))
+        if re.search(r"\\pos\([^)]*\)", e.text):
+            e.text = re.sub(r"\\pos\([^)]*\)", lambda m: pos, e.text, count=1)
+        elif e.text.startswith("{"):
+            e.text = "{" + pos + e.text[1:]
+        else:
+            e.text = "{" + pos + "}" + e.text
+        self.commit("Konum")
+        self._load_edit(row)
+
+    def open_reference(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Referans altyazı", self.settings.value("last_dir", ""), OPEN_FILTER)
+        if p:
+            self.ref_doc = load_any(p)
+            self.ref_dock.show()
+            self._update_reference()
+
+    def _update_reference(self, ms=None):
+        if self.ref_doc is None:
+            return
+        row = self.current_row()
+        if ms is None:
+            if row < 0:
+                return
+            e = self.doc.events[row]
+            lo, hi = e.start, e.end
+        else:
+            lo = hi = ms
+        from ..core.tags import strip_tags
+        hits = [strip_tags(r.text) for r in self.ref_doc.events if not r.comment and r.start < max(hi, lo + 1) and r.end > lo]
+        self.ref_view.setPlainText("\n---\n".join(hits))
 
     # ------------------------------------------------------------ table menu
     def _table_menu(self, pos):

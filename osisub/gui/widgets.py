@@ -25,6 +25,7 @@ class _FrameJob(QRunnable):
 
 class PreviewWidget(QLabel):
     """Renders the current frame (optional video) with subtitles via ffmpeg/libass, asynchronously."""
+    clicked = Signal(float, float)  # script-resolution coordinates
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,6 +42,8 @@ class PreviewWidget(QLabel):
         self._timer.timeout.connect(self._kick)
         self._req = None
         self.video = None  # VideoInfo
+        self.script_res = (1920, 1080)
+        self.pick_mode = False
 
     def request(self, ass_text: str, ms: int, res: tuple[int, int]):
         self._req = (ass_text, ms, res)
@@ -52,6 +55,7 @@ class PreviewWidget(QLabel):
                 self.setText("ffmpeg bulunamadı — önizleme devre dışı")
             return
         text, ms, (rx, ry) = self._req
+        self.script_res = (rx or 1920, ry or 1080)
         self.serial += 1
         w = max(320, min(self.width(), 1280))
         video = self.video
@@ -88,6 +92,17 @@ class PreviewWidget(QLabel):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._fit()
+
+    def mousePressEvent(self, ev):
+        pm = self.pixmap()
+        if self.pick_mode and pm is not None and not pm.isNull():
+            pw, ph = pm.width() / pm.devicePixelRatio(), pm.height() / pm.devicePixelRatio()
+            ox, oy = (self.width() - pw) / 2, (self.height() - ph) / 2
+            x, y = ev.position().x() - ox, ev.position().y() - oy
+            if 0 <= x <= pw and 0 <= y <= ph:
+                self.clicked.emit(x / pw * self.script_res[0], y / ph * self.script_res[1])
+                return
+        super().mousePressEvent(ev)
 
 
 class WaveformWidget(QWidget):
