@@ -58,6 +58,12 @@ def test_video_and_pick(tmp_path):
     assert w.doc.events[0].text.startswith("{\\pos(100,201)}")
     w._preview_clicked(5, 5)
     assert w.doc.events[0].text.count("\\pos") == 1
+    w._set_ts_mode("move")
+    w._preview_clicked(1, 2); w._preview_clicked(3, 4)
+    assert "\\move(1,2,3,4)" in w.doc.events[0].text and "\\pos" not in w.doc.events[0].text
+    w._set_ts_mode("clip")
+    w._preview_dragged(50, 60, 10, 20)
+    assert "\\clip(10,20,50,60)" in w.doc.events[0].text
     w.history.mark_saved()
     w.close()
 

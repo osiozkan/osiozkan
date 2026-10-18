@@ -120,6 +120,8 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.ref_dock)
         self.ref_dock.hide()
         self.preview.clicked.connect(self._preview_clicked)
+        self.preview.dragged.connect(self._preview_dragged)
+        self._move_start = None
 
     def _build_edit_panel(self) -> QWidget:
         w = QWidget()
@@ -236,8 +238,21 @@ class MainWindow(QMainWindow):
         self._act(t, "Bir kare geri", lambda: self.step_frames(-1), "Alt+Left")
         self._act(t, "Bitişi ata ve sonraki satıra geç", self.end_and_next, "Ctrl+3")
         self._act(t, "Çalmayı durdur", self.stop_play, "Escape")
-        self.pick_action = self._act(t, "Konum seç modu (önizlemede tıkla → \\pos)", self.toggle_pick, "Ctrl+L")
+        self.pick_action = self._act(t, "Önizleme etkileşimi açık (typesetting)", self.toggle_pick, "Ctrl+L")
         self.pick_action.setCheckable(True)
+        ts = mb.addMenu("&Typesetting")
+        from PySide6.QtGui import QActionGroup
+        self.ts_group = QActionGroup(self)
+        self.ts_mode = "pos"
+        for key, label in (("pos", "\\pos — tıkla"), ("org", "\\org — tıkla"), ("move", "\\move — iki tıklama"),
+                           ("clip", "\\clip — dikdörtgen sürükle"), ("iclip", "\\iclip — dikdörtgen sürükle")):
+            a = QAction(label, self, checkable=True)
+            a.setChecked(key == "pos")
+            a.triggered.connect(lambda _=False, k=key: self._set_ts_mode(k))
+            self.ts_group.addAction(a)
+            ts.addAction(a)
+        ts.addSeparator()
+        self._act(ts, "Etkileşimi aç/kapat", lambda: (self.pick_action.setChecked(not self.pick_action.isChecked()), self.toggle_pick()))
         self._act(t, "Başlangıcı oynatma konumuna al", lambda: self.set_from_playhead(True), "Ctrl+1")
         self._act(t, "Bitişi oynatma konumuna al", lambda: self.set_from_playhead(False), "Ctrl+2")
         a = mb.addMenu("&Araçlar")
@@ -911,6 +926,8 @@ class MainWindow(QMainWindow):
 
     def _on_keyframes(self, kf):
         self.keyframes = kf
+        self.wave.keyframes = kf
+        self.wave.update()
         self.engine.keyframe_list = kf
         self.status(f"{len(kf)} anahtar kare")
 
@@ -1124,21 +1141,59 @@ class MainWindow(QMainWindow):
         self.preview.pick_mode = self.pick_action.isChecked()
         self.preview.setCursor(Qt.CrossCursor if self.preview.pick_mode else Qt.ArrowCursor)
 
+    def _set_ts_mode(self, mode):
+        self.ts_mode = mode
+        self._move_start = None
+        self.preview.pick_mode = True
+        self.pick_action.setChecked(True)
+        self.toggle_pick()
+
+    def _set_tag(self, row, name, value):
+        """Insert or replace an override tag like \\pos(...) in the first block of the line."""
+        import re
+        e = self.doc.events[row]
+        tag = "\\" + name + "(" + value + ")"
+        rx = re.compile(r"\\" + name + r"\([^)]*\)")
+        if name in ("clip", "iclip"):
+            e.text = re.sub(r"\\i?clip\([^)]*\)", "", e.text)
+        if rx.search(e.text):
+            e.text = rx.sub(lambda m: tag, e.text, count=1)
+        elif e.text.startswith("{"):
+            e.text = "{" + tag + e.text[1:]
+        else:
+            e.text = "{" + tag + "}" + e.text
+        self.commit(name)
+        self._load_edit(row)
+
     def _preview_clicked(self, x, y):
         row = self.current_row()
         if row < 0:
             return
-        import re
-        e = self.doc.events[row]
-        pos = "\\pos(%d,%d)" % (round(x), round(y))
-        if re.search(r"\\pos\([^)]*\)", e.text):
-            e.text = re.sub(r"\\pos\([^)]*\)", lambda m: pos, e.text, count=1)
-        elif e.text.startswith("{"):
-            e.text = "{" + pos + e.text[1:]
-        else:
-            e.text = "{" + pos + "}" + e.text
-        self.commit("Konum")
-        self._load_edit(row)
+        if self.ts_mode == "org":
+            self._set_tag(row, "org", "%d,%d" % (round(x), round(y)))
+        elif self.ts_mode == "move":
+            if self._move_start is None:
+                self._move_start = (x, y)
+                self.status("\\move: bitiş noktasına tıkla")
+            else:
+                x0, y0 = self._move_start
+                self._move_start = None
+                import re
+                e = self.doc.events[row]
+                e.text = re.sub(r"\\pos\([^)]*\)", "", e.text)
+                self._set_tag(row, "move", "%d,%d,%d,%d" % (round(x0), round(y0), round(x), round(y)))
+        elif self.ts_mode in ("pos",):
+            self._set_tag(row, "pos", "%d,%d" % (round(x), round(y)))
+
+    def _preview_dragged(self, x0, y0, x1, y1):
+        row = self.current_row()
+        if row < 0 or self.ts_mode not in ("clip", "iclip"):
+            if self.ts_mode == "pos":
+                self._preview_clicked(x1, y1)
+            return
+        xa, xb = sorted((round(x0), round(x1)))
+        ya, yb = sorted((round(y0), round(y1)))
+        self._set_tag(row, self.ts_mode, "%d,%d,%d,%d" % (xa, ya, xb, yb))
 
     def open_reference(self):
         p, _ = QFileDialog.getOpenFileName(self, "Referans altyazı", self.settings.value("last_dir", ""), OPEN_FILTER)

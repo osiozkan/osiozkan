@@ -60,6 +60,7 @@ class VideoPlayback:
 class PreviewWidget(QLabel):
     """Renders the current frame (optional video) with subtitles via ffmpeg/libass, asynchronously."""
     clicked = Signal(float, float)  # script-resolution coordinates
+    dragged = Signal(float, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,16 +133,36 @@ class PreviewWidget(QLabel):
         super().resizeEvent(e)
         self._fit()
 
-    def mousePressEvent(self, ev):
+    def _to_script(self, pos):
         pm = self.pixmap()
-        if self.pick_mode and pm is not None and not pm.isNull():
-            pw, ph = pm.width() / pm.devicePixelRatio(), pm.height() / pm.devicePixelRatio()
-            ox, oy = (self.width() - pw) / 2, (self.height() - ph) / 2
-            x, y = ev.position().x() - ox, ev.position().y() - oy
-            if 0 <= x <= pw and 0 <= y <= ph:
-                self.clicked.emit(x / pw * self.script_res[0], y / ph * self.script_res[1])
+        if pm is None or pm.isNull():
+            return None
+        pw, ph = pm.width() / pm.devicePixelRatio(), pm.height() / pm.devicePixelRatio()
+        ox, oy = (self.width() - pw) / 2, (self.height() - ph) / 2
+        x, y = pos.x() - ox, pos.y() - oy
+        if 0 <= x <= pw and 0 <= y <= ph:
+            return x / pw * self.script_res[0], y / ph * self.script_res[1]
+        return None
+
+    def mousePressEvent(self, ev):
+        if self.pick_mode:
+            p = self._to_script(ev.position())
+            if p:
+                self._press = p
                 return
         super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        p0 = getattr(self, "_press", None)
+        self._press = None
+        if self.pick_mode and p0:
+            p1 = self._to_script(ev.position()) or p0
+            if abs(p1[0] - p0[0]) + abs(p1[1] - p0[1]) > 4:
+                self.dragged.emit(p0[0], p0[1], p1[0], p1[1])
+            else:
+                self.clicked.emit(*p0)
+            return
+        super().mouseReleaseEvent(ev)
 
 
 class WaveformWidget(QWidget):
@@ -162,6 +183,7 @@ class WaveformWidget(QWidget):
         self.view_start = 0.0  # ms
         self.ms_per_px = 20.0
         self._drag = None
+        self.keyframes = []
         self.kara = None  # (event_index, [durations cs], [syllable texts]) for the active line
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -215,6 +237,12 @@ class WaveformWidget(QWidget):
                     break
                 v = int(self.peaks[a:b].max()) / mx * (h / 2 - 4)
                 p.drawLine(x, int(mid - v), x, int(mid + v))
+        if self.keyframes:
+            p.setPen(QPen(QColor(80, 200, 120, 130), 1, Qt.DashLine))
+            for k in self.keyframes:
+                x = self.x_of(k)
+                if 0 <= x <= self.width():
+                    p.drawLine(int(x), 0, int(x), h)
         for i, e in enumerate(self.events):
             x1, x2 = self.x_of(e.start), self.x_of(e.end)
             if x2 < 0 or x1 > self.width():
