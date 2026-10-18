@@ -388,6 +388,7 @@ class MainWindow(QMainWindow):
         self.set_document(doc)
         self._import_path = path
         self.status(f"Açıldı: {path}")
+        self._restore_project_media(doc, path)
 
     def autosave(self):
         if not self.history.dirty:
@@ -402,8 +403,34 @@ class MainWindow(QMainWindow):
             return
         self.status("Otomatik kaydedildi")
 
+    def _restore_project_media(self, doc, path):
+        vf = doc.get_garbage("Video File")
+        if not vf or not media.available():
+            return
+        base = os.path.dirname(path)
+        for cand in (vf, os.path.join(base, vf), os.path.join(base, os.path.basename(vf))):
+            if cand.startswith("?script"):
+                cand = base + cand[len("?script"):]
+            if os.path.isfile(cand):
+                self.load_video(cand)
+                try:
+                    self.wave.pos_ms = int(doc.get_garbage("Video Position", "0"))
+                except ValueError:
+                    pass
+                return
+
+    def _store_project_media(self):
+        if self.video:
+            self.doc.set_garbage("Video File", self.video.path)
+            if self.video.has_audio:
+                self.doc.set_garbage("Audio File", self.video.path)
+        row = self.current_row()
+        if row >= 0:
+            self.doc.set_garbage("Active Line", str(row))
+
     def save(self):
         self._flush_edit()
+        self._store_project_media()
         if not self.doc.filename:
             return self.save_as()
         if os.path.exists(self.doc.filename):
@@ -419,6 +446,7 @@ class MainWindow(QMainWindow):
 
     def save_as(self):
         self._flush_edit()
+        self._store_project_media()
         p, flt = QFileDialog.getSaveFileName(self, "Farklı kaydet", self.settings.value("last_dir", ""),
                                              "ASS (*.ass);;SRT (*.srt);;WebVTT (*.vtt);;Metin (*.txt)")
         if not p:

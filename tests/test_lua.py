@@ -96,3 +96,24 @@ end)''')
     r = e.run_macro(s.macros[0], doc(), [0], 0)
     assert r.ok, r.error
     assert r.document.events[0].text == "true&H0000FF&&H80&y5"
+
+
+def test_review_fixes(tmp_path):
+    p = tmp_path / "r.lua"
+    p.write_text(r'''
+aegisub.register_macro("R", "", function(subs, sel)
+  local n = 0
+  for m in re.gfind("a1b2", "\\d") do n = n + 1 end
+  local l = subs[sel[1]]
+  l.text = n .. re.sub("ab12", "[[:digit:]]+", "N") .. re.sub("x", "x", "\\an8") .. util.ass_color(300, -5, 12.7)
+  subs[sel[1]] = l
+  local s = subs[1]
+  for i = 1, #subs do local st = subs[i]; if st.class == "style" then st.color1 = util.ass_color(1,2,3); subs[i] = st end end
+  return {sel[1], 99999}
+end)''')
+    e = Engine(); s = e.load_script(str(p))
+    r = e.run_macro(s.macros[0], doc(), [0], 0)
+    assert r.ok, r.error
+    assert r.document.events[0].text == "2abNan8&H0D00FF&"
+    assert r.document.styles[0].primary == "&H00030201"
+    assert r.selection == [0]

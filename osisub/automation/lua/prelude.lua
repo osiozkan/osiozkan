@@ -71,7 +71,8 @@ local function make_subs(lines, selected_ids)
     for k = 1, select("#", ...) do table.insert(lines, norm((select(k, ...)))) end
   end
   function methods.delete(...)
-    local idx = {...}
+    local seen, idx = {}, {}
+    for _, i in ipairs({...}) do if not seen[i] then seen[i] = true; idx[#idx + 1] = i end end
     table.sort(idx, function(a, b) return a > b end)
     for _, i in ipairs(idx) do chk(i, 1, #lines); table.remove(lines, i) end
   end
@@ -175,13 +176,15 @@ local function wrap_matches(m)
 end
 function Regex:find(str) return host.re_find(self.id, str) end
 function Regex:gfind(str)
-  local res = host.re_find(self.id, str)
-  return res
+  local res = host.re_find(self.id, str) or {}
+  local i = 0
+  return function() i = i + 1; return res[i] end
 end
 function Regex:match(str) return host.re_find(self.id, str, true) end
 function Regex:sub(str, repl, max) return host.re_sub(self.id, str, repl, max or 0) end
 function Regex:gsub(str, repl, max) return host.re_sub(self.id, str, repl, max or 0) end
 function Regex:split(str) return host.re_split(self.id, str) end
+function re.gfind(str, pat, flags) return re.compile(pat, flags):gfind(str) end
 function re.find(str, pat, flags) return re.compile(pat, flags):find(str) end
 function re.match(str, pat, flags) return re.compile(pat, flags):match(str) end
 function re.sub(str, pat, repl, max, flags) return re.compile(pat, flags):sub(str, repl, max) end
@@ -211,9 +214,10 @@ function util.interpolate(pct, a, b)
   if pct <= 0 then return a elseif pct >= 1 then return b end
   return pct * (b - a) + a
 end
-function util.ass_alpha(a) return string.format("&H%02X&", a) end
-function util.ass_color(r, g, b) return string.format("&H%02X%02X%02X&", b, g, r) end
-function util.ass_style_color(r, g, b, a) return string.format("&H%02X%02X%02X%02X", a or 0, b, g, r) end
+local function c8(v) return math.min(255, math.max(0, math.floor(v + 0.5))) end
+function util.ass_alpha(a) return string.format("&H%02X&", c8(a)) end
+function util.ass_color(r, g, b) return string.format("&H%02X%02X%02X&", c8(b), c8(g), c8(r)) end
+function util.ass_style_color(r, g, b, a) return string.format("&H%02X%02X%02X%02X", c8(a or 0), c8(b), c8(g), c8(r)) end
 function util.extract_color(s)
   local a, b, g, r
   local hex = s:match("^&?[Hh](%x+)&?$") or s:match("^&[Hh](%x+)")
@@ -387,6 +391,7 @@ local include_dirs = {}
 local loaded_includes = {}
 
 local function find_file(name, script)
+  name = name:gsub("\\", "/")
   local function try(p)
     local f = io.open(p, "rb")
     if f then f:close() return p end

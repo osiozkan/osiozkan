@@ -189,9 +189,17 @@ class Engine:
                 fl |= _re.M
             return fl
 
+        posix = {"alpha": "a-zA-Z", "digit": "0-9", "alnum": "a-zA-Z0-9", "upper": "A-Z", "lower": "a-z",
+                 "space": r"\s", "punct": r"!-/:-@\[-`{-~", "xdigit": "0-9a-fA-F", "word": r"\w"}
+
+        def translate(p):
+            p = _re.sub(r"\[:(\w+):\]", lambda m: posix.get(m.group(1), m.group(0)), p)
+            p = p.replace("(?<", "(?P<") if _re.search(r"\(\?<[A-Za-z]", p) else p
+            return p.replace("\\<", r"\b").replace("\\>", r"\b").replace("\\h", "[ \\t]")
+
         def re_compile(pat, flags):
             try:
-                L._regexes.append(_re.compile(_s(pat), regex_flags(flags)))
+                L._regexes.append(_re.compile(translate(_s(pat)), regex_flags(flags)))
             except _re.error as e:
                 raise RuntimeError(f"regex error: {e}")
             return len(L._regexes)
@@ -228,9 +236,26 @@ class Engine:
             # Aegisub returns a flat array of matches: list of {str,first,last}
             return rt.table_from([rt.table_from(t[0]) for t in res])
 
-        def conv_repl(r):
-            r = _s(r)
-            return _re.sub(r"\$(\d+)|\\(\d+)", lambda m: "\\g<%s>" % (m.group(1) or m.group(2)), r.replace("\\", "\\\\") if False else r)
+        def expand(r, m):
+            out, i = [], 0
+            while i < len(r):
+                c = r[i]
+                if c in "$\\" and i + 1 < len(r):
+                    n = r[i + 1]
+                    if n.isdigit():
+                        j = i + 1
+                        while j < len(r) and r[j].isdigit() and j - i <= 2:
+                            j += 1
+                        g = int(r[i + 1:j])
+                        out.append((m.group(g) or "") if g <= (m.re.groups or 0) else "")
+                        i = j
+                        continue
+                    if c == "$" and n == "&":
+                        out.append(m.group(0)); i += 2; continue
+                    if c == "\\":
+                        out.append(n); i += 2; continue
+                out.append(c); i += 1
+            return "".join(out)
 
         def re_sub(rid, s, repl, mx):
             rx = L._regexes[int(rid) - 1]
@@ -243,11 +268,12 @@ class Engine:
                         tbl[gi] = rt.table_from(g)
                     return _s(repl(rt.table_from(tbl)))
                 return _b(rx.sub(fn, st, count=int(mx or 0)))
-            return _b(rx.sub(conv_repl(repl), st, count=int(mx or 0)))
+            rs = _s(repl)
+            return _b(rx.sub(lambda m: expand(rs, m), st, count=int(mx or 0)))
 
         def re_split(rid, s):
             rx = L._regexes[int(rid) - 1]
-            return rt.table_from([_b(x or "") for x in rx.split(_s(s))])
+            return rt.table_from([_b(x or "") for x in rx.split(_s(s))][:: rx.groups + 1])
 
         def style_to_dict(t):
             d = {}
@@ -313,7 +339,7 @@ class Engine:
 
         def decode_path(p):
             p = _s(p)
-            for tag, val in (("?script", os.path.dirname(L._doc.filename) if (L._doc and L._doc.filename) else ""),
+            for tag, val in (("?script", os.path.dirname(L._doc.filename) if (L._doc and L._doc.filename) else "?script"),
                              ("?data", os.path.expanduser("~/.osisub")),
                              ("?user", os.path.expanduser("~/.osisub")),
                              ("?temp", os.environ.get("TMPDIR", "/tmp"))):
@@ -449,10 +475,10 @@ class Engine:
         s.name = _s(g(b"name", b"Default"))
         s.fontname = _s(g(b"fontname", b"Arial"))
         s.fontsize = _num(g(b"fontsize", 48))
-        s.primary = _s(g(b"color1", b"&H00FFFFFF"))
-        s.secondary = _s(g(b"color2", b"&H000000FF"))
-        s.outline_c = _s(g(b"color3", b"&H00000000"))
-        s.back = _s(g(b"color4", b"&H00000000"))
+        s.primary = _norm_color(_s(g(b"color1", b"&H00FFFFFF")))
+        s.secondary = _norm_color(_s(g(b"color2", b"&H000000FF")))
+        s.outline_c = _norm_color(_s(g(b"color3", b"&H00000000")))
+        s.back = _norm_color(_s(g(b"color4", b"&H00000000")))
         s.bold, s.italic = bool(g(b"bold", False)), bool(g(b"italic", False))
         s.underline, s.strikeout = bool(g(b"underline", False)), bool(g(b"strikeout", False))
         s.scale_x, s.scale_y = _num(g(b"scale_x", 100)), _num(g(b"scale_y", 100))
@@ -521,11 +547,12 @@ class Engine:
         res.document = newdoc
         if newsel is not None:
             res.selection = [int(newsel[i]) - 1 - new_offset for i in range(1, len(newsel) + 1)
-                             if int(newsel[i]) - 1 - new_offset >= 0]
+                             if 0 <= int(newsel[i]) - 1 - new_offset < len(newdoc.events)]
         else:
             res.selection = None
         if newact is not None:
-            res.active = int(newact) - 1 - new_offset
+            a = int(newact) - 1 - new_offset
+            res.active = a if 0 <= a < len(newdoc.events) else None
         return res
 
     def validate_macro(self, macro: Macro, doc: Document, selection: Optional[list[int]] = None,
@@ -568,6 +595,11 @@ def from_lua(v: Any) -> Any:
             d[from_lua(k)] = from_lua(x)
         return d
     return v
+
+
+def _norm_color(v: str) -> str:
+    m = _re.match(r"^\s*&?[Hh]?([0-9A-Fa-f]{1,8})&?\s*$", v)
+    return "&H" + (m.group(1).zfill(8) if m else "00FFFFFF").upper()
 
 
 def _color_result(cls: str, v: str) -> str:

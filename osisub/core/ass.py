@@ -175,6 +175,19 @@ class Document:
                 return d
         return g("PlayResX", 384 if not self.get_info("PlayResY") else 0) or 384, g("PlayResY", 288)
 
+    def get_garbage(self, key: str, default: str = "") -> str:
+        for k, v in self.garbage:
+            if k == key:
+                return v
+        return default
+
+    def set_garbage(self, key: str, value: str) -> None:
+        for i, (k, _) in enumerate(self.garbage):
+            if k == key:
+                self.garbage[i] = (k, value)
+                return
+        self.garbage.append((key, value))
+
     def style(self, name: str) -> Optional[Style]:
         for s in self.styles:
             if s.name == name:
