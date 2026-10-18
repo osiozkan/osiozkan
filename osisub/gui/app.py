@@ -190,6 +190,8 @@ class MainWindow(QMainWindow):
         self._rebuild_recent()
         self._act(f, "Video aç…", self.open_video)
         self._act(f, "Referans altyazı aç…", self.open_reference)
+        self._act(f, "Altyazı dosyası ekle (birleştir)…", self.join_file)
+        self._act(f, "İkiye böl (zamanda)…", self.split_file)
         self._act(f, "Betik bilgisi (Script Info)…", self.script_info)
         f.addSeparator()
         self._act(f, "Çıkış", self.close, "Ctrl+Q")
@@ -1200,6 +1202,28 @@ class MainWindow(QMainWindow):
                 self.load_video(p); return
             if p.lower().endswith(".lua"):
                 self.engine.load_script(p); self.rebuild_automation_menu(); return
+
+    def join_file(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Eklenecek altyazı", self.settings.value("last_dir", ""), OPEN_FILTER)
+        if not p:
+            return
+        other = load_any(p)
+        off, ok = QInputDialog.getInt(self, "Birleştir", "Zaman kayması (ms, boş=sonuna ekle):",
+                                      max((e.end for e in self.doc.events), default=0), 0, 10**9)
+        if ok:
+            n = [0]
+            self.mutate("Dosya ekle", lambda d: n.__setitem__(0, tools.append_document(d, other, off)))
+            self._fill_styles(); self.status(f"{n[0]} satır eklendi")
+
+    def split_file(self):
+        t, ok = QInputDialog.getText(self, "Böl", "Bölme zamanı (H:MM:SS.cc):", text=format_ass_time(self.wave.pos_ms))
+        if not ok:
+            return
+        a, b = tools.split_document(self.doc, parse_ass_time(t))
+        base = self.doc.filename or os.path.join(self.settings.value("last_dir", ""), "split.ass")
+        root, _ = os.path.splitext(base)
+        a.save(root + ".part1.ass", set_filename=False); b.save(root + ".part2.ass", set_filename=False)
+        self.status(f"Yazıldı: {root}.part1.ass / .part2.ass")
 
     def goto_line(self):
         n, ok = QInputDialog.getInt(self, "Satıra git", "Satır no:", max(1, self.current_row() + 1), 1, max(1, len(self.doc.events)))

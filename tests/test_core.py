@@ -92,3 +92,12 @@ def test_cli_fix(tmp_path):
     assert main(["fix", str(src), "-o", str(out), "--hi", "--common", "--resample", "1920x1080"]) == 0
     d = Document.load(str(out))
     assert len(d.events) == 1 and d.events[0].text == "Selam dünya…" and d.res == (1920, 1080)
+
+
+def test_join_split():
+    a = Document.new(); a.events = [Event(start=0, end=1000, text="a"), Event(start=2000, end=3000, text="b")]
+    b = Document.new(); b.events = [Event(start=0, end=500, text="c")]
+    tools.append_document(a, b)
+    assert a.events[-1].start == 3000
+    p1, p2 = tools.split_document(a, 2000)
+    assert len(p1.events) == 1 and p2.events[0].start == 0 and p2.events[1].start == 1000

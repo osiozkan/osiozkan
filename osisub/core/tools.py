@@ -436,3 +436,37 @@ def statistics(doc: Document) -> dict:
         "span_s": round((max(e.end for e in ev) - min(e.start for e in ev)) / 1000, 2) if ev else 0.0,
         "styles": len({e.style for e in ev}),
     }
+
+
+def append_document(doc: Document, other: Document, offset_ms: Optional[int] = None, import_styles: bool = True) -> int:
+    """Append another document's events (Subtitle Edit 'join'). offset defaults to the end of `doc`."""
+    if offset_ms is None:
+        offset_ms = max((e.end for e in doc.events), default=0)
+    have = {s.name for s in doc.styles}
+    if import_styles:
+        from dataclasses import replace
+        doc.styles += [replace(s) for s in other.styles if s.name not in have]
+    for e in other.events:
+        c = e.copy()
+        c.start += offset_ms
+        c.end += offset_ms
+        doc.events.append(c)
+    return len(other.events)
+
+
+def split_document(doc: Document, at_ms: int) -> tuple[Document, Document]:
+    """Split into two documents at a time; the second part is re-based to zero."""
+    from dataclasses import replace
+    a, b = Document(), Document()
+    for d in (a, b):
+        d.info = list(doc.info)
+        d.styles = [replace(s) for s in doc.styles]
+    for e in doc.events:
+        if e.start < at_ms:
+            a.events.append(e.copy())
+        else:
+            c = e.copy()
+            c.start -= at_ms
+            c.end -= at_ms
+            b.events.append(c)
+    return a, b
