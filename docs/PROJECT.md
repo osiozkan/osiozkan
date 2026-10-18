@@ -36,10 +36,17 @@ osisub-gui [dosya.ass]      # arayüz
 osisub run betik.lua giris.ass -o cikis.ass -m 0 -s 1-5
 ```
 
-## Durum (v0.1.0)
+## Durum (v0.1.0, ilk gece sonu: 28 test yeşil)
 Tamam: ASS/SRT/VTT G/Ç, undo/redo, tablo+düzenleme paneli, stil yöneticisi, bul/değiştir, kaydır/eşitle/anahtar kare/FPS,
 çakışma ve süre düzeltme, QC (CPS/CPL/çakışma…), Türkçe büyük/küçük harf, libass önizleme, dalga formu (sürükleyerek
 zamanlama), otomasyon menüsü + Lua çalışma zamanı, CLI.
+
+## Açık kalan notlar (gözden geçirme sonrası)
+- Lua `re`: Boost'a tam uyum yok (kalan farklar: boş eşleşme davranışı, `\u \l \U \E` ikame kaçışları).
+- Event `extra` / `margin_b` geri yazılmıyor; `unicode.to_upper("ß")` Python kuralı; `util.trim/uuid` yok.
+- Dialog `color` sonucu biçimi (&H..& mı #RRGGBB mı) Aegisub ile doğrulanmalı.
+- karaskel furigana düzeni basitleştirilmiş.
+- Hunspell sözlüğü paketle gelmez (`hunspell-tr`); yükleme ~6 sn (arka plan iş parçacığı).
 
 ## Yol haritası (öncelik sırasıyla)
 1. Lua uyumluluğu: `re` modülü kenar durumları, `lfs`/`lpeg` yerine saf Lua yedekleri, `aegisub.dialog` tüm kontroller,
