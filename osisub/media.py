@@ -172,3 +172,54 @@ class AudioPlayer:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
         self.proc = None
+
+
+class VideoStream:
+    """Streams rendered frames (video + libass subtitles) from ffmpeg as raw RGB, paced by wall clock."""
+
+    def __init__(self, info: VideoInfo, ass_text: str, start_ms: int, width: int = 640, fps: float = 15.0):
+        import tempfile
+        self.info = info
+        self.start_ms = start_ms
+        self.fps = fps
+        self.width = max(2, width - width % 2)
+        self.height = max(2, int(round(self.width * info.height / max(info.width, 1) / 2)) * 2)
+        fd, self.ass_path = tempfile.mkstemp(suffix=".ass")
+        os.close(fd)
+        with open(self.ass_path, "w", encoding="utf-8") as f:
+            f.write(ass_text)
+        esc = self.ass_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+        vf = f"ass='{esc}',scale={self.width}:{self.height},fps={fps}"
+        self.proc = subprocess.Popen(
+            [FFMPEG, "-v", "error", "-i", info.path, "-ss", f"{start_ms / 1000:.3f}", "-vf", vf,
+             "-pix_fmt", "rgb24", "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def frames(self):
+        """Yield (ms, bytes) paced in real time. Frames that are late are dropped."""
+        import time
+        size = self.width * self.height * 3
+        t0 = time.monotonic()
+        n = 0
+        while True:
+            buf = self.proc.stdout.read(size)
+            if not buf or len(buf) < size:
+                return
+            due = t0 + n / self.fps
+            now = time.monotonic()
+            if now < due:
+                time.sleep(due - now)
+            elif now - due > 0.25:  # too late: skip display
+                n += 1
+                continue
+            yield self.start_ms + int(n * 1000 / self.fps), buf
+            n += 1
+
+    def close(self):
+        try:
+            if self.proc.poll() is None:
+                self.proc.kill()
+        finally:
+            try:
+                os.unlink(self.ass_path)
+            except OSError:
+                pass

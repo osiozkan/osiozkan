@@ -21,7 +21,7 @@ from ..core.timeutil import format_ass_time, parse_ass_time
 from ..formats import load_any, save_any
 from .dialogs import (ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
 from .models import EventModel
-from .widgets import PreviewWidget, WaveformWidget
+from .widgets import PreviewWidget, WaveformWidget, VideoPlayback
 
 APP = "Osisub"
 OPEN_FILTER = "Altyazılar (*.ass *.ssa *.srt *.vtt);;Tüm dosyalar (*)"
@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         self.play_timer = QTimer(self, interval=40)
         self.play_timer.timeout.connect(self._play_tick)
         self.ref_doc = None
+        self.playback = None
         self.recent: list[str] = [p for p in (self.settings.value("recent", []) or []) if p]
         self.setAcceptDrops(True)
         self._build_ui()
@@ -227,6 +228,10 @@ class MainWindow(QMainWindow):
         self._act(t, "Kare hızı dönüştür…", self.convert_fps)
         self._act(t, "İki nokta ile eşitle…", self.two_point_sync)
         self._act(t, "Seçili satırı çal", self.play_line, "Ctrl+P")
+        self._act(t, "Videoyu oynat / durdur", self.toggle_video, "Ctrl+Space")
+        self._act(t, "Bir kare ileri", lambda: self.step_frames(1), "Alt+Right")
+        self._act(t, "Bir kare geri", lambda: self.step_frames(-1), "Alt+Left")
+        self._act(t, "Bitişi ata ve sonraki satıra geç", self.end_and_next, "Ctrl+3")
         self._act(t, "Çalmayı durdur", self.stop_play, "Escape")
         self.pick_action = self._act(t, "Konum seç modu (önizlemede tıkla → \\pos)", self.toggle_pick, "Ctrl+L")
         self.pick_action.setCheckable(True)
@@ -1019,6 +1024,51 @@ class MainWindow(QMainWindow):
     def stop_play(self):
         self.player.stop()
         self.play_timer.stop()
+        if self.playback:
+            self.playback.stop()
+            self.playback = None
+
+    def toggle_video(self):
+        if self.playback or self.player.playing:
+            self.stop_play(); return
+        if not self.video or not media.available():
+            self.status("Önce video açın"); return
+        self._flush_edit()
+        start = self.wave.pos_ms
+        w = max(320, min(self.preview.width(), 960))
+        self.playback = VideoPlayback(self.video, self.doc.dumps(), start, w, self._on_video_frame, self._on_video_done)
+        if AudioPlayer.available():
+            self.player.play(self.video.path, start, 0)
+        self.play_timer.start()
+
+    def _on_video_frame(self, img, ms):
+        self.preview.show_image(img)
+
+    def _on_video_done(self):
+        self.playback = None
+        self.player.stop()
+        self.play_timer.stop()
+
+    def step_frames(self, n):
+        step = 1000.0 / (self.fps or 23.976)
+        self.wave.pos_ms = max(0, int(round(self.wave.pos_ms + n * step)))
+        self.wave.update()
+        self.preview.request(self.doc.dumps(), self.wave.pos_ms, self.doc.res)
+
+    def end_and_next(self):
+        row = self.current_row()
+        if row < 0:
+            return
+        e = self.doc.events[row]
+        e.end = max(self.wave.pos_ms, e.start)
+        self.commit("Bitiş")
+        nxt = row + 1
+        if nxt < len(self.doc.events):
+            self.doc.events[nxt].start = e.end
+            self.commit("Başlangıç")
+            self.select_rows([nxt])
+        else:
+            self._load_edit(row)
 
     def _play_tick(self):
         if not self.player.playing:

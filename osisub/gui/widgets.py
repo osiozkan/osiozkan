@@ -23,6 +23,40 @@ class _FrameJob(QRunnable):
             self.signals.done.emit(self.serial, QImage(), str(e))
 
 
+class _StreamSignals(QObject):
+    frame = Signal(QImage, int)
+    finished = Signal()
+
+
+class VideoPlayback:
+    """Runs a media.VideoStream in a thread and emits QImage frames."""
+
+    def __init__(self, info, ass_text, start_ms, width, on_frame, on_done):
+        import threading
+        self.stream = media.VideoStream(info, ass_text, start_ms, width)
+        self.sig = _StreamSignals()
+        self.sig.frame.connect(on_frame)
+        self.sig.finished.connect(on_done)
+        self.stop_flag = False
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        w, h = self.stream.width, self.stream.height
+        try:
+            for ms, buf in self.stream.frames():
+                if self.stop_flag:
+                    break
+                img = QImage(buf, w, h, w * 3, QImage.Format_RGB888).copy()
+                self.sig.frame.emit(img, ms)
+        finally:
+            self.sig.finished.emit()
+
+    def stop(self):
+        self.stop_flag = True
+        self.stream.close()
+
+
 class PreviewWidget(QLabel):
     """Renders the current frame (optional video) with subtitles via ffmpeg/libass, asynchronously."""
     clicked = Signal(float, float)  # script-resolution coordinates
@@ -75,6 +109,11 @@ class PreviewWidget(QLabel):
         job = _FrameJob(self.serial, work)
         job.signals.done.connect(self._done)
         self.pool.start(job)
+
+    def show_image(self, img: QImage):
+        self.serial += 1  # invalidate pending async renders
+        self._pix = QPixmap.fromImage(img)
+        self._fit()
 
     def _done(self, serial, img, err):
         if serial != self.serial:
