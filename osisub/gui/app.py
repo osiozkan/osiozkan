@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, media
 from ..automation import Engine
-from ..core import tools
+from ..core import tools, assutil
 from ..core.ass import Document, Event
 from ..core.history import History
 from ..core.timeutil import format_ass_time, parse_ass_time
@@ -187,6 +187,16 @@ class MainWindow(QMainWindow):
         self._act(s, "Boş satırları sil", self.remove_empty)
         self._act(s, "Yinelenenleri birleştir", self.merge_dupes)
         self._act(s, "Sırala (başlangıç)", lambda: self.mutate("Sırala", lambda d: tools.sort_events(d, "start")))
+        s.addSeparator()
+        self._act(s, "Çözünürlüğü yeniden örnekle…", self.resample_dialog)
+        self._act(s, "Font denetimi…", self.font_check)
+        self._act(s, "Başka dosyadan stil al…", self.import_styles)
+        self._act(s, "Kullanılmayan stilleri sil", self.remove_unused_styles)
+        k = mb.addMenu("&Karaoke")
+        self._act(k, "Otomatik \\k (hece)", lambda: self.auto_karaoke("syllable"))
+        self._act(k, "Otomatik \\k (sözcük)", lambda: self.auto_karaoke("word"))
+        self._act(k, "Otomatik \\k (karakter)", lambda: self.auto_karaoke("char"))
+        self._act(k, "Lead-in / lead-out…", self.lead_in_out)
         t = mb.addMenu("&Zamanlama")
         self._act(t, "Zamanlamayı kaydır…", self.shift_dialog, "Ctrl+Shift+Left")
         self._act(t, "Çakışmaları düzelt", self.fix_overlaps)
@@ -617,6 +627,53 @@ class MainWindow(QMainWindow):
             self.doc.info = info
             self.commit("Script Info")
             self._refresh_preview()
+
+    # ------------------------------------------------------------ ass utilities
+    def resample_dialog(self):
+        rx, ry = self.doc.res
+        x, ok = QInputDialog.getInt(self, "Yeniden örnekle", "Yeni PlayResX:", rx, 1, 20000)
+        if not ok:
+            return
+        y, ok = QInputDialog.getInt(self, "Yeniden örnekle", "Yeni PlayResY:", ry, 1, 20000)
+        if ok:
+            self.mutate("Yeniden örnekle", lambda d: assutil.resample(d, x, y))
+            self._load_edit(self.current_row())
+
+    def font_check(self):
+        miss = assutil.missing_fonts(self.doc)
+        if not miss:
+            QMessageBox.information(self, APP, "Eksik font bulunamadı (veya fc-list yok).")
+            return
+        QMessageBox.warning(self, APP, "Eksik fontlar:\n" + "\n".join(
+            f"• {f}  ({', '.join(sorted(w)[:4])})" for f, w in sorted(miss.items())))
+
+    def import_styles(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Stil kaynağı", self.settings.value("last_dir", ""), OPEN_FILTER)
+        if p:
+            src = load_any(p)
+            n = [0]
+            self.mutate("Stil içe aktar", lambda d: n.__setitem__(0, assutil.import_styles(d, src)))
+            self._fill_styles(); self.status(f"{n[0]} stil alındı")
+
+    def remove_unused_styles(self):
+        names = assutil.unused_styles(self.doc)
+        self.mutate("Kullanılmayan stiller", lambda d: setattr(d, "styles", [s for s in d.styles if s.name not in names]))
+        self._fill_styles(); self.status(f"{len(names)} stil silindi")
+
+    def auto_karaoke(self, mode):
+        rows = self.selected_rows() or ([self.current_row()] if self.current_row() >= 0 else [])
+        self.mutate("Otomatik karaoke", lambda d: assutil.apply_auto_karaoke(d, rows, mode))
+        self._load_edit(self.current_row())
+
+    def lead_in_out(self):
+        li, ok = QInputDialog.getInt(self, "Lead-in", "Lead-in (ms):", 300, 0, 10000)
+        if not ok:
+            return
+        lo, ok = QInputDialog.getInt(self, "Lead-out", "Lead-out (ms):", 300, 0, 10000)
+        if ok:
+            rows = self.selected_rows() or list(range(len(self.doc.events)))
+            self.mutate("Lead-in/out", lambda d: assutil.lead_in_out(d, rows, li, lo))
+            self._load_edit(self.current_row())
 
     # ------------------------------------------------------------ timing
     def shift_dialog(self):
