@@ -82,3 +82,13 @@ def test_hi_and_mojibake_and_stats():
     assert tools.fix_mojibake(d) == 1 and d.events[1].text == "Küçük"
     st = tools.statistics(d)
     assert st["lines"] == 2 and st["chars"] == 10
+
+
+def test_cli_fix(tmp_path):
+    from osisub.cli import main
+    src = tmp_path / "a.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:02,000\n[müzik]\n\n2\n00:00:02,000 --> 00:00:04,000\nSelam  dünya ...\n", encoding="utf-8")
+    out = tmp_path / "o.ass"
+    assert main(["fix", str(src), "-o", str(out), "--hi", "--common", "--resample", "1920x1080"]) == 0
+    d = Document.load(str(out))
+    assert len(d.events) == 1 and d.events[0].text == "Selam dünya…" and d.res == (1920, 1080)

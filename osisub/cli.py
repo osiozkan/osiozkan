@@ -84,6 +84,35 @@ def cmd_shift(a):
     save_any(doc, a.output or a.input)
 
 
+def cmd_fix(a):
+    from .core import assutil
+    doc = load_any(a.input)
+    if a.mojibake:
+        tools.fix_mojibake(doc)
+    if a.hi:
+        tools.remove_hearing_impaired(doc)
+    if a.common:
+        tools.fix_common_errors(doc)
+    if a.case:
+        tools.change_case(doc, a.case)
+    if a.overlaps:
+        tools.fix_overlaps(doc)
+    if a.merge:
+        tools.merge_duplicates(doc)
+    if a.shift:
+        tools.shift(doc, a.shift)
+    if a.resample:
+        x, y = (int(v) for v in a.resample.lower().split("x"))
+        assutil.resample(doc, x, y)
+    tools.remove_empty(doc)
+    save_any(doc, a.output or a.input)
+
+
+def cmd_stats(a):
+    for k, v in tools.statistics(load_any(a.input)).items():
+        print(f"{k}: {v}")
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="osisub", description="Osisub subtitle toolkit")
     p.add_argument("--version", action="version", version=__version__)
@@ -98,6 +127,14 @@ def build_parser():
     k.add_argument("--cpl", type=int, default=42); k.set_defaults(fn=cmd_check)
     s = sub.add_parser("shift"); s.add_argument("input"); s.add_argument("ms", type=int)
     s.add_argument("-o", "--output"); s.set_defaults(fn=cmd_shift)
+    f = sub.add_parser("fix", help="batch clean-up")
+    f.add_argument("input"); f.add_argument("-o", "--output")
+    f.add_argument("--mojibake", action="store_true"); f.add_argument("--hi", action="store_true")
+    f.add_argument("--common", action="store_true"); f.add_argument("--overlaps", action="store_true")
+    f.add_argument("--merge", action="store_true"); f.add_argument("--case", choices=["upper", "lower", "title", "sentence"])
+    f.add_argument("--shift", type=int, default=0); f.add_argument("--resample", help="WxH, e.g. 1920x1080")
+    f.set_defaults(fn=cmd_fix)
+    st = sub.add_parser("stats"); st.add_argument("input"); st.set_defaults(fn=cmd_stats)
     return p
 
 
