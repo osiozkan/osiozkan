@@ -32,7 +32,7 @@ def srt_to_ass_text(t: str) -> str:
     t = re.sub(r"<\s*(/?)\s*([biu])\s*>", lambda m: "{\\%s%d}" % (m.group(2), 0 if m.group(1) else 1), t, flags=re.I)
     t = re.sub(r"<\s*font\s+color\s*=\s*[\"']?#?([0-9a-fA-F]{6})[\"']?\s*>",
                lambda m: "{\\c&H%s%s%s&}" % (m.group(1)[4:6], m.group(1)[2:4], m.group(1)[0:2]), t, flags=re.I)
-    t = re.sub(r"<\s*/\s*font\s*>", "{\\c}", t, flags=re.I)
+    t = re.sub(r"<\s*/\s*font\s*>", lambda m: "{\\c}", t, flags=re.I)
     t = re.sub(r"</?[a-zA-Z][^>]*>", "", t)
     t = re.sub(r"\{\\an(\d)\}", r"{\\an\1}", t)
     return t.replace("\n", "\\N")
