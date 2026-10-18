@@ -225,8 +225,22 @@ class MainWindow(QMainWindow):
     def commit(self, label: str):
         self._commit_timer.stop()
         self.history.commit(label)
-        self.model.refresh()
+        self._refresh_keep_selection()
         self._update_title()
+
+    def _refresh_keep_selection(self):
+        from PySide6.QtCore import QItemSelectionModel
+        rows, cur = self.selected_rows(), self.table.currentIndex().row()
+        sm = self.table.selectionModel()
+        sm.blockSignals(True)
+        self.model.refresh()
+        n = len(self.doc.events)
+        for r in rows:
+            if r < n:
+                sm.select(self.model.index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        if 0 <= cur < n:
+            sm.setCurrentIndex(self.model.index(cur, 0), QItemSelectionModel.NoUpdate)
+        sm.blockSignals(False)
 
     def mutate(self, label: str, fn, select=None):
         self._flush_edit()
@@ -497,7 +511,7 @@ class MainWindow(QMainWindow):
 
     def _after_history(self):
         row = self.current_row()
-        self.model.refresh()
+        self._refresh_keep_selection()
         self._fill_styles()
         self._load_edit(min(row, len(self.doc.events) - 1))
         self._update_title()

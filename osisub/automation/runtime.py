@@ -237,8 +237,11 @@ class Engine:
             st = _s(s)
             if callable(repl) or not isinstance(repl, (bytes, str)):
                 def fn(m):
-                    r = repl(rt.table_from([rt.table_from(d) for d in mk_match(st, m)])[1][b"str"] if False else rt.table_from(mk_match(st, m)[0]))
-                    return _s(r)
+                    mt = mk_match(st, m)
+                    tbl = dict(mt[0])
+                    for gi, g in enumerate(mt[1:], 1):
+                        tbl[gi] = rt.table_from(g)
+                    return _s(repl(rt.table_from(tbl)))
                 return _b(rx.sub(fn, st, count=int(mx or 0)))
             return _b(rx.sub(conv_repl(repl), st, count=int(mx or 0)))
 
