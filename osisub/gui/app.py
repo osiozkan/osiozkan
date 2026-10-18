@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self.wave.seek.connect(self._wave_seek)
         self.wave.timing_changed.connect(self._wave_timing)
         self.wave.timing_committed.connect(lambda: self.commit("Dalga formunda zamanlama"))
+        self.wave.kara_changed.connect(self._wave_kara)
         self.table = QTableView()
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -423,12 +424,34 @@ class MainWindow(QMainWindow):
             self.e_style.setCurrentIndex(i)
             self._update_info(row)
             self.wave.set_events(self.doc.events, row)
+            self._set_wave_kara(row)
             self.wave.pos_ms = e.start
             self.wave.center_on(e.start)
         finally:
             self._loading_edit = False
         self._refresh_preview()
         self._update_reference()
+
+    def _set_wave_kara(self, row):
+        e = self.doc.events[row] if 0 <= row < len(self.doc.events) else None
+        if e and assutil.has_karaoke(e.text):
+            durs = assutil.kara_durations(e.text)
+            texts = assutil.kara_syllable_texts(e.text)
+            first = assutil.parse_syllables(e.text)[0]
+            if first["text"] or True:
+                self.wave.set_kara(row, durs, texts[: len(durs)])
+                return
+        self.wave.set_kara(-1, [], [])
+
+    def _wave_kara(self, idx, durs):
+        e = self.doc.events[idx]
+        e.text = assutil.set_kara_durations(e.text, durs)
+        self._loading_edit = True
+        self.e_text.setPlainText(e.text)
+        self._loading_edit = False
+        self.model.refresh_row(idx)
+        self._update_title_dirty()
+        self._commit_timer.start()
 
     def _update_info(self, row):
         e = self.doc.events[row]

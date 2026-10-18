@@ -66,3 +66,10 @@ def test_attachment_line_looks_like_header():
     txt = "[Script Info]\nTitle: x\n\n[Fonts]\nfontname: a.ttf\n[abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd]\n!!!\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,hi\n"
     d = Document.parse(txt)
     assert len(d.attachments[0][2]) == 2 and len(d.events) == 1
+
+
+def test_kara_durations():
+    t = r"{\k10\b1}a{\kf20}b{\ko5}c"
+    assert au.kara_durations(t) == [10, 20, 5]
+    assert au.set_kara_durations(t, [1, 2, 3]) == r"{\k1\b1}a{\kf2}b{\ko3}c"
+    assert au.kara_syllable_texts(t) == ["a", "b", "c"]

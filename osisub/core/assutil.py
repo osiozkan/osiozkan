@@ -306,3 +306,28 @@ def extract_fonts(doc: Document, out_dir: str) -> list[str]:
             open(p, "wb").write(uudecode(lines))
             paths.append(p)
     return paths
+
+
+_KTAG = re.compile(r"(\\[kK][fo]?)(-?\d+)")
+
+
+def kara_durations(text: str) -> list[int]:
+    """Durations (cs) of every \\k-type tag in order of appearance (only inside override blocks)."""
+    out = []
+    for m in BLOCK.finditer(text):
+        out += [int(x.group(2)) for x in _KTAG.finditer(m.group(0))]
+    return out
+
+
+def set_kara_durations(text: str, durs: list[int]) -> str:
+    it = iter(durs)
+
+    def repl_block(m):
+        return _KTAG.sub(lambda k: k.group(1) + str(next(it, int(k.group(2)))), m.group(0))
+    return BLOCK.sub(repl_block, text)
+
+
+def kara_syllable_texts(text: str) -> list[str]:
+    """Visible text of each syllable that follows a \\k tag (index-aligned with kara_durations)."""
+    syls = parse_syllables(text)
+    return [BLOCK.sub("", s["text"]) for s in syls[1:]]

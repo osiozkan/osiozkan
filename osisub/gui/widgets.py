@@ -149,6 +149,7 @@ class WaveformWidget(QWidget):
     seek = Signal(int)
     timing_changed = Signal(int, int, int)  # event index, start, end (live)
     timing_committed = Signal()
+    kara_changed = Signal(int, list)  # event index, new durations (cs)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -161,6 +162,7 @@ class WaveformWidget(QWidget):
         self.view_start = 0.0  # ms
         self.ms_per_px = 20.0
         self._drag = None
+        self.kara = None  # (event_index, [durations cs], [syllable texts]) for the active line
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -171,6 +173,20 @@ class WaveformWidget(QWidget):
     def set_events(self, events, active):
         self.events, self.active = events, active
         self.update()
+
+    def set_kara(self, idx, durs, texts):
+        self.kara = (idx, list(durs), list(texts)) if durs else None
+        self.update()
+
+    def _kara_bounds(self):
+        if not self.kara or not (0 <= self.kara[0] < len(self.events)):
+            return []
+        e = self.events[self.kara[0]]
+        t, out = e.start, []
+        for d in self.kara[1]:
+            t += d * 10
+            out.append(t)
+        return out  # boundary after each syllable (last one = end of last syllable)
 
     def center_on(self, ms):
         w = self.width() * self.ms_per_px
@@ -209,6 +225,14 @@ class WaveformWidget(QWidget):
             p.setPen(QPen(QColor("#f0b43c" if act else "#7a6a40"), 2 if act else 1))
             p.drawLine(int(x1), 0, int(x1), h)
             p.drawLine(int(x2), 0, int(x2), h)
+        if self.kara:
+            e = self.events[self.kara[0]]
+            starts = [e.start] + self._kara_bounds()[:-1]
+            p.setPen(QPen(QColor("#40e0d0"), 1))
+            for i, (b, txt) in enumerate(zip(self._kara_bounds(), self.kara[2])):
+                x = self.x_of(b)
+                p.drawLine(int(x), 0, int(x), h)
+                p.drawText(int(self.x_of(starts[i])) + 3, 14, txt)
         p.setPen(QPen(QColor("#ff5555")))
         px = self.x_of(self.pos_ms)
         p.drawLine(int(px), 0, int(px), h)
@@ -222,11 +246,20 @@ class WaveformWidget(QWidget):
                     return which
         return None
 
+    def _kara_handle_at(self, x):
+        for i, b in enumerate(self._kara_bounds()[:-1]):
+            if abs(self.x_of(b) - x) < 5:
+                return i
+        return None
+
     def mousePressEvent(self, ev):
         x = ev.position().x()
         h = self._handle_at(x)
+        k = self._kara_handle_at(x)
         if h:
             self._drag = h
+        elif k is not None:
+            self._drag = ("kara", k)
         else:
             self.pos_ms = self.ms_of(x)
             self.seek.emit(self.pos_ms)
@@ -234,7 +267,20 @@ class WaveformWidget(QWidget):
 
     def mouseMoveEvent(self, ev):
         x = ev.position().x()
-        if self._drag and 0 <= self.active < len(self.events):
+        if isinstance(self._drag, tuple) and self.kara:
+            i = self._drag[1]
+            idx, durs, texts = self.kara
+            e = self.events[idx]
+            bounds = self._kara_bounds()
+            prev = bounds[i - 1] if i > 0 else e.start
+            nxt = bounds[i + 1] if i + 1 < len(bounds) else bounds[i] + durs[i + 1] * 10
+            ms = min(max(self.ms_of(x), prev), nxt)
+            new_a = max(0, round((ms - prev) / 10))
+            total = durs[i] + durs[i + 1]
+            durs[i], durs[i + 1] = new_a, max(0, total - new_a)
+            self.kara_changed.emit(idx, list(durs))
+            self.update()
+        elif self._drag and 0 <= self.active < len(self.events):
             e = self.events[self.active]
             ms = max(0, self.ms_of(x))
             if self._drag == "start":
@@ -244,7 +290,7 @@ class WaveformWidget(QWidget):
             self.timing_changed.emit(self.active, e.start, e.end)
             self.update()
         else:
-            self.setCursor(Qt.SizeHorCursor if self._handle_at(x) else Qt.ArrowCursor)
+            self.setCursor(Qt.SizeHorCursor if (self._handle_at(x) or self._kara_handle_at(x) is not None) else Qt.ArrowCursor)
 
     def mouseReleaseEvent(self, ev):
         if self._drag:
