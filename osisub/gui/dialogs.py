@@ -432,3 +432,35 @@ class SpellDialog(QDialog):
         if self.cur:
             self.sc.add(self.cur[3])
             self.find_next(self.cur[1])
+
+
+class StylingAssistant(QDialog):
+    """Aegisub-style styling assistant: pick a style with 1-9 / Enter, current line advances automatically."""
+
+    def __init__(self, styles, apply_cb, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Stil asistanı")
+        self.apply_cb = apply_cb
+        lay = QVBoxLayout(self)
+        self.info = QLabel("Rakam tuşu (1-9) stili uygular ve sonraki satıra geçer.")
+        lay.addWidget(self.info)
+        self.list = QListWidget()
+        for i, n in enumerate(styles, 1):
+            self.list.addItem(f"{i}. {n}" if i < 10 else n)
+        self.list.setCurrentRow(0)
+        self.styles = list(styles)
+        self.list.itemActivated.connect(lambda _: self.apply(self.list.currentRow()))
+        lay.addWidget(self.list)
+        b = QPushButton("Uygula ve sonraki (Enter)"); b.clicked.connect(lambda: self.apply(self.list.currentRow()))
+        lay.addWidget(b)
+
+    def apply(self, idx):
+        if 0 <= idx < len(self.styles):
+            self.apply_cb(self.styles[idx])
+
+    def keyPressEvent(self, ev):
+        k = ev.key()
+        if Qt.Key_1 <= k <= Qt.Key_9:
+            self.apply(k - Qt.Key_1)
+        else:
+            super().keyPressEvent(ev)

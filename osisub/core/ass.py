@@ -290,13 +290,14 @@ class Document:
             out += ["", f"[{name}]"] + [l for l in lines if l.strip() != "" or True]
         return "\n".join(out).rstrip("\n") + "\n"
 
-    def save(self, path: Optional[str] = None, bom: bool = True) -> None:
+    def save(self, path: Optional[str] = None, bom: bool = True, set_filename: bool = True) -> None:
         path = path or self.filename
         if not path:
             raise ValueError("no path")
         with open(path, "wb") as f:
             f.write(("﻿" if bom else "").encode("utf-8") + self.dumps().replace("\n", "\r\n").encode("utf-8"))
-        self.filename = path
+        if set_filename:
+            self.filename = path
 
 
 def decode_bytes(data: bytes) -> str:

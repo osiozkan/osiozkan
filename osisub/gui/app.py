@@ -19,7 +19,7 @@ from ..core.ass import Document, Event
 from ..core.history import History
 from ..core.timeutil import format_ass_time, parse_ass_time
 from ..formats import load_any, save_any
-from .dialogs import (SpellDialog, ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
+from .dialogs import (StylingAssistant, SpellDialog, ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
 from .models import EventModel
 from .widgets import PreviewWidget, WaveformWidget, VideoPlayback
 
@@ -80,6 +80,9 @@ class MainWindow(QMainWindow):
         self._commit_timer = QTimer(self, singleShot=True, interval=700)
         self._commit_timer.timeout.connect(lambda: self.commit("Düzenleme"))
         self._loading_edit = False
+        self.autosave_timer = QTimer(self, interval=120_000)
+        self.autosave_timer.timeout.connect(self.autosave)
+        self.autosave_timer.start()
         self.load_automation()
         self._update_title()
         self.resize(int(self.settings.value("w", 1280)), int(self.settings.value("h", 860)))
@@ -206,6 +209,7 @@ class MainWindow(QMainWindow):
         self._act(e, "Satırları seç (desen)…", self.select_by_pattern, "Ctrl+Shift+A")
         s = mb.addMenu("&Altyazı")
         self._act(s, "Stil yöneticisi…", self.style_manager, "Ctrl+Shift+T")
+        self._act(s, "Stil asistanı…", self.styling_assistant)
         c = s.addMenu("Harf büyüklüğü")
         for label, mode in (("BÜYÜK HARF", "upper"), ("küçük harf", "lower"), ("Başlık Düzeni", "title"), ("Cümle düzeni", "sentence")):
             self._act(c, label, lambda m=mode: self.case(m))
@@ -383,10 +387,29 @@ class MainWindow(QMainWindow):
         self._import_path = path
         self.status(f"Açıldı: {path}")
 
+    def autosave(self):
+        if not self.history.dirty:
+            return
+        import time
+        d = os.path.expanduser("~/.osisub/autosave")
+        name = os.path.splitext(os.path.basename(self.doc.filename or "untitled"))[0]
+        try:
+            os.makedirs(d, exist_ok=True)
+            self.doc.save(os.path.join(d, f"{name}.{time.strftime('%Y%m%d-%H%M%S')}.autosave.ass"), set_filename=False)
+        except OSError:
+            return
+        self.status("Otomatik kaydedildi")
+
     def save(self):
         self._flush_edit()
         if not self.doc.filename:
             return self.save_as()
+        if os.path.exists(self.doc.filename):
+            try:
+                import shutil
+                shutil.copy2(self.doc.filename, self.doc.filename + ".bak")
+            except OSError:
+                pass
         self.doc.save()
         self.history.mark_saved()
         self._update_title()
@@ -733,6 +756,21 @@ class MainWindow(QMainWindow):
         dlg.btn_next.clicked.connect(find_next)
         dlg.show()
         self._fr = dlg
+
+    def styling_assistant(self):
+        def apply(name):
+            row = self.current_row()
+            if row < 0:
+                return
+            self.doc.events[row].style = name
+            self.commit("Stil")
+            if row + 1 < len(self.doc.events):
+                self.select_rows([row + 1])
+            else:
+                self._load_edit(row)
+        dlg = StylingAssistant([s.name for s in self.doc.styles], apply, self)
+        dlg.show()
+        self._assistant = dlg
 
     def style_manager(self):
         dlg = StyleEditor(self.doc, self)
