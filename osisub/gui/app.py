@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self.keyframes: list[int] = []
         self.engine = Engine(include_dirs=self._automation_dirs(), dialog_handler=self._automation_dialog,
                              file_dialog_handler=self._automation_file_dialog, log_handler=self._automation_log)
+        self.model.max_cps = self.pref("max_cps", 20.0)
         self.macro_log: list[str] = []
         self.player = AudioPlayer()
         self.play_timer = QTimer(self, interval=40)
@@ -189,6 +190,7 @@ class MainWindow(QMainWindow):
         self._act(e, "Geri al", self.undo, "Ctrl+Z")
         self._act(e, "Yinele", self.redo, "Ctrl+Y")
         e.addSeparator()
+        self._act(e, "Tercihler…", self.preferences)
         self._act(e, "Bul ve değiştir…", self.find_replace, "Ctrl+F")
         self._act(e, "Satır ekle", self.insert_line, "Ctrl+Return")
         self._act(e, "Satırı çoğalt", self.duplicate, "Ctrl+D")
@@ -266,10 +268,11 @@ class MainWindow(QMainWindow):
         self._act(h, "Hakkında", lambda: QMessageBox.about(self, APP, f"{APP} {__version__}\nAegisub uyumlu anime altyazı editörü"))
 
     # ------------------------------------------------------------ helpers
-    @staticmethod
-    def _automation_dirs():
-        return [os.path.expanduser("~/.osisub/automation/include"), os.path.expanduser("~/.aegisub/automation/include"),
+    def _automation_dirs(self=None):
+        dirs = [os.path.expanduser("~/.osisub/automation/include"), os.path.expanduser("~/.aegisub/automation/include"),
                 os.path.join(os.getcwd(), "automation", "include")]
+        extra = str(self.settings.value("lua_include", "")) if self is not None else ""
+        return dirs + ([extra] if extra else [])
 
     def selected_rows(self) -> list[int]:
         return sorted({i.row() for i in self.table.selectionModel().selectedRows()})
@@ -530,7 +533,16 @@ class MainWindow(QMainWindow):
         if 0 <= row < len(self.doc.events):
             e = self.doc.events[row]
             ms = e.start + min(e.duration // 2, 500)
-        self.preview.request(self.doc.dumps(), ms, self.doc.res)
+        self.preview.request(self._frame_ass(ms), ms, self.doc.res)
+
+    def _frame_ass(self, ms: int) -> str:
+        """ASS text restricted to events visible at `ms` (keeps preview fast for huge files)."""
+        if len(self.doc.events) < 500:
+            return self.doc.dumps()
+        sub = Document()
+        sub.info, sub.styles, sub.attachments = self.doc.info, self.doc.styles, self.doc.attachments
+        sub.events = [e for e in self.doc.events if e.start <= ms < e.end]
+        return sub.dumps()
 
     # ------------------------------------------------------------ structural edits
     def insert_line(self):
@@ -870,9 +882,30 @@ class MainWindow(QMainWindow):
         self.commit("Zamanlama")
         self._load_edit(row)
 
+    def pref(self, key, default):
+        v = self.settings.value(key, default)
+        try:
+            return type(default)(v)
+        except (TypeError, ValueError):
+            return default
+
+    def preferences(self):
+        dlg = ParamsDialog("Tercihler", [
+            ("cps", "En yüksek CPS", float(self.pref("max_cps", 20.0))),
+            ("cpl", "Satır başına en çok karakter", int(self.pref("max_cpl", 42))),
+            ("inc", "Ek Lua include klasörü", str(self.pref("lua_include", ""))),
+            ("auto", "Ek Lua autoload klasörü", str(self.pref("lua_autoload", "")))], self)
+        if dlg.exec():
+            v = dlg.values()
+            self.settings.setValue("max_cps", v["cps"]); self.settings.setValue("max_cpl", v["cpl"])
+            self.settings.setValue("lua_include", v["inc"]); self.settings.setValue("lua_autoload", v["auto"])
+            self.model.max_cps = v["cps"]
+            self.model.refresh()
+            self.reload_scripts()
+
     def run_checks(self):
         self._flush_edit()
-        issues = tools.check(self.doc)
+        issues = tools.check(self.doc, max_cps=self.pref("max_cps", 20.0), max_cpl=self.pref("max_cpl", 42))
         dlg = IssuesDialog(issues, self, jump=lambda i: self.select_rows([i]))
         dlg.show()
         self._issues_dlg = dlg
@@ -932,7 +965,7 @@ class MainWindow(QMainWindow):
         self.status(f"{len(kf)} anahtar kare")
 
     def _wave_seek(self, ms):
-        self.preview.request(self.doc.dumps(), ms, self.doc.res)
+        self.preview.request(self._frame_ass(ms), ms, self.doc.res)
 
     def _wave_timing(self, idx, s, e):
         self.e_start.set_ms(s); self.e_end.set_ms(e)
@@ -944,7 +977,8 @@ class MainWindow(QMainWindow):
     def load_automation(self):
         dirs = [os.path.expanduser("~/.osisub/automation/autoload"), os.path.expanduser("~/.aegisub/automation/autoload"),
                 os.path.join(os.getcwd(), "automation", "autoload")]
-        for d in dirs:
+        extra = str(self.settings.value("lua_autoload", ""))
+        for d in dirs + ([extra] if extra else []):
             self.engine.load_dir(d)
         self.rebuild_automation_menu()
 
@@ -1112,7 +1146,7 @@ class MainWindow(QMainWindow):
         step = 1000.0 / (self.fps or 23.976)
         self.wave.pos_ms = max(0, int(round(self.wave.pos_ms + n * step)))
         self.wave.update()
-        self.preview.request(self.doc.dumps(), self.wave.pos_ms, self.doc.res)
+        self.preview.request(self._frame_ass(self.wave.pos_ms), self.wave.pos_ms, self.doc.res)
 
     def end_and_next(self):
         row = self.current_row()
