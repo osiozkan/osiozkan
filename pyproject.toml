@@ -3,7 +3,7 @@ name = "osisub"
 version = "0.1.0"
 description = "Anime subtitle editor: Aegisub-compatible (ASS + Lua automation) with Subtitle Edit style tooling"
 requires-python = ">=3.10"
-dependencies = ["lupa>=2.0", "PySide6-Essentials>=6.5", "numpy"]
+dependencies = ["lupa>=2.0", "PySide6-Essentials>=6.5", "numpy", "spylls"]
 
 [project.scripts]
 osisub = "osisub.cli:main"

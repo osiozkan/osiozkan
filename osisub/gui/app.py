@@ -19,7 +19,7 @@ from ..core.ass import Document, Event
 from ..core.history import History
 from ..core.timeutil import format_ass_time, parse_ass_time
 from ..formats import load_any, save_any
-from .dialogs import (ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
+from .dialogs import (SpellDialog, ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
 from .models import EventModel
 from .widgets import PreviewWidget, WaveformWidget, VideoPlayback
 
@@ -28,6 +28,7 @@ OPEN_FILTER = "Altyazılar (*.ass *.ssa *.srt *.vtt);;Tüm dosyalar (*)"
 
 
 class _PeakSignal(QObject):
+    spell_ready = Signal(object, str)
     ready = Signal(object, int)
     keyframes = Signal(object)
 
@@ -73,6 +74,8 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._peak_sig = _PeakSignal()
         self._peak_sig.ready.connect(self._on_peaks)
+        self._peak_sig.spell_ready.connect(self._spell_loaded)
+        self._spell = {}
         self._peak_sig.keyframes.connect(self._on_keyframes)
         self._commit_timer = QTimer(self, singleShot=True, interval=700)
         self._commit_timer.timeout.connect(lambda: self.commit("Düzenleme"))
@@ -260,6 +263,7 @@ class MainWindow(QMainWindow):
         self._act(t, "Bitişi oynatma konumuna al", lambda: self.set_from_playhead(False), "Ctrl+2")
         a = mb.addMenu("&Araçlar")
         self._act(a, "Kalite kontrol (CPS/CPL/çakışma)…", self.run_checks, "F7")
+        self._act(a, "Yazım denetimi (Hunspell)…", self.spell_check, "F8")
         self._act(a, "İstatistikler…", self.show_stats)
         self._act(a, "Dalga formu çıkar (ffmpeg)", self.load_audio)
         self.auto_menu = mb.addMenu("&Otomasyon")
@@ -647,6 +651,35 @@ class MainWindow(QMainWindow):
         n = [0]
         self.mutate("Karakter onar", lambda d: n.__setitem__(0, tools.fix_mojibake(d, self._sel_or_all())))
         self.status(f"{n[0]} satır onarıldı"); self._load_edit(self.current_row())
+
+    def spell_check(self):
+        lang = str(self.pref("spell_lang", "tr_TR"))
+        if lang in self._spell:
+            return self._spell_loaded(self._spell[lang], "")
+        self.status("Sözlük yükleniyor…", 0)
+
+        def work():
+            try:
+                from ..core.spell import SpellChecker
+                self._peak_sig.spell_ready.emit(SpellChecker(lang), "")
+            except Exception as e:
+                self._peak_sig.spell_ready.emit(None, str(e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _spell_loaded(self, sc, err):
+        if sc is None:
+            QMessageBox.warning(self, APP, "Yazım denetimi kullanılamıyor:\n" + err +
+                                "\n\n`pip install spylls` ve bir Hunspell sözlüğü (örn. hunspell-tr) gerekir.")
+            return
+        self._spell[sc.lang] = sc
+        self.status("Sözlük hazır")
+        self._flush_edit()
+        dlg = SpellDialog(sc, self.doc, max(0, self.current_row()),
+                          on_change=lambda: (self.model.refresh_row(self.current_row()) if self.current_row() >= 0 else None),
+                          on_goto=lambda r: self.select_rows([r]), parent=self)
+        dlg.finished.connect(lambda _=0: dlg.changed and self.commit("Yazım denetimi"))
+        dlg.show()
+        self._spell_dlg = dlg
 
     def show_stats(self):
         st = tools.statistics(self.doc)

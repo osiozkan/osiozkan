@@ -339,3 +339,96 @@ class ParamsDialog(QDialog):
             else:
                 out[k] = w.text()
         return out
+
+
+class SpellDialog(QDialog):
+    """Walks through the document line by line offering suggestions (Hunspell via spylls)."""
+
+    def __init__(self, checker, doc, start_row, on_change, on_goto, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Yazım denetimi")
+        self.resize(520, 380)
+        self.sc, self.doc, self.on_change, self.on_goto = checker, doc, on_change, on_goto
+        self.row = max(0, start_row)
+        self.cur = None  # (row, start, end, word)
+        self.changed = False
+        lay = QVBoxLayout(self)
+        self.ctx = QLabel(); self.ctx.setWordWrap(True); self.ctx.setTextFormat(Qt.RichText)
+        lay.addWidget(self.ctx)
+        self.edit = QLineEdit(); lay.addWidget(self.edit)
+        self.sugg = QListWidget(); lay.addWidget(self.sugg, 1)
+        self.sugg.currentTextChanged.connect(lambda t: t and self.edit.setText(t))
+        self.sugg.itemDoubleClicked.connect(lambda _: self.replace())
+        row = QHBoxLayout()
+        for text, fn in (("Değiştir", self.replace), ("Tümünü değiştir", self.replace_all), ("Yoksay", self.ignore),
+                         ("Hepsini yoksay", self.ignore_all), ("Sözlüğe ekle", self.add_word)):
+            b = QPushButton(text); b.clicked.connect(fn); row.addWidget(b)
+        lay.addLayout(row)
+        self.status = QLabel(); lay.addWidget(self.status)
+        self.find_next()
+
+    def _scan_from(self, row, offset):
+        for r in range(row, len(self.doc.events)):
+            e = self.doc.events[r]
+            if e.comment:
+                continue
+            for s, en, w in self.sc.errors(e.text):
+                if r == row and s < offset:
+                    continue
+                return r, s, en, w
+        return None
+
+    def find_next(self, offset=0):
+        hit = self._scan_from(self.row, offset)
+        if not hit:
+            self.cur = None
+            self.ctx.setText("<b>Yazım denetimi tamamlandı.</b>")
+            self.sugg.clear(); self.edit.clear()
+            return
+        self.cur = hit
+        r, s, e, w = hit
+        self.row = r
+        t = self.doc.events[r].text
+        from html import escape
+        self.ctx.setText(f"<small>Satır {r + 1}</small><br>{escape(t[:s])}<b style='color:#d33'>{escape(w)}</b>{escape(t[e:])}")
+        self.sugg.clear()
+        self.sugg.addItems(self.sc.suggest(w))
+        self.edit.setText(w)
+        self.on_goto(r)
+
+    def replace(self):
+        if not self.cur:
+            return
+        r, s, e, w = self.cur
+        ev = self.doc.events[r]
+        new = self.edit.text()
+        ev.text = ev.text[:s] + new + ev.text[e:]
+        self.changed = True
+        self.on_change()
+        self.find_next(s + len(new))
+
+    def replace_all(self):
+        if not self.cur:
+            return
+        word, new = self.cur[3], self.edit.text()
+        import re as _re
+        rx = _re.compile(r"(?<![^\W\d_])" + _re.escape(word) + r"(?![^\W\d_])")
+        for ev in self.doc.events:
+            ev.text = rx.sub(new, ev.text)
+        self.changed = True
+        self.on_change()
+        self.find_next(0)
+
+    def ignore(self):
+        if self.cur:
+            self.find_next(self.cur[2])
+
+    def ignore_all(self):
+        if self.cur:
+            self.sc.ignored.add(self.cur[3])
+            self.find_next(self.cur[1])
+
+    def add_word(self):
+        if self.cur:
+            self.sc.add(self.cur[3])
+            self.find_next(self.cur[1])
