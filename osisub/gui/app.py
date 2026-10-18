@@ -203,6 +203,8 @@ class MainWindow(QMainWindow):
         self._act(s, "Etiketleri temizle", self.strip_tags_sel)
         self._act(s, "Yaygın hataları düzelt", self.fix_errors)
         self._act(s, "Otomatik satır böl", self.auto_break)
+        self._act(s, "İşitme engelli notlarını sil ([..], (..), AD:)", self.remove_hi)
+        self._act(s, "Bozuk Türkçe karakterleri onar (Ã¼ → ü)", self.fix_mojibake)
         self._act(s, "Boş satırları sil", self.remove_empty)
         self._act(s, "Yinelenenleri birleştir", self.merge_dupes)
         self._act(s, "Sırala (başlangıç)", lambda: self.mutate("Sırala", lambda d: tools.sort_events(d, "start")))
@@ -239,6 +241,7 @@ class MainWindow(QMainWindow):
         self._act(t, "Bitişi oynatma konumuna al", lambda: self.set_from_playhead(False), "Ctrl+2")
         a = mb.addMenu("&Araçlar")
         self._act(a, "Kalite kontrol (CPS/CPL/çakışma)…", self.run_checks, "F7")
+        self._act(a, "İstatistikler…", self.show_stats)
         self._act(a, "Dalga formu çıkar (ffmpeg)", self.load_audio)
         self.auto_menu = mb.addMenu("&Otomasyon")
         v = mb.addMenu("&Görünüm")
@@ -584,6 +587,20 @@ class MainWindow(QMainWindow):
         self.mutate("Otomatik böl", lambda d: n.__setitem__(0, tools.auto_break(d, 42, self._sel_or_all())))
         self.status(f"{n[0]} satır bölündü"); self._load_edit(self.current_row())
 
+    def remove_hi(self):
+        n = [0]
+        self.mutate("İE sil", lambda d: n.__setitem__(0, tools.remove_hearing_impaired(d, self._sel_or_all())))
+        self.status(f"{n[0]} satır temizlendi")
+
+    def fix_mojibake(self):
+        n = [0]
+        self.mutate("Karakter onar", lambda d: n.__setitem__(0, tools.fix_mojibake(d, self._sel_or_all())))
+        self.status(f"{n[0]} satır onarıldı"); self._load_edit(self.current_row())
+
+    def show_stats(self):
+        st = tools.statistics(self.doc)
+        QMessageBox.information(self, "İstatistikler", "\n".join(f"{k}: {v}" for k, v in st.items()))
+
     def remove_empty(self):
         n = [0]
         self.mutate("Boşları sil", lambda d: n.__setitem__(0, tools.remove_empty(d)))
@@ -841,6 +858,8 @@ class MainWindow(QMainWindow):
         self.fps = info.fps
         self.engine.fps.fps = info.fps
         self.engine.video_res = (info.width, info.height)
+        self.engine.project_props["video_file"] = info.path
+        self.engine.project_props["audio_file"] = info.path if info.has_audio else ""
         self.preview.video = info
         if self.doc.get_info("PlayResX") in ("", "0"):
             self.doc.set_info("PlayResX", str(info.width)); self.doc.set_info("PlayResY", str(info.height))

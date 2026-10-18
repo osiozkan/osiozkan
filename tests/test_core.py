@@ -71,3 +71,14 @@ def test_split_merge():
     assert len(d.events) == 2 and d.events[1].text == "cd"
     tools.merge_events(d, [0, 1])
     assert len(d.events) == 1
+
+
+def test_hi_and_mojibake_and_stats():
+    d = Document.new()
+    d.events = [Event(start=0, end=2000, text="[müzik]"), Event(start=2000, end=4000, text="AHMET: Selam (güler)"),
+                Event(start=4000, end=6000, text="KÃ¼Ã§Ã¼k")]
+    assert tools.remove_hearing_impaired(d) == 2
+    assert [e.text for e in d.events] == ["Selam", "KÃ¼Ã§Ã¼k"]
+    assert tools.fix_mojibake(d) == 1 and d.events[1].text == "Küçük"
+    st = tools.statistics(d)
+    assert st["lines"] == 2 and st["chars"] == 10

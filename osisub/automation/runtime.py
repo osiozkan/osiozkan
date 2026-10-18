@@ -340,8 +340,8 @@ class Engine:
             video_size=video_size, keyframes=keyframes, audio_selection=audio_selection,
             project_properties=project_properties, decode_path=decode_path, file_name=file_name,
             clipboard_get=clip_get, clipboard_set=clip_set,
-            frame_from_ms=lambda ms: L.fps.ms_to_frame(int(ms)),
-            ms_from_frame=lambda f: L.fps.frame_to_ms(int(f)),
+            frame_from_ms=lambda ms: L.fps.ms_to_frame(int(ms)) if L.video_res else None,
+            ms_from_frame=lambda f: L.fps.frame_to_ms(int(f)) if L.video_res else None,
             str_upper=lambda s: _b(_s(s).upper()), str_lower=lambda s: _b(_s(s).lower()),
             undo_point=lambda d: L.undo_points.append(_s(d)),
         )

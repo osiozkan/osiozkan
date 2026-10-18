@@ -381,3 +381,58 @@ def timing_postprocess(doc: Document, lead_in=0, lead_out=0, join_gap=0, keyfram
     if keyframes and (kf_before or kf_after):
         snap_to_keyframes(doc, keyframes, idx, kf_before, kf_after, kf_before, kf_after)
     return sum(1 for k, i in enumerate(idx) if (doc.events[i].start, doc.events[i].end) != orig[k])
+
+
+# ------------------------------------------------------------------ Subtitle Edit style helpers
+def remove_hearing_impaired(doc: Document, sel=None) -> int:
+    """Remove [sound], (sound), ♪ lines and 'NAME:' speaker labels; delete lines that become empty."""
+    n = 0
+    pats = [r"\[[^\]]*\]", r"\([^)]*\)", r"^[♪♫#\s]+$", r"^\s*[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ0-9 .'-]{1,24}:\s*"]
+    for i in _idx(doc, sel):
+        e = doc.events[i]
+        if e.comment:
+            continue
+        old = e.text
+        parts = re.split(r"(\{[^}]*\})", e.text)
+        for k, p in enumerate(parts):
+            if p.startswith("{"):
+                continue
+            for pat in pats:
+                p = re.sub(pat, "", p, flags=re.M)
+            parts[k] = p
+        e.text = re.sub(r"(\\N)+$|^(\\N)+", "", "".join(parts).strip()).strip()
+        if e.text != old:
+            n += 1
+    remove_empty(doc)
+    return n
+
+
+def fix_mojibake(doc: Document, sel=None) -> int:
+    """Repair UTF-8 text that was decoded as cp1252/cp1254 (e.g. 'Ã¼' -> 'ü')."""
+    n = 0
+    for i in _idx(doc, sel):
+        e = doc.events[i]
+        if not any(c in e.text for c in "ÃÄÅ"):
+            continue
+        for enc in ("cp1252", "cp1254", "latin-1"):
+            try:
+                fixed = e.text.encode(enc).decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
+            e.text, n = fixed, n + 1
+            break
+    return n
+
+
+def statistics(doc: Document) -> dict:
+    ev = [e for e in doc.events if not e.comment]
+    total_chars = sum(len(strip_tags(e.text).replace("\n", "")) for e in ev)
+    total_dur = sum(e.duration for e in ev)
+    cps = [len(strip_tags(e.text).replace("\n", "")) / (e.duration / 1000) for e in ev if e.duration > 0]
+    return {
+        "lines": len(ev), "comments": len(doc.events) - len(ev), "chars": total_chars,
+        "avg_cps": round(sum(cps) / len(cps), 2) if cps else 0.0, "max_cps": round(max(cps), 2) if cps else 0.0,
+        "total_duration_s": round(total_dur / 1000, 2),
+        "span_s": round((max(e.end for e in ev) - min(e.start for e in ev)) / 1000, 2) if ev else 0.0,
+        "styles": len({e.style for e in ev}),
+    }
