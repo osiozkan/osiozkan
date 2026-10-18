@@ -13,7 +13,7 @@ osisub-gui = "osisub.gui.app:main"
 include = ["osisub*"]
 
 [tool.setuptools.package-data]
-osisub = ["automation/lua/*.lua"]
+osisub = ["automation/lua/*.lua", "automation/lua/include/*.lua"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
