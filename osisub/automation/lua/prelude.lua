@@ -440,7 +440,11 @@ local function make_aegisub(script)
   A.debug = { out = out }
   A.log = function(...) local l = ... if type(l) == "number" then return out(...) end out(2, ...) end
   A.dialog = {
-    display = function(dlg, buttons, ids) return host.dialog(dlg, buttons, ids) end,
+    display = function(dlg, buttons, ids)
+      local b, r = host.dialog(dlg, buttons, ids)
+      if buttons == nil and b then b = true end
+      return b, r
+    end,
     open = function(...) return host.file_dialog("open", ...) end,
     save = function(...) return host.file_dialog("save", ...) end,
   }

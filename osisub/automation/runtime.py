@@ -570,6 +570,23 @@ def from_lua(v: Any) -> Any:
     return v
 
 
+def _color_result(cls: str, v: str) -> str:
+    """Normalise a colour string to what Aegisub returns for the control class."""
+    m = _re.match(r"^&?[Hh]?([0-9A-Fa-f]{1,8})&?$", v.strip())
+    if not m:
+        h = _re.match(r"^#([0-9A-Fa-f]{6})$", v.strip())
+        hx = ("00" + h.group(1)[4:6] + h.group(1)[2:4] + h.group(1)[0:2]) if h else "00000000"
+    else:
+        hx = m.group(1).zfill(8)
+        if cls == "alpha" and len(m.group(1)) <= 2:
+            hx = m.group(1).zfill(2) + "000000"
+    if cls == "alpha":
+        return "&H%s&" % hx[0:2]
+    if cls == "color":
+        return "&H%s&" % hx[2:8]
+    return "&H" + hx
+
+
 def headless_dialog(controls: list[dict], buttons: list, ids: dict):
     """Non-interactive dialog: accept defaults and press the first (OK) button."""
     results = {}
@@ -578,7 +595,9 @@ def headless_dialog(controls: list[dict], buttons: list, ids: dict):
         if not name:
             continue
         cls = c.get("class")
-        if cls in ("edit", "textbox", "color", "coloralpha", "alpha"):
+        if cls in ("color", "coloralpha", "alpha"):
+            results[name] = _color_result(cls, str(c.get("value", c.get("text", "&H00FFFFFF"))))
+        elif cls in ("edit", "textbox"):
             results[name] = c.get("text", c.get("value", ""))
         elif cls in ("intedit", "floatedit", "checkbox", "dropdown"):
             v = c.get("value")

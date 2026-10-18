@@ -342,3 +342,42 @@ def check(doc: Document, max_cps: float = 20, max_cpl: int = 42, min_dur: int = 
         elif 0 < b.start - a.end < min_gap:
             issues.append(Issue(ia, "gap", f"gap to next line {b.start - a.end}ms"))
     return sorted(issues, key=lambda x: x.index)
+
+
+# ------------------------------------------------------------------ selection / post-processing
+def select_lines(doc: Document, pattern: str, field: str = "text", regex: bool = False, case: bool = False,
+                 invert: bool = False, include_comments: bool = True) -> list[int]:
+    flags = 0 if case else re.I
+    rx = re.compile(pattern if regex else re.escape(pattern), flags)
+    out = []
+    for i, e in enumerate(doc.events):
+        if e.comment and not include_comments:
+            continue
+        hit = bool(rx.search(getattr(e, field)))
+        if hit != invert:
+            out.append(i)
+    return out
+
+
+def timing_postprocess(doc: Document, lead_in=0, lead_out=0, join_gap=0, keyframes: Sequence[int] = (),
+                       kf_before=0, kf_after=0, sel=None) -> int:
+    """Aegisub-style timing post-processor. Returns number of modified events."""
+    idx = sorted(_idx(doc, sel), key=lambda i: (doc.events[i].start, doc.events[i].end))
+    idx = [i for i in idx if not doc.events[i].comment]
+    orig = [(doc.events[i].start, doc.events[i].end) for i in idx]
+    for k, i in enumerate(idx):
+        e = doc.events[i]
+        prev_end = doc.events[idx[k - 1]].end if k else 0
+        nxt_start = doc.events[idx[k + 1]].start if k + 1 < len(idx) else None
+        e.start = max(prev_end if prev_end <= e.start else 0, e.start - lead_in, 0)
+        e.end = e.end + lead_out
+        if nxt_start is not None and e.end > nxt_start:
+            e.end = max(nxt_start, e.start + 1)
+    for k in range(len(idx) - 1):
+        a, b = doc.events[idx[k]], doc.events[idx[k + 1]]
+        if join_gap and 0 < b.start - a.end <= join_gap:
+            mid = (a.end + b.start) // 2
+            a.end = b.start = mid
+    if keyframes and (kf_before or kf_after):
+        snap_to_keyframes(doc, keyframes, idx, kf_before, kf_after, kf_before, kf_after)
+    return sum(1 for k, i in enumerate(idx) if (doc.events[i].start, doc.events[i].end) != orig[k])

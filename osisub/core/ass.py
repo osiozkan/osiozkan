@@ -203,7 +203,10 @@ class Document:
         for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             line = raw
             st = line.strip()
-            if st.startswith("[") and st.endswith("]") and len(st) > 2:
+            if st.startswith("[") and st.endswith("]") and len(st) > 2 and (
+                    cur_att is None or re.fullmatch(r"\[[A-Za-z0-9+ ]{2,40}\]", st)
+                    and st[1:-1].lower() in ("script info", "v4+ styles", "v4 styles", "events", "fonts",
+                                             "graphics", "aegisub project garbage", "aegisub extradata")):
                 section = st[1:-1]
                 cur_att = None
                 low = section.lower()

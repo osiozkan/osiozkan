@@ -297,5 +297,45 @@ class AutomationDialog(QDialog):
             elif cls == "dropdown":
                 out[name] = w.currentText()
             elif cls in ("color", "coloralpha", "alpha"):
-                out[name] = w.ass()
+                from ..automation.runtime import _color_result
+                out[name] = _color_result(cls, w.ass())
+        return out
+
+
+class ParamsDialog(QDialog):
+    """Tiny generic form: fields = [(key, label, default)], default type decides the widget."""
+
+    def __init__(self, title, fields, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        form = QFormLayout(self)
+        self.w = {}
+        for key, label, default in fields:
+            if isinstance(default, bool):
+                w = QCheckBox(); w.setChecked(default)
+            elif isinstance(default, int):
+                w = QSpinBox(); w.setRange(-10_000_000, 10_000_000); w.setValue(default)
+            elif isinstance(default, float):
+                w = QDoubleSpinBox(); w.setRange(-1e7, 1e7); w.setDecimals(3); w.setValue(default)
+            elif isinstance(default, (list, tuple)):
+                w = QComboBox(); w.addItems([str(x) for x in default])
+            else:
+                w = QLineEdit(str(default))
+            self.w[key] = w
+            form.addRow(label, w)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
+        form.addRow(bb)
+
+    def values(self):
+        out = {}
+        for k, w in self.w.items():
+            if isinstance(w, QCheckBox):
+                out[k] = w.isChecked()
+            elif isinstance(w, (QSpinBox, QDoubleSpinBox)):
+                out[k] = w.value()
+            elif isinstance(w, QComboBox):
+                out[k] = w.currentIndex()
+            else:
+                out[k] = w.text()
         return out

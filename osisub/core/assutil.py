@@ -258,3 +258,51 @@ def lead_in_out(doc: Document, indices, lead_in=300, lead_out=300) -> None:
                 e.text = "{\\k%d}" % (lead_in // 10) + build_karaoke(syls)
             else:
                 e.text = "{\\k%d}" % (lead_in // 10) + e.text
+
+
+# ------------------------------------------------------------------ font attachments (ASS uuencode variant)
+def uuencode(data: bytes) -> list[str]:
+    out = []
+    for i in range(0, len(data), 3):
+        chunk = data[i:i + 3]
+        n = len(chunk)
+        v = int.from_bytes(chunk.ljust(3, b"\0"), "big")
+        chars = [(v >> 18) & 63, (v >> 12) & 63, (v >> 6) & 63, v & 63][: n + 1]
+        out.append("".join(chr(c + 33) for c in chars))
+    s = "".join(out)
+    return [s[i:i + 80] for i in range(0, len(s), 80)]
+
+
+def uudecode(lines: list[str]) -> bytes:
+    s = "".join(l.strip() for l in lines)
+    out = bytearray()
+    for i in range(0, len(s), 4):
+        grp = s[i:i + 4]
+        vals = [(ord(c) - 33) & 63 for c in grp]
+        n = len(vals)
+        v = 0
+        for x in vals + [0] * (4 - n):
+            v = (v << 6) | x
+        out += v.to_bytes(3, "big")[: n - 1]
+    return bytes(out)
+
+
+def attach_font(doc: Document, path: str) -> str:
+    import os
+    name = os.path.basename(path)
+    data = open(path, "rb").read()
+    doc.attachments = [a for a in doc.attachments if not (a[0] == "Fonts" and a[1] == name)]
+    doc.attachments.append(("Fonts", name, uuencode(data)))
+    return name
+
+
+def extract_fonts(doc: Document, out_dir: str) -> list[str]:
+    import os
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+    for sec, name, lines in doc.attachments:
+        if sec.lower() == "fonts":
+            p = os.path.join(out_dir, os.path.basename(name))
+            open(p, "wb").write(uudecode(lines))
+            paths.append(p)
+    return paths

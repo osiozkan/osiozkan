@@ -19,7 +19,7 @@ from ..core.ass import Document, Event
 from ..core.history import History
 from ..core.timeutil import format_ass_time, parse_ass_time
 from ..formats import load_any, save_any
-from .dialogs import (AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
+from .dialogs import (ParamsDialog, AutomationDialog, FindReplaceDialog, IssuesDialog, ShiftDialog, StyleEditor)
 from .models import EventModel
 from .widgets import PreviewWidget, WaveformWidget
 
@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
         self._act(e, "Satırı böl (imleçten)", self.split_line, "Ctrl+B")
         self._act(e, "Tümünü seç", lambda: self.table.selectAll(), "Ctrl+A")
         self._act(e, "Satıra git…", self.goto_line, "Ctrl+G")
+        self._act(e, "Satırları seç (desen)…", self.select_by_pattern, "Ctrl+Shift+A")
         s = mb.addMenu("&Altyazı")
         self._act(s, "Stil yöneticisi…", self.style_manager, "Ctrl+Shift+T")
         c = s.addMenu("Harf büyüklüğü")
@@ -209,6 +210,8 @@ class MainWindow(QMainWindow):
         self._act(s, "Font denetimi…", self.font_check)
         self._act(s, "Başka dosyadan stil al…", self.import_styles)
         self._act(s, "Kullanılmayan stilleri sil", self.remove_unused_styles)
+        self._act(s, "Font göm (attach)…", self.attach_font)
+        self._act(s, "Gömülü fontları çıkar…", self.extract_fonts)
         k = mb.addMenu("&Karaoke")
         self._act(k, "Otomatik \\k (hece)", lambda: self.auto_karaoke("syllable"))
         self._act(k, "Otomatik \\k (sözcük)", lambda: self.auto_karaoke("word"))
@@ -216,6 +219,7 @@ class MainWindow(QMainWindow):
         self._act(k, "Lead-in / lead-out…", self.lead_in_out)
         t = mb.addMenu("&Zamanlama")
         self._act(t, "Zamanlamayı kaydır…", self.shift_dialog, "Ctrl+Shift+Left")
+        self._act(t, "Zamanlama son işlemcisi…", self.postprocess_dialog)
         self._act(t, "Çakışmaları düzelt", self.fix_overlaps)
         self._act(t, "Süreleri zorla (min/CPS)", self.enforce_duration)
         self._act(t, "Kare hızına oturt", self.snap_frames)
@@ -698,6 +702,45 @@ class MainWindow(QMainWindow):
             rows = self.selected_rows() or list(range(len(self.doc.events)))
             self.mutate("Lead-in/out", lambda d: assutil.lead_in_out(d, rows, li, lo))
             self._load_edit(self.current_row())
+
+    def select_by_pattern(self):
+        dlg = ParamsDialog("Satırları seç", [("pat", "Desen", ""), ("field", "Alan", ["text", "actor", "effect", "style"]),
+                                             ("regex", "Düzenli ifade", False), ("case", "Büyük/küçük duyarlı", False),
+                                             ("invert", "Tersine çevir", False)], self)
+        if dlg.exec():
+            v = dlg.values()
+            try:
+                rows = tools.select_lines(self.doc, v["pat"], ["text", "actor", "effect", "style"][v["field"]],
+                                          v["regex"], v["case"], v["invert"])
+            except Exception as e:
+                QMessageBox.warning(self, APP, str(e)); return
+            self.select_rows(rows)
+            self.status(f"{len(rows)} satır seçildi")
+
+    def postprocess_dialog(self):
+        dlg = ParamsDialog("Zamanlama son işlemcisi", [("li", "Lead-in (ms)", 120), ("lo", "Lead-out (ms)", 500),
+                                                       ("join", "Şu kadar boşluğu birleştir (ms)", 300),
+                                                       ("kb", "Anahtar kare öncesi (ms)", 0), ("ka", "Anahtar kare sonrası (ms)", 0),
+                                                       ("selonly", "Yalnızca seçililer", False)], self)
+        if dlg.exec():
+            v = dlg.values()
+            sel = self.selected_rows() if v["selonly"] else None
+            n = [0]
+            self.mutate("Son işlemci", lambda d: n.__setitem__(0, tools.timing_postprocess(
+                d, v["li"], v["lo"], v["join"], self.keyframes, v["kb"], v["ka"], sel)))
+            self.status(f"{n[0]} satır değişti"); self._load_edit(self.current_row())
+
+    def attach_font(self):
+        ps, _ = QFileDialog.getOpenFileNames(self, "Font seç", "", "Fontlar (*.ttf *.otf *.ttc);;Tümü (*)")
+        if ps:
+            self.mutate("Font göm", lambda d: [assutil.attach_font(d, p) for p in ps])
+            self.status(f"{len(ps)} font gömüldü")
+
+    def extract_fonts(self):
+        out = QFileDialog.getExistingDirectory(self, "Fontların çıkarılacağı klasör")
+        if out:
+            n = len(assutil.extract_fonts(self.doc, out))
+            self.status(f"{n} font çıkarıldı")
 
     # ------------------------------------------------------------ timing
     def shift_dialog(self):

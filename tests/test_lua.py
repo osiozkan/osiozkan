@@ -79,3 +79,20 @@ def test_dialog_and_re(eng):
     r = e.run_macro(m["A/Re"], d, [0], 0)
     assert r.document.events[0].text == "<foo> <bar>"
     assert "&H0000FF&" in r.log[0][1]
+
+
+def test_dialog_defaults(tmp_path):
+    p = tmp_path / "d.lua"
+    p.write_text(r'''
+aegisub.register_macro("D", "", function(subs, sel)
+  local ok, r = aegisub.dialog.display({{class="color", name="c", value="&H0000FF&"}, {class="alpha", name="a", value="&H80&"},
+    {class="dropdown", name="d", items={"x","y"}, value="y"}, {class="intedit", name="n", value=5}})
+  local l = subs[sel[1]]
+  l.text = tostring(ok) .. r.c .. r.a .. r.d .. r.n
+  subs[sel[1]] = l
+end)''')
+    e = Engine()
+    s = e.load_script(str(p))
+    r = e.run_macro(s.macros[0], doc(), [0], 0)
+    assert r.ok, r.error
+    assert r.document.events[0].text == "true&H0000FF&&H80&y5"
