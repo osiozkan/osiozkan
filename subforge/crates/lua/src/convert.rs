@@ -36,7 +36,7 @@ fn getb(t: &Table, k: &str) -> Result<Option<bool>> {
 }
 
 fn geti(t: &Table, k: &str) -> Result<Option<i32>> {
-    Ok(getf(t, k)?.map(|f| f.round() as i32))
+    Ok(getf(t, k)?.map(|f| f.trunc() as i32))
 }
 
 pub fn line_to_table(lua: &Lua, line: &Line) -> Result<Table> {
@@ -110,8 +110,8 @@ pub fn table_to_line(t: &Table) -> Result<Line> {
             Ok(Line::Event(Event {
                 kind: if getb(t, "comment")?.unwrap_or(false) { EventKind::Comment } else { EventKind::Dialogue },
                 layer: geti(t, "layer")?.unwrap_or(0),
-                start: getf(t, "start_time")?.map(|f| f.round() as i64).unwrap_or(d.start),
-                end: getf(t, "end_time")?.map(|f| f.round() as i64).unwrap_or(d.end),
+                start: getf(t, "start_time")?.map(|f| f.trunc() as i64).unwrap_or(d.start),
+                end: getf(t, "end_time")?.map(|f| f.trunc() as i64).unwrap_or(d.end),
                 style: gets(t, "style")?.unwrap_or_else(|| "Default".into()),
                 actor: gets(t, "actor")?.unwrap_or_default(),
                 margin_l: geti(t, "margin_l")?.unwrap_or(0),

@@ -96,6 +96,19 @@ pub trait Host {
     fn cursor_ms(&self) -> Option<i64> {
         None
     }
+    /// Clipboard text (`aegisub.clipboard.get`). The default is a process-local buffer;
+    /// GUI hosts should override both methods to reach the system clipboard.
+    fn clipboard_get(&self) -> Option<String> {
+        FALLBACK_CLIPBOARD.with(|c| c.borrow().clone())
+    }
+    fn clipboard_set(&mut self, text: &str) -> bool {
+        FALLBACK_CLIPBOARD.with(|c| *c.borrow_mut() = Some(text.to_string()));
+        true
+    }
+}
+
+thread_local! {
+    static FALLBACK_CLIPBOARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Non-interactive host used by the CLI and tests: dialogs return their

@@ -18,6 +18,7 @@ const AEGISUB_UTIL_LUA: &str = include_str!("../lua/aegisub_util.lua");
 const UTILS_AUTO4_LUA: &str = include_str!("../lua/vendor/utils-auto4.lua");
 const KARASKEL_AUTO4_LUA: &str = include_str!("../lua/vendor/karaskel-auto4.lua");
 const CLEANTAGS_LUA: &str = include_str!("../lua/vendor/cleantags.lua");
+const AEGISUB_RE_LUA: &str = include_str!("../lua/aegisub_re.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 
 #[derive(Debug)]
@@ -298,6 +299,10 @@ fn install_aegisub(lua: &Lua, host: &SharedHost, registry: &Rc<RefCell<Registry>
             }
         })?)?;
         let h = host.clone();
+        aeg.set("__clip_get", lua.create_function(move |_, ()| Ok(h.borrow().clipboard_get()))?)?;
+        let h = host.clone();
+        aeg.set("__clip_set", lua.create_function(move |_, s: mlua::LuaString| Ok(h.borrow_mut().clipboard_set(&String::from_utf8_lossy(&s.as_bytes()))))?)?;
+        let h = host.clone();
         aeg.set("get_audio_selection", lua.create_function(move |_, ()| {
             Ok(match h.borrow().audio_selection() {
                 Some((a, b)) => MultiValue::from_iter([Value::Integer(a as _), Value::Integer(b as _)]),
@@ -416,12 +421,16 @@ impl LuaScript {
         // native modules
         let unicode = libs::install_unicode(lua)?;
         lua.globals().set("unicode", unicode.clone())?;
-        libs::preload(lua, "unicode", unicode)?;
+        libs::preload(lua, "unicode", unicode.clone())?;
+        libs::preload(lua, "aegisub.unicode", unicode)?;
         let lfs = libs::install_lfs(lua)?;
-        libs::preload(lua, "lfs", lfs)?;
-        let re = libs::install_re(lua)?;
+        libs::preload(lua, "lfs", lfs.clone())?;
+        libs::preload(lua, "aegisub.lfs", lfs)?;
+        let re_impl = libs::install_re_impl(lua)?;
+        let re: Table = lua.load(AEGISUB_RE_LUA).set_name("=aegisub.re").call(re_impl)?;
         lua.globals().set("re", re.clone())?;
-        libs::preload(lua, "re", re)?;
+        libs::preload(lua, "re", re.clone())?;
+        libs::preload(lua, "aegisub.re", re)?;
 
         // include(): script-dir/include-dir files first, then bundled libs
         let dirs_c = dirs.clone();
@@ -462,6 +471,18 @@ impl LuaScript {
             lua.create_function(|lua, ()| {
                 lua.load("return function(...) return function(f) return f end end").set_name("=aegisub.argcheck").call::<Value>(())
             })?,
+        )?;
+        preload.set(
+            "aegisub.ffi",
+            lua.create_function(|lua, ()| {
+                lua.load("local ffi = require('ffi'); return { string = function(c) if c == nil then return nil end return ffi.string(c) end }")
+                    .set_name("=aegisub.ffi")
+                    .call::<Value>(())
+            })?,
+        )?;
+        preload.set(
+            "aegisub.clipboard",
+            lua.create_function(|lua, ()| lua.globals().get::<Table>("aegisub")?.get::<Value>("clipboard"))?,
         )?;
         for (modname, file, global) in [("utils", "utils.lua", None), ("karaskel", "karaskel.lua", Some("karaskel")), ("cleantags", "cleantags.lua", None)] {
             preload.set(
