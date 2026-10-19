@@ -7,6 +7,8 @@ impl App {
     pub fn wave_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("wave").exact_height(self.wave_h).show(ctx, |ui| {
             let mut wave_h = self.wave_h;
+            let mut vad_go = false;
+            let mut vad = self.vad;
             let Some(w) = self.wave.as_mut() else { return };
             let (peaks, done, window_ms, err) = {
                 let g = w.wave.lock().unwrap();
@@ -30,6 +32,12 @@ impl App {
                 }
                 ui.checkbox(&mut w.snap_keys, "Anahtar kareye yapış");
                 ui.add(egui::Slider::new(&mut wave_h, 120.0..=520.0).text("yükseklik").show_value(false));
+                ui.separator();
+                if ui.button("Konuşmayı bul").on_hover_text("Seslerden boş satırlar oluşturur (konuşma algılama)").clicked() {
+                    vad_go = true;
+                }
+                ui.add(egui::DragValue::new(&mut vad.threshold).range(1.5..=10.0).speed(0.05).prefix("eşik ×"));
+                ui.add(egui::DragValue::new(&mut vad.min_silence_ms).range(50..=2000).speed(10.0).suffix(" ms sessizlik"));
                 if let Some((a, b)) = w.sel {
                     ui.separator();
                     ui.label(format!("Seçim {} → {} ({} ms)", format_ass(a), format_ass(b), b - a));
@@ -267,6 +275,38 @@ impl App {
                 self.goto_line(i);
             }
             self.wave_h = wave_h;
+            self.vad = vad;
+            if vad_go {
+                self.run_vad();
+            }
         });
+    }
+}
+
+impl App {
+    /// Create empty lines for detected speech segments that no existing line covers.
+    fn run_vad(&mut self) {
+        let Some(w) = &self.wave else { return };
+        let (peaks, window) = {
+            let g = w.wave.lock().unwrap();
+            (g.peaks.clone(), g.window_ms)
+        };
+        let segs = subforge_app::vad::detect(&peaks, window, &self.vad);
+        let style = self.active_event().map(|e| e.style.clone()).or_else(|| self.proj.script.styles.first().map(|s| s.name.clone())).unwrap_or_else(|| "Default".into());
+        let existing: Vec<(i64, i64)> = self.proj.script.events.iter().filter(|e| !e.is_comment()).map(|e| (e.start, e.end)).collect();
+        let new: Vec<(i64, i64)> = segs.into_iter().filter(|s| !existing.iter().any(|e| e.0 < s.1 && s.0 < e.1)).collect();
+        if new.is_empty() {
+            self.set_status("Yeni konuşma bölümü bulunamadı");
+            return;
+        }
+        let n = new.len();
+        self.proj.edit("Detect speech", |sc| {
+            for (a, b) in &new {
+                sc.events.push(subforge_core::Event::new(*a, *b, &style, ""));
+            }
+            subforge_core::timing::sort(&mut sc.events, subforge_core::timing::SortKey::Start);
+        });
+        self.bump();
+        self.set_status(format!("{n} konuşma bölümü eklendi (boş satır)"));
     }
 }

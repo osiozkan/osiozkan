@@ -13,18 +13,18 @@ Durum: ✅ var · 🟡 kısmen · ⬜ yok. Her gece bu liste yukarıdan aşağı
 ## Automation 4 (Lua)
 - ✅ `subs` nesnesi, makrolar, diyaloglar, `karaskel`, `utils`, `unicode`, `re`, LuaJIT `ffi`/`bit`
 - 🟡 `aegisub.text_extents` — sezgisel; **gerçek font ölçümü** (ttf-parser/fontdb) gerekli
-- ⬜ Dışa aktarma filtreleri GUI'den (config diyaloğu + sıralama)
+- ✅ Dışa aktarma filtreleri GUI'den
 - ⬜ `aegisub.dialog.open/save` GUI bağlantısı, `lfs` modülü, `clipper` (polygon), `lpeg` (LuaJIT C modülü)
 - ⬜ MoonScript (.moon) derleyici desteği, Yutils/ILL/Aegisub-Motion uyumluluk testleri
 - ⬜ Kullanıcının kendi Lua betikleriyle uyumluluk test paketi (örnek betikler `tests/fixtures/`)
-- ⬜ Aegisub'da çalışan `automation/include/` kütüphaneleri için bulma yolu ayarı
+- ✅ Aegisub kurulum/profil klasörleri otomatik bulunur (`automation/autoload|include`)
 
 ## Zamanlama / ses / video
 - ✅ Dalga biçimi, seçim, sürükle-bırak, anahtar kareler
-- ⬜ Spektrum görünümü, ses oynatma (şu an ffplay), kare-hassas oynatma
-- ⬜ Zamanlayıcı modu (Aegisub tuş eşlemeleri), otomatik zamanlama (VAD), sessizlik bölme
+- 🟡 Ses oynatma ffplay ile; video oynatma ffmpeg boru hattı (A/V senkron gevşek) → gerçek A/V saat, spektrum görünümü
+- 🟡 Basit VAD ile konuşma bulma ✅; Zamanlayıcı modu (Aegisub tuş eşlemeleri) ⬜
 - ⬜ Zaman kodu dosyaları (VFR), keyframe dosyası içe/dışa aktarma
-- ⬜ Video üzerinde sürükleyerek konumlandırma (`\pos`, `\org`, `\clip`), vektör çizim araçları
+- 🟡 Video üzerinde `\pos` sürükleme ✅; `\org`, `\clip`, `\frz`, ölçek tutamaçları, vektör çizim araçları ⬜
 - ⬜ Gerçek zamanlı video oynatma
 
 ## Düzenleme
@@ -32,8 +32,8 @@ Durum: ✅ var · 🟡 kısmen · ⬜ yok. Her gece bu liste yukarıdan aşağı
 - ⬜ Satır içi etiket yardımcıları (italik/kalın/renk kısayolları), etiket temizleyici
 - ⬜ Yazım denetimi (Türkçe sözlük: hunspell), noktalama/tırnak düzeltme
 - ⬜ Çeviri/çeviri-denetim modu (iki sütun), TM/terim sözlüğü, DeepL/LLM ile ön çeviri (isteğe bağlı)
-- ⬜ Kitle stil değişimi, stil içe/dışa aktarma, stil önizleme
-- ⬜ Karaoke araçları: heceleme, `\k` zamanlama, şablon (kara-templater) çalıştırıcı
+- ✅ Stil içe aktarma/önizleme; ⬜ stil depolama (Style Storage), kitle stil değişimi
+- 🟡 Karaoke düzenleyici penceresi ✅, kara-templater Lua ile çalışıyor ✅; ses üzerinde hece zamanlama ⬜
 - ⬜ Satır sütunlarını özelleştirme, filtre/arama çubuğu, bölüm/işaret listesi
 
 ## Kalite / performans
