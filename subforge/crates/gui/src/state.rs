@@ -262,6 +262,10 @@ impl App {
                     "resample" => app.win.resample = true,
                     "select" => app.win.select = true,
                     "fonts" => app.win.fonts = true,
+                    "spell" => app.win.spell = true,
+                    "kara" => app.win.kara = true,
+                    "console" => app.win.console = true,
+                    "keys" => app.win.keys = true,
                     _ => {}
                 }
             }
