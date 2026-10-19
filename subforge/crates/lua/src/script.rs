@@ -18,6 +18,9 @@ const AEGISUB_UTIL_LUA: &str = include_str!("../lua/aegisub_util.lua");
 const UTILS_AUTO4_LUA: &str = include_str!("../lua/vendor/utils-auto4.lua");
 const KARASKEL_AUTO4_LUA: &str = include_str!("../lua/vendor/karaskel-auto4.lua");
 const CLEANTAGS_LUA: &str = include_str!("../lua/vendor/cleantags.lua");
+const MOON_SEARCHER_LUA: &str = include_str!("../lua/moon_searcher.lua");
+const DEPCTRL_LUA: &str = include_str!("../lua/depctrl.lua");
+const AEGISUB_RE_LUA: &str = include_str!("../lua/aegisub_re.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 
 #[derive(Debug)]
@@ -298,6 +301,10 @@ fn install_aegisub(lua: &Lua, host: &SharedHost, registry: &Rc<RefCell<Registry>
             }
         })?)?;
         let h = host.clone();
+        aeg.set("__clip_get", lua.create_function(move |_, ()| Ok(h.borrow().clipboard_get()))?)?;
+        let h = host.clone();
+        aeg.set("__clip_set", lua.create_function(move |_, s: mlua::LuaString| Ok(h.borrow_mut().clipboard_set(&String::from_utf8_lossy(&s.as_bytes()))))?)?;
+        let h = host.clone();
         aeg.set("get_audio_selection", lua.create_function(move |_, ()| {
             Ok(match h.borrow().audio_selection() {
                 Some((a, b)) => MultiValue::from_iter([Value::Integer(a as _), Value::Integer(b as _)]),
@@ -358,6 +365,31 @@ fn install_aegisub(lua: &Lua, host: &SharedHost, registry: &Rc<RefCell<Registry>
     Ok(())
 }
 
+/// Translate MoonScript source to Lua with the embedded compiler.
+fn compile_moon(lua: &Lua, src: &str) -> LuaResult<String> {
+    let require: Function = lua.globals().get("require")?;
+    let base: Table = require.call("moonscript.base")?;
+    let to_lua: Function = base.get("to_lua")?;
+    // returns (code, line_table) on success, (nil, message) on failure
+    let (code, extra): (Option<String>, Value) = to_lua.call(src)?;
+    code.ok_or_else(|| mlua::Error::runtime(format!("MoonScript: {}", extra.to_string().unwrap_or_else(|_| "compile failed".into()))))
+}
+
+/// Register the embedded MoonScript runtime (lazily loaded `require` targets) and a `.moon` searcher.
+fn install_moonscript(lua: &Lua) -> LuaResult<()> {
+    let package: Table = lua.globals().get("package")?;
+    let preload: Table = package.get("preload")?;
+    for &(name, src) in crate::moon_modules::MODULES {
+        preload.set(
+            name,
+            lua.create_function(move |lua, ()| lua.load(src).set_name(format!("=moon:{name}")).call::<Value>(name))?,
+        )?;
+    }
+    preload.set("lpeg", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("lulpeg"))?)?;
+    preload.set("moonscript", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("moonscript.base"))?)?;
+    lua.load(MOON_SEARCHER_LUA).set_name("=moon_searcher").exec()
+}
+
 fn find_include(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let p = Path::new(name);
     if p.is_absolute() && p.exists() {
@@ -416,12 +448,18 @@ impl LuaScript {
         // native modules
         let unicode = libs::install_unicode(lua)?;
         lua.globals().set("unicode", unicode.clone())?;
-        libs::preload(lua, "unicode", unicode)?;
+        libs::preload(lua, "unicode", unicode.clone())?;
+        libs::preload(lua, "aegisub.unicode", unicode)?;
         let lfs = libs::install_lfs(lua)?;
-        libs::preload(lua, "lfs", lfs)?;
-        let re = libs::install_re(lua)?;
+        libs::preload(lua, "lfs", lfs.clone())?;
+        libs::preload(lua, "aegisub.lfs", lfs)?;
+        let re_impl = libs::install_re_impl(lua)?;
+        let re: Table = lua.load(AEGISUB_RE_LUA).set_name("=aegisub.re").call(re_impl)?;
         lua.globals().set("re", re.clone())?;
-        libs::preload(lua, "re", re)?;
+        libs::preload(lua, "re", re.clone())?;
+        libs::preload(lua, "aegisub.re", re)?;
+
+        install_moonscript(lua)?;
 
         // include(): script-dir/include-dir files first, then bundled libs
         let dirs_c = dirs.clone();
@@ -446,6 +484,7 @@ impl LuaScript {
             let Some((code, chunk)) = src else {
                 return Err(mlua::Error::runtime(format!("Lua include not found: {name}")));
             };
+            let code = if chunk.ends_with(".moon") { compile_moon(lua, &code)? } else { code };
             globals.set(loaded_key.as_str(), true)?;
             lua.load(&code).set_name(format!("@{chunk}")).call::<MultiValue>(())
         })?;
@@ -462,6 +501,22 @@ impl LuaScript {
             lua.create_function(|lua, ()| {
                 lua.load("return function(...) return function(f) return f end end").set_name("=aegisub.argcheck").call::<Value>(())
             })?,
+        )?;
+        preload.set(
+            "l0.DependencyControl",
+            lua.create_function(|lua, ()| lua.load(DEPCTRL_LUA).set_name("=l0.DependencyControl").call::<Value>(()))?,
+        )?;
+        preload.set(
+            "aegisub.ffi",
+            lua.create_function(|lua, ()| {
+                lua.load("local ffi = require('ffi'); return { string = function(c) if c == nil then return nil end return ffi.string(c) end }")
+                    .set_name("=aegisub.ffi")
+                    .call::<Value>(())
+            })?,
+        )?;
+        preload.set(
+            "aegisub.clipboard",
+            lua.create_function(|lua, ()| lua.globals().get::<Table>("aegisub")?.get::<Value>("clipboard"))?,
         )?;
         for (modname, file, global) in [("utils", "utils.lua", None), ("karaskel", "karaskel.lua", Some("karaskel")), ("cleantags", "cleantags.lua", None)] {
             preload.set(
@@ -480,7 +535,8 @@ impl LuaScript {
         let code = std::fs::read_to_string(path).map_err(mlua::Error::external)?;
         // Aegisub scripts are UTF-8; strip BOM.
         let code = code.strip_prefix('\u{feff}').unwrap_or(&code);
-        lua.load(code).set_name(format!("@{}", path.display())).exec()?;
+        let code = if path.extension().is_some_and(|e| e == "moon") { compile_moon(lua, code)? } else { code.to_string() };
+        lua.load(&code).set_name(format!("@{}", path.display())).exec()?;
 
         let g = lua.globals();
         let gs = |k: &str| g.get::<Option<String>>(k).ok().flatten();

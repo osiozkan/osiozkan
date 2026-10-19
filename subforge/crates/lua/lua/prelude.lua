@@ -45,6 +45,15 @@ aegisub.dialog = {
 }
 
 aegisub.progress = aegisub.progress or {}
+do
+	local raw_task = aegisub.progress.task
+	aegisub.progress.task = function(msg, ...) raw_task(fmt(msg == nil and "" or msg, ...)) end
+end
+
+aegisub.clipboard = {
+	get = function() return aegisub.__clip_get() end,
+	set = function(s) return aegisub.__clip_set(s) end,
+}
 
 -- Classic (non-ffi) helpers some scripts expect
 aegisub.util = nil
