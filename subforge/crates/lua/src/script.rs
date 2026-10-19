@@ -18,6 +18,7 @@ const AEGISUB_UTIL_LUA: &str = include_str!("../lua/aegisub_util.lua");
 const UTILS_AUTO4_LUA: &str = include_str!("../lua/vendor/utils-auto4.lua");
 const KARASKEL_AUTO4_LUA: &str = include_str!("../lua/vendor/karaskel-auto4.lua");
 const CLEANTAGS_LUA: &str = include_str!("../lua/vendor/cleantags.lua");
+const MOON_SEARCHER_LUA: &str = include_str!("../lua/moon_searcher.lua");
 const AEGISUB_RE_LUA: &str = include_str!("../lua/aegisub_re.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 
@@ -363,6 +364,31 @@ fn install_aegisub(lua: &Lua, host: &SharedHost, registry: &Rc<RefCell<Registry>
     Ok(())
 }
 
+/// Translate MoonScript source to Lua with the embedded compiler.
+fn compile_moon(lua: &Lua, src: &str) -> LuaResult<String> {
+    let require: Function = lua.globals().get("require")?;
+    let base: Table = require.call("moonscript.base")?;
+    let to_lua: Function = base.get("to_lua")?;
+    // returns (code, line_table) on success, (nil, message) on failure
+    let (code, extra): (Option<String>, Value) = to_lua.call(src)?;
+    code.ok_or_else(|| mlua::Error::runtime(format!("MoonScript: {}", extra.to_string().unwrap_or_else(|_| "compile failed".into()))))
+}
+
+/// Register the embedded MoonScript runtime (lazily loaded `require` targets) and a `.moon` searcher.
+fn install_moonscript(lua: &Lua) -> LuaResult<()> {
+    let package: Table = lua.globals().get("package")?;
+    let preload: Table = package.get("preload")?;
+    for &(name, src) in crate::moon_modules::MODULES {
+        preload.set(
+            name,
+            lua.create_function(move |lua, ()| lua.load(src).set_name(format!("=moon:{name}")).call::<Value>(name))?,
+        )?;
+    }
+    preload.set("lpeg", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("lulpeg"))?)?;
+    preload.set("moonscript", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("moonscript.base"))?)?;
+    lua.load(MOON_SEARCHER_LUA).set_name("=moon_searcher").exec()
+}
+
 fn find_include(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let p = Path::new(name);
     if p.is_absolute() && p.exists() {
@@ -432,6 +458,8 @@ impl LuaScript {
         libs::preload(lua, "re", re.clone())?;
         libs::preload(lua, "aegisub.re", re)?;
 
+        install_moonscript(lua)?;
+
         // include(): script-dir/include-dir files first, then bundled libs
         let dirs_c = dirs.clone();
         let include = lua.create_function(move |lua, name: String| -> LuaResult<MultiValue> {
@@ -455,6 +483,7 @@ impl LuaScript {
             let Some((code, chunk)) = src else {
                 return Err(mlua::Error::runtime(format!("Lua include not found: {name}")));
             };
+            let code = if chunk.ends_with(".moon") { compile_moon(lua, &code)? } else { code };
             globals.set(loaded_key.as_str(), true)?;
             lua.load(&code).set_name(format!("@{chunk}")).call::<MultiValue>(())
         })?;
@@ -501,7 +530,8 @@ impl LuaScript {
         let code = std::fs::read_to_string(path).map_err(mlua::Error::external)?;
         // Aegisub scripts are UTF-8; strip BOM.
         let code = code.strip_prefix('\u{feff}').unwrap_or(&code);
-        lua.load(code).set_name(format!("@{}", path.display())).exec()?;
+        let code = if path.extension().is_some_and(|e| e == "moon") { compile_moon(lua, code)? } else { code.to_string() };
+        lua.load(&code).set_name(format!("@{}", path.display())).exec()?;
 
         let g = lua.globals();
         let gs = |k: &str| g.get::<Option<String>>(k).ok().flatten();

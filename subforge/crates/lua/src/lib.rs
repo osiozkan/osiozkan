@@ -4,6 +4,7 @@ pub mod doc;
 pub mod fonts;
 pub mod host;
 mod libs;
+mod moon_modules;
 pub mod metrics;
 pub mod script;
 pub mod subs;
