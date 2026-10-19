@@ -44,7 +44,8 @@ impl App {
         let title = run.title.clone();
         let mut reply: Option<Option<DialogResult>> = None;
         if let Some(d) = run.dialog.as_mut() {
-            egui::Window::new(&title).collapsible(false).resizable(true).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            egui::Modal::new(egui::Id::new("lua_dialog")).show(ctx, |ui| {
+                ui.heading(&title);
                 // group fields by row (y), order by x
                 let mut rows: std::collections::BTreeMap<i32, Vec<usize>> = Default::default();
                 for (i, f) in d.dialog.fields.iter().enumerate() {
@@ -66,8 +67,13 @@ impl App {
                                         _ => String::new(),
                                     };
                                     if f.class == "color" || f.class == "coloralpha" {
-                                        let col = Color::parse(&s.replace('#', "&H00").chars().collect::<String>()).unwrap_or(Color::WHITE);
-                                        let mut rgb = [col.r, col.g, col.b];
+                                        let hex = s.trim().trim_start_matches('#');
+                                        let mut rgb = [255u8, 255, 255];
+                                        if hex.len() >= 6 {
+                                            for k in 0..3 {
+                                                rgb[k] = u8::from_str_radix(&hex[2 * k..2 * k + 2], 16).unwrap_or(255);
+                                            }
+                                        }
                                         if ui.color_edit_button_srgb(&mut rgb).changed() {
                                             s = format!("#{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2]);
                                         }
@@ -151,7 +157,8 @@ impl App {
         // progress/cancel bar
         if let Some(run) = self.run.as_mut() {
             if run.dialog.is_none() {
-                egui::Window::new("Makro çalışıyor").collapsible(false).resizable(false).anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -40.0]).show(ctx, |ui| {
+                egui::Modal::new(egui::Id::new("lua_progress")).show(ctx, |ui| {
+                    ui.heading("Makro çalışıyor");
                     ui.label(&run.title);
                     if !run.task.is_empty() {
                         ui.label(&run.task);

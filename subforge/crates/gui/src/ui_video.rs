@@ -55,7 +55,7 @@ impl App {
         let fps = Fps::from_f64(self.fps());
         let mut step: i64 = 0;
         let mut seek: Option<i64> = None;
-        let mut pos_click: Option<(f32, f32)> = None;
+        let mut vis_action: Option<(u8, f32, f32, f32, f32, f64, f64)> = None;
         let mut set_start = false;
         let mut toggle_play = false;
         let mut play_line = false;
@@ -77,11 +77,45 @@ impl App {
                 let scale = avail_w / size.x;
                 let img = egui::Image::new((t.id(), size * scale)).sense(egui::Sense::click_and_drag());
                 let r = ui.add(img);
-                if v.pos_mode {
+                let (pw, ph) = self.proj.script.play_res();
+                let to_screen = |x: f64, y: f64| egui::pos2(r.rect.left() + (x / pw as f64) as f32 * r.rect.width(), r.rect.top() + (y / ph as f64) as f32 * r.rect.height());
+                // overlay of the active line's positioning tags
+                if let Some(e) = self.active.and_then(|i| self.proj.script.events.get(i)) {
+                    let painter = ui.painter_at(r.rect);
+                    let nums = |v: &str| -> Vec<f64> { v.trim().trim_matches(|c| c == '(' || c == ')').split(',').filter_map(|x| x.trim().parse().ok()).collect() };
+                    let acc = theme::ACCENT;
+                    if let Some(p) = subforge_core::tools::get_override(&e.text, "pos").map(|v| nums(&v)).filter(|n| n.len() == 2) {
+                        let c = to_screen(p[0], p[1]);
+                        painter.line_segment([c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)], egui::Stroke::new(1.5_f32, acc));
+                        painter.line_segment([c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)], egui::Stroke::new(1.5_f32, acc));
+                    }
+                    if let Some(o) = subforge_core::tools::get_override(&e.text, "org").map(|v| nums(&v)).filter(|n| n.len() == 2) {
+                        painter.circle_stroke(to_screen(o[0], o[1]), 6.0, egui::Stroke::new(1.5_f32, Color32::from_rgb(120, 200, 255)));
+                    }
+                    if let Some(c) = subforge_core::tools::get_override(&e.text, "clip").map(|v| nums(&v)).filter(|n| n.len() == 4) {
+                        painter.rect_stroke(egui::Rect::from_two_pos(to_screen(c[0], c[1]), to_screen(c[2], c[3])), 0.0, egui::Stroke::new(1.5_f32, Color32::from_rgb(120, 255, 160)), egui::StrokeKind::Inside);
+                    }
+                }
+                if v.vmode != 0 {
                     ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                    let rel_of = |p: egui::Pos2| ((p.x - r.rect.left()) / r.rect.width()).clamp(0.0, 1.0);
+                    let rel_y = |p: egui::Pos2| ((p.y - r.rect.top()) / r.rect.height()).clamp(0.0, 1.0);
+                    if r.drag_started() || r.clicked() {
+                        if let Some(p) = r.interact_pointer_pos() {
+                            let (base_a, base_b) = self.active.and_then(|i| self.proj.script.events.get(i)).map(|e| {
+                                let f = |n: &str, d: f64| subforge_core::tools::get_override(&e.text, n).and_then(|v| v.trim().parse().ok()).unwrap_or(d);
+                                (f("frz", 0.0), f("fscx", 100.0))
+                            }).unwrap_or((0.0, 100.0));
+                            v.drag0 = Some((rel_of(p), rel_y(p), base_a, base_b));
+                        }
+                    }
                     if let Some(p) = r.interact_pointer_pos().filter(|_| r.dragged() || r.clicked()) {
-                        let rel = (p - r.rect.min) / r.rect.size();
-                        pos_click = Some((rel.x.clamp(0.0, 1.0), rel.y.clamp(0.0, 1.0)));
+                        if let Some((x0, y0, ba, bb)) = v.drag0 {
+                            vis_action = Some((v.vmode, x0, y0, rel_of(p), rel_y(p), ba, bb));
+                        }
+                    }
+                    if r.drag_stopped() {
+                        v.drag0 = None;
                     }
                 }
             } else {
@@ -134,7 +168,12 @@ impl App {
                     set_end = true;
                 }
             });
-            ui.checkbox(&mut v.pos_mode, "Konumlandır (videoya tıkla/sürükle = \\pos)");
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Görsel araç:");
+                for (m, label, tip) in [(0u8, "Kapalı", ""), (1, "Konum", "tıkla/sürükle = \\pos"), (2, "Merkez", "tıkla = \\org"), (3, "Kırp", "sürükle = \\clip dikdörtgen"), (4, "Döndür", "yatay sürükle = \\frz"), (5, "Ölçek", "yatay sürükle = \\fscx/\\fscy")] {
+                    ui.selectable_value(&mut v.vmode, m, label).on_hover_text(tip);
+                }
+            });
             ui.horizontal(|ui| {
                 if ui.button("Önceki anahtar kare").clicked() {
                     seek = v.keyframes.iter().rev().find(|&&k| k < v.want_ms - 1).copied();
@@ -199,18 +238,36 @@ impl App {
                 });
                 self.bump();
             }
-            if let Some((rx, ry)) = pos_click {
+            if let Some((mode, x0, y0, x1, y1, base_rot, base_scale)) = vis_action {
                 let (w, h) = self.proj.script.play_res();
-                let (x, y) = ((rx * w as f32).round() as i32, (ry * h as f32).round() as i32);
+                let sx = |r: f32| (r * w as f32).round() as i32;
+                let sy = |r: f32| (r * h as f32).round() as i32;
                 let sel = self.selected_vec();
                 let targets = if sel.contains(&i) { sel } else { vec![i] };
-                self.proj.edit_coalesced("pos", |s| {
+                let (tag, value, msg): (&str, String, String) = match mode {
+                    1 => ("pos", format!("({},{})", sx(x1), sy(y1)), format!("\\pos({},{})", sx(x1), sy(y1))),
+                    2 => ("org", format!("({},{})", sx(x1), sy(y1)), format!("\\org({},{})", sx(x1), sy(y1))),
+                    3 => ("clip", format!("({},{},{},{})", sx(x0.min(x1)), sy(y0.min(y1)), sx(x0.max(x1)), sy(y0.max(y1))), "\\clip".to_string()),
+                    4 => {
+                        let deg = (base_rot - ((x1 - x0) as f64) * 360.0).round();
+                        ("frz", format!("{deg}"), format!("\\frz{deg}"))
+                    }
+                    _ => {
+                        let sc = (base_scale * (1.0 + (x1 - x0) as f64 * 2.0)).max(1.0).round();
+                        ("fscx", format!("{sc}"), format!("\\fscx{sc} \\fscy{sc}"))
+                    }
+                };
+                self.proj.edit_coalesced(&format!("vis:{mode}"), |s| {
                     for &t in &targets {
-                        s.events[t].text = subforge_core::tools::set_override(&s.events[t].text, "pos", &format!("({x},{y})"));
+                        let mut text = subforge_core::tools::set_override(&s.events[t].text, tag, &value);
+                        if mode == 5 {
+                            text = subforge_core::tools::set_override(&text, "fscy", &value);
+                        }
+                        s.events[t].text = text;
                     }
                 });
                 self.bump();
-                self.set_status(format!("\\pos({x},{y})"));
+                self.set_status(msg);
             }
         }
     }

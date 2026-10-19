@@ -77,7 +77,8 @@ pub struct VideoState {
     pub keyframes: Vec<i64>,
     pub error: Option<String>,
     pub width: i32,
-    pub pos_mode: bool,
+    pub vmode: u8, // 0 off, 1 pos, 2 org, 3 clip, 4 rotate, 5 scale
+    pub drag0: Option<(f32, f32, f64, f64)>,
     pub play: Option<media::Playback>,
     pub play_until: Option<i64>,
 }
@@ -214,6 +215,11 @@ impl App {
         };
         if let Some(a) = arg {
             app.open_path(&a);
+        }
+        if let Ok(spec) = std::env::var("SUBFORGE_RUN") {
+            if let Some((path, idx)) = spec.rsplit_once('|') {
+                app.run_macro(PathBuf::from(path), idx.parse().unwrap_or(0), "test".into());
+            }
         }
         if std::env::var("SUBFORGE_AUTOPLAY").is_ok() {
             app.toggle_playback(None);
@@ -480,7 +486,7 @@ impl App {
                 }
                 self.set_status(format!("Video: {} ({}x{}, {:.3} fps)", path.display(), info.width, info.height, info.fps.unwrap_or(0.0)));
                 let want_ms = self.active_event().map(|e| e.start).unwrap_or(0);
-                self.video = Some(VideoState { path, info, tex: None, pending: None, shown_ms: -1, shown_version: 0, want_ms, burn: true, keyframes, error: None, width: 640, pos_mode: false, play: None, play_until: None });
+                self.video = Some(VideoState { path, info, tex: None, pending: None, shown_ms: -1, shown_version: 0, want_ms, burn: true, keyframes, error: None, width: 640, vmode: 0, drag0: None, play: None, play_until: None });
             }
             Err(e) => self.set_status(format!("Video açılamadı: {e}")),
         }
