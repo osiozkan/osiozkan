@@ -24,3 +24,8 @@ Amaç: Aegisub'ı tamamen kopyalayan, Subtitle Edit'in iyi özelliklerini katan,
 - Aegisub davranışı referanstır (alan adları, API, ASS yazım biçimi). Emin olmadığında Aegisub'ın belgelenmiş davranışına uy.
 - Kullanıcının Lua betikleri kutsaldır: uyumluluğu bozan değişiklik yapma; yeni Aegisub API'si eksikse ekle.
 - egui'de emoji kullanma (varsayılan fontta yok); düz metin/ASCII ikonlar.
+
+## Notlar
+- Paralel ajan çalışması gerekirse dosya sahipliğini ayır (ör. `crates/lua` bir ajan, `crates/core/src/formats` başka); ajan worktree'lerini `.claude/worktrees/` altında tutar (gitignore'da), birleştirme sonrası `git worktree remove`.
+- `SUBFORGE_OPEN=styles,qc,spell,...`, `SUBFORGE_RUN=betik.lua|0`, `SUBFORGE_AUTOPLAY=1` ve `SUBFORGE_CONFIG=dir` ortam değişkenleri GUI ekran görüntüsü/test için vardır.
+- Türkçe sözlük testi: `SF_DICT_DIR=... cargo test -p subforge-app real_turkish -- --ignored`.

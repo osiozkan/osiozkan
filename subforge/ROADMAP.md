@@ -5,9 +5,9 @@ Durum: ✅ var · 🟡 kısmen · ⬜ yok. Her gece bu liste yukarıdan aşağı
 ## Çekirdek / format
 - ✅ ASS/SSA okuma-yazma, SRT, VTT
 - ✅ Kodlama algılama, mojibake onarımı, Türkçe büyük/küçük harf
-- ⬜ SSA v4 (eski) tam yazma, `[Aegisub Extradata]` yapılandırılmış erişim
-- ⬜ Diğer formatlar: SUB/MicroDVD, SBV, TTML, STL, PGS/VobSub (OCR) içe aktarma
-- ⬜ Gömülü fontlar (uuencode) çıkarma/gömme
+- ✅ SSA v4 yazma, Extradata, gömülü font/grafik ekleri (çekirdek API; GUI arayüzü ⬜)
+- ✅ MicroDVD, SubViewer, SBV, SAMI, LRC, TTML, TXT; ⬜ STL, PGS/VobSub (OCR)
+- 🟡 Gömülü fontlar: çekirdekte çıkarma/gömme var, GUI'de yok
 - ⬜ MKV içinden altyazı/font çıkarma ve geri gömme (mkvtoolnix çağrısı)
 
 ## Automation 4 (Lua)
@@ -41,3 +41,10 @@ Durum: ✅ var · 🟡 kısmen · ⬜ yok. Her gece bu liste yukarıdan aşağı
 - ⬜ 100k+ satırlı betik performans testleri/benchmark
 - ⬜ GUI uçtan uca testleri (Xvfb ekran görüntüsü)
 - ⬜ Paketleme: Windows (.msi/.zip), macOS (.dmg), Linux AppImage; GitHub Actions sürüm iş akışı
+
+## Sonraki gece için öneriler
+- GUI: gömülü font yöneticisi, VFR zaman kodu/anahtar kare dosyası içe-dışa aktarma, kısayol özelleştirme, İngilizce arayüz seçeneği
+- Performans: fark tabanlı geri al (şu an tam kopya, büyük betiklerde derinlik sınırlı)
+- Lua: `crates/lua/COMPAT.md` boşlukları (gerçek DependencyControl, native clipper)
+- Ses: spektrum görünümü, gerçek A/V saat
+- GUI için Xvfb ekran görüntüsü regresyon testleri
