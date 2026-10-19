@@ -1,0 +1,16 @@
+[package]
+name = "subforge-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "subforge-gui"
+path = "src/main.rs"
+
+[dependencies]
+subforge-core = { path = "../core" }
+subforge-lua = { path = "../lua" }
+subforge-app = { path = "../app" }
+eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
