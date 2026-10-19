@@ -232,13 +232,11 @@ impl App {
                 ui.close_menu();
             }
             ui.menu_button("Dışa aktar", |ui| {
-                if ui.button("SRT…").clicked() {
-                    self.export("srt");
-                    ui.close_menu();
-                }
-                if ui.button("WebVTT…").clicked() {
-                    self.export("vtt");
-                    ui.close_menu();
+                for f in subforge_core::Format::ALL.iter().copied().filter(|f| *f != subforge_core::Format::Ass) {
+                    if ui.button(format!("{} (.{})…", f.name(), f.extension())).clicked() {
+                        self.export(f.extension());
+                        ui.close_menu();
+                    }
                 }
             });
             ui.separator();
@@ -255,7 +253,7 @@ impl App {
                 ui.close_menu();
             }
             if ui.button("Referans altyazı aç… (çeviri için)").clicked() {
-                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "sub", "sbv", "smi", "sami", "lrc", "ttml", "dfxp", "xml", "txt"]).pick_file() {
                     self.load_reference(&p.to_string_lossy());
                 }
                 ui.close_menu();

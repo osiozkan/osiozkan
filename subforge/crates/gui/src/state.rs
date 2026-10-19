@@ -490,7 +490,7 @@ impl App {
     }
 
     pub fn open_dialog(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "sub", "sbv", "smi", "sami", "lrc", "ttml", "dfxp", "xml", "txt"]).pick_file() {
             self.open_path(&p.to_string_lossy());
         }
     }
