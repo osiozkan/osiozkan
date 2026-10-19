@@ -64,3 +64,12 @@ zamanlama), otomasyon menüsü + Lua çalışma zamanı, CLI.
 ## Gece sürüm kuralı
 Her gece: `docs/CHANGELOG.md`'ye yeni sürüm bölümü ekle, `osisub/__init__.py` + `pyproject.toml` sürümünü yükselt,
 testler yeşilken commit + push (`claude/vibrant-clarke-toha74`). Sabah 06:00'da bitir.
+
+## Gün sonu kod dökümü (kullanıcı kuralı, istisnasız)
+Her oturumun sonunda:
+1. `snapshots/osisub_kod_YYYY-AA-GG_vX.Y.Z.txt` üret (git'te izlenen tüm dosyalar, `snapshots/` hariç). Aynı ad varsa sonuna `_2`, `_3` ekle; ASLA üzerine yazma.
+2. Dosyayı `SendUserFile` ile kullanıcıya **mutlaka** ilet (indirilebilir txt).
+3. Drive klasörü: https://drive.google.com/drive/folders/1KK_sqVJwhSzdKVNV9khtMVqZXhjthWh9 — gün için `YYYY-AA-GG` alt klasörü
+   aç, kodu ~20 KB'lık parçalara bölerek yüklemeyi dene (Drive aracı yerel dosya yükleyemez; metin olarak yazılır).
+   Başarısız olursa kullanıcıya bildir; kullanıcı dosyayı kendisi yükleyebilir.
+4. Commit + push.
