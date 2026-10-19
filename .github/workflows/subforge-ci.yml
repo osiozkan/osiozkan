@@ -1,0 +1,21 @@
+name: subforge-ci
+on:
+  push:
+    paths: ["subforge/**", ".github/workflows/subforge-ci.yml"]
+  pull_request:
+    paths: ["subforge/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: subforge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: subforge
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libxkbcommon-dev libwayland-dev libx11-dev
+      - run: cargo test --workspace
+      - run: cargo build --release -p subforge-cli -p subforge-gui
