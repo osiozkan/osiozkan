@@ -14,3 +14,4 @@ subforge-lua = { path = "../lua" }
 subforge-app = { path = "../app" }
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+egui_extras = "0.31"

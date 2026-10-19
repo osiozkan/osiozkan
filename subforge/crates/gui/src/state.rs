@@ -1,0 +1,465 @@
+use crate::theme;
+use eframe::egui::{self, TextureHandle};
+use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+use subforge_app::automation::{self, RunHandle, ScriptEntry};
+use subforge_app::media::{self, Frame, MediaInfo, SharedWaveform};
+use subforge_app::project::Project;
+use subforge_app::search::SearchOpts;
+use subforge_app::settings::Settings;
+use subforge_core::qc::{self, Issue, Severity};
+use subforge_lua::{Dialog, DialogResult, DialogValue};
+
+pub struct LuaDialogState {
+    pub dialog: Dialog,
+    pub values: HashMap<String, DialogValue>,
+    pub reply: std::sync::mpsc::Sender<Option<DialogResult>>,
+}
+
+pub struct RunState {
+    pub handle: RunHandle,
+    pub title: String,
+    pub progress: Option<f64>,
+    pub task: String,
+    pub dialog: Option<LuaDialogState>,
+    pub sel_before: Vec<usize>,
+}
+
+#[derive(Default)]
+pub struct Windows {
+    pub find: bool,
+    pub shift: bool,
+    pub styles: bool,
+    pub qc: bool,
+    pub automation: bool,
+    pub props: bool,
+    pub settings: bool,
+    pub about: bool,
+    pub log: bool,
+    pub retime: bool,
+}
+
+pub struct ShiftState {
+    pub ms: i64,
+    pub frames: i64,
+    pub use_frames: bool,
+    pub start: bool,
+    pub end: bool,
+    pub only_selected: bool,
+    pub chain_gap: i64,
+    pub lead_in: i64,
+    pub lead_out: i64,
+    pub rt: [String; 4],
+}
+
+impl Default for ShiftState {
+    fn default() -> Self {
+        ShiftState { ms: 0, frames: 0, use_frames: false, start: true, end: true, only_selected: true, chain_gap: 300, lead_in: 0, lead_out: 0, rt: Default::default() }
+    }
+}
+
+pub struct VideoState {
+    pub path: PathBuf,
+    pub info: MediaInfo,
+    pub tex: Option<TextureHandle>,
+    pub pending: Option<Receiver<Result<Frame, String>>>,
+    pub shown_ms: i64,
+    pub shown_version: u64,
+    pub want_ms: i64,
+    pub burn: bool,
+    pub keyframes: Vec<i64>,
+    pub error: Option<String>,
+    pub width: i32,
+}
+
+pub struct WaveState {
+    pub path: PathBuf,
+    pub wave: SharedWaveform,
+    pub start_ms: f64,
+    pub ms_per_px: f64,
+    pub sel: Option<(i64, i64)>,
+    pub drag: Option<WaveDrag>,
+    pub player: Option<std::process::Child>,
+    pub snap_keys: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum WaveDrag {
+    NewSel(i64),
+    Start(usize),
+    End(usize),
+    Move(usize, i64),
+}
+
+pub struct App {
+    pub settings: Settings,
+    pub proj: Project,
+    pub sel: BTreeSet<usize>,
+    pub active: Option<usize>,
+    pub anchor: usize,
+    pub scroll_to: Option<usize>,
+    pub issues: Vec<Issue>,
+    pub issue_sev: HashMap<usize, Severity>,
+    pub version: u64,
+    pub qc_version: u64,
+    pub win: Windows,
+    pub find: SearchOpts,
+    pub find_msg: String,
+    pub shift: ShiftState,
+    pub status: String,
+    pub video: Option<VideoState>,
+    pub wave: Option<WaveState>,
+    pub scripts: Vec<ScriptEntry>,
+    pub run: Option<RunState>,
+    pub log: Vec<String>,
+    pub style_sel: usize,
+    pub start_buf: String,
+    pub end_buf: String,
+    pub dur_buf: String,
+    pub buf_for: Option<(usize, u64)>,
+    pub confirm_close: bool,
+    pub allow_close: bool,
+    pub last_autosave: std::time::Instant,
+    pub show_video: bool,
+    pub show_wave: bool,
+    pub split_pos: usize,
+    pub text_focus: bool,
+    pub tmp_ass: PathBuf,
+}
+
+impl App {
+    pub fn new(cc: &eframe::CreationContext<'_>, arg: Option<String>) -> App {
+        let settings = Settings::load();
+        theme::install_fonts(&cc.egui_ctx);
+        theme::apply(&cc.egui_ctx, settings.dark, settings.ui_scale);
+        let scripts = automation::scan(&settings.script_dirs());
+        let mut app = App {
+            proj: Project::new(),
+            sel: BTreeSet::from([0]),
+            active: Some(0),
+            anchor: 0,
+            scroll_to: None,
+            issues: vec![],
+            issue_sev: HashMap::new(),
+            version: 1,
+            qc_version: 0,
+            win: Windows::default(),
+            find: SearchOpts::default(),
+            find_msg: String::new(),
+            shift: ShiftState::default(),
+            status: "Hazır — bir altyazı dosyası açın veya sürükleyip bırakın.".into(),
+            video: None,
+            wave: None,
+            scripts,
+            run: None,
+            log: vec![],
+            style_sel: 0,
+            start_buf: String::new(),
+            end_buf: String::new(),
+            dur_buf: String::new(),
+            buf_for: None,
+            confirm_close: false,
+            allow_close: false,
+            last_autosave: std::time::Instant::now(),
+            show_video: true,
+            show_wave: true,
+            split_pos: 0,
+            text_focus: false,
+            tmp_ass: std::env::temp_dir().join(format!("subforge-preview-{}.ass", std::process::id())),
+            settings,
+        };
+        if let Some(a) = arg {
+            app.open_path(&a);
+        }
+        app
+    }
+
+    pub fn bump(&mut self) {
+        self.version += 1;
+    }
+
+    pub fn selected_vec(&self) -> Vec<usize> {
+        self.sel.iter().copied().filter(|&i| i < self.proj.script.events.len()).collect()
+    }
+
+    pub fn select_only(&mut self, i: usize) {
+        self.sel.clear();
+        self.sel.insert(i);
+        self.active = Some(i);
+        self.anchor = i;
+    }
+
+    pub fn clamp_selection(&mut self) {
+        let n = self.proj.script.events.len();
+        self.sel.retain(|&i| i < n);
+        if n == 0 {
+            self.active = None;
+        } else if self.active.map(|a| a >= n).unwrap_or(true) {
+            let a = self.sel.iter().next().copied().unwrap_or(n - 1);
+            self.active = Some(a);
+            self.sel.insert(a);
+        }
+    }
+
+    pub fn set_status(&mut self, s: impl Into<String>) {
+        self.status = s.into();
+    }
+
+    pub fn refresh_qc(&mut self) {
+        if self.qc_version == self.version {
+            return;
+        }
+        self.qc_version = self.version;
+        self.issues = qc::check(&self.proj.script, &self.settings.qc);
+        self.issue_sev.clear();
+        for i in &self.issues {
+            let e = self.issue_sev.entry(i.event).or_insert(i.severity);
+            if i.severity > *e {
+                *e = i.severity;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- files
+    pub fn open_path(&mut self, path: &str) {
+        match Project::open(path) {
+            Ok(p) => {
+                self.proj = p;
+                self.sel.clear();
+                self.sel.insert(0);
+                self.active = Some(0);
+                self.anchor = 0;
+                self.scroll_to = Some(0);
+                self.bump();
+                self.settings.push_recent(path);
+                self.settings.save();
+                let det = self.proj.encoding.clone();
+                self.set_status(format!("Açıldı: {path}  ({det}, {} satır)", self.proj.script.events.len()));
+                // auto-load media referenced by the script
+                if let Some(v) = self.proj.script.garbage_get("Video File") {
+                    let vp = self.resolve_media(&v, path);
+                    if vp.exists() {
+                        self.load_video(vp);
+                    }
+                }
+                if let Some(v) = self.proj.script.garbage_get("Audio File") {
+                    let ap = self.resolve_media(&v, path);
+                    if ap.exists() && self.wave.is_none() {
+                        self.load_audio(ap);
+                    }
+                }
+            }
+            Err(e) => self.set_status(format!("Açılamadı: {e}")),
+        }
+    }
+
+    fn resolve_media(&self, v: &str, script_path: &str) -> PathBuf {
+        let p = PathBuf::from(v.trim_start_matches("?video/").trim_start_matches("?audio/"));
+        if p.is_absolute() || p.exists() {
+            p
+        } else {
+            std::path::Path::new(script_path).parent().map(|d| d.join(&p)).unwrap_or(p)
+        }
+    }
+
+    pub fn save(&mut self) {
+        if self.proj.path.is_none() {
+            return self.save_as();
+        }
+        match self.proj.save() {
+            Ok(()) => {
+                let p = self.proj.path.clone().unwrap();
+                self.set_status(format!("Kaydedildi: {}", p.display()));
+            }
+            Err(e) => self.set_status(format!("Kaydedilemedi: {e}")),
+        }
+    }
+
+    pub fn save_as(&mut self) {
+        if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).set_file_name("altyazi.ass").save_file() {
+            let ps = p.to_string_lossy().to_string();
+            // record media in project garbage
+            if let Some(v) = &self.video {
+                let s = v.path.to_string_lossy().to_string();
+                self.proj.script.garbage_set("Video File", &s);
+            }
+            match self.proj.save_as(&ps) {
+                Ok(()) => {
+                    self.settings.push_recent(&ps);
+                    self.settings.save();
+                    self.set_status(format!("Kaydedildi: {ps}"));
+                }
+                Err(e) => self.set_status(format!("Kaydedilemedi: {e}")),
+            }
+        }
+    }
+
+    pub fn export(&mut self, ext: &str) {
+        if let Some(p) = rfd::FileDialog::new().add_filter(ext, &[ext]).set_file_name(format!("altyazi.{ext}")).save_file() {
+            let ps = p.to_string_lossy().to_string();
+            match subforge_core::save_path(&self.proj.script, &ps) {
+                Ok(()) => self.set_status(format!("Dışa aktarıldı: {ps}")),
+                Err(e) => self.set_status(format!("Hata: {e}")),
+            }
+        }
+    }
+
+    pub fn open_dialog(&mut self) {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+            self.open_path(&p.to_string_lossy());
+        }
+    }
+
+    pub fn load_video(&mut self, path: PathBuf) {
+        match media::probe(&path) {
+            Ok(info) => {
+                if !info.has_video {
+                    // audio-only: just use as audio
+                    self.load_audio(path);
+                    return;
+                }
+                let keyframes = media::keyframes(&path).unwrap_or_default();
+                if info.has_audio && self.wave.is_none() {
+                    self.load_audio(path.clone());
+                }
+                if let Some(f) = info.fps {
+                    self.settings.default_fps = f;
+                }
+                self.set_status(format!("Video: {} ({}x{}, {:.3} fps)", path.display(), info.width, info.height, info.fps.unwrap_or(0.0)));
+                let want_ms = self.active_event().map(|e| e.start).unwrap_or(0);
+                self.video = Some(VideoState { path, info, tex: None, pending: None, shown_ms: -1, shown_version: 0, want_ms, burn: true, keyframes, error: None, width: 640 });
+            }
+            Err(e) => self.set_status(format!("Video açılamadı: {e}")),
+        }
+    }
+
+    pub fn load_audio(&mut self, path: PathBuf) {
+        let wave = media::spawn_waveform(&path, 10);
+        self.wave = Some(WaveState { path, wave, start_ms: 0.0, ms_per_px: 20.0, sel: None, drag: None, player: None, snap_keys: false });
+    }
+
+    pub fn fps(&self) -> f64 {
+        self.video.as_ref().and_then(|v| v.info.fps).unwrap_or(self.settings.default_fps)
+    }
+
+    pub fn autosave(&mut self) {
+        if self.settings.autosave_secs == 0 || !self.proj.dirty || self.last_autosave.elapsed().as_secs() < self.settings.autosave_secs {
+            return;
+        }
+        self.last_autosave = std::time::Instant::now();
+        let dir = subforge_app::settings::config_dir().join("autosave");
+        let _ = std::fs::create_dir_all(&dir);
+        let name = self.proj.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into());
+        let _ = subforge_core::save_path(&self.proj.script, &dir.join(format!("{name}.autosave.ass")).to_string_lossy());
+    }
+
+    // ---------------------------------------------------------- edit ops with bookkeeping
+    pub fn do_undo(&mut self) {
+        if self.proj.undo() {
+            self.bump();
+            self.clamp_selection();
+            self.set_status("Geri alındı");
+        }
+    }
+
+    pub fn do_redo(&mut self) {
+        if self.proj.redo() {
+            self.bump();
+            self.clamp_selection();
+            self.set_status("Yinelendi");
+        }
+    }
+
+    pub fn insert_line(&mut self, before: bool) {
+        let at = self.active.unwrap_or(0);
+        let i = if before && !self.proj.script.events.is_empty() { self.proj.insert_before(at) } else if self.proj.script.events.is_empty() { self.proj.insert_after(None) } else { self.proj.insert_after(Some(at)) };
+        self.select_only(i);
+        self.scroll_to = Some(i);
+        self.bump();
+    }
+
+    pub fn delete_selected(&mut self) {
+        let v = self.selected_vec();
+        if v.is_empty() {
+            return;
+        }
+        let first = v[0];
+        self.proj.delete(&v);
+        self.bump();
+        let n = self.proj.script.events.len();
+        if n > 0 {
+            self.select_only(first.min(n - 1));
+        } else {
+            self.sel.clear();
+            self.active = None;
+        }
+    }
+
+    pub fn duplicate_selected(&mut self) {
+        let v = self.selected_vec();
+        let out = self.proj.duplicate(&v);
+        self.bump();
+        if let Some(&l) = out.last() {
+            self.sel = out.iter().copied().collect();
+            self.active = Some(l);
+            self.scroll_to = Some(l);
+        }
+    }
+
+    pub fn join_selected(&mut self) {
+        let v = self.selected_vec();
+        if let Some(i) = self.proj.join(&v, "\\N") {
+            self.select_only(i);
+            self.bump();
+        }
+    }
+
+    pub fn toggle_comment(&mut self) {
+        let v = self.selected_vec();
+        self.proj.toggle_comment(&v);
+        self.bump();
+    }
+
+    pub fn goto_line(&mut self, i: usize) {
+        if i < self.proj.script.events.len() {
+            self.select_only(i);
+            self.scroll_to = Some(i);
+            if let Some(e) = self.proj.script.events.get(i) {
+                if let Some(v) = &mut self.video {
+                    v.want_ms = e.start;
+                }
+                if let Some(w) = &mut self.wave {
+                    // keep the line in view
+                    let width_ms = w.ms_per_px * 900.0;
+                    if (e.start as f64) < w.start_ms || (e.end as f64) > w.start_ms + width_ms {
+                        w.start_ms = (e.start as f64 - width_ms * 0.15).max(0.0);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn active_event(&self) -> Option<&subforge_core::Event> {
+        self.active.and_then(|i| self.proj.script.events.get(i))
+    }
+
+    pub fn log_line(&mut self, s: impl Into<String>) {
+        self.log.push(s.into());
+        if self.log.len() > 2000 {
+            self.log.drain(..500);
+        }
+    }
+
+    pub fn refresh_scripts(&mut self) {
+        self.scripts = automation::scan(&self.settings.script_dirs());
+    }
+
+    pub fn ctx_repaint_if_busy(&self, ctx: &egui::Context) {
+        let wave_busy = self.wave.as_ref().map(|w| !w.wave.lock().map(|w| w.done).unwrap_or(true)).unwrap_or(false);
+        let video_busy = self.video.as_ref().map(|v| v.pending.is_some()).unwrap_or(false);
+        if self.run.is_some() || wave_busy || video_busy {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
+}
