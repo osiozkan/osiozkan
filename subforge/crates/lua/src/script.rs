@@ -19,6 +19,7 @@ const UTILS_AUTO4_LUA: &str = include_str!("../lua/vendor/utils-auto4.lua");
 const KARASKEL_AUTO4_LUA: &str = include_str!("../lua/vendor/karaskel-auto4.lua");
 const CLEANTAGS_LUA: &str = include_str!("../lua/vendor/cleantags.lua");
 const MOON_SEARCHER_LUA: &str = include_str!("../lua/moon_searcher.lua");
+const DEPCTRL_LUA: &str = include_str!("../lua/depctrl.lua");
 const AEGISUB_RE_LUA: &str = include_str!("../lua/aegisub_re.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 
@@ -500,6 +501,10 @@ impl LuaScript {
             lua.create_function(|lua, ()| {
                 lua.load("return function(...) return function(f) return f end end").set_name("=aegisub.argcheck").call::<Value>(())
             })?,
+        )?;
+        preload.set(
+            "l0.DependencyControl",
+            lua.create_function(|lua, ()| lua.load(DEPCTRL_LUA).set_name("=l0.DependencyControl").call::<Value>(()))?,
         )?;
         preload.set(
             "aegisub.ffi",
