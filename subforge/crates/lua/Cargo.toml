@@ -1,0 +1,10 @@
+[package]
+name = "subforge-lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+subforge-core = { path = "../core" }
+mlua = { version = "0.12", features = ["lua51", "vendored"] }
+regex = "1"

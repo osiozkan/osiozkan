@@ -1,0 +1,11 @@
+[package]
+name = "subforge-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+encoding_rs = "0.8"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
