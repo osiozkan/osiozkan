@@ -23,8 +23,12 @@ impl App {
             .column(Column::exact(56.0))
             .column(Column::exact(50.0))
             .column(Column::initial(100.0).at_least(60.0))
-            .column(Column::initial(80.0).at_least(40.0))
-            .column(Column::remainder().at_least(200.0).clip(true));
+            .column(Column::initial(80.0).at_least(40.0));
+        let has_ref = self.reference.is_some();
+        if has_ref {
+            table = table.column(Column::initial(300.0).at_least(80.0).clip(true));
+        }
+        let mut table = table.column(Column::remainder().at_least(200.0).clip(true));
         if let Some(i) = self.scroll_to.take() {
             table = table.scroll_to_row(i, Some(Align::Center));
         }
@@ -32,11 +36,19 @@ impl App {
         let _ = fps;
         table
             .header(22.0, |mut h| {
-                for t in ["#", "K", "Başlangıç", "Bitiş", "Süre", "CPS", "Stil", "Konuşmacı", "Metin"] {
+                for t in ["#", "K", "Başlangıç", "Bitiş", "Süre", "CPS", "Stil", "Konuşmacı"] {
                     h.col(|ui| {
                         ui.label(RichText::new(t).strong());
                     });
                 }
+                if has_ref {
+                    h.col(|ui| {
+                        ui.label(RichText::new("Referans").strong());
+                    });
+                }
+                h.col(|ui| {
+                    ui.label(RichText::new("Metin").strong());
+                });
             })
             .body(|body| {
                 body.rows(row_h, n, |mut row| {
@@ -88,8 +100,14 @@ impl App {
                     row.col(|ui| {
                         ui.label(RichText::new(&e.actor).color(base));
                     });
+                    if has_ref {
+                        row.col(|ui| {
+                            let r = self.ref_texts.get(i).map(|s| s.as_str()).unwrap_or("");
+                            ui.add(egui::Label::new(RichText::new(r).size(self.settings.grid_font).color(Color32::from_rgb(140, 170, 210))).truncate());
+                        });
+                    }
                     row.col(|ui| {
-                        let shown = e.text.replace("\\N", " ⏎ ");
+                        let shown = e.text.replace("\\N", " | ");
                         ui.add(egui::Label::new(RichText::new(shown).size(self.settings.grid_font).color(base)).truncate());
                     });
                     let resp = row.response();

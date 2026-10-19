@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use subforge_core::qc::{self, QcConfig, Severity};
 use subforge_core::time::{format_ass, Fps};
+use subforge_core::tools::{self, Case};
 use subforge_core::{self as core, timing, Format, Script};
 use subforge_lua::{Doc, Headless, LuaScript, ScriptError, SharedHost};
 
@@ -84,6 +85,17 @@ enum Cmd {
     },
     /// Repair a file saved in a legacy Turkish encoding / broken UTF-8
     FixEncoding { file: String, #[arg(long, short)] output: String },
+    /// Text cleanup on every dialogue line
+    Text {
+        file: String,
+        #[arg(long, short)]
+        output: String,
+        /// upper | lower | title | sentence | fix | strip-hi | unbreak | balance | strip-tags
+        #[arg(long)]
+        op: String,
+        #[arg(long, default_value_t = 42)]
+        max: usize,
+    },
     /// Automation 4 Lua scripts
     Lua {
         #[command(subcommand)]
@@ -227,6 +239,31 @@ fn run() -> Result<ExitCode, String> {
             let mut s = load(&file)?;
             let n = qc::autofix(&mut s, &QcConfig { check_overlaps: false, check_whitespace: false, check_empty: false, ..Default::default() });
             eprintln!("{n} line(s) repaired");
+            core::save_path(&s, &output)?;
+        }
+        Cmd::Text { file, output, op, max } => {
+            let mut s = load(&file)?;
+            let f: Box<dyn Fn(&str) -> String> = match op.as_str() {
+                "upper" => Box::new(|t| tools::change_case(t, Case::Upper)),
+                "lower" => Box::new(|t| tools::change_case(t, Case::Lower)),
+                "title" => Box::new(|t| tools::change_case(t, Case::Title)),
+                "sentence" => Box::new(|t| tools::change_case(t, Case::Sentence)),
+                "fix" => Box::new(|t| tools::fix_common(t, &tools::FixOptions::default())),
+                "strip-hi" => Box::new(tools::strip_hearing_impaired),
+                "unbreak" => Box::new(tools::unbreak),
+                "balance" => Box::new(move |t| tools::balance_lines(t, max)),
+                "strip-tags" => Box::new(tools::remove_all_tags),
+                other => return Err(format!("unknown --op '{other}'")),
+            };
+            let mut n = 0;
+            for e in s.events.iter_mut().filter(|e| !e.is_comment()) {
+                let new = f(&e.text);
+                if new != e.text {
+                    e.text = new;
+                    n += 1;
+                }
+            }
+            eprintln!("{n} line(s) changed");
             core::save_path(&s, &output)?;
         }
         Cmd::Lua { cmd } => match cmd {

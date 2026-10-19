@@ -163,6 +163,9 @@ impl App {
                 ui.label(RichText::new(format!("{} satır · en uzun {longest}", lines.len())).color(lc));
             });
 
+            if let Some(r) = self.ref_texts.get(idx).filter(|r| !r.is_empty()) {
+                ui.label(RichText::new(format!("Referans: {r}")).color(Color32::from_rgb(140, 170, 210)));
+            }
             // text box
             let mut text = self.proj.script.events[idx].text.clone();
             let size = self.settings.grid_font + 3.0;

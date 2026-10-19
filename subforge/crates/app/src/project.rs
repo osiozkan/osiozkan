@@ -67,7 +67,9 @@ impl Project {
     // ------------------------------------------------------------ undo
     fn push_undo(&mut self, label: &str) {
         self.undo.push(Snapshot { label: label.to_string(), script: self.script.clone() });
-        if self.undo.len() > MAX_UNDO {
+        // snapshots are full copies: keep memory bounded on huge (FX) scripts
+        let depth = (1_500_000 / self.script.events.len().max(1)).clamp(3, MAX_UNDO);
+        while self.undo.len() > depth {
             self.undo.remove(0);
         }
         self.redo.clear();

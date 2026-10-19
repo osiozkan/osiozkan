@@ -501,7 +501,7 @@ impl App {
                 cfg_changed |= ui.add(egui::DragValue::new(&mut q.min_gap_ms).speed(10.0)).changed();
             });
             if cfg_changed {
-                self.qc_version = 0;
+                self.qc_version = 0; self.qc_rx = None;
                 self.settings.save();
             }
             ui.horizontal(|ui| {

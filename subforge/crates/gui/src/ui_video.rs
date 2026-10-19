@@ -54,6 +54,9 @@ impl App {
         let fps = Fps::from_f64(self.fps());
         let mut step: i64 = 0;
         let mut seek: Option<i64> = None;
+        let mut pos_click: Option<(f32, f32)> = None;
+        let mut set_start = false;
+        let mut set_end = false;
         egui::SidePanel::left("video").resizable(true).default_width(520.0).min_width(260.0).show(ctx, |ui| {
             let Some(v) = self.video.as_mut() else { return };
             ui.horizontal(|ui| {
@@ -69,7 +72,15 @@ impl App {
             if let Some(t) = &v.tex {
                 let size = t.size_vec2();
                 let scale = avail_w / size.x;
-                ui.image((t.id(), size * scale));
+                let img = egui::Image::new((t.id(), size * scale)).sense(egui::Sense::click_and_drag());
+                let r = ui.add(img);
+                if v.pos_mode {
+                    ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                    if let Some(p) = r.interact_pointer_pos().filter(|_| r.dragged() || r.clicked()) {
+                        let rel = (p - r.rect.min) / r.rect.size();
+                        pos_click = Some((rel.x.clamp(0.0, 1.0), rel.y.clamp(0.0, 1.0)));
+                    }
+                }
             } else {
                 ui.allocate_space(egui::vec2(avail_w, avail_w * 9.0 / 16.0));
             }
@@ -103,6 +114,15 @@ impl App {
                 seek = Some(ms as i64);
             }
             ui.horizontal(|ui| {
+                if ui.button("Başlangıç = şimdi  [").on_hover_text("Aktif satırın başlangıcını bu kareye ayarla ( [ )").clicked() {
+                    set_start = true;
+                }
+                if ui.button("Bitiş = şimdi  ]").on_hover_text("Aktif satırın bitişini bu kareye ayarla ( ] )").clicked() {
+                    set_end = true;
+                }
+            });
+            ui.checkbox(&mut v.pos_mode, "Konumlandır: videoya tıkla/sürükle → \\pos");
+            ui.horizontal(|ui| {
                 if ui.button("Önceki anahtar kare").clicked() {
                     seek = v.keyframes.iter().rev().find(|&&k| k < v.want_ms - 1).copied();
                 }
@@ -120,9 +140,47 @@ impl App {
                 v.want_ms = s.clamp(0, v.info.duration_ms.max(0));
             }
         }
-        // buttons: set start/end from video position
-        if let (Some(i), Some(v)) = (self.active, self.video.as_ref()) {
-            let _ = (i, v);
+        // hotkeys: [ and ] set start/end from the video position
+        if !ctx.wants_keyboard_input() {
+            ctx.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket) {
+                    set_start = true;
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket) {
+                    set_end = true;
+                }
+            });
+        }
+        let now = self.video.as_ref().map(|v| v.want_ms);
+        if let (Some(i), Some(now)) = (self.active, now) {
+            if (set_start || set_end) && i < self.proj.script.events.len() {
+                self.proj.edit("Set time from video", |s| {
+                    let e = &mut s.events[i];
+                    if set_start {
+                        e.start = now;
+                        if e.end < e.start {
+                            e.end = e.start;
+                        }
+                    }
+                    if set_end {
+                        e.end = now.max(e.start);
+                    }
+                });
+                self.bump();
+            }
+            if let Some((rx, ry)) = pos_click {
+                let (w, h) = self.proj.script.play_res();
+                let (x, y) = ((rx * w as f32).round() as i32, (ry * h as f32).round() as i32);
+                let sel = self.selected_vec();
+                let targets = if sel.contains(&i) { sel } else { vec![i] };
+                self.proj.edit_coalesced("pos", |s| {
+                    for &t in &targets {
+                        s.events[t].text = subforge_core::tools::set_override(&s.events[t].text, "pos", &format!("({x},{y})"));
+                    }
+                });
+                self.bump();
+                self.set_status(format!("\\pos({x},{y})"));
+            }
         }
     }
 }

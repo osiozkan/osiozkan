@@ -197,6 +197,54 @@ pub fn install_re(lua: &Lua) -> Result<Table> {
     Ok(t)
 }
 
+/// Minimal LuaFileSystem (`lfs`): enough for scripts that probe paths or list folders.
+pub fn install_lfs(lua: &Lua) -> Result<Table> {
+    use std::time::UNIX_EPOCH;
+    let t = lua.create_table()?;
+    t.set(
+        "attributes",
+        lua.create_function(|lua, (path, attr): (String, Option<String>)| {
+            let Ok(md) = std::fs::metadata(&path) else { return Ok((Value::Nil, Some("cannot obtain information from file".to_string()))) };
+            let r = lua.create_table()?;
+            r.set("mode", if md.is_dir() { "directory" } else if md.is_file() { "file" } else { "other" })?;
+            r.set("size", md.len())?;
+            let ts = |t: std::io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+            r.set("modification", ts(md.modified()))?;
+            r.set("access", ts(md.accessed()))?;
+            r.set("change", ts(md.modified()))?;
+            r.set("permissions", if md.permissions().readonly() { "r--r--r--" } else { "rw-rw-rw-" })?;
+            if let Some(a) = attr {
+                return Ok((r.get::<Value>(a)?, None));
+            }
+            Ok((Value::Table(r), None))
+        })?,
+    )?;
+    t.set(
+        "dir",
+        lua.create_function(|lua, path: String| {
+            let mut names: Vec<String> = vec![".".into(), "..".into()];
+            if let Ok(rd) = std::fs::read_dir(&path) {
+                names.extend(rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()));
+            } else {
+                return Err(mlua::Error::runtime(format!("cannot open {path}")));
+            }
+            let idx = Rc::new(RefCell::new(0usize));
+            lua.create_function(move |_, ()| {
+                let mut i = idx.borrow_mut();
+                let r = names.get(*i).cloned();
+                *i += 1;
+                Ok(r)
+            })
+        })?,
+    )?;
+    t.set("mkdir", lua.create_function(|_, p: String| Ok(std::fs::create_dir(&p).is_ok()))?)?;
+    t.set("rmdir", lua.create_function(|_, p: String| Ok(std::fs::remove_dir(&p).is_ok()))?)?;
+    t.set("currentdir", lua.create_function(|_, ()| Ok(std::env::current_dir().map(|p| p.to_string_lossy().to_string()).ok()))?)?;
+    t.set("chdir", lua.create_function(|_, p: String| Ok(std::env::set_current_dir(p).is_ok()))?)?;
+    t.set("touch", lua.create_function(|_, p: String| Ok(std::fs::OpenOptions::new().create(true).append(true).open(p).is_ok()))?)?;
+    Ok(t)
+}
+
 pub fn preload(lua: &Lua, name: &str, value: Table) -> Result<()> {
     let package: Table = lua.globals().get("package")?;
     let loaded: Table = package.get("loaded")?;

@@ -1,6 +1,6 @@
 //! Quality control: the checks translators/timers/QCers run by hand, automated.
 use crate::ass::{Event, Script};
-use crate::tags::{self, lines, visible_len, visible_text};
+use crate::tags::{self, visible_text};
 use crate::time::Ms;
 use crate::turkish;
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,11 @@ pub struct Issue {
     pub fixable: bool,
 }
 
+/// Cheap check for "shows something": any char outside `{}` blocks that isn't whitespace/escape.
+fn has_visible(text: &str) -> bool {
+    !visible_text(text).trim().is_empty()
+}
+
 fn is_dialogue_like(e: &Event) -> bool {
     !e.is_comment() && !e.effect.to_ascii_lowercase().starts_with("karaoke") && !e.effect.eq_ignore_ascii_case("fx")
 }
@@ -97,6 +102,7 @@ pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
         let dur = e.end - e.start;
         let vis = visible_text(&e.text);
         let has_text = !vis.trim().is_empty();
+        let vis_len = vis.chars().filter(|c| !c.is_whitespace()).count();
         let drawing = e.text.contains("\\p1");
         if cfg.check_empty && !has_text && !drawing && e.text.trim().is_empty() {
             push(i, Kind::EmptyText, Severity::Warning, "empty text".into(), true);
@@ -122,12 +128,12 @@ pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
             push(i, Kind::TooLong, Severity::Info, format!("duration {dur} ms > {} ms", cfg.max_duration_ms), false);
         }
         if dur > 0 {
-            let cps = visible_len(&e.text) as f64 / (dur as f64 / 1000.0);
+            let cps = vis_len as f64 / (dur as f64 / 1000.0);
             if cps > cfg.max_cps {
                 push(i, Kind::HighCps, Severity::Warning, format!("{cps:.1} chars/sec > {:.0}", cfg.max_cps), false);
             }
         }
-        let ls = lines(&e.text);
+        let ls: Vec<&str> = vis.split('\n').collect();
         if ls.len() > cfg.max_lines {
             push(i, Kind::TooManyLines, Severity::Warning, format!("{} lines > {}", ls.len(), cfg.max_lines), false);
         }
@@ -148,7 +154,7 @@ pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
     }
     // cross-event checks on dialogue
     if cfg.check_overlaps || cfg.min_gap_ms > 0 {
-        let mut order: Vec<usize> = (0..script.events.len()).filter(|&i| is_dialogue_like(&script.events[i]) && !visible_text(&script.events[i].text).trim().is_empty()).collect();
+        let mut order: Vec<usize> = (0..script.events.len()).filter(|&i| is_dialogue_like(&script.events[i]) && has_visible(&script.events[i].text)).collect();
         order.sort_by_key(|&i| (script.events[i].start, script.events[i].end));
         let mut groups: std::collections::BTreeMap<(String, i32), Vec<usize>> = Default::default();
         for &i in &order {

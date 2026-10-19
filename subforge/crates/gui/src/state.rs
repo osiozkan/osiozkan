@@ -71,6 +71,7 @@ pub struct VideoState {
     pub keyframes: Vec<i64>,
     pub error: Option<String>,
     pub width: i32,
+    pub pos_mode: bool,
 }
 
 pub struct WaveState {
@@ -103,6 +104,9 @@ pub struct App {
     pub issue_sev: HashMap<usize, Severity>,
     pub version: u64,
     pub qc_version: u64,
+    pub qc_rx: Option<(u64, Receiver<Vec<Issue>>)>,
+    pub seen_version: u64,
+    pub changed_at: std::time::Instant,
     pub win: Windows,
     pub find: SearchOpts,
     pub find_msg: String,
@@ -126,6 +130,10 @@ pub struct App {
     pub split_pos: usize,
     pub text_focus: bool,
     pub tmp_ass: PathBuf,
+    pub reference: Option<Vec<(i64, i64, String)>>,
+    pub ref_path: Option<String>,
+    pub ref_texts: Vec<String>,
+    pub ref_version: u64,
 }
 
 impl App {
@@ -144,6 +152,9 @@ impl App {
             issue_sev: HashMap::new(),
             version: 1,
             qc_version: 0,
+            qc_rx: None,
+            seen_version: 0,
+            changed_at: std::time::Instant::now(),
             win: Windows::default(),
             find: SearchOpts::default(),
             find_msg: String::new(),
@@ -167,6 +178,10 @@ impl App {
             split_pos: 0,
             text_focus: false,
             tmp_ass: std::env::temp_dir().join(format!("subforge-preview-{}.ass", std::process::id())),
+            reference: None,
+            ref_path: None,
+            ref_texts: vec![],
+            ref_version: 0,
             settings,
         };
         if let Some(a) = arg {
@@ -206,19 +221,85 @@ impl App {
         self.status = s.into();
     }
 
+    /// Run QC on a worker thread, debounced so typing stays smooth even on 100k-line scripts.
     pub fn refresh_qc(&mut self) {
-        if self.qc_version == self.version {
+        if self.seen_version != self.version {
+            self.seen_version = self.version;
+            self.changed_at = std::time::Instant::now();
+        }
+        if let Some((ver, rx)) = &self.qc_rx {
+            if let Ok(issues) = rx.try_recv() {
+                let ver = *ver;
+                self.qc_rx = None;
+                self.qc_version = ver;
+                self.issues = issues;
+                self.issue_sev.clear();
+                for i in &self.issues {
+                    let e = self.issue_sev.entry(i.event).or_insert(i.severity);
+                    if i.severity > *e {
+                        *e = i.severity;
+                    }
+                }
+            }
             return;
         }
-        self.qc_version = self.version;
-        self.issues = qc::check(&self.proj.script, &self.settings.qc);
-        self.issue_sev.clear();
-        for i in &self.issues {
-            let e = self.issue_sev.entry(i.event).or_insert(i.severity);
-            if i.severity > *e {
-                *e = i.severity;
-            }
+        let quiet = self.changed_at.elapsed() >= std::time::Duration::from_millis(if self.proj.script.events.len() > 20_000 { 600 } else { 120 });
+        if self.qc_version != self.version && quiet {
+            let script = self.proj.script.clone();
+            let cfg = self.settings.qc.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.qc_rx = Some((self.version, rx));
+            std::thread::spawn(move || {
+                let _ = tx.send(qc::check(&script, &cfg));
+            });
         }
+    }
+
+    pub fn load_reference(&mut self, path: &str) {
+        match subforge_core::load_path(path) {
+            Ok((sc, _)) => {
+                let mut v: Vec<(i64, i64, String)> = sc
+                    .events
+                    .iter()
+                    .filter(|e| !e.is_comment())
+                    .map(|e| (e.start, e.end, subforge_core::tags::visible_text(&e.text).replace('\n', " / ")))
+                    .filter(|(_, _, t)| !t.trim().is_empty())
+                    .collect();
+                v.sort_by_key(|x| (x.0, x.1));
+                self.set_status(format!("Referans altyazı: {path} ({} satır)", v.len()));
+                self.reference = Some(v);
+                self.ref_path = Some(path.to_string());
+                self.ref_version = 0;
+            }
+            Err(e) => self.set_status(format!("Referans açılamadı: {e}")),
+        }
+    }
+
+    /// For each event, the reference line with the greatest time overlap.
+    pub fn refresh_reference(&mut self) {
+        let Some(r) = &self.reference else { return };
+        if self.ref_version == self.version && self.ref_texts.len() == self.proj.script.events.len() {
+            return;
+        }
+        self.ref_version = self.version;
+        self.ref_texts = self
+            .proj
+            .script
+            .events
+            .iter()
+            .map(|e| {
+                let hi = r.partition_point(|x| x.0 < e.end);
+                let lo = hi.saturating_sub(12);
+                let mut best: Option<(i64, usize)> = None;
+                for (k, x) in r[lo..hi].iter().enumerate() {
+                    let ov = x.1.min(e.end) - x.0.max(e.start);
+                    if ov > 0 && best.map(|b| ov > b.0).unwrap_or(true) {
+                        best = Some((ov, lo + k));
+                    }
+                }
+                best.map(|(_, i)| r[i].2.clone()).unwrap_or_default()
+            })
+            .collect();
     }
 
     // ---------------------------------------------------------- files
@@ -328,7 +409,7 @@ impl App {
                 }
                 self.set_status(format!("Video: {} ({}x{}, {:.3} fps)", path.display(), info.width, info.height, info.fps.unwrap_or(0.0)));
                 let want_ms = self.active_event().map(|e| e.start).unwrap_or(0);
-                self.video = Some(VideoState { path, info, tex: None, pending: None, shown_ms: -1, shown_version: 0, want_ms, burn: true, keyframes, error: None, width: 640 });
+                self.video = Some(VideoState { path, info, tex: None, pending: None, shown_ms: -1, shown_version: 0, want_ms, burn: true, keyframes, error: None, width: 640, pos_mode: false });
             }
             Err(e) => self.set_status(format!("Video açılamadı: {e}")),
         }
@@ -458,7 +539,7 @@ impl App {
     pub fn ctx_repaint_if_busy(&self, ctx: &egui::Context) {
         let wave_busy = self.wave.as_ref().map(|w| !w.wave.lock().map(|w| w.done).unwrap_or(true)).unwrap_or(false);
         let video_busy = self.video.as_ref().map(|v| v.pending.is_some()).unwrap_or(false);
-        if self.run.is_some() || wave_busy || video_busy {
+        if self.run.is_some() || wave_busy || video_busy || self.qc_rx.is_some() || self.qc_version != self.version {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }

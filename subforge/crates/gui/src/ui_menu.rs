@@ -3,6 +3,7 @@ use crate::theme;
 use eframe::egui::{self, Key, Modifiers};
 use subforge_app::automation::{self, RunContext, RunMsg};
 use subforge_core::timing::SortKey;
+use subforge_core::tools::{self, Case};
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -10,6 +11,7 @@ impl eframe::App for App {
         self.handle_drops(ctx);
         self.pump_run(ctx);
         self.refresh_qc();
+        self.refresh_reference();
         self.autosave();
         self.shortcuts(ctx);
 
@@ -231,6 +233,17 @@ impl App {
                 }
                 ui.close_menu();
             }
+            if ui.button("Referans altyazı aç… (çeviri için)").clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+                    self.load_reference(&p.to_string_lossy());
+                }
+                ui.close_menu();
+            }
+            if self.reference.is_some() && ui.button("Referansı kapat").clicked() {
+                self.reference = None;
+                self.ref_texts.clear();
+                ui.close_menu();
+            }
             ui.separator();
             if ui.button("Çıkış").clicked() {
                 _ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -371,31 +384,105 @@ impl App {
                 self.win.qc = true;
                 ui.close_menu();
             }
+            ui.menu_button("Büyük/küçük harf (Türkçe)", |ui| {
+                for (label, case) in [("BÜYÜK HARF", Case::Upper), ("küçük harf", Case::Lower), ("Baş Harfler Büyük", Case::Title), ("Cümle düzeni", Case::Sentence)] {
+                    if ui.button(label).clicked() {
+                        self.map_selected("Change case", move |t| tools::change_case(t, case));
+                        ui.close_menu();
+                    }
+                }
+            });
+            ui.menu_button("Metin temizliği (seçili satırlar)", |ui| {
+                if ui.button("Yaygın hataları düzelt (boşluk, …, tire)").clicked() {
+                    self.map_selected("Fix common errors", |t| tools::fix_common(t, &tools::FixOptions::default()));
+                    ui.close_menu();
+                }
+                if ui.button("İşitme engelli metnini sil ([..], (..), ♪)").clicked() {
+                    self.map_selected("Remove HI", |t| tools::strip_hearing_impaired(t));
+                    ui.close_menu();
+                }
+                if ui.button("Tüm etiketleri sil").clicked() {
+                    self.map_selected("Remove tags", |t| tools::remove_all_tags(t));
+                    ui.close_menu();
+                }
+                if ui.button("Bitişik etiket bloklarını birleştir").clicked() {
+                    self.map_selected("Merge blocks", |t| tools::merge_blocks(t));
+                    ui.close_menu();
+                }
+                if ui.button("Satır sonlarını kaldır").clicked() {
+                    self.map_selected("Unbreak", |t| tools::unbreak(t));
+                    ui.close_menu();
+                }
+                let max = self.settings.qc.max_line_chars;
+                if ui.button(format!("Satırları dengeli böl (≤ {max} karakter)")).clicked() {
+                    self.map_selected("Balance lines", move |t| tools::balance_lines(t, max));
+                    ui.close_menu();
+                }
+            });
+            ui.menu_button("Karaoke", |ui| {
+                if ui.button("Karakter başına \\k ver (satır süresine yay)").clicked() {
+                    let idx = self.selected_vec();
+                    self.proj.edit("Kara split chars", |s| {
+                        for &i in &idx {
+                            let cs = (s.events[i].end - s.events[i].start) / 10;
+                            s.events[i].text = tools::kara_split_chars(&s.events[i].text, cs);
+                        }
+                    });
+                    self.bump();
+                    ui.close_menu();
+                }
+                if ui.button("\\k toplamını satır süresine ölçekle").clicked() {
+                    let idx = self.selected_vec();
+                    self.proj.edit("Kara scale", |s| {
+                        for &i in &idx {
+                            let cs = (s.events[i].end - s.events[i].start) / 10;
+                            s.events[i].text = tools::kara_scale_to(&s.events[i].text, cs);
+                        }
+                    });
+                    self.bump();
+                    ui.close_menu();
+                }
+            });
+            if ui.button("Seçili satırları \\N noktalarında ayır").clicked() {
+                let idx = self.selected_vec();
+                self.proj.edit("Split on breaks", |s| {
+                    for &i in idx.iter().rev() {
+                        let parts = tools::split_on_breaks(&s.events[i]);
+                        if parts.len() > 1 {
+                            s.events.splice(i..=i, parts);
+                        }
+                    }
+                });
+                self.bump();
+                self.clamp_selection();
+                ui.close_menu();
+            }
+            ui.menu_button("Stiller", |ui| {
+                if ui.button("Kullanılmayan stilleri sil").clicked() {
+                    let un = tools::unused_styles(&self.proj.script);
+                    let n = un.len();
+                    self.proj.edit("Remove unused styles", |s| s.styles.retain(|st| !un.contains(&st.name)));
+                    self.bump();
+                    self.set_status(format!("{n} stil silindi"));
+                    ui.close_menu();
+                }
+                if ui.button("Başka dosyadan stil içe aktar…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
+                        if let Ok((other, _)) = subforge_core::load_path(&p.to_string_lossy()) {
+                            let n = self.proj.edit("Import styles", |s| tools::import_styles(s, &other, &[], true));
+                            self.bump();
+                            self.set_status(format!("{n} stil içe aktarıldı"));
+                        }
+                    }
+                    ui.close_menu();
+                }
+            });
+            ui.separator();
             if ui.button("Bozuk karakterleri onar (mojibake)").clicked() {
                 let cfg = subforge_core::qc::QcConfig { check_overlaps: false, check_whitespace: false, check_empty: false, ..self.settings.qc.clone() };
                 let n = self.proj.edit("Fix encoding", |s| subforge_core::qc::autofix(s, &cfg));
                 self.bump();
                 self.set_status(format!("{n} düzeltme"));
-                ui.close_menu();
-            }
-            if ui.button("Seçili metni Türkçe BÜYÜK harfe çevir").clicked() {
-                let idx = self.selected_vec();
-                self.proj.edit("Upper TR", |s| {
-                    for &i in &idx {
-                        s.events[i].text = subforge_core::turkish::upper(&s.events[i].text);
-                    }
-                });
-                self.bump();
-                ui.close_menu();
-            }
-            if ui.button("Seçili metni Türkçe küçük harfe çevir").clicked() {
-                let idx = self.selected_vec();
-                self.proj.edit("Lower TR", |s| {
-                    for &i in &idx {
-                        s.events[i].text = subforge_core::turkish::lower(&s.events[i].text);
-                    }
-                });
-                self.bump();
                 ui.close_menu();
             }
             ui.separator();
@@ -483,6 +570,23 @@ impl App {
                 ui.label(format!("{}…", r.title));
             }
         });
+    }
+
+    /// Apply a text transform to the selected lines as one undo step.
+    pub fn map_selected(&mut self, label: &str, f: impl Fn(&str) -> String) {
+        let idx = self.selected_vec();
+        let mut changed = 0;
+        self.proj.edit(label, |s| {
+            for &i in &idx {
+                let new = f(&s.events[i].text);
+                if new != s.events[i].text {
+                    s.events[i].text = new;
+                    changed += 1;
+                }
+            }
+        });
+        self.bump();
+        self.set_status(format!("{changed} satır değişti"));
     }
 
     pub fn run_macro(&mut self, path: std::path::PathBuf, idx: usize, name: String) {

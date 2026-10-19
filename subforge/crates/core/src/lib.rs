@@ -6,6 +6,7 @@ pub mod qc;
 pub mod srt;
 pub mod tags;
 pub mod time;
+pub mod tools;
 pub mod timing;
 pub mod turkish;
 

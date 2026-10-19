@@ -417,6 +417,8 @@ impl LuaScript {
         let unicode = libs::install_unicode(lua)?;
         lua.globals().set("unicode", unicode.clone())?;
         libs::preload(lua, "unicode", unicode)?;
+        let lfs = libs::install_lfs(lua)?;
+        libs::preload(lua, "lfs", lfs)?;
         let re = libs::install_re(lua)?;
         lua.globals().set("re", re.clone())?;
         libs::preload(lua, "re", re)?;
