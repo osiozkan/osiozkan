@@ -260,10 +260,19 @@ impl App {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.shift.start, "Başlangıç");
                 ui.checkbox(&mut self.shift.end, "Bitiş");
-                ui.checkbox(&mut self.shift.only_selected, "Yalnızca seçili");
+            });
+            egui::ComboBox::from_id_salt("shift_scope").selected_text(["Seçili satırlar", "Tüm satırlar", "Aktif satırdan sona kadar"][self.shift.scope as usize]).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.shift.scope, 0, "Seçili satırlar");
+                ui.selectable_value(&mut self.shift.scope, 1, "Tüm satırlar");
+                ui.selectable_value(&mut self.shift.scope, 2, "Aktif satırdan sona kadar");
             });
             if ui.button("Uygula").clicked() {
-                let idx: Vec<usize> = if self.shift.only_selected { self.selected_vec() } else { (0..self.proj.script.events.len()).collect() };
+                let n = self.proj.script.events.len();
+                let idx: Vec<usize> = match self.shift.scope {
+                    0 => self.selected_vec(),
+                    1 => (0..n).collect(),
+                    _ => (self.active.unwrap_or(0)..n).collect(),
+                };
                 let fps = Fps::from_f64(self.fps());
                 let (use_frames, frames, ms, st, en) = (self.shift.use_frames, self.shift.frames, self.shift.ms, self.shift.start, self.shift.end);
                 self.proj.edit("Shift times", |s| {
@@ -697,7 +706,7 @@ impl App {
                 }
             });
             ui.checkbox(&mut self.rs.2, "Yazı boyutu, kenar, gölge ve aralıkları ölçekle");
-            ui.checkbox(&mut self.rs.3, "En-boy oranı değişimini ortala (4:3 → 16:9 gibi)");
+            ui.checkbox(&mut self.rs.3, "En-boy oranı değişimini ortala (ör. 4:3 ve 16:9 arası)");
             if ui.button("Uygula").clicked() {
                 let r = subforge_core::resample::Resample { new_x: self.rs.0, new_y: self.rs.1, scale_sizes: self.rs.2, aspect_shift: self.rs.3 };
                 let n = self.proj.edit("Resample resolution", |s| subforge_core::resample::resample(s, r));

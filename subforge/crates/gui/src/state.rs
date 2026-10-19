@@ -51,7 +51,7 @@ pub struct ShiftState {
     pub use_frames: bool,
     pub start: bool,
     pub end: bool,
-    pub only_selected: bool,
+    pub scope: u8, // 0 = selected, 1 = all, 2 = from active line onward
     pub chain_gap: i64,
     pub lead_in: i64,
     pub lead_out: i64,
@@ -60,7 +60,7 @@ pub struct ShiftState {
 
 impl Default for ShiftState {
     fn default() -> Self {
-        ShiftState { ms: 0, frames: 0, use_frames: false, start: true, end: true, only_selected: true, chain_gap: 300, lead_in: 0, lead_out: 0, rt: Default::default() }
+        ShiftState { ms: 0, frames: 0, use_frames: false, start: true, end: true, scope: 0, chain_gap: 300, lead_in: 0, lead_out: 0, rt: Default::default() }
     }
 }
 
@@ -132,6 +132,7 @@ pub struct App {
     pub last_autosave: std::time::Instant,
     pub show_video: bool,
     pub show_wave: bool,
+    pub wave_h: f32,
     pub split_pos: usize,
     pub text_focus: bool,
     pub tmp_ass: PathBuf,
@@ -186,6 +187,7 @@ impl App {
             last_autosave: std::time::Instant::now(),
             show_video: true,
             show_wave: true,
+            wave_h: 230.0,
             split_pos: 0,
             text_focus: false,
             tmp_ass: std::env::temp_dir().join(format!("subforge-preview-{}.ass", std::process::id())),

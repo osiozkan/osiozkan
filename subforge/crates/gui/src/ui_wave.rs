@@ -5,7 +5,8 @@ use subforge_core::time::format_ass;
 
 impl App {
     pub fn wave_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("wave").resizable(true).default_height(210.0).min_height(80.0).show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("wave").exact_height(self.wave_h).show(ctx, |ui| {
+            let mut wave_h = self.wave_h;
             let Some(w) = self.wave.as_mut() else { return };
             let (peaks, done, window_ms, err) = {
                 let g = w.wave.lock().unwrap();
@@ -28,6 +29,7 @@ impl App {
                     w.ms_per_px = (w.ms_per_px / 1.5).max(1.0);
                 }
                 ui.checkbox(&mut w.snap_keys, "Anahtar kareye yapış");
+                ui.add(egui::Slider::new(&mut wave_h, 120.0..=520.0).text("yükseklik").show_value(false));
                 if let Some((a, b)) = w.sel {
                     ui.separator();
                     ui.label(format!("Seçim {} → {} ({} ms)", format_ass(a), format_ass(b), b - a));
@@ -264,6 +266,7 @@ impl App {
             if let Some(i) = goto {
                 self.goto_line(i);
             }
+            self.wave_h = wave_h;
         });
     }
 }
