@@ -175,6 +175,33 @@ impl App {
                 [ui.available_width(), (ui.available_height() - 4.0).max(40.0)],
                 egui::TextEdit::multiline(&mut text).id(id).layouter(&mut layouter).hint_text("Altyazı metni…  (\\N = satır sonu, {\\i1} = etiket)"),
             );
+            // Aegisub-style tag hotkeys while typing: Ctrl+I/B/U/S wrap the selection
+            if resp.has_focus() {
+                for (key, on, off) in [(egui::Key::I, "{\\i1}", "{\\i0}"), (egui::Key::B, "{\\b1}", "{\\b0}"), (egui::Key::U, "{\\u1}", "{\\u0}")] {
+                    if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key)) {
+                        if let Some(mut st) = egui::TextEdit::load_state(ctx, id) {
+                            let chars: Vec<char> = text.chars().collect();
+                            let (a, b) = st.cursor.char_range().map(|r| (r.primary.index.min(r.secondary.index), r.primary.index.max(r.secondary.index))).unwrap_or((chars.len(), chars.len()));
+                            let (a, b) = (a.min(chars.len()), b.min(chars.len()));
+                            let mut out: String = chars[..a].iter().collect();
+                            out.push_str(on);
+                            let mid: String = chars[a..b].iter().collect();
+                            out.push_str(&mid);
+                            if b > a {
+                                out.push_str(off);
+                            }
+                            let caret = chars[..a].len() + on.chars().count() + mid.chars().count() + if b > a { off.chars().count() } else { 0 };
+                            out.extend(chars[b..].iter());
+                            self.proj.edit_coalesced(&format!("text:{idx}"), |s| s.events[idx].text = out.clone());
+                            self.version += 1;
+                            self.buf_for = Some((idx, self.version));
+                            st.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(caret))));
+                            st.store(ctx, id);
+                            text = out;
+                        }
+                    }
+                }
+            }
             if self.text_focus {
                 ctx.memory_mut(|m| m.request_focus(id));
                 self.text_focus = false;

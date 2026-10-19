@@ -172,7 +172,7 @@ impl App {
                 self.text_focus = true;
             }
         }
-        if k(cmd, Key::I) {
+        if !typing && k(cmd, Key::I) {
             self.insert_line(false);
         }
     }
