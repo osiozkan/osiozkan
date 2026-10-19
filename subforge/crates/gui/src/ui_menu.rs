@@ -603,7 +603,7 @@ impl App {
             video_path: self.video.as_ref().map(|v| v.path.clone()),
             audio_path: self.wave.as_ref().map(|w| w.path.clone()),
             keyframes: self.video.as_ref().map(|v| v.keyframes.clone()).unwrap_or_default(),
-            include_dirs: self.settings.script_dirs(),
+            include_dirs: self.settings.include_dirs(),
         };
         let handle = automation::spawn_macro(path, idx, self.proj.script.clone(), sel.clone(), active, ctx);
         self.log_line(format!("▶ {name}"));

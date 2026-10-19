@@ -11,5 +11,6 @@ path = "src/main.rs"
 [dependencies]
 subforge-core = { path = "../core" }
 subforge-lua = { path = "../lua" }
+subforge-app = { path = "../app" }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }

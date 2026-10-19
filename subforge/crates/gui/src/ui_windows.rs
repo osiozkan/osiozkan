@@ -383,8 +383,15 @@ impl App {
                 ui.separator();
                 let i = self.style_sel;
                 let mut st = self.proj.script.styles[i].clone();
+                self.style_preview(ctx, &st);
                 let before = st.clone();
                 let old_name = st.name.clone();
+                ui.vertical(|ui| {
+                    if let Some((_, tex)) = &self.style_prev {
+                        let w = ui.available_width().min(420.0);
+                        ui.image((tex.id(), egui::vec2(w, w * tex.size_vec2().y / tex.size_vec2().x)));
+                    }
+                });
                 egui::ScrollArea::vertical().id_salt("style_edit").show(ui, |ui| {
                     egui::Grid::new("style_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                         ui.label("Ad");
@@ -481,6 +488,35 @@ impl App {
         self.win.styles = open;
     }
 
+    /// Keep the style preview texture in sync with the style being edited (async libass render).
+    fn style_preview(&mut self, ctx: &egui::Context, st: &subforge_core::Style) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{st:?}").hash(&mut h);
+        let key = h.finish();
+        if let Some((k, rx)) = &self.style_prev_rx {
+            if let Ok(r) = rx.try_recv() {
+                let k = *k;
+                self.style_prev_rx = None;
+                if let Ok(f) = r {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([f.width, f.height], &f.rgba);
+                    self.style_prev = Some((k, ctx.load_texture("style_prev", img, egui::TextureOptions::LINEAR)));
+                }
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(60));
+                return;
+            }
+        }
+        if self.style_prev.as_ref().map(|(k, _)| *k) != Some(key) && self.style_prev_rx.is_none() {
+            let st = st.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.style_prev_rx = Some((key, rx));
+            std::thread::spawn(move || {
+                let _ = tx.send(subforge_app::media::render_style_preview(&st, "Örnek metin — Sample Text 日本語", 420, 120));
+            });
+        }
+    }
+
     // ---------------------------------------------------------------- QC
     fn qc_window(&mut self, ctx: &egui::Context) {
         let mut open = self.win.qc;
@@ -556,7 +592,7 @@ impl App {
                 }
             });
             ui.label("Aegisub Automation 4 (.lua) betikleri doğrudan çalışır. Klasörler:");
-            for d in self.settings.script_dirs() {
+            for d in self.settings.automation_roots() {
                 ui.monospace(d.display().to_string());
             }
             ui.separator();

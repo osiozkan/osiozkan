@@ -5,7 +5,7 @@ use subforge_core::time::format_ass;
 
 impl App {
     pub fn wave_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("wave").resizable(true).default_height(150.0).min_height(80.0).show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("wave").resizable(true).default_height(210.0).min_height(80.0).show(ctx, |ui| {
             let Some(w) = self.wave.as_mut() else { return };
             let (peaks, done, window_ms, err) = {
                 let g = w.wave.lock().unwrap();

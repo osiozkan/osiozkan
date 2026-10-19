@@ -134,6 +134,8 @@ pub struct App {
     pub ref_path: Option<String>,
     pub ref_texts: Vec<String>,
     pub ref_version: u64,
+    pub style_prev: Option<(u64, TextureHandle)>,
+    pub style_prev_rx: Option<(u64, Receiver<Result<Frame, String>>)>,
 }
 
 impl App {
@@ -141,7 +143,7 @@ impl App {
         let settings = Settings::load();
         theme::install_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, settings.dark, settings.ui_scale);
-        let scripts = automation::scan(&settings.script_dirs());
+        let scripts = automation::scan_with(&settings.script_dirs(), &settings.include_dirs());
         let mut app = App {
             proj: Project::new(),
             sel: BTreeSet::from([0]),
@@ -182,10 +184,29 @@ impl App {
             ref_path: None,
             ref_texts: vec![],
             ref_version: 0,
+            style_prev: None,
+            style_prev_rx: None,
             settings,
         };
         if let Some(a) = arg {
             app.open_path(&a);
+        }
+        // handy for screenshots/tests: SUBFORGE_OPEN=styles,qc,find,...
+        if let Ok(list) = std::env::var("SUBFORGE_OPEN") {
+            for w in list.split(',') {
+                match w.trim() {
+                    "styles" => app.win.styles = true,
+                    "qc" => app.win.qc = true,
+                    "find" => app.win.find = true,
+                    "shift" => app.win.shift = true,
+                    "automation" => app.win.automation = true,
+                    "props" => app.win.props = true,
+                    "settings" => app.win.settings = true,
+                    "about" => app.win.about = true,
+                    "retime" => app.win.retime = true,
+                    _ => {}
+                }
+            }
         }
         app
     }
@@ -533,7 +554,7 @@ impl App {
     }
 
     pub fn refresh_scripts(&mut self) {
-        self.scripts = automation::scan(&self.settings.script_dirs());
+        self.scripts = automation::scan_with(&self.settings.script_dirs(), &self.settings.include_dirs());
     }
 
     pub fn ctx_repaint_if_busy(&self, ctx: &egui::Context) {

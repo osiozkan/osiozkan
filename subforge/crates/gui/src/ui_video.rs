@@ -121,7 +121,7 @@ impl App {
                     set_end = true;
                 }
             });
-            ui.checkbox(&mut v.pos_mode, "Konumlandır: videoya tıkla/sürükle → \\pos");
+            ui.checkbox(&mut v.pos_mode, "Konumlandır (videoya tıkla/sürükle = \\pos)");
             ui.horizontal(|ui| {
                 if ui.button("Önceki anahtar kare").clicked() {
                     seek = v.keyframes.iter().rev().find(|&&k| k < v.want_ms - 1).copied();

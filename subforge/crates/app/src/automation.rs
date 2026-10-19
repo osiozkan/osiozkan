@@ -30,6 +30,10 @@ impl Host for SilentHost {
 
 /// Load every `*.lua` (non-recursive) in the given dirs just to read metadata.
 pub fn scan(dirs: &[PathBuf]) -> Vec<ScriptEntry> {
+    scan_with(dirs, &[])
+}
+
+pub fn scan_with(dirs: &[PathBuf], include: &[PathBuf]) -> Vec<ScriptEntry> {
     let mut out = vec![];
     for d in dirs {
         let Ok(rd) = std::fs::read_dir(d) else { continue };
@@ -39,15 +43,19 @@ pub fn scan(dirs: &[PathBuf]) -> Vec<ScriptEntry> {
             if p.extension().map(|e| e == "moon").unwrap_or(false) {
                 continue; // MoonScript needs a compiler; planned
             }
-            out.push(inspect(&p));
+            out.push(inspect_with(&p, include));
         }
     }
     out
 }
 
 pub fn inspect(path: &Path) -> ScriptEntry {
+    inspect_with(path, &[])
+}
+
+pub fn inspect_with(path: &Path, include: &[PathBuf]) -> ScriptEntry {
     let host: SharedHost = Rc::new(RefCell::new(SilentHost));
-    let s = LuaScript::load(path, host, &[]);
+    let s = LuaScript::load(path, host, include);
     ScriptEntry {
         path: path.to_path_buf(),
         name: s.name.clone(),

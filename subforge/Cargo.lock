@@ -3065,6 +3065,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "serde_json",
+ "subforge-app",
  "subforge-core",
  "subforge-lua",
 ]

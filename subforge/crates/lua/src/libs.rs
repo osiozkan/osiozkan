@@ -34,9 +34,21 @@ pub fn install_unicode(lua: &Lua) -> Result<Table> {
     t.set("to_upper_tr", lua.create_function(|_, s: String| Ok(turkish::upper(&s)))?)?;
     t.set("to_lower_tr", lua.create_function(|_, s: String| Ok(turkish::lower(&s)))?)?;
     t.set("title_tr", lua.create_function(|_, s: String| Ok(turkish::title(&s)))?)?;
+    // charwidth(str[, pos]) = number of bytes of the UTF-8 character starting at byte `pos` (1-based)
     t.set(
         "charwidth",
-        lua.create_function(|_, s: String| Ok(s.chars().next().map(|c| if (c as u32) >= 0x2E80 { 2 } else { 1 }).unwrap_or(0)))?,
+        lua.create_function(|_, (s, pos): (mlua::LuaString, Option<usize>)| {
+            let b = s.as_bytes();
+            let i = pos.unwrap_or(1).max(1) - 1;
+            Ok(match b.get(i) {
+                None => 0,
+                Some(&c) if c < 0x80 => 1,
+                Some(&c) if c >> 5 == 0b110 => 2,
+                Some(&c) if c >> 4 == 0b1110 => 3,
+                Some(&c) if c >> 3 == 0b11110 => 4,
+                Some(_) => 1,
+            })
+        })?,
     )?;
     Ok(t)
 }

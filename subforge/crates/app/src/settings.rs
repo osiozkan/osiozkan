@@ -64,10 +64,47 @@ impl Settings {
         self.recent.truncate(12);
     }
 
-    /// Default automation dirs: config/automation + settings.
-    pub fn script_dirs(&self) -> Vec<PathBuf> {
+    /// Roots that may contain `autoload/` and `include/` (SubForge's own plus any
+    /// Aegisub installation/profile folders found on this machine, and user-added ones).
+    pub fn automation_roots(&self) -> Vec<PathBuf> {
         let mut v = vec![config_dir().join("automation")];
+        let home = std::env::var("HOME").map(PathBuf::from).ok();
+        let mut guesses: Vec<PathBuf> = vec![];
+        if let Ok(a) = std::env::var("APPDATA") {
+            guesses.push(PathBuf::from(a).join("Aegisub").join("automation"));
+        }
+        if let Some(h) = &home {
+            guesses.push(h.join(".aegisub").join("automation"));
+            guesses.push(h.join("Library/Application Support/Aegisub/automation"));
+            guesses.push(h.join(".config/Aegisub/automation"));
+        }
+        guesses.push(PathBuf::from("C:\\Program Files\\Aegisub\\automation"));
+        guesses.push(PathBuf::from("C:\\Program Files (x86)\\Aegisub\\automation"));
+        guesses.push(PathBuf::from("/usr/share/aegisub/automation"));
+        guesses.push(PathBuf::from("/Applications/Aegisub.app/Contents/SharedSupport/automation"));
+        v.extend(guesses.into_iter().filter(|p| p.is_dir()));
         v.extend(self.automation_dirs.iter().map(PathBuf::from));
         v
+    }
+
+    /// Folders scanned for `*.lua` scripts: each root, `<root>/autoload`.
+    pub fn script_dirs(&self) -> Vec<PathBuf> {
+        let mut out = vec![];
+        for r in self.automation_roots() {
+            out.push(r.clone());
+            out.push(r.join("autoload"));
+        }
+        out.dedup();
+        out
+    }
+
+    /// Search path for `include()` / `require`: each root, `<root>/include`.
+    pub fn include_dirs(&self) -> Vec<PathBuf> {
+        let mut out = vec![];
+        for r in self.automation_roots() {
+            out.push(r.clone());
+            out.push(r.join("include"));
+        }
+        out
     }
 }

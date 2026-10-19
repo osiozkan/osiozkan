@@ -269,7 +269,7 @@ fn run() -> Result<ExitCode, String> {
         Cmd::Lua { cmd } => match cmd {
             LuaCmd::List { script } => {
                 let host: SharedHost = Rc::new(RefCell::new(Headless::default()));
-                let s = LuaScript::load(&PathBuf::from(&script), host, &[]);
+                let s = LuaScript::load(&PathBuf::from(&script), host, &subforge_app::settings::Settings::load().include_dirs());
                 if let Some(e) = &s.load_error {
                     return Err(format!("failed to load {script}: {e}"));
                 }
@@ -291,6 +291,8 @@ fn run() -> Result<ExitCode, String> {
                     }
                 }
                 let host: SharedHost = Rc::new(RefCell::new(h));
+                let mut include = include;
+                include.extend(subforge_app::settings::Settings::load().include_dirs());
                 let s = LuaScript::load(&PathBuf::from(&script), host, &include);
                 if let Some(e) = &s.load_error {
                     return Err(format!("failed to load {script}: {e}"));

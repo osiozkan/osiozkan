@@ -182,7 +182,7 @@ pub fn grab_frame(video: &Path, ms: i64, width: i32, src_w: i32, src_h: i32, ass
     // -ss after -i is slow but exact with the ass filter timeline; use input seek + setpts offset
     let t = (ms.max(0) as f64) / 1000.0;
     let out = Command::new("ffmpeg")
-        .args(["-v", "error", "-ss", &format!("{t:.3}"), "-i"])
+        .args(["-v", "error", "-ss", &format!("{t:.3}"), "-copyts", "-i"])
         .arg(video)
         .args(["-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
         .output()
@@ -191,6 +191,30 @@ pub fn grab_frame(video: &Path, ms: i64, width: i32, src_w: i32, src_h: i32, ass
         return Err(format!("no frame: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     Ok(Frame { width: w, height: h, rgba: out.stdout[..w * h * 4].to_vec() })
+}
+
+/// Render `text` with `style` over a mid-gray checker background using libass.
+pub fn render_style_preview(style: &subforge_core::Style, text: &str, width: usize, height: usize) -> Result<Frame, String> {
+    let mut sc = subforge_core::Script::new();
+    sc.info_set("PlayResX", &(width * 2).to_string());
+    sc.info_set("PlayResY", &(height * 2).to_string());
+    let mut st = style.clone();
+    st.name = "Default".into();
+    sc.styles = vec![st];
+    sc.events.push(subforge_core::Event::new(0, 5000, "Default", text));
+    let path = std::env::temp_dir().join(format!("sf-style-{}-{}.ass", std::process::id(), width));
+    std::fs::write(&path, sc.to_ass()).map_err(|e| e.to_string())?;
+    let vf = format!("ass=filename='{}'", escape_filter_path(&path.to_string_lossy()));
+    let out = Command::new("ffmpeg")
+        .args(["-v", "error", "-f", "lavfi", "-i", &format!("testsrc2=size={width}x{height}:rate=1:duration=1,format=gray,eq=brightness=-0.35:contrast=0.5,format=rgba")])
+        .args(["-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .output()
+        .map_err(|e| format!("ffmpeg: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    if out.stdout.len() < width * height * 4 {
+        return Err(format!("preview failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(Frame { width, height, rgba: out.stdout[..width * height * 4].to_vec() })
 }
 
 /// Play [start,end] of the media's audio with ffplay (if installed). Returns the child.
@@ -239,6 +263,8 @@ mod tests {
         let w = wf.lock().unwrap();
         assert!(w.done && w.peaks.len() > 250, "peaks {}", w.peaks.len());
         assert!(w.peaks.iter().any(|(a, b)| b - a > 1000));
+        let sp = render_style_preview(&subforge_core::Style::default(), "Örnek Sample", 320, 90).unwrap();
+        assert_eq!((sp.width, sp.height), (320, 90));
         let f = grab_frame(&p, 1000, 160, 320, 180, None, None).unwrap();
         assert_eq!((f.width, f.height), (160, 90));
     }
