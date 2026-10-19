@@ -36,6 +36,8 @@ impl App {
         self.about_window(ctx);
         self.keys_window(ctx);
         self.kara_window(ctx);
+        self.console_window(ctx);
+        self.spell_window(ctx);
     }
 
     // ---------------------------------------------------------------- Lua dialog
@@ -1007,6 +1009,167 @@ impl App {
             self.proj.edit("Karaoke edit", |s| s.events[idx].text = text);
             self.bump();
             self.kara_for = None;
+        }
+    }
+
+    fn console_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.console;
+        let mut run = false;
+        egui::Window::new("Lua konsolu").open(&mut open).default_size([620.0, 420.0]).show(ctx, |ui| {
+            ui.label("Makro gövdesi olarak çalışır: subs, sel, active. Çıktı için aegisub.log(...) kullanın.");
+            ui.add(egui::TextEdit::multiline(&mut self.console_code).code_editor().desired_rows(12).desired_width(f32::INFINITY));
+            ui.horizontal(|ui| {
+                if ui.add_enabled(self.run.is_none(), egui::Button::new("Çalıştır")).clicked() {
+                    run = true;
+                }
+                if ui.button("Günlüğü göster").clicked() {
+                    self.win.log = true;
+                }
+            });
+        });
+        self.win.console = open;
+        if run {
+            let code = format!("script_name = \"console\"\naegisub.register_macro(\"console\", \"\", function(subs, sel, active)\n{}\nend)\n", self.console_code);
+            let path = std::env::temp_dir().join(format!("subforge-console-{}.lua", std::process::id()));
+            if std::fs::write(&path, code).is_ok() {
+                self.run_macro(path, 0, "Lua konsolu".into());
+            }
+        }
+    }
+
+    fn spell_window(&mut self, ctx: &egui::Context) {
+        use subforge_app::spell;
+        let mut open = self.win.spell;
+        let mut goto = None;
+        let mut replace: Option<(String, String)> = None;
+        let mut ignore: Option<String> = None;
+        let mut add: Option<String> = None;
+        if let Some(rx) = &self.spell_dl {
+            if let Ok(r) = rx.try_recv() {
+                self.spell_dl = None;
+                self.spell_msg = match r {
+                    Ok(()) => "Sözlük indirildi.".into(),
+                    Err(e) => format!("İndirilemedi: {e}"),
+                };
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            }
+        }
+        egui::Window::new("Yazım denetimi").open(&mut open).default_size([560.0, 460.0]).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Dil");
+                egui::ComboBox::from_id_salt("spell_lang").selected_text(self.spell_lang.clone()).show_ui(ui, |ui| {
+                    for l in ["tr_TR", "en_US"] {
+                        if ui.selectable_value(&mut self.spell_lang, l.to_string(), l).clicked() {
+                            self.speller = None;
+                            self.spell_results.clear();
+                        }
+                    }
+                });
+            });
+            if !spell::available(&self.spell_lang) {
+                ui.label("Bu dil için sözlük kurulu değil (LibreOffice sözlükleri, internetten indirilir; tr_TR ≈ 38 MB).");
+                let busy = self.spell_dl.is_some();
+                if ui.add_enabled(!busy, egui::Button::new("Sözlüğü indir")).clicked() {
+                    let lang = self.spell_lang.clone();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    self.spell_dl = Some(rx);
+                    std::thread::spawn(move || {
+                        let _ = tx.send(spell::download(&lang));
+                    });
+                }
+                if busy {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("İndiriliyor…");
+                    });
+                }
+                ui.label(&self.spell_msg);
+                return;
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Denetle").clicked() {
+                    if self.speller.is_none() {
+                        match spell::Speller::load(&self.spell_lang) {
+                            Ok(s) => self.speller = Some(s),
+                            Err(e) => self.spell_msg = e,
+                        }
+                    }
+                    if let Some(sp) = &self.speller {
+                        self.spell_results = spell::check_script(sp, &self.proj.script, &self.spell_ignore);
+                        self.spell_sel = 0;
+                        self.spell_sugg.clear();
+                        self.spell_msg = format!("{} yanlış yazılmış sözcük", self.spell_results.len());
+                    }
+                }
+                ui.label(&self.spell_msg);
+            });
+            ui.separator();
+            ui.columns(2, |cols| {
+                egui::ScrollArea::vertical().id_salt("spell_list").show(&mut cols[0], |ui| {
+                    for (i, m) in self.spell_results.iter().enumerate() {
+                        if ui.selectable_label(self.spell_sel == i, format!("{}  ({})", m.word, m.events.len())).clicked() {
+                            self.spell_sel = i;
+                            self.spell_fix = m.word.clone();
+                            self.spell_sugg = self.speller.as_ref().map(|s| s.suggest(&m.word, 8)).unwrap_or_default();
+                            goto = m.events.first().copied();
+                        }
+                    }
+                });
+                let ui = &mut cols[1];
+                if let Some(m) = self.spell_results.get(self.spell_sel).cloned() {
+                    ui.label(RichText::new(&m.word).strong().size(18.0));
+                    ui.label(format!("{} satırda", m.events.len()));
+                    ui.horizontal_wrapped(|ui| {
+                        for s in self.spell_sugg.clone() {
+                            if ui.button(&s).clicked() {
+                                self.spell_fix = s;
+                            }
+                        }
+                    });
+                    ui.text_edit_singleline(&mut self.spell_fix);
+                    ui.horizontal(|ui| {
+                        if ui.button("Tümünü düzelt").clicked() {
+                            replace = Some((m.word.clone(), self.spell_fix.clone()));
+                        }
+                        if ui.button("Yoksay").clicked() {
+                            ignore = Some(m.word.clone());
+                        }
+                        if ui.button("Sözlüğe ekle").clicked() {
+                            add = Some(m.word.clone());
+                        }
+                    });
+                }
+            });
+        });
+        self.win.spell = open;
+        if let Some(i) = goto {
+            self.goto_line(i);
+        }
+        if let Some((from, to)) = replace {
+            if !to.is_empty() && to != from {
+                let events: Vec<usize> = self.spell_results.iter().find(|m| m.word == from).map(|m| m.events.clone()).unwrap_or_default();
+                self.proj.edit("Spelling fix", |s| {
+                    for &i in &events {
+                        s.events[i].text = spell::replace_word(&s.events[i].text, &from, &to);
+                    }
+                });
+                self.bump();
+                self.spell_results.retain(|m| m.word != from);
+                self.spell_sel = self.spell_sel.min(self.spell_results.len().saturating_sub(1));
+            }
+        }
+        if let Some(w) = ignore {
+            self.spell_ignore.insert(w.clone());
+            self.spell_results.retain(|m| m.word != w);
+            self.spell_sel = self.spell_sel.min(self.spell_results.len().saturating_sub(1));
+        }
+        if let Some(w) = add {
+            if let Some(sp) = self.speller.as_mut() {
+                sp.add_user_word(&w);
+            }
+            self.spell_results.retain(|m| m.word != w);
+            self.spell_sel = self.spell_sel.min(self.spell_results.len().saturating_sub(1));
         }
     }
 

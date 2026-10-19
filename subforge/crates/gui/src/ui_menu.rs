@@ -390,6 +390,10 @@ impl App {
                 self.win.automation = true;
                 ui.close_menu();
             }
+            if ui.button("Lua konsolu…").clicked() {
+                self.win.console = true;
+                ui.close_menu();
+            }
             if ui.button("Betikleri yeniden tara").clicked() {
                 self.refresh_scripts();
                 ui.close_menu();
@@ -414,6 +418,10 @@ impl App {
         ui.menu_button("Araçlar", |ui| {
             if ui.button("Kalite kontrol…").clicked() {
                 self.win.qc = true;
+                ui.close_menu();
+            }
+            if ui.button("Yazım denetimi…").clicked() {
+                self.win.spell = true;
                 ui.close_menu();
             }
             if ui.button("Yazı tipi toplayıcı…").clicked() {
@@ -664,7 +672,15 @@ impl App {
         let Some(run) = &mut self.run else { return };
         let mut finished = None;
         let mut logs = vec![];
-        while let Ok(m) = run.handle.rx.try_recv() {
+        loop {
+            let m = match run.handle.rx.try_recv() {
+                Ok(m) => m,
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    finished = Some(Err(subforge_lua::ScriptError::Failed("betik iş parçacığı beklenmedik şekilde sonlandı".into())));
+                    break;
+                }
+            };
             match m {
                 RunMsg::Log(_, s) => logs.push(s),
                 RunMsg::Progress(p) => run.progress = Some(p),

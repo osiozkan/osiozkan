@@ -11,3 +11,5 @@ fancy-regex = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fontdb = "0.23"
+spellbook = "0.4"
+ureq = "3"
