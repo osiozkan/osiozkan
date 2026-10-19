@@ -8,3 +8,4 @@
 - Yazı tipi ölçümü (fontdb + ttf-parser) ile `aegisub.text_extents`
 - CLI: info, convert, check --fix, shift, retime, fps, chain, text, fix-encoding, lua list/run
 - GUI (egui): grid (200k satır akıcı), etiket renklendirmeli editör, geri al/yinele, bul-değiştir (Türkçe İ/ı duyarlı), satır seç, stil yöneticisi (libass önizlemeli), QC penceresi (arka plan iş parçacığı), ses dalga biçimi (sürükle-zamanla, anahtar kareler, konuşma algılama), libass ile ASS'li video önizleme ve gerçek zamanlı oynatma, \pos sürükleme, referans altyazı sütunu (çeviri), karaoke düzenleyici, yazı tipi toplayıcı, Lua diyalogları/iptal/ilerleme, dışa aktarma filtreleri, otomatik kayıt, Aegisub otomasyon klasörlerini otomatik bulma
+- Yazım denetimi (Türkçe sözlük indirme + bayrak yaması), Lua konsolu, MoonScript desteği, DependencyControl vekili, görsel dizgi araçları (pos/org/clip/döndür/ölçek), stil deposu, kurtarma
