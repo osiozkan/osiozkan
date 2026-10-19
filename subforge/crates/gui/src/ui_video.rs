@@ -8,7 +8,7 @@ impl App {
     /// Request a frame render in the background (latest request wins).
     fn request_frame(&mut self) {
         let Some(v) = self.video.as_mut() else { return };
-        if v.pending.is_some() {
+        if v.pending.is_some() || v.play.is_some() {
             return;
         }
         let ms = v.want_ms.max(0);
@@ -34,6 +34,7 @@ impl App {
     }
 
     pub fn video_panel(&mut self, ctx: &egui::Context) {
+        self.pump_playback(ctx);
         // sync the video cursor to the active line start when it changes
         self.request_frame();
         if let Some(v) = self.video.as_mut() {
@@ -56,6 +57,8 @@ impl App {
         let mut seek: Option<i64> = None;
         let mut pos_click: Option<(f32, f32)> = None;
         let mut set_start = false;
+        let mut toggle_play = false;
+        let mut play_line = false;
         let mut set_end = false;
         egui::SidePanel::left("video").resizable(true).default_width(520.0).min_width(260.0).show(ctx, |ui| {
             let Some(v) = self.video.as_mut() else { return };
@@ -95,6 +98,15 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
+                let playing = v.play.is_some();
+                if ui.button(if playing { "Durdur (Boşluk)" } else { "Oynat (Boşluk)" }).clicked() {
+                    toggle_play = true;
+                }
+                if ui.button("Satırı oynat").on_hover_text("Aktif satırı 0,5 sn öncesinden bitişine kadar oynat").clicked() {
+                    play_line = true;
+                }
+            });
+            ui.horizontal(|ui| {
                 if ui.button("−1 sn").clicked() {
                     seek = Some(v.want_ms - 1000);
                 }
@@ -108,6 +120,7 @@ impl App {
                     seek = Some(v.want_ms + 1000);
                 }
             });
+            ui.spacing_mut().slider_width = (avail_w - 24.0).max(100.0);
             let mut ms = v.want_ms as f64;
             let max = v.info.duration_ms.max(1) as f64;
             if ui.add(egui::Slider::new(&mut ms, 0.0..=max).show_value(false)).changed() {
@@ -132,12 +145,30 @@ impl App {
             });
         });
         if let Some(v) = self.video.as_mut() {
+            if (step != 0 || seek.is_some()) && v.play.is_some() {
+                if let Some(mut p) = v.play.take() {
+                    p.stop();
+                }
+            }
             if step != 0 {
                 let f = fps.frame_at(v.want_ms) + step;
                 v.want_ms = fps.start_ms(f.max(0));
             }
             if let Some(s) = seek {
                 v.want_ms = s.clamp(0, v.info.duration_ms.max(0));
+            }
+        }
+        // Space toggles playback when not typing
+        if !ctx.wants_keyboard_input() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space)) {
+            toggle_play = true;
+        }
+        if toggle_play {
+            self.toggle_playback(None);
+        }
+        if play_line {
+            if let Some(e) = self.active_event() {
+                let (a, b) = ((e.start - 500).max(0), e.end + 300);
+                self.toggle_playback(Some((a, b)));
             }
         }
         // hotkeys: [ and ] set start/end from the video position
@@ -188,4 +219,77 @@ impl App {
 #[allow(dead_code)]
 fn _c() -> Color32 {
     Color32::WHITE
+}
+
+impl App {
+    pub fn toggle_playback(&mut self, range: Option<(i64, i64)>) {
+        let text = self.proj.script.to_ass();
+        let _ = std::fs::write(&self.tmp_ass, text);
+        let tmp = self.tmp_ass.clone();
+        let Some(v) = self.video.as_mut() else { return };
+        if v.play.is_some() && range.is_none() {
+            if let Some(mut p) = v.play.take() {
+                p.stop();
+            }
+            return;
+        }
+        if let Some(mut p) = v.play.take() {
+            p.stop();
+        }
+        let (start, end) = match range {
+            Some((a, b)) => (a, Some(b)),
+            None => (v.want_ms, None),
+        };
+        let fps = v.info.fps.unwrap_or(24.0);
+        let audio = self.wave.is_some();
+        match media::start_playback(&v.path, start, end, v.width.clamp(160, 960), v.info.width, v.info.height, fps, if v.burn { Some(tmp.as_path()) } else { None }, audio) {
+            Ok(p) => {
+                v.play = Some(p);
+                v.play_until = end;
+            }
+            Err(e) => v.error = Some(e),
+        }
+    }
+
+    fn pump_playback(&mut self, ctx: &egui::Context) {
+        let Some(v) = self.video.as_mut() else { return };
+        let Some(p) = v.play.as_mut() else { return };
+        let mut last = None;
+        let mut ended = false;
+        loop {
+            match p.rx.try_recv() {
+                Ok(f) => last = Some(f),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    ended = true;
+                    break;
+                }
+            }
+        }
+        if let Some(f) = last {
+            let img = ColorImage::from_rgba_unmultiplied([f.width, f.height], &f.rgba);
+            v.tex = Some(ctx.load_texture("video", img, TextureOptions::LINEAR));
+        }
+        let now = p.now_ms();
+        v.want_ms = now;
+        if v.play_until.map(|u| now > u).unwrap_or(false) {
+            ended = true;
+        }
+        if ended {
+            if let Some(mut p) = v.play.take() {
+                p.stop();
+            }
+            v.shown_ms = -1;
+        } else {
+            ctx.request_repaint();
+        }
+        // keep the audio view following the playhead
+        let want = v.want_ms;
+        if let Some(w) = self.wave.as_mut() {
+            let width_ms = w.ms_per_px * 900.0;
+            if (want as f64) > w.start_ms + width_ms * 0.9 || (want as f64) < w.start_ms {
+                w.start_ms = (want as f64 - width_ms * 0.1).max(0.0);
+            }
+        }
+    }
 }

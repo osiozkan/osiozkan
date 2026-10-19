@@ -520,6 +520,10 @@ impl App {
             }
         });
         ui.menu_button("Yardım", |ui| {
+            if ui.button("Klavye kısayolları").clicked() {
+                self.win.keys = true;
+                ui.close_menu();
+            }
             if ui.button("SubForge hakkında").clicked() {
                 self.win.about = true;
                 ui.close_menu();

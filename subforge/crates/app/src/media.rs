@@ -217,6 +217,75 @@ pub fn render_style_preview(style: &subforge_core::Style, text: &str, width: usi
     Ok(Frame { width, height, rgba: out.stdout[..width * height * 4].to_vec() })
 }
 
+/// Real-time playback: ffmpeg decodes (with libass burn-in when `ass_path` is given) at
+/// native speed (`-re`) and frames arrive on `rx`; audio is played by ffplay when present.
+pub struct Playback {
+    pub rx: std::sync::mpsc::Receiver<Frame>,
+    pub start_ms: i64,
+    pub fps: f64,
+    pub started: std::time::Instant,
+    pub width: usize,
+    pub height: usize,
+    video: Option<std::process::Child>,
+    audio: Option<std::process::Child>,
+}
+
+impl Playback {
+    pub fn stop(&mut self) {
+        for c in [self.video.take(), self.audio.take()].into_iter().flatten() {
+            let mut c = c;
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+
+    /// Media time now, from the wall clock.
+    pub fn now_ms(&self) -> i64 {
+        self.start_ms + self.started.elapsed().as_millis() as i64
+    }
+}
+
+impl Drop for Playback {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn start_playback(video: &Path, start_ms: i64, end_ms: Option<i64>, width: i32, src_w: i32, src_h: i32, fps: f64, ass_path: Option<&Path>, with_audio: bool) -> Result<Playback, String> {
+    let w = (width.max(16) / 2 * 2) as usize;
+    let h = ((w as f64 * src_h.max(1) as f64 / src_w.max(1) as f64).round() as usize / 2) * 2;
+    let mut vf = String::new();
+    if let Some(a) = ass_path {
+        vf.push_str(&format!("ass=filename='{}',", escape_filter_path(&a.to_string_lossy())));
+    }
+    vf.push_str(&format!("scale={w}:{h}"));
+    let t = start_ms.max(0) as f64 / 1000.0;
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-re", "-ss", &format!("{t:.3}"), "-copyts", "-i"]).arg(video);
+    if let Some(e) = end_ms {
+        cmd.args(["-to", &format!("{:.3}", e as f64 / 1000.0)]);
+    }
+    cmd.args(["-an", "-vf", &vf, "-f", "rawvideo", "-pix_fmt", "rgba", "-"]).stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+    let mut out = child.stdout.take().ok_or("no stdout")?;
+    let (tx2, rx2) = std::sync::mpsc::channel::<Frame>();
+    std::thread::spawn(move || {
+        let size = w * h * 4;
+        loop {
+            let mut buf = vec![0u8; size];
+            if out.read_exact(&mut buf).is_err() {
+                break;
+            }
+            if tx2.send(Frame { width: w, height: h, rgba: buf }).is_err() {
+                break;
+            }
+        }
+    });
+    let audio = if with_audio { play_audio(video, start_ms, end_ms) } else { None };
+    Ok(Playback { rx: rx2, start_ms, fps, started: std::time::Instant::now(), width: w, height: h, video: Some(child), audio })
+}
+
 /// Play [start,end] of the media's audio with ffplay (if installed). Returns the child.
 pub fn play_audio(path: &Path, start_ms: i64, end_ms: Option<i64>) -> Option<std::process::Child> {
     let mut c = Command::new("ffplay");
@@ -263,6 +332,14 @@ mod tests {
         let w = wf.lock().unwrap();
         assert!(w.done && w.peaks.len() > 250, "peaks {}", w.peaks.len());
         assert!(w.peaks.iter().any(|(a, b)| b - a > 1000));
+        let mut pb = start_playback(&p, 0, Some(1000), 160, 320, 180, 24.0, None, false).unwrap();
+        let mut n = 0;
+        while let Ok(f) = pb.rx.recv_timeout(std::time::Duration::from_millis(1500)) {
+            assert_eq!((f.width, f.height), (160, 90));
+            n += 1;
+        }
+        pb.stop();
+        assert!((15..=26).contains(&n), "frames {n}");
         let sp = render_style_preview(&subforge_core::Style::default(), "Örnek Sample", 320, 90).unwrap();
         assert_eq!((sp.width, sp.height), (320, 90));
         let f = grab_frame(&p, 1000, 160, 320, 180, None, None).unwrap();

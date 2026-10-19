@@ -34,6 +34,7 @@ impl App {
         self.settings_window(ctx);
         self.log_window(ctx);
         self.about_window(ctx);
+        self.keys_window(ctx);
     }
 
     // ---------------------------------------------------------------- Lua dialog
@@ -874,6 +875,37 @@ impl App {
             });
         });
         self.win.log = open;
+    }
+
+    fn keys_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.keys;
+        egui::Window::new("Klavye kısayolları").open(&mut open).resizable(false).show(ctx, |ui| {
+            egui::Grid::new("keys").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                for (k, d) in [
+                    ("Ctrl+O / S / Shift+S", "Aç / Kaydet / Farklı kaydet"),
+                    ("Ctrl+Z / Ctrl+Y", "Geri al / Yinele"),
+                    ("Ctrl+F", "Bul / Değiştir"),
+                    ("Ctrl+I", "Yeni satır ekle"),
+                    ("Ctrl+D", "Satırı çoğalt"),
+                    ("Delete", "Seçili satırları sil"),
+                    ("Ctrl+A", "Tümünü seç"),
+                    ("↑ / ↓  veya  Alt+↑ / ↓", "Önceki / sonraki satır"),
+                    ("Ctrl+Enter", "Satırı bitir, sonrakine geç (sonda yeni satır ekler)"),
+                    ("Boşluk", "Videoyu oynat / durdur (yazı yazarken değil)"),
+                    ("[  /  ]", "Aktif satırın başlangıç / bitişini video konumuna ayarla"),
+                    ("Dalga biçimi: sürükle", "Ses seçimi · turuncu çizgileri sürükle = başlangıç/bitiş"),
+                    ("Enter (dalga)", "Ses seçimini aktif satıra uygula"),
+                    ("Alt+sürükle (dalga)", "Aktif satırı kaydır"),
+                    ("Ctrl+tekerlek (dalga)", "Yakınlaştır / uzaklaştır"),
+                    ("Tıkla / Ctrl+tıkla / Shift+tıkla", "Satır seçimi"),
+                ] {
+                    ui.monospace(k);
+                    ui.label(d);
+                    ui.end_row();
+                }
+            });
+        });
+        self.win.keys = open;
     }
 
     fn about_window(&mut self, ctx: &egui::Context) {
