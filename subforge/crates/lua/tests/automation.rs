@@ -148,3 +148,53 @@ fn load_errors_are_captured() {
     let s = LuaScript::load(&p, host(), &[]);
     assert!(s.load_error.unwrap().contains("include not found"));
 }
+
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/aegisub-autoload").join(name)
+}
+
+const KARA_SCRIPT: &str = "[Script Info]\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,25,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nComment: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,code once,fxvar = 3\nComment: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,template syl,{\\pos(!$sx+$swidth/2!,!$sy!)\\an5\\fad(100,100)\\blur!fxvar!}\nComment: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,template line,{\\be1}\nDialogue: 0,0:00:10.00,0:00:14.00,Default,,0,0,0,karaoke,{\\k50}ka{\\k50}ra{\\k100}o{\\k100}ke\n";
+
+#[test]
+fn real_kara_templater_runs() {
+    let p = fixture("kara-templater.lua");
+    let s = LuaScript::load(&p, host(), &[]);
+    assert!(s.load_error.is_none(), "{:?}", s.load_error);
+    assert!(s.macros.iter().any(|m| m.name.contains("karaoke template")), "{:?}", s.macros);
+    let doc = Rc::new(RefCell::new(Doc::from_script(&Script::parse(KARA_SCRIPT))));
+    let n = doc.borrow().counts().2;
+    let sel: Vec<usize> = (0..n).map(|e| doc.borrow().event_to_flat(e)).collect();
+    let idx = s.macros.iter().position(|m| m.name.contains("karaoke template")).unwrap();
+    let out = s.run_macro(idx, doc.clone(), &sel, sel[0]);
+    out.unwrap();
+    let script = doc.borrow().to_script();
+    let fx: Vec<_> = script.events.iter().filter(|e| e.effect == "fx" && !e.is_comment()).collect();
+    // 1 line-template result + syllable 0 (empty, before the first \k) + 4 syllables, as in Aegisub
+    assert_eq!(fx.len(), 6, "{:#?}", script.events.iter().map(|e| (&e.effect, &e.text)).collect::<Vec<_>>());
+    let syl_lines: Vec<_> = fx.iter().filter(|e| e.text.contains("\\pos(")).collect();
+    assert_eq!(syl_lines.len(), 5);
+    assert!(syl_lines.iter().all(|e| e.text.contains("\\blur3")));
+    for (line, syl) in syl_lines.iter().skip(1).zip(["ka", "ra", "o", "ke"]) {
+        assert!(line.text.ends_with(syl), "{}", line.text);
+    }
+    // layout is monotonic left→right and positions use real font metrics
+    let xs: Vec<i32> = syl_lines.iter().map(|e| e.text.split("\\pos(").nth(1).unwrap().split(',').next().unwrap().parse().unwrap()).collect();
+    assert!(xs.windows(2).all(|w| w[0] <= w[1]), "{xs:?}");
+}
+
+#[test]
+fn real_cleantags_and_simple_macros() {
+    for (file, idx) in [("cleantags-autoload.lua", 0), ("macro-1-edgeblur.lua", 0), ("macro-2-mkfullwitdh.lua", 0)] {
+        let s = LuaScript::load(&fixture(file), host(), &[]);
+        assert!(s.load_error.is_none(), "{file}: {:?}", s.load_error);
+        assert!(!s.macros.is_empty(), "{file}");
+        let mut sc = sample();
+        sc.events[1].text = "{\\b1}{\\i1}Merhaba".into();
+        let doc = Rc::new(RefCell::new(Doc::from_script(&sc)));
+        let sel = vec![doc.borrow().event_to_flat(1)];
+        s.run_macro(idx, doc.clone(), &sel, sel[0]).unwrap_or_else(|e| panic!("{file}: {e}"));
+        if file.starts_with("cleantags") {
+            assert_eq!(doc.borrow().to_script().events[1].text, "{\\b1\\i1}Merhaba");
+        }
+    }
+}

@@ -19,6 +19,10 @@ fn char_em(c: char) -> f64 {
 
 /// (width, height, descent, external leading)
 pub fn text_extents(style: &Style, text: &str) -> (f64, f64, f64, f64) {
+    crate::fonts::text_extents(style, text).unwrap_or_else(|| estimate(style, text))
+}
+
+fn estimate(style: &Style, text: &str) -> (f64, f64, f64, f64) {
     let size = style.fontsize.max(1.0);
     let bold = if style.bold { 1.06 } else { 1.0 };
     let mut w = 0.0;

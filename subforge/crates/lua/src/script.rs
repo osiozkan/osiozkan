@@ -14,8 +14,10 @@ use subforge_core::time::Fps;
 
 const CANCEL_MARK: &str = "\u{1}SUBFORGE_CANCEL\u{1}";
 
-const UTILS_LUA: &str = include_str!("../lua/utils.lua");
-const KARASKEL_LUA: &str = include_str!("../lua/karaskel.lua");
+const AEGISUB_UTIL_LUA: &str = include_str!("../lua/aegisub_util.lua");
+const UTILS_AUTO4_LUA: &str = include_str!("../lua/vendor/utils-auto4.lua");
+const KARASKEL_AUTO4_LUA: &str = include_str!("../lua/vendor/karaskel-auto4.lua");
+const CLEANTAGS_LUA: &str = include_str!("../lua/vendor/cleantags.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 
 #[derive(Debug)]
@@ -406,6 +408,9 @@ impl LuaScript {
         }
         package.set("path", pp)?;
 
+        for d in &dirs {
+            crate::fonts::add_font_dir(d.join("fonts"));
+        }
         install_aegisub(lua, &host, &self.registry, script_dir)?;
 
         // native modules
@@ -429,8 +434,9 @@ impl LuaScript {
                 Some((std::fs::read_to_string(&p).map_err(mlua::Error::external)?, p.to_string_lossy().to_string()))
             } else {
                 match base {
-                    "utils.lua" | "utils" => Some((UTILS_LUA.to_string(), "utils.lua".into())),
-                    "karaskel.lua" | "karaskel" => Some((KARASKEL_LUA.to_string(), "karaskel.lua".into())),
+                    "utils.lua" | "utils-auto4.lua" => Some((UTILS_AUTO4_LUA.to_string(), "utils-auto4.lua".into())),
+                    "karaskel.lua" | "karaskel-auto4.lua" => Some((KARASKEL_AUTO4_LUA.to_string(), "karaskel-auto4.lua".into())),
+                    "cleantags.lua" => Some((CLEANTAGS_LUA.to_string(), "cleantags.lua".into())),
                     "unicode.lua" | "re.lua" => return Ok(MultiValue::new()), // built in
                     _ => None,
                 }
@@ -443,20 +449,30 @@ impl LuaScript {
         })?;
         lua.globals().set("include", include)?;
 
-        // require("aegisub.util"), require("karaskel"), require("utils")
+        // require("aegisub.util"), require("karaskel"), require("utils"), require("aegisub.argcheck")
         let preload: Table = package.get("preload")?;
-        for (modname, lib, global) in [("aegisub.util", UTILS_LUA, None), ("utils", UTILS_LUA, None), ("karaskel", KARASKEL_LUA, Some("karaskel"))] {
-            let f = lua.create_function(move |lua, ()| -> LuaResult<Value> {
-                let inc: Function = lua.globals().get("include")?;
-                if modname == "karaskel" {
-                    inc.call::<()>("karaskel.lua")?;
-                    return lua.globals().get("karaskel");
-                }
-                let v = lua.load(lib).set_name("@utils.lua").call::<Value>(())?;
-                Ok(v)
-            })?;
-            let _ = global;
-            preload.set(modname, f)?;
+        preload.set(
+            "aegisub.util",
+            lua.create_function(|lua, ()| lua.load(AEGISUB_UTIL_LUA).set_name("=aegisub.util").call::<Value>(()))?,
+        )?;
+        preload.set(
+            "aegisub.argcheck",
+            lua.create_function(|lua, ()| {
+                lua.load("return function(...) return function(f) return f end end").set_name("=aegisub.argcheck").call::<Value>(())
+            })?,
+        )?;
+        for (modname, file, global) in [("utils", "utils.lua", None), ("karaskel", "karaskel.lua", Some("karaskel")), ("cleantags", "cleantags.lua", None)] {
+            preload.set(
+                modname,
+                lua.create_function(move |lua, ()| -> LuaResult<Value> {
+                    let inc: Function = lua.globals().get("include")?;
+                    inc.call::<()>(file)?;
+                    match global {
+                        Some(g) => lua.globals().get(g),
+                        None => Ok(Value::Boolean(true)),
+                    }
+                })?,
+            )?;
         }
 
         let code = std::fs::read_to_string(path).map_err(mlua::Error::external)?;

@@ -1,6 +1,7 @@
 //! Automation 4 (Aegisub Lua) compatibility layer for SubForge.
 pub mod convert;
 pub mod doc;
+pub mod fonts;
 pub mod host;
 mod libs;
 pub mod metrics;

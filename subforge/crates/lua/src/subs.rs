@@ -97,7 +97,14 @@ impl UserData for Subs {
         m.add_meta_method(MetaMethod::NewIndex, |_, this, (key, val): (Value, Value)| {
             let i = idx_of(&key).ok_or_else(|| mlua::Error::runtime("subs: only integer indices can be assigned"))?;
             let mut d = this.0.borrow_mut();
-            if i < 1 || i as usize > d.lines.len() + 1 {
+            // Aegisub: subs[0] = line appends; subs[-n] = line inserts before line n.
+            if i <= 0 {
+                let line = line_from_value(val)?;
+                let at = if i == 0 { d.lines.len() } else { ((-i) as usize).saturating_sub(1).min(d.lines.len()) };
+                d.lines.insert(at, line);
+                return Ok(());
+            }
+            if i as usize > d.lines.len() + 1 {
                 return Err(mlua::Error::runtime(format!("Requested out-of-range line from subtitle file: {i}")));
             }
             if val.is_nil() {

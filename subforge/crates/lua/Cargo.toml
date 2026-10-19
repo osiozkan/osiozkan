@@ -9,3 +9,5 @@ subforge-core = { path = "../core" }
 # LuaJIT = same runtime family Aegisub uses (ffi + bit libraries available to scripts).
 mlua = { version = "0.12", features = ["luajit", "vendored"] }
 fancy-regex = "0.14"
+fontdb = "0.23"
+ttf-parser = "0.25"
