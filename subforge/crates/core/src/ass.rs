@@ -224,6 +224,7 @@ impl Script {
     // ---------------------------------------------------------------- parse
     pub fn parse(text: &str) -> Script {
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let text = if text.contains('\r') { std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n")) } else { std::borrow::Cow::Borrowed(text) };
         let mut script = Script {
             info: vec![],
             styles: vec![],
@@ -241,10 +242,11 @@ impl Script {
             Raw(usize),
         }
         let mut sec = Sec::None;
-        let mut style_fmt: Vec<String> = default_style_format();
-        let mut event_fmt: Vec<String> = default_event_format();
+        let mut style_fmt: Option<Vec<String>> = None;
+        let mut event_fmt: Option<Vec<String>> = None;
+        let mut saw_styles = false;
         for line in text.split('\n') {
-            let line = line.trim_end_matches('\r');
+            let line = line.trim_start_matches('\u{feff}');
             let t = line.trim();
             if t.starts_with('[') && t.ends_with(']') && t.len() >= 2 {
                 let name = t[1..t.len() - 1].to_string();
@@ -258,6 +260,7 @@ impl Script {
                     }
                     "v4+ styles" | "v4 styles" | "v4++ styles" => {
                         script.is_ssa = lname == "v4 styles";
+                        saw_styles = true;
                         script.order.pop();
                         script.order.push(if script.is_ssa { STYLES_V4 } else { STYLES_V4P }.into());
                         Sec::Styles
@@ -285,6 +288,9 @@ impl Script {
                         script.info.push((";".into(), c.to_string()));
                     } else if let Some((k, v)) = t.split_once(':') {
                         script.info.push((k.trim().to_string(), v.trim().to_string()));
+                    } else {
+                        // key-less junk line: kept verbatim (empty key)
+                        script.info.push((String::new(), t.to_string()));
                     }
                 }
                 Sec::Styles => {
@@ -292,9 +298,10 @@ impl Script {
                         continue;
                     }
                     if let Some(f) = strip_prefix_ci(t, "Format:") {
-                        style_fmt = f.split(',').map(|s| s.trim().to_ascii_lowercase()).collect();
+                        style_fmt = Some(split_format(f));
                     } else if let Some(d) = strip_prefix_ci(t, "Style:") {
-                        script.styles.push(parse_style(d.trim_start(), &style_fmt));
+                        let fmt = style_fmt.clone().unwrap_or_else(|| if script.is_ssa { ssa_style_format() } else { default_style_format() });
+                        script.styles.push(parse_style(d.trim_start(), &fmt, script.is_ssa));
                     }
                 }
                 Sec::Events => {
@@ -302,9 +309,16 @@ impl Script {
                         continue;
                     }
                     if let Some(f) = strip_prefix_ci(t, "Format:") {
-                        event_fmt = f.split(',').map(|s| s.trim().to_ascii_lowercase()).collect();
-                    } else if let Some((kind, d)) = event_prefix(t) {
-                        if let Some(ev) = parse_event(kind, d, &event_fmt) {
+                        event_fmt = Some(split_format(f));
+                    } else if let Some((kind, d)) = event_prefix(line.trim_start()) {
+                        let fmt = event_fmt.clone().unwrap_or_else(|| {
+                            if d.len() >= 7 && d[..7].eq_ignore_ascii_case("marked=") {
+                                ssa_event_format()
+                            } else {
+                                default_event_format()
+                            }
+                        });
+                        if let Some(ev) = parse_event(kind, d, &fmt) {
                             script.events.push(ev);
                         }
                     }
@@ -316,9 +330,17 @@ impl Script {
                 script.order.push(need.into());
             }
         }
-        if !script.order.iter().any(|n| n == STYLES_V4P || n == STYLES_V4) {
+        if script.is_ssa {
+            for e in &mut script.events {
+                if let Some(r) = e.style.strip_prefix('*') {
+                    e.style = r.to_string();
+                }
+            }
+        }
+        if !saw_styles {
+            script.is_ssa = script.info_get("ScriptType").map(|v| v.trim().eq_ignore_ascii_case("v4.00")).unwrap_or(false);
             let pos = script.order.iter().position(|n| n == EVENTS).unwrap_or(script.order.len());
-            script.order.insert(pos, STYLES_V4P.into());
+            script.order.insert(pos, if script.is_ssa { STYLES_V4 } else { STYLES_V4P }.into());
         }
         script
     }
@@ -340,7 +362,11 @@ impl Script {
             match name.as_str() {
                 INFO => {
                     for (k, v) in &self.info {
-                        if k == ";" {
+                        if k.is_empty() {
+                            o.push_str(v);
+                        } else if self.is_ssa && k.eq_ignore_ascii_case("ScriptType") && v.trim().eq_ignore_ascii_case("v4.00+") {
+                            o.push_str("ScriptType: v4.00");
+                        } else if k == ";" {
                             o.push(';');
                             o.push_str(v);
                         } else {
@@ -351,11 +377,30 @@ impl Script {
                         o.push_str(nl);
                     }
                 }
+                STYLES_V4P | STYLES_V4 if self.is_ssa => {
+                    o.push_str("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding");
+                    o.push_str(nl);
+                    for s in &self.styles {
+                        o.push_str(&ssa_style_line(s));
+                        o.push_str(nl);
+                    }
+                }
                 STYLES_V4P | STYLES_V4 => {
                     o.push_str("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding");
                     o.push_str(nl);
                     for s in &self.styles {
                         o.push_str(&style_line(s));
+                        o.push_str(nl);
+                    }
+                }
+                EVENTS if self.is_ssa => {
+                    o.push_str("Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text");
+                    o.push_str(nl);
+                    for e in &self.events {
+                        let mut line = event_line(&Event { layer: 0, ..e.clone() });
+                        let at = line.find(' ').unwrap_or(0) + 1;
+                        line.insert_str(at, "Marked=");
+                        o.push_str(&line);
                         o.push_str(nl);
                     }
                 }
@@ -412,6 +457,39 @@ fn default_event_format() -> Vec<String> {
     "layer,start,end,style,name,marginl,marginr,marginv,effect,text".split(',').map(String::from).collect()
 }
 
+fn ssa_style_format() -> Vec<String> {
+    "name,fontname,fontsize,primarycolour,secondarycolour,tertiarycolour,backcolour,bold,italic,borderstyle,outline,shadow,alignment,marginl,marginr,marginv,alphalevel,encoding"
+        .split(',')
+        .map(String::from)
+        .collect()
+}
+
+fn ssa_event_format() -> Vec<String> {
+    "marked,start,end,style,name,marginl,marginr,marginv,effect,text".split(',').map(String::from).collect()
+}
+
+fn split_format(f: &str) -> Vec<String> {
+    f.split(',').map(|s| s.trim().to_ascii_lowercase()).collect()
+}
+
+/// SSA alignment (1-3 bottom, 5-7 top, 9-11 middle) to ASS numpad.
+fn ssa_align_to_ass(a: i32) -> i32 {
+    let col = ((a - 1).rem_euclid(4)).min(2) + 1;
+    if a & 4 != 0 {
+        6 + col
+    } else if a & 8 != 0 {
+        3 + col
+    } else {
+        col
+    }
+}
+
+fn ass_align_to_ssa(n: i32) -> i32 {
+    let n = n.clamp(1, 9);
+    let col = (n - 1) % 3 + 1;
+    col + [0, 8, 4][((n - 1) / 3) as usize]
+}
+
 fn parse_bool(s: &str) -> bool {
     let s = s.trim();
     s != "0" && !s.is_empty()
@@ -421,7 +499,7 @@ fn num<T: std::str::FromStr + Default>(s: &str) -> T {
     s.trim().parse().unwrap_or_default()
 }
 
-fn parse_style(data: &str, fmt: &[String]) -> Style {
+fn parse_style(data: &str, fmt: &[String], ssa: bool) -> Style {
     let parts: Vec<&str> = data.splitn(fmt.len().max(1), ',').collect();
     let mut st = Style::default();
     st.margin_t = 0;
@@ -433,7 +511,7 @@ fn parse_style(data: &str, fmt: &[String]) -> Style {
             None => continue,
         };
         match key.as_str() {
-            "name" => st.name = v.to_string(),
+            "name" => st.name = if ssa { v.strip_prefix('*').unwrap_or(v).to_string() } else { v.to_string() },
             "fontname" => st.fontname = v.to_string(),
             "fontsize" => st.fontsize = num(v),
             "primarycolour" => st.color1 = Color::parse(v).unwrap_or(st.color1),
@@ -451,7 +529,7 @@ fn parse_style(data: &str, fmt: &[String]) -> Style {
             "borderstyle" => st.borderstyle = num(v),
             "outline" => st.outline = num(v),
             "shadow" => st.shadow = num(v),
-            "alignment" => st.align = num(v),
+            "alignment" => st.align = if ssa { ssa_align_to_ass(num(v)) } else { num(v) },
             "marginl" => st.margin_l = num(v),
             "marginr" => st.margin_r = num(v),
             "marginv" => {
@@ -467,6 +545,9 @@ fn parse_style(data: &str, fmt: &[String]) -> Style {
         }
     }
     let _ = have_marginv;
+    if ssa && st.align == 0 {
+        st.align = 2;
+    }
     st
 }
 
@@ -517,6 +598,30 @@ fn style_line(s: &Style) -> String {
     )
 }
 
+fn ssa_style_line(s: &Style) -> String {
+    let dec = |c: &crate::color::Color| (c.r as u32 | (c.g as u32) << 8 | (c.b as u32) << 16).to_string();
+    format!(
+        "Style: {},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},0,{}",
+        s.name,
+        s.fontname,
+        fmt_num(s.fontsize),
+        dec(&s.color1),
+        dec(&s.color2),
+        dec(&s.color3),
+        dec(&s.color4),
+        b(s.bold),
+        b(s.italic),
+        s.borderstyle,
+        fmt_num(s.outline),
+        fmt_num(s.shadow),
+        ass_align_to_ssa(s.align),
+        s.margin_l,
+        s.margin_r,
+        s.margin_b,
+        s.encoding
+    )
+}
+
 fn parse_event(kind: EventKind, data: &str, fmt: &[String]) -> Option<Event> {
     let parts: Vec<&str> = data.splitn(fmt.len().max(1), ',').collect();
     let mut ev = Event { kind, ..Default::default() };
@@ -527,10 +632,13 @@ fn parse_event(kind: EventKind, data: &str, fmt: &[String]) -> Option<Event> {
             None => continue,
         };
         match key.as_str() {
-            "layer" | "marked" => ev.layer = v.trim().trim_start_matches("Marked=").parse().unwrap_or(0),
+            "layer" | "marked" => {
+                let v = v.trim();
+                ev.layer = strip_prefix_ci(v, "Marked=").unwrap_or(v).trim().parse().unwrap_or(0)
+            }
             "start" => ev.start = parse_time(v).unwrap_or(0),
             "end" => ev.end = parse_time(v).unwrap_or(0),
-            "style" => ev.style = v.trim().trim_start_matches('*').to_string(),
+            "style" => ev.style = v.trim().to_string(),
             "name" | "actor" => ev.actor = v.trim().to_string(),
             "marginl" => ev.margin_l = num(v),
             "marginr" => ev.margin_r = num(v),
@@ -603,5 +711,125 @@ mod tests {
     fn text_with_commas_and_missing_fields() {
         let s = Script::parse("[Events]\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,a,b,c\n");
         assert_eq!(s.events[0].text, "a,b,c");
+    }
+
+    const SSA: &str = "[Script Info]\r\nScriptType: v4.00\r\nTitle: Eski\r\n\r\n[V4 Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\r\nStyle: *Default,Arial,20,16777215,65535,0,0,-1,0,1,2,1,6,10,10,15,0,162\r\nStyle: Alt,Tahoma,18,255,255,0,0,0,0,1,2,1,9,10,10,15,0,0\r\n\r\n[Events]\r\nFormat: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\nDialogue: Marked=0,0:00:01.00,0:00:02.00,*Default,,0,0,0,,Şimdi, İyi mi?\r\nDialogue: Marked=0,0:00:03.00,0:00:04.00,Alt,Kim,0,0,0,,{\\an8}ğ\r\n";
+
+    #[test]
+    fn ssa_v4_read_write() {
+        let s = Script::parse(SSA);
+        assert!(s.is_ssa);
+        assert_eq!(s.styles[0].name, "Default");
+        assert_eq!(s.styles[0].align, 8); // SSA 6 = top center
+        assert_eq!(s.styles[1].align, 4); // SSA 9 = middle left
+        assert_eq!(s.styles[0].color1, Color::WHITE);
+        assert_eq!(s.styles[0].color2, Color::rgb(255, 255, 0));
+        assert_eq!(s.styles[1].color1, Color::rgb(255, 0, 0));
+        assert_eq!(s.events[0].style, "Default");
+        assert_eq!(s.events[0].text, "Şimdi, İyi mi?");
+        let out = s.to_ass();
+        assert!(out.contains("[V4 Styles]"));
+        assert!(out.contains("Format: Marked, Start"));
+        assert!(out.contains("Dialogue: Marked=0,0:00:01.00"));
+        assert!(out.contains("Style: Default,Arial,20,16777215,65535,0,0,-1,0,1,2,1,6,10,10,15,0,162"));
+        let s2 = Script::parse(&out);
+        assert!(s2.is_ssa);
+        assert_eq!(s.styles, s2.styles);
+        assert_eq!(s.events, s2.events);
+        assert_eq!(out, s2.to_ass());
+    }
+
+    #[test]
+    fn ssa_without_format_lines() {
+        let s = Script::parse("[V4 Styles]\nStyle: Default,Arial,20,16777215,65535,0,0,0,0,1,2,1,2,10,10,15,0,1\n[Events]\nDialogue: Marked=0,0:00:01.00,0:00:02.00,Default,,0,0,0,,x\n");
+        assert_eq!(s.styles[0].fontsize, 20.0);
+        assert_eq!(s.events[0].end, 2000);
+        // ASS with no formats at all
+        let s = Script::parse("[Events]\nDialogue: 1,0:00:01.00,0:00:02.00,Foo,Bar,1,2,3,fx,t\n");
+        assert_eq!((s.events[0].layer, s.events[0].margin_l, s.events[0].margin_t, s.events[0].effect.as_str()), (1, 1, 3, "fx"));
+        assert!(!s.is_ssa);
+        // ScriptType alone marks SSA
+        assert!(Script::parse("[Script Info]\nScriptType: v4.00\n[Events]\n").is_ssa);
+    }
+
+    #[test]
+    fn reordered_and_short_lines() {
+        let src = "[V4+ Styles]\nFormat: Fontname, Name, Alignment, PrimaryColour, Fontsize\nStyle: Verdana,Foo,8,&H000000FF,33\n[Events]\nFormat: Text, Start, End, Style\nDialogue: Hello, you,0:00:01.00,0:00:02.00,Foo\nDialogue: 0,0:00:03.00\n";
+        let s = Script::parse(src);
+        assert_eq!((s.styles[0].name.as_str(), s.styles[0].fontname.as_str(), s.styles[0].align, s.styles[0].fontsize), ("Foo", "Verdana", 8, 33.0));
+        assert_eq!(s.styles[0].color1, Color::rgb(255, 0, 0));
+        // text is first so splitn(4) leaves "Hello" as text; missing fields default
+        assert_eq!(s.events.len(), 2);
+        assert_eq!(s.events[0].text, "Hello");
+    }
+
+    #[test]
+    fn messy_lines_preserved() {
+        let src = "\u{feff}[Script Info]  \r\nTitle: A  \r\nstray junk line\r\n; note \n\r\n[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,trailing space  \r\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,two\rComment: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,{\\i1}c\n";
+        let s = Script::parse(src);
+        assert_eq!(s.events.len(), 3);
+        assert_eq!(s.events[0].text, "trailing space  ");
+        assert!(s.events[2].is_comment());
+        assert!(s.info.contains(&(String::new(), "stray junk line".to_string())));
+        let out = s.to_ass();
+        assert!(out.contains("stray junk line\r\n"));
+        assert_eq!(Script::parse(&out).events, s.events);
+    }
+
+    #[test]
+    fn duplicate_styles_and_events_before_styles() {
+        let src = "[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,A,,0,0,0,,x\n[V4+ Styles]\nStyle: A,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\nStyle: A,Arial,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n";
+        let s = Script::parse(src);
+        assert_eq!(s.styles.len(), 2);
+        assert_eq!(s.style("A").unwrap().fontsize, 20.0);
+        let out = s.to_ass();
+        assert!(out.find("[Events]").unwrap() < out.find("[V4+ Styles]").unwrap());
+        assert_eq!(Script::parse(&out).styles, s.styles);
+    }
+
+    /// Deterministic fuzz: odd generated documents must survive parse -> write -> parse -> write unchanged.
+    #[test]
+    fn fuzz_roundtrip() {
+        let mut seed = 99u64;
+        let mut rnd = move |n: u64| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        let texts = ["", " ", "a,b,,c", "{\\an8\\pos(1,2)}x", "ş ğ ı İ ö ü ç", "{", "}", "\\N\\N", "  lead", "trail  ", "Dialogue: x", "[Events]x", ";c", "a:b"];
+        for _ in 0..200 {
+            let mut doc = String::new();
+            if rnd(2) == 0 {
+                doc.push('\u{feff}');
+            }
+            let nl = ["\n", "\r\n"][rnd(2) as usize];
+            doc.push_str(&format!("[Script Info]{nl}Title: T{}{nl}", rnd(9)));
+            if rnd(3) == 0 {
+                doc.push_str(&format!("junk{nl}"));
+            }
+            let ssa = rnd(3) == 0;
+            if ssa {
+                doc.push_str(&format!("ScriptType: v4.00{nl}[V4 Styles]{nl}Style: S{},Arial,{},{},0,0,0,0,0,1,1,1,{},1,2,3,0,0{nl}", rnd(3), 10 + rnd(50), rnd(16777215), 1 + rnd(11) / 4 * 4 + rnd(3)));
+            } else {
+                doc.push_str(&format!("[V4+ Styles]{nl}Style: S{},Arial,{},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,-1,0,0,100,100,0,0,1,2,2,{},1,2,3,1{nl}", rnd(3), 10 + rnd(50), 1 + rnd(9)));
+            }
+            doc.push_str(&format!("[Events]{nl}"));
+            for _ in 0..rnd(6) {
+                let k = ["Dialogue", "Comment"][rnd(2) as usize];
+                let t = texts[rnd(texts.len() as u64) as usize];
+                let mk = if ssa { "Marked=0".to_string() } else { rnd(3).to_string() };
+                doc.push_str(&format!("{k}: {mk},0:00:{:02}.{:02},0:01:{:02}.{:02},S{},,{},{},{},fx,{t}{nl}", rnd(60), rnd(100), rnd(60), rnd(100), rnd(3), rnd(5), rnd(5), rnd(5)));
+            }
+            if rnd(2) == 0 {
+                doc.push_str(&format!("[Aegisub Extradata]{nl}Data: 0,k,e1#2C2{nl}"));
+            }
+            let a = Script::parse(&doc);
+            let o1 = a.to_ass();
+            let b = Script::parse(&o1);
+            assert_eq!(a.events, b.events, "{doc:?}");
+            assert_eq!(a.styles, b.styles, "{doc:?}");
+            assert_eq!(a.info, b.info, "{doc:?}");
+            assert_eq!(a.raw_sections, b.raw_sections, "{doc:?}");
+            assert_eq!(o1, b.to_ass(), "{doc:?}");
+        }
     }
 }
