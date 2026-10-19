@@ -269,6 +269,10 @@ impl App {
                     if let Some(w) = self.wave.as_mut() {
                         w.sel = None;
                     }
+                    // Aegisub-style: commit then move on to the next line
+                    if i + 1 < self.proj.script.events.len() {
+                        goto = Some(i + 1);
+                    }
                 }
             }
             if let Some(i) = goto {

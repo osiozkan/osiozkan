@@ -387,6 +387,39 @@ impl App {
                             });
                             self.bump();
                         }
+                        ui.separator();
+                        ui.label("Stil deposu");
+                        let store = subforge_app::settings::config_dir().join("style_storage.ass");
+                        if ui.button("Depoya kaydet").on_hover_text("Seçili stili ortak depoya ekler").clicked() {
+                            let mut sc = subforge_core::load_path(&store.to_string_lossy()).map(|x| x.0).unwrap_or_else(|_| {
+                                let mut s = subforge_core::Script::new();
+                                s.styles.clear();
+                                s
+                            });
+                            let st = self.proj.script.styles[self.style_sel].clone();
+                            subforge_core::tools::import_styles(&mut sc, &subforge_core::Script { styles: vec![st], ..subforge_core::Script::new() }, &[], true);
+                            let _ = std::fs::create_dir_all(subforge_app::settings::config_dir());
+                            let _ = subforge_core::save_path(&sc, &store.to_string_lossy());
+                            self.status = "Stil depoya kaydedildi".into();
+                        }
+                        ui.menu_button("Depodan getir", |ui| {
+                            match subforge_core::load_path(&store.to_string_lossy()) {
+                                Ok((sc, _)) if !sc.styles.is_empty() => {
+                                    for st in &sc.styles {
+                                        if ui.button(&st.name).clicked() {
+                                            let other = subforge_core::Script { styles: vec![st.clone()], ..subforge_core::Script::new() };
+                                            self.proj.edit("Import style", |s| subforge_core::tools::import_styles(s, &other, &[], true));
+                                            self.bump();
+                                            ui.close_menu();
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    ui.label("Depo boş");
+                                }
+                            }
+                        });
+                        ui.separator();
                         if ui.button("Yukarı taşı").clicked() && self.style_sel > 0 {
                             let i = self.style_sel;
                             self.proj.edit("Move style", |s| s.styles.swap(i, i - 1));

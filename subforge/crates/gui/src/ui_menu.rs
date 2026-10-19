@@ -201,6 +201,23 @@ impl App {
                     }
                 }
             });
+            ui.menu_button("Otomatik kayıttan kurtar", |ui| {
+                let dir = subforge_app::settings::config_dir().join("autosave");
+                let mut files: Vec<_> = std::fs::read_dir(&dir).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+                files.sort();
+                if files.is_empty() {
+                    ui.label("(otomatik kayıt yok)");
+                }
+                for f in files {
+                    let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    if ui.button(name).clicked() {
+                        self.open_path(&f.to_string_lossy());
+                        self.proj.path = None;
+                        self.proj.dirty = true;
+                        ui.close_menu();
+                    }
+                }
+            });
             ui.separator();
             if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() {
                 self.save();
