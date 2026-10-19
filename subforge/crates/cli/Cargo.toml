@@ -12,3 +12,4 @@ path = "src/main.rs"
 subforge-core = { path = "../core" }
 subforge-lua = { path = "../lua" }
 serde_json = "1"
+clap = { version = "4", features = ["derive"] }
