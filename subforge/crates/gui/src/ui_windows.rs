@@ -26,6 +26,10 @@ impl App {
         self.styles_window(ctx);
         self.qc_window(ctx);
         self.automation_window(ctx);
+        self.filters_window(ctx);
+        self.resample_window(ctx);
+        self.select_window(ctx);
+        self.fonts_window(ctx);
         self.props_window(ctx);
         self.settings_window(ctx);
         self.log_window(ctx);
@@ -627,6 +631,175 @@ impl App {
         if let Some((p, i, n)) = run {
             self.run_macro(p, i, n);
         }
+    }
+
+    fn filters_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.filters;
+        let mut go = false;
+        egui::Window::new("Dışa aktarma filtreleri").open(&mut open).default_size([520.0, 360.0]).show(ctx, |ui| {
+            ui.label("Seçili filtreler öncelik sırasıyla (yüksekten düşüğe) uygulanır; proje değişmez, sonuç dosyaya yazılır.");
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                let mut rows: Vec<(usize, usize, String, String)> = vec![];
+                for (si, s) in self.scripts.iter().enumerate() {
+                    for (fi, (n, d)) in s.filters.iter().enumerate() {
+                        rows.push((si, fi, n.clone(), d.clone()));
+                    }
+                }
+                if rows.is_empty() {
+                    ui.label("Yüklü dışa aktarma filtresi yok.");
+                }
+                for (si, fi, n, d) in rows {
+                    let mut on = self.filter_sel.contains(&(si, fi));
+                    if ui.checkbox(&mut on, &n).on_hover_text(&d).changed() {
+                        if on {
+                            self.filter_sel.insert((si, fi));
+                        } else {
+                            self.filter_sel.remove(&(si, fi));
+                        }
+                    }
+                }
+            });
+            if ui.add_enabled(!self.filter_sel.is_empty() && self.run.is_none(), egui::Button::new("Dışa aktar…")).clicked() {
+                go = true;
+            }
+        });
+        self.win.filters = open;
+        if go {
+            if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).set_file_name("export.ass").save_file() {
+                let items: Vec<(std::path::PathBuf, usize)> = {
+                    let mut v: Vec<(usize, usize)> = self.filter_sel.iter().copied().collect();
+                    let prio = |&(si, fi): &(usize, usize)| self.scripts.get(si).and_then(|s| s.filter_prio.get(fi)).copied().unwrap_or(0);
+                    v.sort_by_key(|k| (std::cmp::Reverse(prio(k)), k.0, k.1));
+                    v.into_iter().filter_map(|(si, fi)| self.scripts.get(si).map(|s| (s.path.clone(), fi))).collect()
+                };
+                let ctx = self.run_context();
+                let handle = subforge_app::automation::spawn_filters(items, self.proj.script.clone(), ctx);
+                self.run = Some(crate::state::RunState { export_to: Some(p.to_string_lossy().to_string()), handle, title: "Dışa aktarma filtreleri".into(), progress: None, task: String::new(), dialog: None, sel_before: vec![] });
+            }
+        }
+    }
+
+    fn resample_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.resample;
+        egui::Window::new("Çözünürlüğü yeniden örnekle").open(&mut open).resizable(false).show(ctx, |ui| {
+            let (ox, oy) = self.proj.script.play_res();
+            ui.label(format!("Şimdiki çözünürlük: {ox}×{oy}"));
+            ui.horizontal(|ui| {
+                ui.label("Yeni");
+                ui.add(egui::DragValue::new(&mut self.rs.0).range(16..=16384));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut self.rs.1).range(16..=16384));
+                if let Some(v) = &self.video {
+                    if ui.button("Videoya eşitle").clicked() {
+                        self.rs.0 = v.info.width;
+                        self.rs.1 = v.info.height;
+                    }
+                }
+            });
+            ui.checkbox(&mut self.rs.2, "Yazı boyutu, kenar, gölge ve aralıkları ölçekle");
+            ui.checkbox(&mut self.rs.3, "En-boy oranı değişimini ortala (4:3 → 16:9 gibi)");
+            if ui.button("Uygula").clicked() {
+                let r = subforge_core::resample::Resample { new_x: self.rs.0, new_y: self.rs.1, scale_sizes: self.rs.2, aspect_shift: self.rs.3 };
+                let n = self.proj.edit("Resample resolution", |s| subforge_core::resample::resample(s, r));
+                self.bump();
+                self.set_status(format!("{n} satırın etiketleri ölçeklendi"));
+            }
+        });
+        self.win.resample = open;
+    }
+
+    fn select_window(&mut self, ctx: &egui::Context) {
+        use subforge_app::search::{select_lines, SelectMode};
+        let mut open = self.win.select;
+        let mut go = false;
+        egui::Window::new("Satırları seç").open(&mut open).resizable(false).show(ctx, |ui| {
+            let o = &mut self.sel_opts;
+            ui.horizontal(|ui| {
+                ui.label("Ara");
+                ui.text_edit_singleline(&mut o.query);
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut o.in_text, "Metin");
+                ui.checkbox(&mut o.in_actor, "Konuşmacı");
+                ui.checkbox(&mut o.in_style, "Stil");
+                ui.checkbox(&mut o.in_effect, "Efekt");
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut o.regex, "Regex");
+                ui.checkbox(&mut o.match_case, "Büyük/küçük harf");
+                ui.checkbox(&mut o.invert, "Eşleşmeyenler");
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut o.only_dialogue, "Yalnızca diyalog");
+                ui.checkbox(&mut o.only_comments, "Yalnızca yorum");
+            });
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut o.mode, SelectMode::Replace, "Yeni seçim");
+                ui.radio_value(&mut o.mode, SelectMode::Add, "Ekle");
+                ui.radio_value(&mut o.mode, SelectMode::Subtract, "Çıkar");
+                ui.radio_value(&mut o.mode, SelectMode::Intersect, "Kesişim");
+            });
+            if ui.button("Seç").clicked() {
+                go = true;
+            }
+        });
+        self.win.select = open;
+        if go {
+            let cur = self.selected_vec();
+            match select_lines(&self.proj.script, &self.sel_opts, &cur) {
+                Ok(v) => {
+                    self.set_status(format!("{} satır seçildi", v.len()));
+                    if let Some(&f) = v.first() {
+                        self.sel = v.iter().copied().collect();
+                        self.active = Some(f);
+                        self.scroll_to = Some(f);
+                    } else {
+                        self.sel.clear();
+                    }
+                }
+                Err(e) => self.set_status(e),
+            }
+        }
+    }
+
+    fn fonts_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.fonts;
+        egui::Window::new("Yazı tipi toplayıcı").open(&mut open).default_size([520.0, 360.0]).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Yeniden tara").clicked() {
+                    self.font_list = subforge_app::fonts::resolve(&self.proj.script, &[]);
+                }
+                let missing = self.font_list.iter().filter(|f| f.path.is_none()).count();
+                ui.label(format!("{} yazı tipi, {} eksik", self.font_list.len(), missing));
+                if ui.add_enabled(!self.font_list.is_empty(), egui::Button::new("Klasöre kopyala…")).clicked() {
+                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                        match subforge_app::fonts::collect_to(&self.font_list, &d) {
+                            Ok((n, miss)) => self.set_status(format!("{n} yazı tipi dosyası kopyalandı, eksik: {}", if miss.is_empty() { "yok".into() } else { miss.join(", ") })),
+                            Err(e) => self.set_status(format!("Kopyalanamadı: {e}")),
+                        }
+                    }
+                }
+            });
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for f in &self.font_list {
+                    ui.horizontal(|ui| {
+                        let style = format!("{}{}", if f.key.bold { " Kalın" } else { "" }, if f.key.italic { " İtalik" } else { "" });
+                        match &f.path {
+                            Some(p) => {
+                                ui.colored_label(theme::OK, "var");
+                                ui.label(format!("{}{style}", f.key.family));
+                                ui.label(RichText::new(p.display().to_string()).weak().small());
+                            }
+                            None => {
+                                ui.colored_label(theme::ERR, "YOK");
+                                ui.label(format!("{}{style}", f.key.family));
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        self.win.fonts = open;
     }
 
     fn props_window(&mut self, ctx: &egui::Context) {

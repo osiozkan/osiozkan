@@ -3053,6 +3053,7 @@ name = "subforge-app"
 version = "0.1.0"
 dependencies = [
  "fancy-regex",
+ "fontdb",
  "serde",
  "serde_json",
  "subforge-core",

@@ -184,3 +184,76 @@ mod tests {
         assert_eq!(s.events[2].text, "hell0");
     }
 }
+
+// ---------------------------------------------------------------- select lines
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectMode {
+    Replace,
+    Add,
+    Subtract,
+    Intersect,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectOpts {
+    pub query: String,
+    pub regex: bool,
+    pub match_case: bool,
+    pub in_text: bool,
+    pub in_actor: bool,
+    pub in_style: bool,
+    pub in_effect: bool,
+    pub only_dialogue: bool,
+    pub only_comments: bool,
+    pub invert: bool,
+    pub mode: SelectMode,
+}
+
+impl Default for SelectOpts {
+    fn default() -> Self {
+        SelectOpts { query: String::new(), regex: false, match_case: false, in_text: true, in_actor: false, in_style: false, in_effect: false, only_dialogue: false, only_comments: false, invert: false, mode: SelectMode::Replace }
+    }
+}
+
+/// Compute the new selection (event indices) according to `o` applied to `current`.
+pub fn select_lines(script: &Script, o: &SelectOpts, current: &[usize]) -> Result<Vec<usize>, String> {
+    let so = SearchOpts { query: o.query.clone(), regex: o.regex, match_case: o.match_case, in_text: o.in_text, in_actor: o.in_actor, in_style: o.in_style, in_effect: o.in_effect, ..Default::default() };
+    let matcher = if o.query.is_empty() { None } else { Some(Matcher::new(&so)?) };
+    let hits: Vec<usize> = script
+        .events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| !(o.only_dialogue && e.is_comment()) && !(o.only_comments && !e.is_comment()))
+        .filter(|(_, e)| match &matcher {
+            None => true,
+            Some(m) => fields(e, &so).iter().any(|f| m.is_match(f)) != o.invert,
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let cur: std::collections::BTreeSet<usize> = current.iter().copied().collect();
+    let hit_set: std::collections::BTreeSet<usize> = hits.into_iter().collect();
+    let out: std::collections::BTreeSet<usize> = match o.mode {
+        SelectMode::Replace => hit_set,
+        SelectMode::Add => cur.union(&hit_set).copied().collect(),
+        SelectMode::Subtract => cur.difference(&hit_set).copied().collect(),
+        SelectMode::Intersect => cur.intersection(&hit_set).copied().collect(),
+    };
+    Ok(out.into_iter().collect())
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+    #[test]
+    fn select_modes() {
+        let mut s = Script::new();
+        s.events = vec![Event::new(0, 1, "A", "foo"), Event::new(0, 1, "B", "foo bar"), Event::new(0, 1, "A", "baz")];
+        let o = SelectOpts { query: "foo".into(), ..Default::default() };
+        assert_eq!(select_lines(&s, &o, &[]).unwrap(), vec![0, 1]);
+        let o2 = SelectOpts { query: "A".into(), in_text: false, in_style: true, match_case: true, mode: SelectMode::Intersect, ..Default::default() };
+        assert_eq!(select_lines(&s, &o2, &[0, 1]).unwrap(), vec![0]);
+        let o3 = SelectOpts { query: "foo".into(), invert: true, ..Default::default() };
+        assert_eq!(select_lines(&s, &o3, &[]).unwrap(), vec![2]);
+    }
+}

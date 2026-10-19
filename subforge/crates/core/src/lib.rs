@@ -3,6 +3,7 @@ pub mod ass;
 pub mod color;
 pub mod encoding;
 pub mod qc;
+pub mod resample;
 pub mod srt;
 pub mod tags;
 pub mod time;

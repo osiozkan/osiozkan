@@ -210,6 +210,10 @@ impl App {
                 self.save_as();
                 ui.close_menu();
             }
+            if ui.button("Filtrelerle dışa aktar…").clicked() {
+                self.win.filters = true;
+                ui.close_menu();
+            }
             ui.menu_button("Dışa aktar", |ui| {
                 if ui.button("SRT…").clicked() {
                     self.export("srt");
@@ -290,6 +294,10 @@ impl App {
                 self.win.find = true;
                 ui.close_menu();
             }
+            if ui.button("Satırları seç…").clicked() {
+                self.win.select = true;
+                ui.close_menu();
+            }
         });
         ui.menu_button("Zamanlama", |ui| {
             if ui.button("Kaydır…").clicked() {
@@ -344,6 +352,13 @@ impl App {
                 }
             }
             ui.separator();
+            if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
+                let (x, y) = self.proj.script.play_res();
+                self.rs.0 = x;
+                self.rs.1 = y;
+                self.win.resample = true;
+                ui.close_menu();
+            }
             if ui.button("Stil yöneticisi…").clicked() {
                 self.win.styles = true;
                 ui.close_menu();
@@ -382,6 +397,11 @@ impl App {
         ui.menu_button("Araçlar", |ui| {
             if ui.button("Kalite kontrol…").clicked() {
                 self.win.qc = true;
+                ui.close_menu();
+            }
+            if ui.button("Yazı tipi toplayıcı…").clicked() {
+                self.font_list = subforge_app::fonts::resolve(&self.proj.script, &[]);
+                self.win.fonts = true;
                 ui.close_menu();
             }
             ui.menu_button("Büyük/küçük harf (Türkçe)", |ui| {
@@ -589,14 +609,8 @@ impl App {
         self.set_status(format!("{changed} satır değişti"));
     }
 
-    pub fn run_macro(&mut self, path: std::path::PathBuf, idx: usize, name: String) {
-        if self.run.is_some() {
-            self.set_status("Başka bir makro çalışıyor");
-            return;
-        }
-        let sel = self.selected_vec();
-        let active = self.active.unwrap_or(0);
-        let ctx = RunContext {
+    pub fn run_context(&self) -> RunContext {
+        RunContext {
             fps: self.video.as_ref().and_then(|v| v.info.fps),
             video_size: self.video.as_ref().map(|v| (v.info.width, v.info.height)).or(Some(self.proj.script.play_res())),
             script_path: self.proj.path.clone(),
@@ -604,10 +618,20 @@ impl App {
             audio_path: self.wave.as_ref().map(|w| w.path.clone()),
             keyframes: self.video.as_ref().map(|v| v.keyframes.clone()).unwrap_or_default(),
             include_dirs: self.settings.include_dirs(),
-        };
+        }
+    }
+
+    pub fn run_macro(&mut self, path: std::path::PathBuf, idx: usize, name: String) {
+        if self.run.is_some() {
+            self.set_status("Başka bir makro çalışıyor");
+            return;
+        }
+        let sel = self.selected_vec();
+        let active = self.active.unwrap_or(0);
+        let ctx = self.run_context();
         let handle = automation::spawn_macro(path, idx, self.proj.script.clone(), sel.clone(), active, ctx);
         self.log_line(format!("▶ {name}"));
-        self.run = Some(crate::state::RunState { handle, title: name, progress: None, task: String::new(), dialog: None, sel_before: sel });
+        self.run = Some(crate::state::RunState { export_to: None, handle, title: name, progress: None, task: String::new(), dialog: None, sel_before: sel });
     }
 
     fn pump_run(&mut self, ctx: &egui::Context) {
@@ -640,8 +664,17 @@ impl App {
             ctx.request_repaint();
         }
         if let Some(r) = finished {
-            let name = self.run.take().map(|r| r.title).unwrap_or_default();
+            let finished_run = self.run.take();
+            let name = finished_run.as_ref().map(|r| r.title.clone()).unwrap_or_default();
+            let export_to = finished_run.and_then(|r| r.export_to);
             match r {
+                Ok(res) if export_to.is_some() => {
+                    let path = export_to.unwrap();
+                    match subforge_core::save_path(&res.script, &path) {
+                        Ok(()) => self.set_status(format!("Filtrelerle dışa aktarıldı: {path}")),
+                        Err(e) => self.set_status(format!("Dışa aktarma hatası: {e}")),
+                    }
+                }
                 Ok(res) => {
                     let sel = automation::selection_to_events(&res);
                     let new_script = res.script;

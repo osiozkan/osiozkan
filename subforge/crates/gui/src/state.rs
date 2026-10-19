@@ -18,6 +18,7 @@ pub struct LuaDialogState {
 }
 
 pub struct RunState {
+    pub export_to: Option<String>,
     pub handle: RunHandle,
     pub title: String,
     pub progress: Option<f64>,
@@ -38,6 +39,10 @@ pub struct Windows {
     pub about: bool,
     pub log: bool,
     pub retime: bool,
+    pub filters: bool,
+    pub resample: bool,
+    pub select: bool,
+    pub fonts: bool,
 }
 
 pub struct ShiftState {
@@ -134,6 +139,10 @@ pub struct App {
     pub ref_path: Option<String>,
     pub ref_texts: Vec<String>,
     pub ref_version: u64,
+    pub filter_sel: std::collections::HashSet<(usize, usize)>,
+    pub rs: (i32, i32, bool, bool),
+    pub sel_opts: subforge_app::search::SelectOpts,
+    pub font_list: Vec<subforge_app::fonts::FontUse>,
     pub style_prev: Option<(u64, TextureHandle)>,
     pub style_prev_rx: Option<(u64, Receiver<Result<Frame, String>>)>,
 }
@@ -184,6 +193,10 @@ impl App {
             ref_path: None,
             ref_texts: vec![],
             ref_version: 0,
+            filter_sel: Default::default(),
+            rs: (1920, 1080, true, false),
+            sel_opts: Default::default(),
+            font_list: vec![],
             style_prev: None,
             style_prev_rx: None,
             settings,
@@ -204,6 +217,9 @@ impl App {
                     "settings" => app.win.settings = true,
                     "about" => app.win.about = true,
                     "retime" => app.win.retime = true,
+                    "resample" => app.win.resample = true,
+                    "select" => app.win.select = true,
+                    "fonts" => app.win.fonts = true,
                     _ => {}
                 }
             }

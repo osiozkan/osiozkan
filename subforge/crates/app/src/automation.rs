@@ -17,6 +17,7 @@ pub struct ScriptEntry {
     pub description: String,
     pub macros: Vec<(String, String)>,
     pub filters: Vec<(String, String)>,
+    pub filter_prio: Vec<i64>,
     pub error: Option<String>,
 }
 
@@ -62,6 +63,7 @@ pub fn inspect_with(path: &Path, include: &[PathBuf]) -> ScriptEntry {
         description: s.description.clone(),
         macros: s.macros.iter().map(|m| (m.name.clone(), m.description.clone())).collect(),
         filters: s.filters.iter().map(|f| (f.name.clone(), f.description.clone())).collect(),
+        filter_prio: s.filters.iter().map(|f| f.priority).collect(),
         error: s.load_error.clone(),
     }
 }
@@ -189,6 +191,47 @@ pub fn spawn_macro(script_path: PathBuf, macro_idx: usize, script: Script, sel_e
     RunHandle { rx, cancel }
 }
 
+/// Apply export filters in order (each `(script path, filter index)`), showing any config
+/// dialogs through the host. Result is the filtered copy of `script`.
+pub fn spawn_filters(items: Vec<(PathBuf, usize)>, script: Script, ctx: RunContext) -> RunHandle {
+    let (tx, rx) = channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let c2 = cancel.clone();
+    thread::spawn(move || {
+        let host: SharedHost = Rc::new(RefCell::new(ChannelHost {
+            tx: tx.clone(),
+            cancel: c2,
+            fps: ctx.fps,
+            video_size: ctx.video_size,
+            script_path: ctx.script_path,
+            video_path: ctx.video_path,
+            audio_path: ctx.audio_path,
+            keyframes: ctx.keyframes,
+        }));
+        let result = (|| {
+            let doc = Rc::new(RefCell::new(Doc::from_script(&script)));
+            for (path, idx) in &items {
+                let s = LuaScript::load(path, host.clone(), &ctx.include_dirs);
+                if let Some(e) = &s.load_error {
+                    return Err(ScriptError::Failed(format!("failed to load {}: {e}", path.display())));
+                }
+                let mut cfg = std::collections::HashMap::new();
+                if let Some(d) = s.filter_dialog(*idx, doc.clone())? {
+                    match host.borrow_mut().dialog(&d) {
+                        Some(r) => cfg = r.values,
+                        None => return Err(ScriptError::Cancelled),
+                    }
+                }
+                s.run_filter(*idx, doc.clone(), cfg)?;
+            }
+            let out = doc.borrow().to_script();
+            Ok(RunResult { script: out, outcome: Outcome::default(), event_offset: 0 })
+        })();
+        let _ = tx.send(RunMsg::Done(result));
+    });
+    RunHandle { rx, cancel }
+}
+
 /// Convert a macro's returned flat selection into 0-based event indices.
 pub fn selection_to_events(r: &RunResult) -> Option<Vec<usize>> {
     r.outcome.selection.as_ref().map(|sel| sel.iter().filter_map(|&f| f.checked_sub(1)?.checked_sub(r.event_offset)).filter(|&e| e < r.script.events.len()).collect())
@@ -198,6 +241,43 @@ pub fn selection_to_events(r: &RunResult) -> Option<Vec<usize>> {
 mod tests {
     use super::*;
     use subforge_core::ass::Event;
+
+    #[test]
+    fn export_filter_with_config_dialog() {
+        let dir = std::env::temp_dir().join(format!("sf-app-f-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("f.lua");
+        std::fs::write(
+            &p,
+            r#"script_name="F"
+aegisub.register_filter("Suffix", "adds suffix", 5, function(subs, cfg)
+  for i = 1, #subs do local l = subs[i]; if l.class == "dialogue" then l.text = l.text .. cfg.suffix; subs[i] = l end end
+end, function(subs, cfg) return {{class="edit", name="suffix", value="!"}} end)"#,
+        )
+        .unwrap();
+        let e = inspect(&p);
+        assert_eq!(e.filters.len(), 1);
+        assert_eq!(e.filter_prio, vec![5]);
+        let mut s = Script::new();
+        s.events.push(Event::new(0, 1000, "Default", "x"));
+        let h = spawn_filters(vec![(p, 0)], s, RunContext { fps: None, video_size: None, script_path: None, video_path: None, audio_path: None, keyframes: vec![], include_dirs: vec![] });
+        let mut out = None;
+        for m in h.rx.iter() {
+            match m {
+                RunMsg::Dialog(_, tx) => {
+                    let mut vals = std::collections::HashMap::new();
+                    vals.insert("suffix".to_string(), subforge_lua::DialogValue::Str("?!".into()));
+                    tx.send(Some(DialogResult { button: None, values: vals })).unwrap();
+                }
+                RunMsg::Done(r) => {
+                    out = Some(r);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(out.unwrap().unwrap().script.events[0].text, "x?!");
+    }
 
     #[test]
     fn run_on_thread_with_dialog() {
