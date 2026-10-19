@@ -35,6 +35,7 @@ impl App {
         self.log_window(ctx);
         self.about_window(ctx);
         self.keys_window(ctx);
+        self.kara_window(ctx);
     }
 
     // ---------------------------------------------------------------- Lua dialog
@@ -875,6 +876,98 @@ impl App {
             });
         });
         self.win.log = open;
+    }
+
+    fn kara_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.win.kara;
+        let Some(idx) = self.active.filter(|&i| i < self.proj.script.events.len()) else {
+            self.win.kara = false;
+            return;
+        };
+        if self.kara_for != Some((idx, self.version)) {
+            self.kara_syls = subforge_core::tools::kara_parse(&self.proj.script.events[idx].text);
+            self.kara_sel = self.kara_sel.min(self.kara_syls.len().saturating_sub(1));
+            self.kara_for = Some((idx, self.version));
+        }
+        let line_cs = (self.proj.script.events[idx].end - self.proj.script.events[idx].start) / 10;
+        let mut apply = false;
+        egui::Window::new(format!("Karaoke düzenleyici — satır {}", idx + 1)).open(&mut open).default_size([620.0, 380.0]).show(ctx, |ui| {
+            let total: i64 = self.kara_syls.iter().map(|s| s.0).sum();
+            ui.horizontal(|ui| {
+                ui.label(format!("Toplam {total} cs / satır {line_cs} cs"));
+                if ui.button("Satır süresine ölçekle").clicked() && total > 0 {
+                    let text = subforge_core::tools::kara_build(&self.kara_syls);
+                    let scaled = subforge_core::tools::kara_scale_to(&text, line_cs);
+                    self.kara_syls = subforge_core::tools::kara_parse(&scaled);
+                }
+                if ui.button("Eşit dağıt").clicked() && !self.kara_syls.is_empty() {
+                    let n = self.kara_syls.len() as i64;
+                    let per = (line_cs / n).max(1);
+                    for s in self.kara_syls.iter_mut() {
+                        s.0 = per;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let n = self.kara_syls.len();
+                if ui.add_enabled(n > 0, egui::Button::new("Seçiliyi ikiye böl")).clicked() {
+                    let sel = self.kara_sel.min(n - 1);
+                    let (d, k, o, t) = self.kara_syls[sel].clone();
+                    let chars: Vec<char> = t.chars().collect();
+                    if chars.len() > 1 {
+                        let h = chars.len() / 2;
+                        let (a, b): (String, String) = (chars[..h].iter().collect(), chars[h..].iter().collect());
+                        self.kara_syls[sel] = (d / 2, k.clone(), o, a);
+                        self.kara_syls.insert(sel + 1, (d - d / 2, k, String::new(), b));
+                    }
+                }
+                if ui.add_enabled(n > 1 && self.kara_sel + 1 < n, egui::Button::new("Sonrakiyle birleştir")).clicked() {
+                    let sel = self.kara_sel;
+                    let next = self.kara_syls.remove(sel + 1);
+                    self.kara_syls[sel].0 += next.0;
+                    self.kara_syls[sel].3.push_str(&next.3);
+                }
+                if ui.add_enabled(n > 0, egui::Button::new("Sil")).clicked() {
+                    self.kara_syls.remove(self.kara_sel.min(n - 1));
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                egui::Grid::new("kara_grid").num_columns(5).striped(true).show(ui, |ui| {
+                    ui.label("#");
+                    ui.label("cs");
+                    ui.label("tür");
+                    ui.label("metin");
+                    ui.label("ek etiket");
+                    ui.end_row();
+                    for (i, s) in self.kara_syls.iter_mut().enumerate() {
+                        if ui.selectable_label(self.kara_sel == i, format!("{}", i + 1)).clicked() {
+                            self.kara_sel = i;
+                        }
+                        ui.add(egui::DragValue::new(&mut s.0).range(0..=100000));
+                        egui::ComboBox::from_id_salt(format!("kk{i}")).selected_text(s.1.as_str()).width(50.0).show_ui(ui, |ui| {
+                            for k in ["k", "kf", "ko"] {
+                                ui.selectable_value(&mut s.1, k.to_string(), k);
+                            }
+                        });
+                        ui.add(egui::TextEdit::singleline(&mut s.3).desired_width(160.0));
+                        ui.add(egui::TextEdit::singleline(&mut s.2).desired_width(100.0));
+                        ui.end_row();
+                    }
+                });
+            });
+            ui.separator();
+            if ui.button("Satıra uygula").clicked() {
+                apply = true;
+            }
+        });
+        self.win.kara = open;
+        if apply {
+            let text = subforge_core::tools::kara_build(&self.kara_syls);
+            self.proj.edit("Karaoke edit", |s| s.events[idx].text = text);
+            self.bump();
+            self.kara_for = None;
+        }
     }
 
     fn keys_window(&mut self, ctx: &egui::Context) {

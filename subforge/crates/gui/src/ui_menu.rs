@@ -440,6 +440,11 @@ impl App {
                 }
             });
             ui.menu_button("Karaoke", |ui| {
+                if ui.button("Karaoke düzenleyici…").clicked() {
+                    self.win.kara = true;
+                    self.kara_for = None;
+                    ui.close_menu();
+                }
                 if ui.button("Karakter başına \\k ver (satır süresine yay)").clicked() {
                     let idx = self.selected_vec();
                     self.proj.edit("Kara split chars", |s| {

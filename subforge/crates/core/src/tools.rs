@@ -307,6 +307,20 @@ pub fn kara_total_cs(text: &str) -> i64 {
     tags::syllables(text).iter().map(|s| s.duration_cs).sum()
 }
 
+/// Rebuild line text from syllables `(duration_cs, kind, other_tags, text)`.
+pub fn kara_build(syls: &[(i64, String, String, String)]) -> String {
+    let mut out = String::new();
+    for (d, kind, other, text) in syls {
+        out.push_str(&format!("{{\\{kind}{d}{other}}}{text}"));
+    }
+    out
+}
+
+/// Parse into editable syllables `(duration_cs, kind, other_tags, text)`.
+pub fn kara_parse(text: &str) -> Vec<(i64, String, String, String)> {
+    tags::syllables(text).into_iter().map(|s| (s.duration_cs, s.kind, s.other_tags, s.text)).collect()
+}
+
 /// Rescale all `\k` values so they sum to `target_cs` (keeps proportions, fixes rounding drift).
 pub fn kara_scale_to(text: &str, target_cs: i64) -> String {
     let total = kara_total_cs(text);
@@ -423,6 +437,15 @@ mod tests {
         assert_eq!(remove_tags("{\\fscx120}x", &["fscx"]), "x");
         assert_eq!(merge_blocks("{\\b1}{\\i1}x"), "{\\b1\\i1}x");
         assert_eq!(merge_blocks("{\\k10}a{\\k10}b"), "{\\k10}a{\\k10}b");
+    }
+
+    #[test]
+    fn kara_parse_build_roundtrip() {
+        let t = "{\\k20\\b1}ka{\\kf30}ra{\\ko50}oke";
+        let p = kara_parse(t);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0], (20, "k".to_string(), "\\b1".to_string(), "ka".to_string()));
+        assert_eq!(kara_build(&p), t);
     }
 
     #[test]
