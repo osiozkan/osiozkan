@@ -346,3 +346,16 @@ mod tests {
         assert_eq!((f.width, f.height), (160, 90));
     }
 }
+
+/// Copy of `script` containing only the events visible within `[from, to)` — rendering a
+/// preview frame of a 200k-line karaoke script then costs the same as a small one.
+pub fn preview_script(script: &subforge_core::Script, from: i64, to: i64) -> subforge_core::Script {
+    subforge_core::Script {
+        info: script.info.clone(),
+        styles: script.styles.clone(),
+        events: script.events.iter().filter(|e| !e.is_comment() && e.end > from && e.start < to).cloned().collect(),
+        raw_sections: script.raw_sections.clone(),
+        order: script.order.clone(),
+        is_ssa: script.is_ssa,
+    }
+}

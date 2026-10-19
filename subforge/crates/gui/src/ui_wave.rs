@@ -58,7 +58,7 @@ impl App {
             while ms_to_x(t) < rect.right() {
                 let x = ms_to_x(t);
                 if x >= rect.left() {
-                    painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 8.0)], Stroke::new(1.0, Color32::from_gray(90)));
+                    painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 8.0)], Stroke::new(1.0_f32, Color32::from_gray(90)));
                     painter.text(Pos2::new(x + 3.0, rect.top() + 1.0), egui::Align2::LEFT_TOP, format_ass(t), egui::FontId::monospace(10.0), Color32::from_gray(130));
                 }
                 t += step;
@@ -75,7 +75,7 @@ impl App {
                 let selected = self.sel.contains(&i);
                 let fill = if active { theme::ACCENT.linear_multiply(0.55) } else if selected { theme::ACCENT.linear_multiply(0.3) } else { Color32::from_rgb(70, 90, 140).linear_multiply(0.6) };
                 painter.rect_filled(r, 2.0, fill);
-                painter.rect_stroke(r, 2.0, Stroke::new(1.0, if active { theme::ACCENT } else { Color32::from_gray(80) }), egui::StrokeKind::Inside);
+                painter.rect_stroke(r, 2.0, Stroke::new(1.0_f32, if active { theme::ACCENT } else { Color32::from_gray(80) }), egui::StrokeKind::Inside);
                 if r.width() > 30.0 {
                     painter.text(r.left_center() + egui::vec2(3.0, 0.0), egui::Align2::LEFT_CENTER, subforge_core::tags::visible_text(&e.text).replace('\n', " "), egui::FontId::proportional(11.0), Color32::WHITE);
                 }
@@ -102,7 +102,7 @@ impl App {
                             if mn <= mx {
                                 let y1 = cy - (mx as f32 / 32768.0).min(1.0) * amp_h;
                                 let y2 = cy - (mn as f32 / 32768.0).max(-1.0) * amp_h;
-                                painter.line_segment([Pos2::new(x, y1), Pos2::new(x, y2.max(y1 + 1.0))], Stroke::new(1.0, Color32::from_rgb(80, 170, 200)));
+                                painter.line_segment([Pos2::new(x, y1), Pos2::new(x, y2.max(y1 + 1.0))], Stroke::new(1.0_f32, Color32::from_rgb(80, 170, 200)));
                             }
                         }
                         x += 1.0;
@@ -115,7 +115,7 @@ impl App {
                 for &k in &v.keyframes {
                     let x = ms_to_x(k);
                     if x >= rect.left() && x <= rect.right() {
-                        painter.line_segment([Pos2::new(x, rect.top() + 10.0), Pos2::new(x, rect.bottom())], Stroke::new(1.0, Color32::from_rgba_unmultiplied(120, 220, 120, 60)));
+                        painter.line_segment([Pos2::new(x, rect.top() + 10.0), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(120, 220, 120, 60)));
                     }
                 }
             }
@@ -128,7 +128,7 @@ impl App {
             // video cursor
             if let Some(v) = &self.video {
                 let x = ms_to_x(v.want_ms);
-                painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0, Color32::from_rgb(235, 90, 90)));
+                painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, Color32::from_rgb(235, 90, 90)));
             }
 
             // active line handles
@@ -137,7 +137,7 @@ impl App {
             if let Some(i) = act {
                 let e = &self.proj.script.events[i];
                 for x in [ms_to_x(e.start), ms_to_x(e.end)] {
-                    painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(2.0, theme::ACCENT));
+                    painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(2.0_f32, theme::ACCENT));
                 }
             }
 

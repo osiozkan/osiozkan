@@ -24,7 +24,6 @@ pub struct RunState {
     pub progress: Option<f64>,
     pub task: String,
     pub dialog: Option<LuaDialogState>,
-    pub sel_before: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -136,7 +135,6 @@ pub struct App {
     pub show_video: bool,
     pub show_wave: bool,
     pub wave_h: f32,
-    pub split_pos: usize,
     pub text_focus: bool,
     pub tmp_ass: PathBuf,
     pub reference: Option<Vec<(i64, i64, String)>>,
@@ -191,7 +189,6 @@ impl App {
             show_video: true,
             show_wave: true,
             wave_h: 230.0,
-            split_pos: 0,
             text_focus: false,
             tmp_ass: std::env::temp_dir().join(format!("subforge-preview-{}.ass", std::process::id())),
             reference: None,
@@ -369,6 +366,9 @@ impl App {
                         self.load_video(vp);
                     }
                 }
+                if let Some(a) = self.proj.script.garbage_get("Active Line").and_then(|a| a.parse::<usize>().ok()) {
+                    self.goto_line(a);
+                }
                 if let Some(v) = self.proj.script.garbage_get("Audio File") {
                     let ap = self.resolve_media(&v, path);
                     if ap.exists() && self.wave.is_none() {
@@ -389,10 +389,31 @@ impl App {
         }
     }
 
+    /// Remember media and position in the script like Aegisub's Project Garbage.
+    pub fn sync_garbage(&mut self, script_path: Option<&std::path::Path>) {
+        let rel = |p: &std::path::Path| -> String {
+            script_path.and_then(|sp| sp.parent()).and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
+        };
+        if let Some(v) = &self.video {
+            let (name, pos) = (rel(&v.path), (v.want_ms as f64 / 1000.0 * v.info.fps.unwrap_or(24.0)) as i64);
+            self.proj.script.garbage_set("Video File", &name);
+            self.proj.script.garbage_set("Video Position", &pos.to_string());
+        }
+        if let Some(w) = &self.wave {
+            let name = rel(&w.path);
+            self.proj.script.garbage_set("Audio File", &name);
+        }
+        if let Some(a) = self.active {
+            self.proj.script.garbage_set("Active Line", &a.to_string());
+        }
+    }
+
     pub fn save(&mut self) {
         if self.proj.path.is_none() {
             return self.save_as();
         }
+        let p = self.proj.path.clone();
+        self.sync_garbage(p.as_deref());
         match self.proj.save() {
             Ok(()) => {
                 let p = self.proj.path.clone().unwrap();
@@ -405,11 +426,7 @@ impl App {
     pub fn save_as(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).set_file_name("altyazi.ass").save_file() {
             let ps = p.to_string_lossy().to_string();
-            // record media in project garbage
-            if let Some(v) = &self.video {
-                let s = v.path.to_string_lossy().to_string();
-                self.proj.script.garbage_set("Video File", &s);
-            }
+            self.sync_garbage(Some(&p));
             match self.proj.save_as(&ps) {
                 Ok(()) => {
                     self.settings.push_recent(&ps);

@@ -107,7 +107,7 @@ impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let cmd = Modifiers::COMMAND;
         let typing = ctx.wants_keyboard_input();
-        let mut k = |m: Modifiers, key: Key| ctx.input_mut(|i| i.consume_key(m, key));
+        let k = |m: Modifiers, key: Key| ctx.input_mut(|i| i.consume_key(m, key));
         if k(cmd, Key::S) {
             self.save();
         }
@@ -635,7 +635,7 @@ impl App {
         let ctx = self.run_context();
         let handle = automation::spawn_macro(path, idx, self.proj.script.clone(), sel.clone(), active, ctx);
         self.log_line(format!("▶ {name}"));
-        self.run = Some(crate::state::RunState { export_to: None, handle, title: name, progress: None, task: String::new(), dialog: None, sel_before: sel });
+        self.run = Some(crate::state::RunState { export_to: None, handle, title: name, progress: None, task: String::new(), dialog: None });
     }
 
     fn pump_run(&mut self, ctx: &egui::Context) {

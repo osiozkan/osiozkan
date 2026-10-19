@@ -684,7 +684,7 @@ impl App {
                 };
                 let ctx = self.run_context();
                 let handle = subforge_app::automation::spawn_filters(items, self.proj.script.clone(), ctx);
-                self.run = Some(crate::state::RunState { export_to: Some(p.to_string_lossy().to_string()), handle, title: "Dışa aktarma filtreleri".into(), progress: None, task: String::new(), dialog: None, sel_before: vec![] });
+                self.run = Some(crate::state::RunState { export_to: Some(p.to_string_lossy().to_string()), handle, title: "Dışa aktarma filtreleri".into(), progress: None, task: String::new(), dialog: None });
             }
         }
     }
@@ -889,7 +889,7 @@ impl App {
                     ("Ctrl+D", "Satırı çoğalt"),
                     ("Delete", "Seçili satırları sil"),
                     ("Ctrl+A", "Tümünü seç"),
-                    ("↑ / ↓  veya  Alt+↑ / ↓", "Önceki / sonraki satır"),
+                    ("Yukarı/Aşağı ok (Alt ile de)", "Önceki / sonraki satır"),
                     ("Ctrl+Enter", "Satırı bitir, sonrakine geç (sonda yeni satır ekler)"),
                     ("Boşluk", "Videoyu oynat / durdur (yazı yazarken değil)"),
                     ("[  /  ]", "Aktif satırın başlangıç / bitişini video konumuna ayarla"),

@@ -17,7 +17,7 @@ impl App {
         }
         // Make the burned-in preview reflect the current script.
         let ass_path = if v.burn {
-            let text = self.proj.script.to_ass();
+            let text = media::preview_script(&self.proj.script, ms - 50, ms + 50).to_ass();
             let _ = std::fs::write(&self.tmp_ass, text);
             Some(self.tmp_ass.clone())
         } else {
@@ -223,7 +223,8 @@ fn _c() -> Color32 {
 
 impl App {
     pub fn toggle_playback(&mut self, range: Option<(i64, i64)>) {
-        let text = self.proj.script.to_ass();
+        let from = range.map(|r| r.0).or(self.video.as_ref().map(|v| v.want_ms)).unwrap_or(0);
+        let text = media::preview_script(&self.proj.script, from - 100, from + 180_000).to_ass();
         let _ = std::fs::write(&self.tmp_ass, text);
         let tmp = self.tmp_ass.clone();
         let Some(v) = self.video.as_mut() else { return };
