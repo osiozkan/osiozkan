@@ -1,0 +1,15 @@
+name: yuzu-ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: . }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libmpv2
+      - run: cargo test --workspace
+      - run: cargo build --release -p yuzu-cli -p yuzu-gui

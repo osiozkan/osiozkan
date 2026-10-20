@@ -1,0 +1,33 @@
+name: yuzu-release
+on:
+  workflow_dispatch:
+  push:
+    tags: ["yuzu-v*"]
+  schedule:
+    - cron: "0 3 * * *"   # nightly build
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux-x64, exe: "" }
+          - { os: windows-latest, name: windows-x64, exe: ".exe" }
+          - { os: macos-latest, name: macos-arm64, exe: "" }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: . }
+      - run: cargo build --release -p yuzu-cli -p yuzu-gui
+      - name: Package
+        run: |
+          mkdir -p dist/yuzu
+          cp target/release/yuzu${{ matrix.exe }} target/release/yuzu-gui${{ matrix.exe }} dist/yuzu/
+          cp -r automation dist/yuzu/ 2>/dev/null || true
+          cp README.md dist/yuzu/ || true
+          cd dist && 7z a ../yuzu-${{ matrix.name }}.zip yuzu >/dev/null || zip -r ../yuzu-${{ matrix.name }}.zip yuzu
+      - uses: actions/upload-artifact@v4
+        with: { name: "yuzu-${{ matrix.name }}", path: "yuzu-${{ matrix.name }}.zip" }

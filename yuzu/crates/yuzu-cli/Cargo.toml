@@ -1,0 +1,12 @@
+[package]
+name = "yuzu-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "yuzu"
+path = "src/main.rs"
+
+[dependencies]
+asscore = { path = "../asscore" }
+yuzu-lua = { path = "../yuzu-lua" }
