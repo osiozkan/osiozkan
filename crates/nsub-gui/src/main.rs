@@ -128,6 +128,7 @@ impl Gui {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.wants_keyboard_input();
         let (mut undo, mut redo, mut save, mut open, mut find, mut dup, mut del, mut up, mut down, mut all) = (false, false, false, false, false, false, false, false, false, false);
+        let (mut play, mut stop) = (false, false);
         ctx.input_mut(|i| {
             redo = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y);
             undo = i.consume_key(Modifiers::COMMAND, Key::Z);
@@ -135,6 +136,8 @@ impl Gui {
             open = i.consume_key(Modifiers::COMMAND, Key::O);
             find = i.consume_key(Modifiers::COMMAND, Key::F) || i.consume_key(Modifiers::COMMAND, Key::H);
             if !typing {
+                play = i.consume_key(Modifiers::NONE, Key::Space);
+                stop = i.consume_key(Modifiers::NONE, Key::Escape);
                 dup = i.consume_key(Modifiers::COMMAND, Key::D);
                 all = i.consume_key(Modifiers::COMMAND, Key::A);
                 del = i.consume_key(Modifiers::NONE, Key::Delete);
@@ -146,6 +149,15 @@ impl Gui {
         if save { self.save(false) }
         if open { self.open_dialog() }
         if find { self.show_replace = true }
+        if play {
+            if self.media.is_playing() {
+                self.media.stop();
+            } else if let Some(e) = self.app.active.and_then(|a| self.app.doc.script.events.get(a)) {
+                let (s, e) = (e.start, e.end);
+                self.media.play(s, e);
+            }
+        }
+        if stop { self.media.stop() }
         if dup { self.app.duplicate_selected() }
         if all { self.app.select_all() }
         if del { self.app.delete_selected() }
@@ -232,6 +244,16 @@ impl Gui {
                         }
                     });
                     ui.separator();
+                    if ui.button(if i18n::lang() == i18n::Lang::Tr { "Kaynak (referans) altyazı aç…" } else { "Open reference subtitle…" }).clicked() {
+                        ui.close_menu();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt", "sub", "lrc"]).pick_file() {
+                            self.app.open_reference(&p);
+                        }
+                    }
+                    if self.app.reference.is_some() && ui.button(if i18n::lang() == i18n::Lang::Tr { "Kaynak altyazıyı kapat" } else { "Close reference subtitle" }).clicked() {
+                        self.app.close_reference();
+                        ui.close_menu();
+                    }
                     if ui.button(tr("Open video…")).clicked() {
                         ui.close_menu();
                         if let Some(p) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "avi", "webm", "mov", "m2ts", "ts", "flv"]).pick_file() {
@@ -361,6 +383,8 @@ impl Gui {
     }
 
     fn grid(&mut self, ui: &mut egui::Ui) {
+        self.app.ensure_ref_map();
+        let has_ref = self.app.reference.is_some();
         let n = self.app.doc.script.events.len();
         let mut area = egui::ScrollArea::vertical().auto_shrink([false; 2]);
         if let Some(i) = self.scroll_to.take() {
@@ -395,7 +419,15 @@ impl Gui {
                     x += w;
                 }
                 let t: String = e.text.chars().take(200).collect();
-                ui.painter().with_clip_rect(rect).text(egui::pos2(x, y), Align2::LEFT_CENTER, t, FontId::proportional(14.0), color);
+                let text_w = if has_ref { (rect.right() - x) * 0.55 } else { rect.right() - x };
+                let clip = egui::Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(x + text_w - 6.0, rect.bottom()));
+                ui.painter().with_clip_rect(clip).text(egui::pos2(x, y), Align2::LEFT_CENTER, t, FontId::proportional(14.0), color);
+                if has_ref {
+                    if let Some(rt) = self.app.ref_text(i) {
+                        let clip = egui::Rect::from_min_max(egui::pos2(x + text_w, rect.top()), rect.right_bottom());
+                        ui.painter().with_clip_rect(clip).text(egui::pos2(x + text_w, y), Align2::LEFT_CENTER, rt, FontId::proportional(14.0), Color32::from_rgb(140, 160, 120));
+                    }
+                }
                 if resp.clicked() {
                     clicked = Some(i);
                 }
@@ -443,6 +475,9 @@ impl Gui {
             ui.add(egui::DragValue::new(&mut ev.margin_r));
             ui.add(egui::DragValue::new(&mut ev.margin_t));
         });
+        if let Some(rt) = self.app.ref_text(a) {
+            ui.label(RichText::new(format!("{}: {}", if i18n::lang() == i18n::Lang::Tr { "Kaynak" } else { "Ref" }, rt)).color(Color32::from_rgb(140, 160, 120)));
+        }
         let mut out = egui::TextEdit::singleline(&mut ev.text).font(FontId::proportional(16.0)).desired_width(f32::INFINITY).show(ui);
         // Shift+Enter inserts the ASS line break \N at the cursor.
         let shift_enter = ui.input(|i| i.key_pressed(Key::Enter) && i.modifiers.shift);
@@ -680,7 +715,7 @@ impl Gui {
 
     fn windows(&mut self, ctx: &egui::Context) {
         let mut open = self.show_shift;
-        egui::Window::new("Shift times").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Shift times")).open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(tr("Milliseconds"));
                 ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10.0));
@@ -694,7 +729,7 @@ impl Gui {
         self.show_shift = open;
 
         let mut open = self.show_replace;
-        egui::Window::new("Find / Replace").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Find / Replace")).open(&mut open).collapsible(false).show(ctx, |ui| {
             egui::Grid::new("repl").num_columns(2).show(ui, |ui| {
                 ui.label(tr("Find"));
                 ui.text_edit_singleline(&mut self.repl.pattern);
@@ -736,7 +771,7 @@ impl Gui {
         self.show_replace = open;
 
         let mut open = self.show_log;
-        egui::Window::new("Log").open(&mut open).default_size([520.0, 300.0]).show(ctx, |ui| {
+        egui::Window::new(tr("Log")).open(&mut open).default_size([520.0, 300.0]).show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.add(egui::TextEdit::multiline(&mut self.app.log.as_str()).font(FontId::monospace(12.0)).desired_width(f32::INFINITY));
             });

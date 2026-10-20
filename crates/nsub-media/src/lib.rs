@@ -65,6 +65,56 @@ pub fn ffmpeg_available() -> bool {
     which("ffmpeg").is_some() && which("ffprobe").is_some()
 }
 
+/// Keyframe (I-frame) times in ms, via ffprobe.
+pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
+    let out = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=pts_time", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .map_err(|e| format!("ffprobe not found: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(parse_keyframes(&String::from_utf8_lossy(&out.stdout)))
+}
+
+pub fn parse_keyframes(text: &str) -> Vec<i64> {
+    let mut v: Vec<i64> = text
+        .lines()
+        .filter_map(|l| l.split(',').next())
+        .filter_map(|t| t.trim().parse::<f64>().ok())
+        .map(|s| (s * 1000.0).round() as i64)
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// Nearest keyframe to `ms` (within `max_dist_ms`).
+pub fn nearest_keyframe(keys: &[i64], ms: i64, max_dist_ms: i64) -> Option<i64> {
+    if keys.is_empty() {
+        return None;
+    }
+    let i = keys.partition_point(|&k| k < ms);
+    let cands = [i.checked_sub(1).and_then(|j| keys.get(j)), keys.get(i)];
+    cands.into_iter().flatten().copied().min_by_key(|k| (k - ms).abs()).filter(|k| (k - ms).abs() <= max_dist_ms)
+}
+
+/// Play `[start_ms, end_ms)` of the media's audio with `ffplay` (no window). Kill the child to stop.
+pub fn play_range(media: &Path, start_ms: i64, end_ms: i64) -> Result<std::process::Child, String> {
+    if which("ffplay").is_none() {
+        return Err("ffplay not found (install ffmpeg)".into());
+    }
+    Command::new("ffplay")
+        .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", start_ms.max(0) as f64 / 1000.0), "-t", &format!("{:.3}", (end_ms - start_ms).max(100) as f64 / 1000.0)])
+        .arg(media)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())
+}
+
 pub fn probe(path: &Path) -> Result<VideoInfo, String> {
     let out = Command::new("ffprobe")
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate,duration:format=duration", "-of", "default=noprint_wrappers=1"])
@@ -235,6 +285,15 @@ mod tests {
     }
 
     #[test]
+    fn keyframe_helpers() {
+        let k = parse_keyframes("0.000000,\n2.002000,\n4.004000\n");
+        assert_eq!(k, vec![0, 2002, 4004]);
+        assert_eq!(nearest_keyframe(&k, 2100, 200), Some(2002));
+        assert_eq!(nearest_keyframe(&k, 3000, 200), None);
+        assert_eq!(nearest_keyframe(&k, 5000, 2000), Some(4004));
+    }
+
+    #[test]
     fn escapes() {
         assert_eq!(escape_filter_path(Path::new("C:\\a b\\it's.ass")), "C\\:/a b/it\\'s.ass");
     }
@@ -270,6 +329,8 @@ mod tests {
         assert!((info.fps - 24.0).abs() < 0.01);
         let f = grab_frame(&clip, 1000, (160, 90), None, None).unwrap();
         assert_eq!(f.rgba.len(), 160 * 90 * 4);
+        let keys = keyframes(&clip).unwrap();
+        assert!(!keys.is_empty() && keys[0] <= 100, "{keys:?}");
         let pk = audio_peaks(&clip, 100, |_| {}).unwrap();
         assert!(pk.duration_ms() > 2500);
         assert!(pk.max.iter().any(|&m| m > 2000), "sine should be audible");

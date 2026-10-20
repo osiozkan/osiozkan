@@ -75,6 +75,8 @@ fn turkish(s: &str) -> Option<&'static str> {
         "Delete   Del" => "Sil   Del",
         "Delete" => "Sil",
         "Find / Replace…   Ctrl+F" => "Bul / Değiştir…   Ctrl+F",
+        "Shift times" => "Zamanları kaydır",
+        "Find / Replace" => "Bul / Değiştir",
         "Shift times…" => "Zamanları kaydır…",
         "Sort by start time" => "Başlangıç zamanına göre sırala",
         "Load Lua script…" => "Lua betiği yükle…",

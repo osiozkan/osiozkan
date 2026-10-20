@@ -142,6 +142,11 @@ pub struct App {
     /// Dialog the running macro is waiting on.
     pub pending_dialog: Option<DialogRequest>,
     pub running: Option<RunState>,
+    /// Second subtitle shown next to the lines for translation work.
+    pub reference: Option<Script>,
+    pub ref_path: Option<PathBuf>,
+    ref_map: Vec<Option<usize>>,
+    ref_map_rev: Option<u64>,
     qc_pending: Option<std::time::Instant>,
     qc_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<qc::Issue>)>>,
     qc_rev: u64,
@@ -174,6 +179,10 @@ impl App {
             waker: None,
             pending_dialog: None,
             running: None,
+            reference: None,
+            ref_path: None,
+            ref_map: vec![],
+            ref_map_rev: None,
             qc_pending: None,
             qc_rx: None,
             qc_rev: 0,
@@ -198,6 +207,64 @@ impl App {
     }
 
     /// Small scripts are checked immediately; big ones are checked on a background thread after edits settle.
+    pub fn open_reference(&mut self, path: &Path) {
+        match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| formats::load(&b, path.to_str())) {
+            Ok(s) => {
+                self.status = format!("Reference: {} ({} lines)", path.display(), s.events.len());
+                self.reference = Some(s);
+                self.ref_path = Some(path.to_path_buf());
+                self.ref_map_rev = None;
+            }
+            Err(e) => self.status = format!("Error: {e}"),
+        }
+    }
+
+    pub fn close_reference(&mut self) {
+        self.reference = None;
+        self.ref_path = None;
+        self.ref_map.clear();
+        self.ref_map_rev = None;
+    }
+
+    /// For each event, the reference event with the largest time overlap. Recomputed when the document changes.
+    pub fn ensure_ref_map(&mut self) {
+        let Some(r) = &self.reference else { return };
+        if self.ref_map_rev == Some(self.doc.rev) && self.ref_map.len() == self.doc.script.events.len() {
+            return;
+        }
+        let mut order: Vec<usize> = (0..r.events.len()).filter(|&i| !r.events[i].comment).collect();
+        order.sort_by_key(|&i| r.events[i].start);
+        self.ref_map = self
+            .doc
+            .script
+            .events
+            .iter()
+            .map(|e| {
+                let hi = order.partition_point(|&i| r.events[i].start < e.end);
+                let mut best: Option<(i64, usize)> = None;
+                for &i in order[..hi].iter().rev().take(40) {
+                    let re = &r.events[i];
+                    if re.end <= e.start && re.start + 120_000 < e.start {
+                        break;
+                    }
+                    let ov = re.end.min(e.end) - re.start.max(e.start);
+                    if ov > 0 && best.map_or(true, |b| ov > b.0) {
+                        best = Some((ov, i));
+                    }
+                }
+                best.map(|b| b.1)
+            })
+            .collect();
+        self.ref_map_rev = Some(self.doc.rev);
+    }
+
+    /// Reference text (tags stripped, line breaks as ` / `) for event `i`.
+    pub fn ref_text(&self, i: usize) -> Option<String> {
+        let r = self.reference.as_ref()?;
+        let j = (*self.ref_map.get(i)?)?;
+        Some(nsub_core::tags::visible_text(&r.events[j].text).replace('\n', " / "))
+    }
+
     pub fn refresh_qc(&mut self) {
         if self.doc.script.events.len() < 3000 {
             self.issues = qc::check(&self.doc.script, &self.qc_cfg);
@@ -647,5 +714,31 @@ mod tests {
         assert_eq!(a.doc.script.events[0].text, "typed");
         assert!(a.status.contains("cancelled"));
         std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod ref_tests {
+    use super::*;
+
+    #[test]
+    fn reference_maps_by_overlap() {
+        let mut a = App::new();
+        a.doc.script.events = vec![
+            Event { start: 1000, end: 3000, text: "tr1".into(), ..Event::default() },
+            Event { start: 3500, end: 5000, text: "tr2".into(), ..Event::default() },
+            Event { start: 9000, end: 9500, text: "none".into(), ..Event::default() },
+        ];
+        let mut r = Script::new();
+        r.events = vec![
+            Event { start: 900, end: 2900, text: "{\\i1}en1".into(), ..Event::default() },
+            Event { start: 3400, end: 4000, text: "en2a\\Nline".into(), ..Event::default() },
+            Event { start: 4000, end: 5200, text: "en2b".into(), ..Event::default() },
+        ];
+        a.reference = Some(r);
+        a.ensure_ref_map();
+        assert_eq!(a.ref_text(0).as_deref(), Some("en1"));
+        assert_eq!(a.ref_text(1).as_deref(), Some("en2b")); // larger overlap (1000 vs 500)
+        assert_eq!(a.ref_text(2), None);
     }
 }

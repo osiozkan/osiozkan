@@ -29,6 +29,9 @@ pub struct Media {
     pub audio: Option<PathBuf>,
     pub peaks: Arc<Mutex<Peaks>>,
     pub peaks_loading: Arc<AtomicBool>,
+    pub keyframes: Arc<Mutex<Vec<i64>>>,
+    pub snap_keyframes: bool,
+    player: Option<std::process::Child>,
     pub time_ms: i64,
     pub show_subs: bool,
     pub follow_selection: bool,
@@ -80,6 +83,9 @@ impl Media {
             audio: None,
             peaks: Arc::new(Mutex::new(Peaks::default())),
             peaks_loading: Arc::new(AtomicBool::new(false)),
+            keyframes: Arc::new(Mutex::new(vec![])),
+            snap_keyframes: true,
+            player: None,
             time_ms: 0,
             show_subs: true,
             follow_selection: true,
@@ -108,6 +114,16 @@ impl Media {
                 self.error = None;
                 self.tex_key = None;
                 self.requested = None;
+                let keys = self.keyframes.clone();
+                *keys.lock().unwrap() = vec![];
+                let kp = path.clone();
+                let kctx = ctx.clone();
+                std::thread::spawn(move || {
+                    if let Ok(k) = nsub_media::keyframes(&kp) {
+                        *keys.lock().unwrap() = k;
+                        kctx.request_repaint();
+                    }
+                });
                 if self.audio.is_none() {
                     self.load_audio(path, ctx);
                 }
@@ -136,6 +152,47 @@ impl Media {
             loading.store(false, Ordering::Relaxed);
             ctx.request_repaint();
         });
+    }
+
+    pub fn is_playing(&mut self) -> bool {
+        match &mut self.player {
+            Some(c) => match c.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    self.player = None;
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(mut c) = self.player.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+
+    /// Play the audio of [start, end) (Aegisub's "play selection").
+    pub fn play(&mut self, start_ms: i64, end_ms: i64) {
+        self.stop();
+        let Some(src) = self.audio.clone().or_else(|| self.video.as_ref().map(|v| v.0.clone())) else {
+            self.error = Some("No audio/video loaded".into());
+            return;
+        };
+        match nsub_media::play_range(&src, start_ms, end_ms) {
+            Ok(c) => self.player = Some(c),
+            Err(e) => self.error = Some(e),
+        }
+    }
+
+    fn snap(&self, ms: i64, px_ms: i64) -> i64 {
+        if !self.snap_keyframes {
+            return ms;
+        }
+        let keys = self.keyframes.lock().unwrap();
+        nsub_media::nearest_keyframe(&keys, ms, px_ms * 8).unwrap_or(ms)
     }
 
     pub fn seek(&mut self, ms: i64) {
@@ -248,6 +305,16 @@ impl Media {
             if ui.small_button(tr("frame ▶")).clicked() { self.step_frames(1) }
             if ui.small_button(tr("+1s")).clicked() { self.seek(self.time_ms + 1000) }
         });
+        ui.horizontal_wrapped(|ui| {
+            if let Some(a) = app.active.and_then(|a| app.doc.script.events.get(a)) {
+                if ui.small_button(if crate::i18n::lang() == crate::i18n::Lang::Tr { "▶ Satırı çal" } else { "▶ Play line" }).clicked() {
+                    let (s, e) = (a.start, a.end);
+                    self.play(s, e);
+                }
+            }
+            if ui.small_button("■").clicked() { self.stop() }
+            ui.checkbox(&mut self.snap_keyframes, if crate::i18n::lang() == crate::i18n::Lang::Tr { "Anahtar karelere yapış" } else { "Snap to keyframes" });
+        });
         if let Some(a) = app.active.and_then(|a| app.doc.script.events.get(a)) {
             let (s, e) = (a.start, a.end);
             ui.horizontal(|ui| {
@@ -305,6 +372,14 @@ impl Media {
         } else if self.audio.is_none() {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No audio (File → Open audio/video…)", egui::FontId::proportional(13.0), Color32::GRAY);
         }
+        {
+            let keys = self.keyframes.lock().unwrap();
+            let lo = keys.partition_point(|&k| k < start);
+            for &k in keys[lo..].iter().take_while(|&&k| k <= end) {
+                let x = x_of(k);
+                painter.line_segment([Pos2::new(x, rect.bottom() - 8.0), Pos2::new(x, rect.bottom())], Stroke::new(1.0_f32, Color32::from_rgb(200, 120, 255)));
+            }
+        }
         // playhead
         painter.line_segment([Pos2::new(x_of(self.time_ms), rect.top()), Pos2::new(x_of(self.time_ms), rect.bottom())], Stroke::new(1.0_f32, Color32::from_rgb(240, 200, 80)));
 
@@ -326,7 +401,8 @@ impl Media {
             }
             if let (Some(m), true) = (self.drag, resp.dragged()) {
                 if let Some(p) = resp.interact_pointer_pos() {
-                    let t = t_of(p.x).max(0);
+                    let px_ms = (span as f32 / rect.width().max(1.0)) as i64;
+                    let t = self.snap(t_of(p.x).max(0), px_ms.max(1));
                     let ev = &mut app.doc.script.events[a];
                     match m {
                         Marker::Start => ev.start = t.min(ev.end),
