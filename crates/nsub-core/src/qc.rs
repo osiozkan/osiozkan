@@ -2,7 +2,6 @@
 
 use crate::ass::Script;
 use crate::tags;
-use crate::text;
 
 #[derive(Clone, Debug)]
 pub struct QcConfig {
@@ -62,7 +61,7 @@ pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
             if dur > cfg.max_duration_ms {
                 push(i, Kind::TooLong, format!("{} ms > {} ms", dur, cfg.max_duration_ms));
             }
-            let cps = text::reading_chars(&e.text) as f64 / (dur as f64 / 1000.0);
+            let cps = vis.chars().filter(|c| !c.is_whitespace()).count() as f64 / (dur as f64 / 1000.0);
             if cps > cfg.max_cps {
                 push(i, Kind::HighCps, format!("{:.1} CPS > {:.1}", cps, cfg.max_cps));
             }
@@ -70,7 +69,7 @@ pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
         if vis.trim().is_empty() && e.effect.is_empty() && !e.text.contains("\\p1") && !e.text.contains("\\p2") {
             push(i, Kind::Empty, "no visible text".into());
         }
-        let ll = text::longest_line(&e.text);
+        let ll = vis.lines().map(|l| l.chars().count()).max().unwrap_or(0);
         if ll > cfg.max_line_len {
             push(i, Kind::LongLine, format!("line of {} chars > {}", ll, cfg.max_line_len));
         }

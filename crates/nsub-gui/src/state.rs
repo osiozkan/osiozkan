@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 const UNDO_LIMIT: usize = 200;
+/// Snapshots are full copies, so cap the total number of stored events (memory ~ 150 B each).
+const UNDO_EVENT_BUDGET: usize = 2_000_000;
 
 pub struct Doc {
     pub script: Script,
@@ -38,8 +40,10 @@ impl Doc {
     pub fn checkpoint(&mut self) {
         self.rev += 1;
         self.undo.push(self.script.clone());
-        if self.undo.len() > UNDO_LIMIT {
-            self.undo.remove(0);
+        let mut cost: usize = self.undo.iter().map(|s| s.events.len() + 16).sum();
+        while self.undo.len() > UNDO_LIMIT || (cost > UNDO_EVENT_BUDGET && self.undo.len() > 1) {
+            let old = self.undo.remove(0);
+            cost -= old.events.len() + 16;
         }
         self.redo.clear();
         self.dirty = true;
@@ -123,6 +127,8 @@ pub struct App {
     pub sel: BTreeSet<usize>,
     pub active: Option<usize>,
     pub issues: Vec<qc::Issue>,
+    /// Event indices that have at least one issue (for row colouring).
+    pub bad_lines: std::collections::HashSet<usize>,
     pub qc_cfg: qc::QcConfig,
     pub status: String,
     pub log: String,
@@ -134,6 +140,9 @@ pub struct App {
     /// Dialog the running macro is waiting on.
     pub pending_dialog: Option<DialogRequest>,
     pub running: Option<RunState>,
+    qc_pending: Option<std::time::Instant>,
+    qc_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<qc::Issue>)>>,
+    qc_rev: u64,
 }
 
 #[derive(Default, Clone)]
@@ -151,6 +160,7 @@ impl App {
             sel: BTreeSet::new(),
             active: None,
             issues: vec![],
+            bad_lines: Default::default(),
             qc_cfg: qc::QcConfig::default(),
             status: String::new(),
             log: String::new(),
@@ -161,6 +171,9 @@ impl App {
             waker: None,
             pending_dialog: None,
             running: None,
+            qc_pending: None,
+            qc_rx: None,
+            qc_rev: 0,
         }
     }
 
@@ -181,8 +194,48 @@ impl App {
         }
     }
 
+    /// Small scripts are checked immediately; big ones are checked on a background thread after edits settle.
     pub fn refresh_qc(&mut self) {
-        self.issues = qc::check(&self.doc.script, &self.qc_cfg);
+        if self.doc.script.events.len() < 3000 {
+            self.issues = qc::check(&self.doc.script, &self.qc_cfg);
+            self.bad_lines = self.issues.iter().map(|i| i.index).collect();
+            self.qc_pending = None;
+        } else {
+            self.qc_pending = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Call every frame: starts the deferred check and collects its result.
+    pub fn tick_qc(&mut self) {
+        if let Some(t) = self.qc_pending {
+            if t.elapsed() > std::time::Duration::from_millis(300) {
+                self.qc_pending = None;
+                let script = self.doc.script.clone();
+                let cfg = self.qc_cfg.clone();
+                let rev = self.doc.rev;
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.qc_rx = Some(rx);
+                let waker = self.waker.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send((rev, qc::check(&script, &cfg)));
+                    if let Some(w) = waker {
+                        w();
+                    }
+                });
+            }
+        }
+        if let Some(rx) = &self.qc_rx {
+            if let Ok((rev, issues)) = rx.try_recv() {
+                self.qc_rev = rev;
+                self.bad_lines = issues.iter().map(|i| i.index).collect();
+                self.issues = issues;
+                self.qc_rx = None;
+            }
+        }
+    }
+
+    pub fn qc_busy(&self) -> bool {
+        self.qc_pending.is_some() || self.qc_rx.is_some()
     }
 
     pub fn select_only(&mut self, i: usize) {

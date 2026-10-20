@@ -296,7 +296,6 @@ impl Gui {
 
     fn grid(&mut self, ui: &mut egui::Ui) {
         let n = self.app.doc.script.events.len();
-        let bad: std::collections::HashSet<usize> = self.app.issues.iter().map(|i| i.index).collect();
         let mut area = egui::ScrollArea::vertical().auto_shrink([false; 2]);
         if let Some(i) = self.scroll_to.take() {
             area = area.vertical_scroll_offset((i as f32 * ROW_H - 120.0).max(0.0));
@@ -314,7 +313,7 @@ impl Gui {
                 } else if i % 2 == 1 {
                     ui.painter().rect_filled(rect, 0.0, vis.faint_bg_color);
                 }
-                let color = if e.comment { Color32::from_rgb(120, 160, 120) } else if bad.contains(&i) { Color32::from_rgb(230, 110, 110) } else { vis.text_color() };
+                let color = if e.comment { Color32::from_rgb(120, 160, 120) } else if self.app.bad_lines.contains(&i) { Color32::from_rgb(230, 110, 110) } else { vis.text_color() };
                 let font = FontId::monospace(13.0);
                 let y = rect.center().y;
                 let mut x = rect.left() + 4.0;
@@ -714,6 +713,10 @@ impl eframe::App for Gui {
             }
         }
         self.app.pump();
+        self.app.tick_qc();
+        if self.app.qc_busy() {
+            ctx.request_repaint_after(Duration::from_millis(150));
+        }
         if self.last_active != self.app.active {
             self.last_active = self.app.active;
             self.media.on_active_changed(&self.app);

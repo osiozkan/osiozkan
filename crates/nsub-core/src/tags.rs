@@ -129,14 +129,53 @@ pub fn serialize(segs: &[Segment]) -> String {
 }
 
 /// Plain visible text: tags removed, `\N`/`\n` → newline, `\h` → space.
+/// Single pass, no intermediate tag parsing (hot path for QC over large files).
 pub fn visible_text(text: &str) -> String {
-    let mut out = String::new();
-    for seg in parse(text) {
-        if let Segment::Text(t) = seg {
-            out.push_str(&t.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " "));
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut start = 0; // start of pending plain run
+    while i < b.len() {
+        match b[i] {
+            b'{' => match text[i..].find('}') {
+                Some(close) => {
+                    push_plain(&mut out, &text[start..i]);
+                    i += close + 1;
+                    start = i;
+                }
+                None => break, // unterminated: rest is plain text
+            },
+            _ => i += 1,
         }
     }
+    push_plain(&mut out, &text[start..]);
     out
+}
+
+fn push_plain(out: &mut String, t: &str) {
+    if !t.contains('\\') {
+        out.push_str(t);
+        return;
+    }
+    let mut chars = t.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.peek() {
+                Some('N') | Some('n') => {
+                    chars.next();
+                    out.push('\n');
+                    continue;
+                }
+                Some('h') => {
+                    chars.next();
+                    out.push(' ');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
 }
 
 /// Remove all `{...}` blocks but keep line-break escapes.
