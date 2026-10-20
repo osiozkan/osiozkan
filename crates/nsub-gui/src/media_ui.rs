@@ -1,5 +1,6 @@
 //! Video preview and audio waveform panels (ffmpeg-backed; see `nsub-media`).
 
+use crate::i18n::tr;
 use crate::state::App;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke};
 use nsub_media::{Frame, Peaks, VideoInfo};
@@ -203,8 +204,8 @@ impl Media {
     pub fn video_panel(&mut self, ui: &mut egui::Ui, app: &mut App) {
         self.poll(ui.ctx());
         ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.show_subs, "Subtitles");
-            ui.checkbox(&mut self.follow_selection, "Follow selection");
+            ui.checkbox(&mut self.show_subs, tr("Subtitles"));
+            ui.checkbox(&mut self.follow_selection, tr("Follow selection"));
         });
         let aspect = match &self.video {
             Some((_, i)) => i.width as f32 / i.height as f32,
@@ -242,22 +243,22 @@ impl Media {
             if let Some(f) = self.fps() {
                 ui.monospace(format!("frame {}", nsub_core::time::FrameRate::new(f).frame_from_ms(self.time_ms)));
             }
-            if ui.small_button("−1s").clicked() { self.seek(self.time_ms - 1000) }
-            if ui.small_button("◀ frame").clicked() { self.step_frames(-1) }
-            if ui.small_button("frame ▶").clicked() { self.step_frames(1) }
-            if ui.small_button("+1s").clicked() { self.seek(self.time_ms + 1000) }
+            if ui.small_button(tr("−1s")).clicked() { self.seek(self.time_ms - 1000) }
+            if ui.small_button(tr("◀ frame")).clicked() { self.step_frames(-1) }
+            if ui.small_button(tr("frame ▶")).clicked() { self.step_frames(1) }
+            if ui.small_button(tr("+1s")).clicked() { self.seek(self.time_ms + 1000) }
         });
         if let Some(a) = app.active.and_then(|a| app.doc.script.events.get(a)) {
             let (s, e) = (a.start, a.end);
             ui.horizontal(|ui| {
-                if ui.small_button("→ start").clicked() { self.seek(s) }
-                if ui.small_button("→ end").clicked() { self.seek(e) }
-                if ui.small_button("set start = here").clicked() {
+                if ui.small_button(tr("→ start")).clicked() { self.seek(s) }
+                if ui.small_button(tr("→ end")).clicked() { self.seek(e) }
+                if ui.small_button(tr("set start = here")).clicked() {
                     let a = app.active.unwrap();
                     app.doc.checkpoint();
                     app.doc.script.events[a].start = self.time_ms;
                 }
-                if ui.small_button("set end = here").clicked() {
+                if ui.small_button(tr("set end = here")).clicked() {
                     let a = app.active.unwrap();
                     app.doc.checkpoint();
                     app.doc.script.events[a].end = self.time_ms;

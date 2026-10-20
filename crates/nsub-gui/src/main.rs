@@ -1,5 +1,7 @@
 //! nightsub GUI (egui). Logic lives in `state.rs`; this file only renders and routes input.
 
+mod config;
+mod i18n;
 mod media_ui;
 mod state;
 mod worker;
@@ -7,6 +9,7 @@ mod worker;
 use eframe::egui::{self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense};
 use nsub_core::{ops, tags, text, time, Color};
 use nsub_lua::dialog::{DialogResponse, Val};
+use i18n::tr;
 use state::App;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,13 +42,18 @@ struct Gui {
     last_active: Option<usize>,
     show_wave: bool,
     last_doc_path: Option<PathBuf>,
+    cfg: config::Config,
 }
 
 const ROW_H: f32 = 22.0;
 
 impl Gui {
     fn new(initial: Option<PathBuf>, ctx: egui::Context) -> Gui {
+        let cfg = config::Config::load();
+        i18n::set_lang(cfg.lang);
+        ctx.set_visuals(if cfg.dark { egui::Visuals::dark() } else { egui::Visuals::light() });
         let mut app = App::new();
+        app.qc_cfg = cfg.qc.clone();
         let ctx2 = ctx.clone();
         app.waker = Some(std::sync::Arc::new(move || ctx.request_repaint()));
         if let Some(p) = initial {
@@ -82,6 +90,7 @@ impl Gui {
             last_active: None,
             show_wave: true,
             last_doc_path: None,
+            cfg,
         }
     }
 
@@ -195,31 +204,43 @@ impl Gui {
     fn menu(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
+                ui.menu_button(tr("File"), |ui| {
+                    if ui.button(tr("New")).clicked() {
                         self.app = App::new();
                         ui.close_menu();
                     }
-                    if ui.button("Open…   Ctrl+O").clicked() {
+                    if ui.button(tr("Open…   Ctrl+O")).clicked() {
                         ui.close_menu();
                         self.open_dialog();
                     }
-                    if ui.button("Save   Ctrl+S").clicked() {
+                    if ui.button(tr("Save   Ctrl+S")).clicked() {
                         ui.close_menu();
                         self.save(false);
                     }
-                    if ui.button("Save as…").clicked() {
+                    if ui.button(tr("Save as…")).clicked() {
                         ui.close_menu();
                         self.save(true);
                     }
+                    ui.menu_button(if i18n::lang() == i18n::Lang::Tr { "Son kullanılanlar" } else { "Recent" }, |ui| {
+                        let recent = self.cfg.recent.clone();
+                        if recent.is_empty() {
+                            ui.label("—");
+                        }
+                        for r in recent {
+                            if ui.button(&r).clicked() {
+                                self.app.open(std::path::Path::new(&r));
+                                ui.close_menu();
+                            }
+                        }
+                    });
                     ui.separator();
-                    if ui.button("Open video…").clicked() {
+                    if ui.button(tr("Open video…")).clicked() {
                         ui.close_menu();
                         if let Some(p) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "avi", "webm", "mov", "m2ts", "ts", "flv"]).pick_file() {
                             self.attach_video(p, ctx);
                         }
                     }
-                    if ui.button("Open audio…").clicked() {
+                    if ui.button(tr("Open audio…")).clicked() {
                         ui.close_menu();
                         if let Some(p) = rfd::FileDialog::new().add_filter("Audio", &["mka", "mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "mkv", "mp4"]).pick_file() {
                             self.media.load_audio(p.clone(), ctx);
@@ -227,40 +248,40 @@ impl Gui {
                         }
                     }
                 });
-                ui.menu_button("Edit", |ui| {
-                    if ui.add_enabled(self.app.doc.can_undo(), egui::Button::new("Undo   Ctrl+Z")).clicked() {
+                ui.menu_button(tr("Edit"), |ui| {
+                    if ui.add_enabled(self.app.doc.can_undo(), egui::Button::new(tr("Undo   Ctrl+Z"))).clicked() {
                         self.app.undo();
                         ui.close_menu();
                     }
-                    if ui.add_enabled(self.app.doc.can_redo(), egui::Button::new("Redo   Ctrl+Shift+Z")).clicked() {
+                    if ui.add_enabled(self.app.doc.can_redo(), egui::Button::new(tr("Redo   Ctrl+Shift+Z"))).clicked() {
                         self.app.redo();
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Insert line after").clicked() { self.app.insert_after_active(); ui.close_menu(); }
-                    if ui.button("Duplicate   Ctrl+D").clicked() { self.app.duplicate_selected(); ui.close_menu(); }
-                    if ui.button("Merge selected").clicked() { self.app.merge_selected(); ui.close_menu(); }
-                    if ui.button("Delete   Del").clicked() { self.app.delete_selected(); ui.close_menu(); }
+                    if ui.button(tr("Insert line after")).clicked() { self.app.insert_after_active(); ui.close_menu(); }
+                    if ui.button(tr("Duplicate   Ctrl+D")).clicked() { self.app.duplicate_selected(); ui.close_menu(); }
+                    if ui.button(tr("Merge selected")).clicked() { self.app.merge_selected(); ui.close_menu(); }
+                    if ui.button(tr("Delete   Del")).clicked() { self.app.delete_selected(); ui.close_menu(); }
                     ui.separator();
-                    if ui.button("Find / Replace…   Ctrl+F").clicked() { self.show_replace = true; ui.close_menu(); }
+                    if ui.button(tr("Find / Replace…   Ctrl+F")).clicked() { self.show_replace = true; ui.close_menu(); }
                 });
-                ui.menu_button("Timing", |ui| {
-                    if ui.button("Shift times…").clicked() { self.show_shift = true; ui.close_menu(); }
-                    if ui.button("Sort by start time").clicked() { self.app.sort_by_time(); ui.close_menu(); }
+                ui.menu_button(tr("Timing"), |ui| {
+                    if ui.button(tr("Shift times…")).clicked() { self.show_shift = true; ui.close_menu(); }
+                    if ui.button(tr("Sort by start time")).clicked() { self.app.sort_by_time(); ui.close_menu(); }
                 });
-                ui.menu_button("Automation", |ui| {
-                    if ui.button("Load Lua script…").clicked() {
+                ui.menu_button(tr("Automation"), |ui| {
+                    if ui.button(tr("Load Lua script…")).clicked() {
                         ui.close_menu();
                         if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() {
                             self.app.add_script(p);
                         }
                     }
-                    if ui.button("Reload scripts").clicked() { self.app.reload_scripts(); ui.close_menu(); }
+                    if ui.button(tr("Reload scripts")).clicked() { self.app.reload_scripts(); ui.close_menu(); }
                     ui.separator();
                     let macros = self.app.macros.clone();
                     let busy = self.app.is_busy();
                     if macros.is_empty() {
-                        ui.label(RichText::new("(no macros loaded)").weak());
+                        ui.label(RichText::new(tr("(no macros loaded)")).weak());
                     }
                     let mut groups: Vec<(String, Vec<&nsub_lua::MacroInfo>)> = vec![];
                     for m in &macros {
@@ -283,12 +304,33 @@ impl Gui {
                         if g.is_empty() { draw(ui) } else { ui.menu_button(g, draw); }
                     }
                 });
-                ui.menu_button("View", |ui| {
-                    if ui.button("Video").clicked() { self.side = Side::Video; ui.close_menu(); }
-                    ui.checkbox(&mut self.show_wave, "Waveform");
-                    if ui.button("QC panel").clicked() { self.side = Side::Qc; ui.close_menu(); }
-                    if ui.button("Styles manager").clicked() { self.side = Side::Styles; ui.close_menu(); }
-                    if ui.button("Log").clicked() { self.show_log = true; ui.close_menu(); }
+                ui.menu_button(tr("View"), |ui| {
+                    if ui.button(tr("Video")).clicked() { self.side = Side::Video; ui.close_menu(); }
+                    ui.checkbox(&mut self.show_wave, tr("Waveform"));
+                    if ui.button(tr("QC panel")).clicked() { self.side = Side::Qc; ui.close_menu(); }
+                    if ui.button(tr("Styles manager")).clicked() { self.side = Side::Styles; ui.close_menu(); }
+                    if ui.button(tr("Log")).clicked() { self.show_log = true; ui.close_menu(); }
+                    ui.separator();
+                    let mut changed = false;
+                    ui.menu_button("Language / Dil", |ui| {
+                        for (l, name) in [(i18n::Lang::En, "English"), (i18n::Lang::Tr, "Türkçe")] {
+                            if ui.selectable_label(self.cfg.lang == l, name).clicked() {
+                                self.cfg.lang = l;
+                                i18n::set_lang(l);
+                                changed = true;
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    if ui.button(if self.cfg.dark { "☀ Light theme / Açık tema" } else { "🌙 Dark theme / Koyu tema" }).clicked() {
+                        self.cfg.dark = !self.cfg.dark;
+                        ctx.set_visuals(if self.cfg.dark { egui::Visuals::dark() } else { egui::Visuals::light() });
+                        changed = true;
+                        ui.close_menu();
+                    }
+                    if changed {
+                        self.cfg.save();
+                    }
                 });
             });
         });
@@ -343,36 +385,36 @@ impl Gui {
 
     fn editor(&mut self, ui: &mut egui::Ui) {
         let Some(a) = self.app.active.filter(|&a| a < self.app.doc.script.events.len()) else {
-            ui.label(RichText::new("No line selected").weak());
+            ui.label(RichText::new(tr("No line selected")).weak());
             return;
         };
         let orig = self.app.doc.script.events[a].clone();
         let mut ev = orig.clone();
         let styles: Vec<String> = self.app.doc.script.styles.iter().map(|s| s.name.clone()).collect();
         ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut ev.comment, "Comment");
-            ui.label("Layer");
+            ui.checkbox(&mut ev.comment, tr("Comment"));
+            ui.label(tr("Layer"));
             ui.add(egui::DragValue::new(&mut ev.layer).range(0..=999));
-            ui.label("Start");
+            ui.label(tr("Start"));
             time_drag(ui, &mut ev.start);
-            ui.label("End");
+            ui.label(tr("End"));
             time_drag(ui, &mut ev.end);
-            ui.label("Dur");
+            ui.label(tr("Dur"));
             let mut d = ev.end - ev.start;
             if ui.add(egui::DragValue::new(&mut d).speed(10.0).suffix(" ms")).changed() {
                 ev.end = ev.start + d.max(0);
             }
-            ui.label("Style");
+            ui.label(tr("Style"));
             egui::ComboBox::from_id_salt("style").selected_text(ev.style.clone()).show_ui(ui, |ui| {
                 for s in &styles {
                     ui.selectable_value(&mut ev.style, s.clone(), s);
                 }
             });
-            ui.label("Actor");
+            ui.label(tr("Actor"));
             ui.add(egui::TextEdit::singleline(&mut ev.actor).desired_width(80.0));
-            ui.label("Effect");
+            ui.label(tr("Effect"));
             ui.add(egui::TextEdit::singleline(&mut ev.effect).desired_width(80.0));
-            ui.label("L/R/V");
+            ui.label(tr("L/R/V"));
             ui.add(egui::DragValue::new(&mut ev.margin_l));
             ui.add(egui::DragValue::new(&mut ev.margin_r));
             ui.add(egui::DragValue::new(&mut ev.margin_t));
@@ -392,7 +434,9 @@ impl Gui {
         let vis = tags::visible_text(&ev.text);
         ui.horizontal(|ui| {
             let dur = (ev.end - ev.start).max(1) as f64 / 1000.0;
-            ui.label(RichText::new(format!("{} chars · {:.1} CPS · longest line {}", text::reading_chars(&ev.text), text::reading_chars(&ev.text) as f64 / dur, text::longest_line(&ev.text))).weak());
+            let (n, cps, ll) = (text::reading_chars(&ev.text), text::reading_chars(&ev.text) as f64 / dur, text::longest_line(&ev.text));
+            let info = if i18n::lang() == i18n::Lang::Tr { format!("{n} karakter · {cps:.1} CPS · en uzun satır {ll}") } else { format!("{n} chars · {cps:.1} CPS · longest line {ll}") };
+            ui.label(RichText::new(info).weak());
             ui.label(RichText::new(vis.replace('\n', "  ⏎  ")).italics());
         });
         if ev != orig {
@@ -406,31 +450,33 @@ impl Gui {
         let mut changed = false;
         let c = &mut self.app.qc_cfg;
         egui::Grid::new("qccfg").num_columns(2).show(ui, |ui| {
-            ui.label("Max CPS");
+            ui.label(tr("Max CPS"));
             changed |= ui.add(egui::DragValue::new(&mut c.max_cps).speed(0.5)).changed();
             ui.end_row();
-            ui.label("Min duration (ms)");
+            ui.label(tr("Min duration (ms)"));
             changed |= ui.add(egui::DragValue::new(&mut c.min_duration_ms).speed(10.0)).changed();
             ui.end_row();
-            ui.label("Max duration (ms)");
+            ui.label(tr("Max duration (ms)"));
             changed |= ui.add(egui::DragValue::new(&mut c.max_duration_ms).speed(10.0)).changed();
             ui.end_row();
-            ui.label("Max line length");
+            ui.label(tr("Max line length"));
             changed |= ui.add(egui::DragValue::new(&mut c.max_line_len)).changed();
             ui.end_row();
-            ui.label("Max lines");
+            ui.label(tr("Max lines"));
             changed |= ui.add(egui::DragValue::new(&mut c.max_lines)).changed();
             ui.end_row();
-            ui.label("Min gap (ms)");
+            ui.label(tr("Min gap (ms)"));
             changed |= ui.add(egui::DragValue::new(&mut c.min_gap_ms).speed(5.0)).changed();
             ui.end_row();
         });
         if changed {
+            self.cfg.qc = self.app.qc_cfg.clone();
+            self.cfg.save();
             self.app.refresh_qc();
         }
         ui.horizontal(|ui| {
-            if ui.button("Re-check").clicked() { self.app.refresh_qc(); }
-            if ui.button("Fix overlaps / short / spaces").clicked() {
+            if ui.button(tr("Re-check")).clicked() { self.app.refresh_qc(); }
+            if ui.button(tr("Fix overlaps / short / spaces")).clicked() {
                 let n = self.app.fix_all();
                 self.app.status = format!("{n} fix(es) applied");
             }
@@ -454,21 +500,21 @@ impl Gui {
         let n = self.app.doc.script.styles.len();
         self.style_sel = self.style_sel.min(n.saturating_sub(1));
         ui.horizontal(|ui| {
-            if ui.button("New").clicked() {
+            if ui.button(tr("New")).clicked() {
                 self.app.doc.checkpoint();
                 let mut s = nsub_core::Style::default();
                 s.name = format!("Style{}", n + 1);
                 self.app.doc.script.styles.push(s);
                 self.style_sel = n;
             }
-            if ui.button("Copy").clicked() && n > 0 {
+            if ui.button(tr("Copy")).clicked() && n > 0 {
                 self.app.doc.checkpoint();
                 let mut s = self.app.doc.script.styles[self.style_sel].clone();
                 s.name.push_str(" copy");
                 self.app.doc.script.styles.push(s);
                 self.style_sel = n;
             }
-            if ui.add_enabled(n > 1, egui::Button::new("Delete")).clicked() {
+            if ui.add_enabled(n > 1, egui::Button::new(tr("Delete"))).clicked() {
                 self.app.doc.checkpoint();
                 self.app.doc.script.styles.remove(self.style_sel);
                 self.style_sel = 0;
@@ -483,13 +529,13 @@ impl Gui {
         let mut s = orig.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("styleg").num_columns(2).show(ui, |ui| {
-                ui.label("Name");
+                ui.label(tr("Name"));
                 ui.text_edit_singleline(&mut s.name);
                 ui.end_row();
-                ui.label("Font");
+                ui.label(tr("Font"));
                 ui.text_edit_singleline(&mut s.fontname);
                 ui.end_row();
-                ui.label("Size");
+                ui.label(tr("Size"));
                 ui.add(egui::DragValue::new(&mut s.fontsize).speed(0.5));
                 ui.end_row();
                 for (label, col) in [("Primary", &mut s.color1), ("Secondary", &mut s.color2), ("Outline", &mut s.color3), ("Shadow", &mut s.color4)] {
@@ -500,36 +546,36 @@ impl Gui {
                     }
                     ui.end_row();
                 }
-                ui.label("Style");
+                ui.label(tr("Style"));
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut s.bold, "B");
-                    ui.checkbox(&mut s.italic, "I");
-                    ui.checkbox(&mut s.underline, "U");
-                    ui.checkbox(&mut s.strikeout, "S");
+                    ui.checkbox(&mut s.bold, tr("B"));
+                    ui.checkbox(&mut s.italic, tr("I"));
+                    ui.checkbox(&mut s.underline, tr("U"));
+                    ui.checkbox(&mut s.strikeout, tr("S"));
                 });
                 ui.end_row();
-                ui.label("Scale X/Y");
+                ui.label(tr("Scale X/Y"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut s.scale_x));
                     ui.add(egui::DragValue::new(&mut s.scale_y));
                 });
                 ui.end_row();
-                ui.label("Spacing / Angle");
+                ui.label(tr("Spacing / Angle"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut s.spacing).speed(0.1));
                     ui.add(egui::DragValue::new(&mut s.angle));
                 });
                 ui.end_row();
-                ui.label("Border style");
+                ui.label(tr("Border style"));
                 ui.add(egui::DragValue::new(&mut s.borderstyle).range(1..=4));
                 ui.end_row();
-                ui.label("Outline / Shadow");
+                ui.label(tr("Outline / Shadow"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut s.outline).speed(0.1));
                     ui.add(egui::DragValue::new(&mut s.shadow).speed(0.1));
                 });
                 ui.end_row();
-                ui.label("Alignment");
+                ui.label(tr("Alignment"));
                 egui::Grid::new("align").show(ui, |ui| {
                     for row in [[7, 8, 9], [4, 5, 6], [1, 2, 3]] {
                         for a in row {
@@ -539,7 +585,7 @@ impl Gui {
                     }
                 });
                 ui.end_row();
-                ui.label("Margins L/R/V");
+                ui.label(tr("Margins L/R/V"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut s.margin_l));
                     ui.add(egui::DragValue::new(&mut s.margin_r));
@@ -589,8 +635,8 @@ impl Gui {
             ui.separator();
             ui.horizontal(|ui| {
                 if req.buttons.is_empty() {
-                    if ui.button("OK").clicked() { answer = Some(Some("OK".into())) }
-                    if ui.button("Cancel").clicked() { answer = Some(None) }
+                    if ui.button(tr("OK")).clicked() { answer = Some(Some("OK".into())) }
+                    if ui.button(tr("Cancel")).clicked() { answer = Some(None) }
                 } else {
                     for b in &req.buttons {
                         if ui.button(b).clicked() {
@@ -612,11 +658,11 @@ impl Gui {
         let mut open = self.show_shift;
         egui::Window::new("Shift times").open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Milliseconds");
+                ui.label(tr("Milliseconds"));
                 ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10.0));
             });
-            ui.checkbox(&mut self.shift_all, "All lines (otherwise selected)");
-            if ui.button("Apply").clicked() {
+            ui.checkbox(&mut self.shift_all, tr("All lines (otherwise selected)"));
+            if ui.button(tr("Apply")).clicked() {
                 if self.shift_all { self.app.shift_all(self.shift_ms) } else { self.app.shift_selected(self.shift_ms) }
                 self.app.refresh_qc();
             }
@@ -626,21 +672,21 @@ impl Gui {
         let mut open = self.show_replace;
         egui::Window::new("Find / Replace").open(&mut open).collapsible(false).show(ctx, |ui| {
             egui::Grid::new("repl").num_columns(2).show(ui, |ui| {
-                ui.label("Find");
+                ui.label(tr("Find"));
                 ui.text_edit_singleline(&mut self.repl.pattern);
                 ui.end_row();
-                ui.label("Replace");
+                ui.label(tr("Replace"));
                 ui.text_edit_singleline(&mut self.repl.with);
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.repl.regex, "Regex");
-                ui.checkbox(&mut self.repl.case_sensitive, "Match case");
-                ui.checkbox(&mut self.repl.whole_word, "Whole word");
+                ui.checkbox(&mut self.repl.regex, tr("Regex"));
+                ui.checkbox(&mut self.repl.case_sensitive, tr("Match case"));
+                ui.checkbox(&mut self.repl.whole_word, tr("Whole word"));
                 ui.checkbox(&mut self.repl.skip_tags, "Skip {tags}");
             });
             ui.horizontal(|ui| {
-                if ui.button("Replace all").clicked() {
+                if ui.button(tr("Replace all")).clicked() {
                     self.app.doc.checkpoint();
                     match ops::find_replace(&mut self.app.doc.script, &self.repl) {
                         Ok(n) => self.repl_msg = format!("{n} line(s) changed"),
@@ -648,7 +694,7 @@ impl Gui {
                     }
                     self.app.refresh_qc();
                 }
-                if ui.button("Find next").clicked() {
+                if ui.button(tr("Find next")).clicked() {
                     let start = self.app.active.map_or(0, |a| a + 1);
                     match find_next(&self.app, &self.repl, start) {
                         Ok(Some(i)) => {
@@ -723,6 +769,10 @@ impl eframe::App for Gui {
         }
         if self.app.doc.path != self.last_doc_path {
             self.last_doc_path = self.app.doc.path.clone();
+            if let Some(p) = &self.last_doc_path {
+                self.cfg.add_recent(&p.to_string_lossy());
+                self.cfg.save();
+            }
             self.autoload_media(ctx);
         }
         self.shortcuts(ctx);
@@ -738,7 +788,7 @@ impl eframe::App for Gui {
                 if let Some(r) = self.app.running.clone() {
                     ui.add(egui::ProgressBar::new(r.fraction as f32).desired_width(160.0).animate(true));
                     ui.label(format!("{} {}", r.name, r.task));
-                    if ui.small_button("Cancel").clicked() {
+                    if ui.small_button(tr("Cancel")).clicked() {
                         self.app.cancel_macro();
                     }
                 } else {
@@ -755,9 +805,9 @@ impl eframe::App for Gui {
         egui::TopBottomPanel::bottom("editor").min_height(90.0).show(ctx, |ui| self.editor(ui));
         egui::SidePanel::right("side").default_width(460.0).width_range(300.0..=1000.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.side, Side::Video, "Video");
-                ui.selectable_value(&mut self.side, Side::Qc, "Quality");
-                ui.selectable_value(&mut self.side, Side::Styles, "Styles");
+                ui.selectable_value(&mut self.side, Side::Video, tr("Video"));
+                ui.selectable_value(&mut self.side, Side::Qc, tr("Quality"));
+                ui.selectable_value(&mut self.side, Side::Styles, tr("Styles"));
             });
             ui.separator();
             match self.side {
