@@ -60,6 +60,8 @@ pub struct Options {
     pub include_dirs: Vec<PathBuf>,
     /// Load the real DependencyControl from `include_dirs` instead of the built-in offline shim.
     pub real_depctrl: bool,
+    /// Where `?user` / `?data` resolve to (default `~/.nightsub`).
+    pub user_dir: Option<PathBuf>,
     pub video_path: Option<PathBuf>,
     pub audio_path: Option<PathBuf>,
     /// Pre-seeded answers for `aegisub.dialog.display`, keyed by control name.
@@ -80,6 +82,7 @@ impl Default for Options {
             script_path: None,
             include_dirs: vec![],
             real_depctrl: false,
+            user_dir: None,
             video_path: None,
             audio_path: None,
             dialog_answers: HashMap::new(),
@@ -114,7 +117,8 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 
 impl Automation {
     pub fn new(opts: Options) -> Result<Automation, String> {
-        let lua = Lua::new();
+        // Aegisub scripts are trusted native-level code: load every library incl. `ffi`, `jit` and `debug`.
+        let lua = unsafe { Lua::unsafe_new() };
         let shared = Rc::new(RefCell::new(Shared {
             opts,
             entries: vec![],

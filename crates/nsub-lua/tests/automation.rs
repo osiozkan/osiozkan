@@ -161,3 +161,47 @@ fn moon_script_file_registers_macro() {
     assert_eq!(r.log, "8");
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn dependency_control_shim_typical_script() {
+    let dir = std::env::temp_dir().join(format!("nsub-dc-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(dir.join("demo")).unwrap();
+    std::fs::write(
+        dir.join("demo").join("helper.lua"),
+        "local DependencyControl = require('l0.DependencyControl')\nlocal version = DependencyControl{ name='Helper', version='1.2.3', moduleName='demo.helper', {'aegisub.util', {'Missing.Optional', optional=true}} }\nlocal util, missing = version:requireModules()\nlocal M = { util = util, missing = missing }\nfunction M.double(x) return x*2 end\nreturn version:register(M)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.lua"),
+        r#"script_name = 'demo'
+local DependencyControl = require('l0.DependencyControl')
+local depctrl = DependencyControl{ name='Demo', version='0.1.0', author='me', namespace='demo.main', {'demo.helper'} }
+local helper = depctrl:requireModules()
+local logger = depctrl:getLogger{ prefix = '[demo]' }
+local cfg = depctrl:getConfigHandler({ greeting = 'hi', n = 3 }, 'main', true)
+depctrl:registerMacros({
+  { 'First', 'desc', function(subs, sel)
+      cfg.c.n = cfg.c.n + 1
+      assert(cfg:write())
+      logger:log('n=%d helper=%d ver=%s', cfg.c.n, helper.double(21), helper.version:getVersionString())
+      local other = depctrl:getConfigHandler({ greeting = 'x', n = 0 }, 'main')
+      logger:hint('reloaded n=%d greeting=%s', other.c.n, other.c.greeting)
+  end },
+})
+"#,
+    )
+    .unwrap();
+    // ?user resolves into a temp dir so the test doesn't touch the real home
+    let mut opts = Options { echo_log: false, ..Default::default() };
+    opts.script_path = Some(dir.join("main.lua"));
+    opts.user_dir = Some(dir.join("user"));
+    let mut a = Automation::new(opts).unwrap();
+    let m = a.load_script(&dir.join("main.lua")).unwrap();
+    assert_eq!(m[0].name, "First");
+    let mut s = script();
+    let r = a.run(m[0].id, &mut s, &[], 1).unwrap();
+    assert!(r.log.contains("n=4 helper=42 ver=1.2.3"), "{}", r.log);
+    assert!(r.log.contains("reloaded n=4 greeting=hi"), "{}", r.log);
+    std::fs::remove_dir_all(dir).ok();
+}

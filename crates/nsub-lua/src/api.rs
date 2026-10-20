@@ -289,7 +289,7 @@ pub(crate) fn install(lua: &Lua, sh: &Sh) -> Result<()> {
             lua.create_function(move |_, p: String| {
                 let s = sh.borrow();
                 let dir_of = |o: &Option<std::path::PathBuf>| o.as_ref().and_then(|p| p.parent()).map(|d| d.to_string_lossy().to_string());
-                let user = std::env::var("HOME").map(|h| format!("{h}/.nightsub")).unwrap_or_else(|_| ".".into());
+                let user = s.opts.user_dir.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map(|h| format!("{h}/.nightsub")).unwrap_or_else(|_| ".".into()));
                 let tmp = std::env::temp_dir().to_string_lossy().to_string();
                 let mut out = p.clone();
                 for (tok, val) in [

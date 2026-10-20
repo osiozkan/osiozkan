@@ -86,6 +86,17 @@ local function load_moon(path, text)
   return fn
 end
 
+__nsub_fallbacks = {
+  json = function() return require("l0.DependencyControl").json end,
+  dkjson = function() return require("l0.DependencyControl").json end,
+  ["l0.dkjson"] = function() return require("l0.DependencyControl").json end,
+  ["SubInspector.Inspector"] = function()
+    -- needs the native SubInspector library (libass based); fail loudly only when actually used
+    local msg = "SubInspector is not available in nightsub yet (line bounds measurement)"
+    return setmetatable({}, { __call = function() error(msg, 2) end, __index = function() error(msg, 2) end })
+  end,
+}
+
 table.insert(package.loaders, 2, function(name)
   local rel = name:gsub("%.", "/")
   for tok in package.path:gmatch("[^;]+") do
@@ -109,6 +120,9 @@ table.insert(package.loaders, 2, function(name)
   end
   local fn = load_embedded("include/" .. name .. ".lua")
   if fn then return fn end
+  -- last-resort stand-ins for libraries normally installed by DependencyControl
+  local fb = __nsub_fallbacks[name]
+  if fb then return fb end
   return nil
 end)
 

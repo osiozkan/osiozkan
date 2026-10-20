@@ -19,6 +19,7 @@ USAGE:
   nightsub shift <file> <+/-ms> -o <out>
   nightsub sync <file> <old1> <new1> <old2> <new2> -o <out>   (times in ms or H:MM:SS.cc)
   nightsub replace <file> <pattern> <with> -o <out> [--regex] [--case] [--word] [--style S] [--skip-tags]
+  nightsub eval '<lua code>' [--include DIR]...     run Lua in the Aegisub-compatible runtime
   nightsub macros <script.lua>...                  list macros registered by Lua scripts
   nightsub run <file> --script <x.lua> [--script ...] --macro <name> [-o out] [--sel 1-5,9]
                 [--fps N] [--answer name=value]... [--button LABEL] [--include DIR]...
@@ -206,6 +207,14 @@ fn run() -> Result<ExitCode, String> {
             let n = ops::find_replace(&mut s, &r)?;
             save(&s, a.get("out").ok_or("-o <out> required")?)?;
             println!("{n} line(s) changed");
+        }
+        "eval" => {
+            // debugging aid: run Lua code inside the Aegisub-compatible runtime
+            let mut opts = Options::default();
+            opts.include_dirs = a.flags.get("include").cloned().unwrap_or_default().into_iter().map(PathBuf::from).collect();
+            opts.real_depctrl = a.has("real-depctrl");
+            let auto = Automation::new(opts)?;
+            println!("{}", auto.eval(a.pos(0, "lua code")?)?);
         }
         "macros" => {
             let mut auto = Automation::new(Options::default())?;
