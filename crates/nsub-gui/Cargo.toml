@@ -1,0 +1,17 @@
+[package]
+name = "nsub-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nightsub-gui"
+path = "src/main.rs"
+
+[dependencies]
+nsub-core = { path = "../nsub-core" }
+nsub-lua = { path = "../nsub-lua" }
+nsub-fonts = { path = "../nsub-fonts" }
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+regex.workspace = true

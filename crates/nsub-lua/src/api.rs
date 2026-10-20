@@ -18,7 +18,7 @@ fn out_of_range(i: i64) -> mlua::Error {
 
 fn to_index(v: &Value) -> Option<i64> {
     match v {
-        Value::Integer(i) => Some((*i)),
+        Value::Integer(i) => Some(*i),
         Value::Number(n) => Some(*n as i64),
         _ => None,
     }

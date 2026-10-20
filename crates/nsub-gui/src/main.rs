@@ -1,0 +1,630 @@
+//! nightsub GUI (egui). Logic lives in `state.rs`; this file only renders and routes input.
+
+mod state;
+
+use eframe::egui::{self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense};
+use nsub_core::{ops, tags, text, time, Color};
+use state::App;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+#[derive(PartialEq, Clone, Copy)]
+enum Side {
+    Qc,
+    Styles,
+}
+
+struct Gui {
+    app: App,
+    side: Side,
+    show_log: bool,
+    show_shift: bool,
+    show_replace: bool,
+    shift_ms: i64,
+    shift_all: bool,
+    repl: ops::Replace,
+    repl_msg: String,
+    style_sel: usize,
+    scroll_to: Option<usize>,
+    last_autosave: Instant,
+    last_title: String,
+}
+
+const ROW_H: f32 = 22.0;
+
+impl Gui {
+    fn new(initial: Option<PathBuf>) -> Gui {
+        let mut app = App::new();
+        if let Some(p) = initial {
+            app.open(&p);
+        }
+        // Auto-load macros from ~/.nightsub/automation/autoload/*.lua
+        if let Ok(home) = std::env::var("HOME") {
+            let dir = PathBuf::from(home).join(".nightsub/automation/autoload");
+            if let Ok(rd) = std::fs::read_dir(dir) {
+                let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |e| e == "lua")).collect();
+                v.sort();
+                for p in v {
+                    app.add_script(p);
+                }
+            }
+        }
+        Gui {
+            app,
+            side: Side::Qc,
+            show_log: false,
+            show_shift: false,
+            show_replace: false,
+            shift_ms: 0,
+            shift_all: false,
+            repl: ops::Replace { skip_tags: true, ..Default::default() },
+            repl_msg: String::new(),
+            style_sel: 0,
+            scroll_to: None,
+            last_autosave: Instant::now(),
+            last_title: String::new(),
+        }
+    }
+
+    fn open_dialog(&mut self) {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Subtitles", &["ass", "ssa", "srt", "vtt", "sub", "lrc"]).pick_file() {
+            self.app.open(&p);
+        }
+    }
+
+    fn save(&mut self, as_new: bool) {
+        let path = match (&self.app.doc.path, as_new) {
+            (Some(p), false) => Some(p.clone()),
+            _ => rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).set_file_name("subtitle.ass").save_file(),
+        };
+        if let Some(p) = path {
+            match self.app.doc.save_to(&p) {
+                Ok(()) => self.app.status = format!("Saved {}", p.display()),
+                Err(e) => self.app.status = format!("Error: {e}"),
+            }
+        }
+    }
+
+    fn autosave(&mut self) {
+        if !self.app.doc.dirty || self.last_autosave.elapsed() < Duration::from_secs(60) {
+            return;
+        }
+        self.last_autosave = Instant::now();
+        if let Ok(home) = std::env::var("HOME") {
+            let dir = PathBuf::from(home).join(".nightsub/autosave");
+            if std::fs::create_dir_all(&dir).is_ok() {
+                let name = self.app.doc.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into());
+                let _ = std::fs::write(dir.join(format!("{name}.autosave.ass")), self.app.doc.script.to_ass_string());
+            }
+        }
+    }
+
+    fn shortcuts(&mut self, ctx: &egui::Context) {
+        let typing = ctx.wants_keyboard_input();
+        let (mut undo, mut redo, mut save, mut open, mut find, mut dup, mut del, mut up, mut down, mut all) = (false, false, false, false, false, false, false, false, false, false);
+        ctx.input_mut(|i| {
+            redo = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y);
+            undo = i.consume_key(Modifiers::COMMAND, Key::Z);
+            save = i.consume_key(Modifiers::COMMAND, Key::S);
+            open = i.consume_key(Modifiers::COMMAND, Key::O);
+            find = i.consume_key(Modifiers::COMMAND, Key::F) || i.consume_key(Modifiers::COMMAND, Key::H);
+            if !typing {
+                dup = i.consume_key(Modifiers::COMMAND, Key::D);
+                all = i.consume_key(Modifiers::COMMAND, Key::A);
+                del = i.consume_key(Modifiers::NONE, Key::Delete);
+                up = i.consume_key(Modifiers::NONE, Key::ArrowUp);
+                down = i.consume_key(Modifiers::NONE, Key::ArrowDown);
+            }
+        });
+        if redo { self.app.redo() } else if undo { self.app.undo() }
+        if save { self.save(false) }
+        if open { self.open_dialog() }
+        if find { self.show_replace = true }
+        if dup { self.app.duplicate_selected() }
+        if all { self.app.select_all() }
+        if del { self.app.delete_selected() }
+        let n = self.app.doc.script.events.len();
+        if (up || down) && n > 0 {
+            let cur = self.app.active.unwrap_or(0);
+            let next = if up { cur.saturating_sub(1) } else { (cur + 1).min(n - 1) };
+            self.app.select_only(next);
+            self.scroll_to = Some(next);
+        }
+    }
+
+    fn menu(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        self.app = App::new();
+                        ui.close_menu();
+                    }
+                    if ui.button("Open…   Ctrl+O").clicked() {
+                        ui.close_menu();
+                        self.open_dialog();
+                    }
+                    if ui.button("Save   Ctrl+S").clicked() {
+                        ui.close_menu();
+                        self.save(false);
+                    }
+                    if ui.button("Save as…").clicked() {
+                        ui.close_menu();
+                        self.save(true);
+                    }
+                });
+                ui.menu_button("Edit", |ui| {
+                    if ui.add_enabled(self.app.doc.can_undo(), egui::Button::new("Undo   Ctrl+Z")).clicked() {
+                        self.app.undo();
+                        ui.close_menu();
+                    }
+                    if ui.add_enabled(self.app.doc.can_redo(), egui::Button::new("Redo   Ctrl+Shift+Z")).clicked() {
+                        self.app.redo();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Insert line after").clicked() { self.app.insert_after_active(); ui.close_menu(); }
+                    if ui.button("Duplicate   Ctrl+D").clicked() { self.app.duplicate_selected(); ui.close_menu(); }
+                    if ui.button("Merge selected").clicked() { self.app.merge_selected(); ui.close_menu(); }
+                    if ui.button("Delete   Del").clicked() { self.app.delete_selected(); ui.close_menu(); }
+                    ui.separator();
+                    if ui.button("Find / Replace…   Ctrl+F").clicked() { self.show_replace = true; ui.close_menu(); }
+                });
+                ui.menu_button("Timing", |ui| {
+                    if ui.button("Shift times…").clicked() { self.show_shift = true; ui.close_menu(); }
+                    if ui.button("Sort by start time").clicked() { self.app.sort_by_time(); ui.close_menu(); }
+                });
+                ui.menu_button("Automation", |ui| {
+                    if ui.button("Load Lua script…").clicked() {
+                        ui.close_menu();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() {
+                            self.app.add_script(p);
+                        }
+                    }
+                    if ui.button("Reload scripts").clicked() { self.app.reload_scripts(); ui.close_menu(); }
+                    ui.separator();
+                    let macros = self.app.macros.clone();
+                    if macros.is_empty() {
+                        ui.label(RichText::new("(no macros loaded)").weak());
+                    }
+                    let mut groups: Vec<(String, Vec<&nsub_lua::MacroInfo>)> = vec![];
+                    for m in &macros {
+                        let g = m.name.split_once('/').map(|x| x.0.to_string()).unwrap_or_default();
+                        match groups.iter_mut().find(|x| x.0 == g) {
+                            Some(x) => x.1.push(m),
+                            None => groups.push((g, vec![m])),
+                        }
+                    }
+                    for (g, ms) in groups {
+                        let mut draw = |ui: &mut egui::Ui| {
+                            for m in &ms {
+                                let label = m.name.split_once('/').map(|x| x.1).unwrap_or(&m.name);
+                                if ui.button(label).on_hover_text(&m.description).clicked() {
+                                    self.app.run_macro(m.id);
+                                    ui.close_menu();
+                                }
+                            }
+                        };
+                        if g.is_empty() { draw(ui) } else { ui.menu_button(g, draw); }
+                    }
+                });
+                ui.menu_button("View", |ui| {
+                    if ui.button("QC panel").clicked() { self.side = Side::Qc; ui.close_menu(); }
+                    if ui.button("Styles manager").clicked() { self.side = Side::Styles; ui.close_menu(); }
+                    if ui.button("Log").clicked() { self.show_log = true; ui.close_menu(); }
+                });
+            });
+        });
+    }
+
+    fn grid(&mut self, ui: &mut egui::Ui) {
+        let n = self.app.doc.script.events.len();
+        let bad: std::collections::HashSet<usize> = self.app.issues.iter().map(|i| i.index).collect();
+        let mut area = egui::ScrollArea::vertical().auto_shrink([false; 2]);
+        if let Some(i) = self.scroll_to.take() {
+            area = area.vertical_scroll_offset((i as f32 * ROW_H - 120.0).max(0.0));
+        }
+        let mods = ui.input(|i| i.modifiers);
+        let mut clicked = None;
+        area.show_rows(ui, ROW_H, n, |ui, range| {
+            for i in range {
+                let e = &self.app.doc.script.events[i];
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), Sense::click());
+                let selected = self.app.sel.contains(&i);
+                let vis = ui.visuals();
+                if selected {
+                    ui.painter().rect_filled(rect, 0.0, vis.selection.bg_fill);
+                } else if i % 2 == 1 {
+                    ui.painter().rect_filled(rect, 0.0, vis.faint_bg_color);
+                }
+                let color = if e.comment { Color32::from_rgb(120, 160, 120) } else if bad.contains(&i) { Color32::from_rgb(230, 110, 110) } else { vis.text_color() };
+                let font = FontId::monospace(13.0);
+                let y = rect.center().y;
+                let mut x = rect.left() + 4.0;
+                let cols: [(String, f32); 5] = [
+                    (format!("{}", i + 1), 46.0),
+                    (time::format_ass(e.start), 94.0),
+                    (time::format_ass(e.end), 94.0),
+                    (format!("{:.0}", text::reading_chars(&e.text) as f64 / (e.duration().max(1) as f64 / 1000.0)), 34.0),
+                    (e.style.clone(), 100.0),
+                ];
+                for (s, w) in cols {
+                    ui.painter().text(egui::pos2(x, y), Align2::LEFT_CENTER, s, font.clone(), color);
+                    x += w;
+                }
+                let t: String = e.text.chars().take(200).collect();
+                ui.painter().with_clip_rect(rect).text(egui::pos2(x, y), Align2::LEFT_CENTER, t, FontId::proportional(14.0), color);
+                if resp.clicked() {
+                    clicked = Some(i);
+                }
+            }
+        });
+        if let Some(i) = clicked {
+            self.app.doc.end_edit_session();
+            if mods.shift { self.app.select_range_to(i) } else if mods.command { self.app.toggle_select(i) } else { self.app.select_only(i) }
+        }
+    }
+
+    fn editor(&mut self, ui: &mut egui::Ui) {
+        let Some(a) = self.app.active.filter(|&a| a < self.app.doc.script.events.len()) else {
+            ui.label(RichText::new("No line selected").weak());
+            return;
+        };
+        let orig = self.app.doc.script.events[a].clone();
+        let mut ev = orig.clone();
+        let styles: Vec<String> = self.app.doc.script.styles.iter().map(|s| s.name.clone()).collect();
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut ev.comment, "Comment");
+            ui.label("Layer");
+            ui.add(egui::DragValue::new(&mut ev.layer).range(0..=999));
+            ui.label("Start");
+            time_drag(ui, &mut ev.start);
+            ui.label("End");
+            time_drag(ui, &mut ev.end);
+            ui.label("Dur");
+            let mut d = ev.end - ev.start;
+            if ui.add(egui::DragValue::new(&mut d).speed(10.0).suffix(" ms")).changed() {
+                ev.end = ev.start + d.max(0);
+            }
+            ui.label("Style");
+            egui::ComboBox::from_id_salt("style").selected_text(ev.style.clone()).show_ui(ui, |ui| {
+                for s in &styles {
+                    ui.selectable_value(&mut ev.style, s.clone(), s);
+                }
+            });
+            ui.label("Actor");
+            ui.add(egui::TextEdit::singleline(&mut ev.actor).desired_width(80.0));
+            ui.label("Effect");
+            ui.add(egui::TextEdit::singleline(&mut ev.effect).desired_width(80.0));
+            ui.label("L/R/V");
+            ui.add(egui::DragValue::new(&mut ev.margin_l));
+            ui.add(egui::DragValue::new(&mut ev.margin_r));
+            ui.add(egui::DragValue::new(&mut ev.margin_t));
+        });
+        let mut out = egui::TextEdit::singleline(&mut ev.text).font(FontId::proportional(16.0)).desired_width(f32::INFINITY).show(ui);
+        // Shift+Enter inserts the ASS line break \N at the cursor.
+        let shift_enter = ui.input(|i| i.key_pressed(Key::Enter) && i.modifiers.shift);
+        if shift_enter && (out.response.has_focus() || out.response.lost_focus()) {
+            let idx = out.cursor_range.map(|c| c.primary.ccursor.index).unwrap_or(ev.text.chars().count());
+            let byte = ev.text.char_indices().nth(idx).map(|x| x.0).unwrap_or(ev.text.len());
+            ev.text.insert_str(byte, "\\N");
+            let c = egui::text::CCursor::new(idx + 2);
+            out.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(c)));
+            out.state.store(ui.ctx(), out.response.id);
+            out.response.request_focus();
+        }
+        let vis = tags::visible_text(&ev.text);
+        ui.horizontal(|ui| {
+            let dur = (ev.end - ev.start).max(1) as f64 / 1000.0;
+            ui.label(RichText::new(format!("{} chars · {:.1} CPS · longest line {}", text::reading_chars(&ev.text), text::reading_chars(&ev.text) as f64 / dur, text::longest_line(&ev.text))).weak());
+            ui.label(RichText::new(vis.replace('\n', "  ⏎  ")).italics());
+        });
+        if ev != orig {
+            if ev.text != orig.text { self.app.doc.touch(&format!("{a}:text")) } else { self.app.doc.touch(&format!("{a}:meta")) }
+            self.app.doc.script.events[a] = ev;
+            self.app.refresh_qc();
+        }
+    }
+
+    fn qc_panel(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+        let c = &mut self.app.qc_cfg;
+        egui::Grid::new("qccfg").num_columns(2).show(ui, |ui| {
+            ui.label("Max CPS");
+            changed |= ui.add(egui::DragValue::new(&mut c.max_cps).speed(0.5)).changed();
+            ui.end_row();
+            ui.label("Min duration (ms)");
+            changed |= ui.add(egui::DragValue::new(&mut c.min_duration_ms).speed(10.0)).changed();
+            ui.end_row();
+            ui.label("Max duration (ms)");
+            changed |= ui.add(egui::DragValue::new(&mut c.max_duration_ms).speed(10.0)).changed();
+            ui.end_row();
+            ui.label("Max line length");
+            changed |= ui.add(egui::DragValue::new(&mut c.max_line_len)).changed();
+            ui.end_row();
+            ui.label("Max lines");
+            changed |= ui.add(egui::DragValue::new(&mut c.max_lines)).changed();
+            ui.end_row();
+            ui.label("Min gap (ms)");
+            changed |= ui.add(egui::DragValue::new(&mut c.min_gap_ms).speed(5.0)).changed();
+            ui.end_row();
+        });
+        if changed {
+            self.app.refresh_qc();
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Re-check").clicked() { self.app.refresh_qc(); }
+            if ui.button("Fix overlaps / short / spaces").clicked() {
+                let n = self.app.fix_all();
+                self.app.status = format!("{n} fix(es) applied");
+            }
+        });
+        ui.label(format!("{} issue(s)", self.app.issues.len()));
+        let mut jump = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for iss in &self.app.issues {
+                if ui.selectable_label(false, format!("#{} {:?}: {}", iss.index + 1, iss.kind, iss.message)).clicked() {
+                    jump = Some(iss.index);
+                }
+            }
+        });
+        if let Some(i) = jump {
+            self.app.select_only(i);
+            self.scroll_to = Some(i);
+        }
+    }
+
+    fn styles_panel(&mut self, ui: &mut egui::Ui) {
+        let n = self.app.doc.script.styles.len();
+        self.style_sel = self.style_sel.min(n.saturating_sub(1));
+        ui.horizontal(|ui| {
+            if ui.button("New").clicked() {
+                self.app.doc.checkpoint();
+                let mut s = nsub_core::Style::default();
+                s.name = format!("Style{}", n + 1);
+                self.app.doc.script.styles.push(s);
+                self.style_sel = n;
+            }
+            if ui.button("Copy").clicked() && n > 0 {
+                self.app.doc.checkpoint();
+                let mut s = self.app.doc.script.styles[self.style_sel].clone();
+                s.name.push_str(" copy");
+                self.app.doc.script.styles.push(s);
+                self.style_sel = n;
+            }
+            if ui.add_enabled(n > 1, egui::Button::new("Delete")).clicked() {
+                self.app.doc.checkpoint();
+                self.app.doc.script.styles.remove(self.style_sel);
+                self.style_sel = 0;
+            }
+        });
+        egui::ComboBox::from_id_salt("stylesel").selected_text(self.app.doc.script.styles.get(self.style_sel).map(|s| s.name.clone()).unwrap_or_default()).show_ui(ui, |ui| {
+            for (i, s) in self.app.doc.script.styles.iter().enumerate() {
+                ui.selectable_value(&mut self.style_sel, i, &s.name);
+            }
+        });
+        let Some(orig) = self.app.doc.script.styles.get(self.style_sel).cloned() else { return };
+        let mut s = orig.clone();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("styleg").num_columns(2).show(ui, |ui| {
+                ui.label("Name");
+                ui.text_edit_singleline(&mut s.name);
+                ui.end_row();
+                ui.label("Font");
+                ui.text_edit_singleline(&mut s.fontname);
+                ui.end_row();
+                ui.label("Size");
+                ui.add(egui::DragValue::new(&mut s.fontsize).speed(0.5));
+                ui.end_row();
+                for (label, col) in [("Primary", &mut s.color1), ("Secondary", &mut s.color2), ("Outline", &mut s.color3), ("Shadow", &mut s.color4)] {
+                    ui.label(label);
+                    let mut c = Color32::from_rgba_unmultiplied(col.r, col.g, col.b, 255 - col.a);
+                    if ui.color_edit_button_srgba(&mut c).changed() {
+                        *col = Color::new(c.r(), c.g(), c.b(), 255 - c.a());
+                    }
+                    ui.end_row();
+                }
+                ui.label("Style");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut s.bold, "B");
+                    ui.checkbox(&mut s.italic, "I");
+                    ui.checkbox(&mut s.underline, "U");
+                    ui.checkbox(&mut s.strikeout, "S");
+                });
+                ui.end_row();
+                ui.label("Scale X/Y");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut s.scale_x));
+                    ui.add(egui::DragValue::new(&mut s.scale_y));
+                });
+                ui.end_row();
+                ui.label("Spacing / Angle");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut s.spacing).speed(0.1));
+                    ui.add(egui::DragValue::new(&mut s.angle));
+                });
+                ui.end_row();
+                ui.label("Border style");
+                ui.add(egui::DragValue::new(&mut s.borderstyle).range(1..=4));
+                ui.end_row();
+                ui.label("Outline / Shadow");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut s.outline).speed(0.1));
+                    ui.add(egui::DragValue::new(&mut s.shadow).speed(0.1));
+                });
+                ui.end_row();
+                ui.label("Alignment");
+                egui::Grid::new("align").show(ui, |ui| {
+                    for row in [[7, 8, 9], [4, 5, 6], [1, 2, 3]] {
+                        for a in row {
+                            ui.selectable_value(&mut s.align, a, a.to_string());
+                        }
+                        ui.end_row();
+                    }
+                });
+                ui.end_row();
+                ui.label("Margins L/R/V");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut s.margin_l));
+                    ui.add(egui::DragValue::new(&mut s.margin_r));
+                    ui.add(egui::DragValue::new(&mut s.margin_t));
+                });
+                ui.end_row();
+            });
+        });
+        s.margin_b = s.margin_t;
+        if s != orig {
+            self.app.doc.touch(&format!("style{}", self.style_sel));
+            if s.name != orig.name {
+                for e in &mut self.app.doc.script.events {
+                    if e.style == orig.name {
+                        e.style = s.name.clone();
+                    }
+                }
+            }
+            self.app.doc.script.styles[self.style_sel] = s;
+        }
+    }
+
+    fn windows(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_shift;
+        egui::Window::new("Shift times").open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Milliseconds");
+                ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10.0));
+            });
+            ui.checkbox(&mut self.shift_all, "All lines (otherwise selected)");
+            if ui.button("Apply").clicked() {
+                if self.shift_all { self.app.shift_all(self.shift_ms) } else { self.app.shift_selected(self.shift_ms) }
+                self.app.refresh_qc();
+            }
+        });
+        self.show_shift = open;
+
+        let mut open = self.show_replace;
+        egui::Window::new("Find / Replace").open(&mut open).collapsible(false).show(ctx, |ui| {
+            egui::Grid::new("repl").num_columns(2).show(ui, |ui| {
+                ui.label("Find");
+                ui.text_edit_singleline(&mut self.repl.pattern);
+                ui.end_row();
+                ui.label("Replace");
+                ui.text_edit_singleline(&mut self.repl.with);
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.repl.regex, "Regex");
+                ui.checkbox(&mut self.repl.case_sensitive, "Match case");
+                ui.checkbox(&mut self.repl.whole_word, "Whole word");
+                ui.checkbox(&mut self.repl.skip_tags, "Skip {tags}");
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Replace all").clicked() {
+                    self.app.doc.checkpoint();
+                    match ops::find_replace(&mut self.app.doc.script, &self.repl) {
+                        Ok(n) => self.repl_msg = format!("{n} line(s) changed"),
+                        Err(e) => self.repl_msg = e,
+                    }
+                    self.app.refresh_qc();
+                }
+                if ui.button("Find next").clicked() {
+                    let start = self.app.active.map_or(0, |a| a + 1);
+                    match find_next(&self.app, &self.repl, start) {
+                        Ok(Some(i)) => {
+                            self.app.select_only(i);
+                            self.scroll_to = Some(i);
+                            self.repl_msg = format!("line {}", i + 1);
+                        }
+                        Ok(None) => self.repl_msg = "not found".into(),
+                        Err(e) => self.repl_msg = e,
+                    }
+                }
+            });
+            ui.label(&self.repl_msg);
+        });
+        self.show_replace = open;
+
+        let mut open = self.show_log;
+        egui::Window::new("Log").open(&mut open).default_size([520.0, 300.0]).show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut self.app.log.as_str()).font(FontId::monospace(12.0)).desired_width(f32::INFINITY));
+            });
+        });
+        self.show_log = open;
+    }
+}
+
+fn find_next(app: &App, r: &ops::Replace, start: usize) -> Result<Option<usize>, String> {
+    let mut pat = if r.regex { r.pattern.clone() } else { regex::escape(&r.pattern) };
+    if r.whole_word {
+        pat = format!(r"\b(?:{pat})\b");
+    }
+    if !r.case_sensitive {
+        pat = format!("(?i){pat}");
+    }
+    let re = regex::Regex::new(&pat).map_err(|e| e.to_string())?;
+    let n = app.doc.script.events.len();
+    Ok((0..n).map(|k| (start + k) % n.max(1)).find(|&i| re.is_match(&app.doc.script.events[i].text)))
+}
+
+fn time_drag(ui: &mut egui::Ui, ms: &mut i64) {
+    let mut v = *ms as f64;
+    let r = ui.add(
+        egui::DragValue::new(&mut v)
+            .speed(10.0)
+            .custom_formatter(|n, _| time::format_ass(n as i64))
+            .custom_parser(|s| time::parse_ass(s).map(|x| x as f64)),
+    );
+    if r.changed() {
+        *ms = (v.round() as i64).max(0);
+    }
+}
+
+impl eframe::App for Gui {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        for f in ctx.input(|i| i.raw.dropped_files.clone()) {
+            if let Some(p) = f.path {
+                if p.extension().map_or(false, |e| e == "lua") {
+                    self.app.add_script(p);
+                } else {
+                    self.app.open(&p);
+                }
+            }
+        }
+        self.shortcuts(ctx);
+        self.autosave();
+        let title = self.app.doc.title();
+        if title != self.last_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.last_title = title;
+        }
+        self.menu(ctx);
+        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(&self.app.status);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(format!("{} lines · {} selected · {} issues", self.app.doc.script.events.len(), self.app.sel.len(), self.app.issues.len()));
+                });
+            });
+        });
+        egui::TopBottomPanel::bottom("editor").min_height(90.0).show(ctx, |ui| self.editor(ui));
+        egui::SidePanel::right("side").default_width(300.0).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.side, Side::Qc, "Quality");
+                ui.selectable_value(&mut self.side, Side::Styles, "Styles");
+            });
+            ui.separator();
+            match self.side {
+                Side::Qc => self.qc_panel(ui),
+                Side::Styles => self.styles_panel(ui),
+            }
+        });
+        egui::CentralPanel::default().show(ctx, |ui| self.grid(ui));
+        self.windows(ctx);
+    }
+}
+
+fn main() -> eframe::Result {
+    let initial = std::env::args().nth(1).map(PathBuf::from);
+    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]).with_title("nightsub"), ..Default::default() };
+    eframe::run_native("nightsub", options, Box::new(|_cc| Ok(Box::new(Gui::new(initial)))))
+}
