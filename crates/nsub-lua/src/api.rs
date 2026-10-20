@@ -19,9 +19,17 @@ fn out_of_range(i: i64) -> mlua::Error {
 
 fn to_index(v: &Value) -> Option<i64> {
     match v {
-        Value::Integer(i) => Some(*i),
+        Value::Integer(i) => Some(*i as i64),
         Value::Number(n) => Some(*n as i64),
         _ => None,
+    }
+}
+
+fn group(e: &Entry) -> u8 {
+    match e {
+        Entry::Info(_) => 0,
+        Entry::Style(_) => 1,
+        Entry::Event(_) => 2,
     }
 }
 
@@ -30,11 +38,48 @@ fn collect_entries(args: impl IntoIterator<Item = Value>) -> Result<Vec<Entry>> 
     for a in args {
         match a {
             Value::Table(t) => out.push(convert::table_to_entry(&t).map_err(mlua::Error::runtime)?),
-            Value::UserData(_) => {} // tolerate `subs:insert(...)`
             other => return Err(mlua::Error::runtime(format!("expected line table, got {}", other.type_name()))),
         }
     }
     Ok(out)
+}
+
+/// Aegisub's append: new lines go after the last existing line of the same class, else at the end.
+fn append_entries(entries: &mut Vec<Entry>, new: Vec<Entry>) {
+    for e in new {
+        let g = group(&e);
+        match entries.iter().rposition(|x| group(x) == g) {
+            Some(p) => entries.insert(p + 1, e),
+            None => entries.push(e),
+        }
+    }
+}
+
+fn insert_entries(entries: &mut Vec<Entry>, before: i64, new: Vec<Entry>) -> Result<()> {
+    if before < 1 || before as usize > entries.len() + 1 {
+        return Err(mlua::Error::runtime("bad argument #1 to 'insert' (Out of range line index)"));
+    }
+    if before as usize == entries.len() + 1 {
+        append_entries(entries, new);
+    } else {
+        let at = before as usize - 1;
+        entries.splice(at..at, new);
+    }
+    Ok(())
+}
+
+fn delete_indices(entries: &mut Vec<Entry>, mut idx: Vec<i64>) -> Result<()> {
+    for &i in &idx {
+        if i < 1 || i as usize > entries.len() {
+            return Err(mlua::Error::runtime("bad argument to 'delete' (Out of range line index)"));
+        }
+    }
+    idx.sort_unstable_by(|a, b| b.cmp(a));
+    idx.dedup();
+    for i in idx {
+        entries.remove(i as usize - 1);
+    }
+    Ok(())
 }
 
 impl UserData for Subs {
@@ -45,80 +90,73 @@ impl UserData for Subs {
                 let sh = this.0.borrow();
                 return match sh.entries.get((i - 1) as usize) {
                     Some(e) if i >= 1 => Ok(Value::Table(convert::entry_to_table(lua, e)?)),
-                    _ => Ok(Value::Nil),
+                    _ => Err(out_of_range(i)),
                 };
             }
-            let Value::String(name) = key else { return Ok(Value::Nil) };
+            let Value::String(name) = key else {
+                return Err(mlua::Error::runtime(format!("Attempt to index a Subtitle File object with value of type '{}'.", key.type_name())));
+            };
             let sh = this.0.clone();
             let name = name.to_str()?.to_string();
             let f: Function = match name.as_str() {
                 "n" => return Ok(Value::Integer(this.0.borrow().entries.len() as _)),
                 "insert" => lua.create_function(move |_, args: MultiValue| {
-                    let mut it = args.into_iter().filter(|v| !matches!(v, Value::UserData(_)));
-                    let idx = it.next().as_ref().and_then(to_index).ok_or_else(|| mlua::Error::runtime("insert: bad index"))?;
+                    let mut it = args.into_iter();
+                    let idx = it.next().as_ref().and_then(to_index).ok_or_else(|| mlua::Error::runtime("bad argument #1 to 'insert' (number expected)"))?;
                     let new = collect_entries(it)?;
-                    let mut s = sh.borrow_mut();
-                    let at = (idx - 1).clamp(0, s.entries.len() as i64) as usize;
-                    s.entries.splice(at..at, new);
-                    Ok(())
+                    insert_entries(&mut sh.borrow_mut().entries, idx, new)
                 })?,
                 "append" => lua.create_function(move |_, args: MultiValue| {
                     let new = collect_entries(args)?;
-                    sh.borrow_mut().entries.extend(new);
+                    append_entries(&mut sh.borrow_mut().entries, new);
                     Ok(())
                 })?,
                 "delete" => lua.create_function(move |_, args: MultiValue| {
-                    let mut idx: Vec<i64> = args.iter().filter_map(to_index).collect();
-                    idx.sort_unstable_by(|a, b| b.cmp(a));
-                    idx.dedup();
-                    let mut s = sh.borrow_mut();
-                    for i in idx {
-                        if i < 1 || i as usize > s.entries.len() {
-                            return Err(out_of_range(i));
-                        }
-                        s.entries.remove(i as usize - 1);
-                    }
-                    Ok(())
+                    let idx: Vec<i64> = match args.iter().next() {
+                        Some(Value::Table(t)) if args.len() == 1 => t.sequence_values::<f64>().filter_map(|v| v.ok()).map(|n| n as i64).collect(),
+                        _ => args.iter().filter_map(to_index).collect(),
+                    };
+                    delete_indices(&mut sh.borrow_mut().entries, idx)
                 })?,
-                "deleterange" | "delete_range" => lua.create_function(move |_, args: MultiValue| {
+                "deleterange" => lua.create_function(move |_, args: MultiValue| {
                     let v: Vec<i64> = args.iter().filter_map(to_index).collect();
-                    let (a, b) = (v.first().copied().unwrap_or(1), v.get(1).copied().unwrap_or(0));
                     let mut s = sh.borrow_mut();
-                    if a < 1 || b as usize > s.entries.len() || a > b {
-                        return Err(out_of_range(a));
+                    let a = (v.first().copied().unwrap_or(1).max(1) - 1) as usize;
+                    let b = (v.get(1).copied().unwrap_or(0).max(0) as usize).min(s.entries.len());
+                    if a < b {
+                        s.entries.drain(a..b);
                     }
-                    s.entries.drain(a as usize - 1..b as usize);
                     Ok(())
                 })?,
-                _ => return Ok(Value::Nil),
+                "script_resolution" => lua.create_function(move |_, ()| Ok(sh.borrow().res))?,
+                _ => return Err(mlua::Error::runtime(format!("Invalid indexing in Subtitle File object: '{name}'"))),
             };
             Ok(Value::Function(f))
         });
         m.add_meta_method("__newindex", |_, this, (key, val): (Value, Value)| {
-            let i = to_index(&key).ok_or_else(|| mlua::Error::runtime("subs index must be a number"))?;
+            let n = to_index(&key).ok_or_else(|| mlua::Error::runtime("subs index must be a number"))?;
             let mut s = this.0.borrow_mut();
-            match val {
-                Value::Nil => {
-                    if i < 1 || i as usize > s.entries.len() {
-                        return Err(out_of_range(i));
-                    }
-                    s.entries.remove(i as usize - 1);
-                }
-                Value::Table(t) => {
-                    let e = convert::table_to_entry(&t).map_err(mlua::Error::runtime)?;
-                    if i == 0 {
-                        s.entries.push(e);
-                    } else if i >= 1 && (i as usize) <= s.entries.len() {
-                        s.entries[i as usize - 1] = e;
-                    } else if i as usize == s.entries.len() + 1 {
-                        s.entries.push(e);
-                    } else {
-                        return Err(out_of_range(i));
-                    }
-                }
-                _ => return Err(mlua::Error::runtime("subs[i] must be assigned a line table")),
+            if n < 0 {
+                let new = collect_entries([val])?;
+                return insert_entries(&mut s.entries, -n, new);
             }
-            Ok(())
+            if n == 0 {
+                let new = collect_entries([val])?;
+                append_entries(&mut s.entries, new);
+                return Ok(());
+            }
+            match val {
+                Value::Nil => delete_indices(&mut s.entries, vec![n]),
+                Value::Table(t) => {
+                    if n as usize > s.entries.len() {
+                        return Err(out_of_range(n));
+                    }
+                    let e = convert::table_to_entry(&t).map_err(mlua::Error::runtime)?;
+                    s.entries[n as usize - 1] = e;
+                    Ok(())
+                }
+                _ => Err(mlua::Error::runtime("Can't convert a non-table value to AssEntry")),
+            }
         });
     }
 }
@@ -270,6 +308,35 @@ pub(crate) fn install(lua: &Lua, sh: &Sh) -> Result<()> {
             })?,
         )?;
     }
+    a.set(
+        "parse_karaoke_data",
+        lua.create_function(|lua, line: Table| {
+            let (start, text) = match convert::table_to_entry(&line) {
+                Ok(Entry::Event(e)) => (e.start, e.text),
+                _ => return Err(mlua::Error::runtime("bad argument #1 to 'parse_karaoke_data' (Subtitle line must be a dialogue line)")),
+            };
+            let out = lua.create_table()?;
+            let first = lua.create_table()?;
+            for (k, v) in [("duration", 0i64), ("start_time", 0), ("end_time", 0)] {
+                first.set(k, v)?;
+            }
+            for k in ["tag", "text", "text_stripped"] {
+                first.set(k, "")?;
+            }
+            out.raw_set(0, first)?;
+            for (i, syl) in nsub_core::kara::parse_syllables(&text, start).iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("duration", syl.duration)?;
+                t.set("start_time", syl.start_time - start)?;
+                t.set("end_time", syl.start_time + syl.duration - start)?;
+                t.set("tag", syl.tag_type.as_str())?;
+                t.set("text", syl.get_text(false))?;
+                t.set("text_stripped", syl.text.as_str())?;
+                out.raw_set(i + 1, t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
     a.set("get_audio_selection", lua.create_function(|_, ()| Ok(Value::Nil))?)?;
     a.set("gettext", lua.create_function(|_, s: String| Ok(s))?)?;
     {
@@ -398,17 +465,40 @@ fn sh_clone(s: &Sh) -> Sh {
 }
 
 const PRELUDE: &str = include_str!("lua/prelude.lua");
-pub(crate) const UTILS: &str = include_str!("lua/utils.lua");
-pub(crate) const KARASKEL: &str = include_str!("lua/karaskel.lua");
-pub(crate) const UNICODE: &str = include_str!("lua/unicode.lua");
-pub(crate) const DEPCTRL: &str = include_str!("lua/depctrl.lua");
+
+macro_rules! embed {
+    ($($key:literal => $path:literal),* $(,)?) => {
+        &[$(($key, include_str!($path))),*]
+    };
+}
+
+const EMBEDDED: &[(&str, &str)] = embed! {
+    "include/utils.lua" => "lua/include/utils.lua",
+    "include/utils-auto4.lua" => "lua/include/utils-auto4.lua",
+    "include/karaskel.lua" => "lua/include/karaskel.lua",
+    "include/karaskel-auto4.lua" => "lua/include/karaskel-auto4.lua",
+    "include/cleantags.lua" => "lua/include/cleantags.lua",
+    "include/clipboard.lua" => "lua/include/clipboard.lua",
+    "include/unicode.lua" => "lua/include/unicode.lua",
+    "include/unicode-monkeypatch.lua" => "lua/include/unicode-monkeypatch.lua",
+    "include/re.lua" => "lua/include/re.lua",
+    "include/lfs.lua" => "lua/include/lfs.lua",
+    "aegisub/util" => "lua/aegisub/util.lua",
+    "aegisub/unicode" => "lua/aegisub/unicode.lua",
+    "aegisub/re" => "lua/aegisub/re.lua",
+    "aegisub/lfs" => "lua/aegisub/lfs.lua",
+    "aegisub/clipboard" => "lua/aegisub/clipboard.lua",
+    "aegisub/argcheck" => "lua/aegisub/argcheck.lua",
+    "aegisub/ffi" => "lua/aegisub/ffi.lua",
+    "depctrl" => "lua/depctrl.lua",
+};
 
 pub(crate) fn install_prelude(lua: &Lua, sh: &Sh) -> Result<()> {
     let inc: Vec<String> = sh.borrow().opts.include_dirs.iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect();
     lua.globals().set("__nsub_include_dirs", lua.create_sequence_from(inc)?)?;
     let embedded = lua.create_table()?;
-    for (name, src) in [("utils", UTILS), ("karaskel", KARASKEL), ("unicode", UNICODE), ("l0.DependencyControl", DEPCTRL)] {
-        embedded.set(name, src)?;
+    for (name, src) in EMBEDDED {
+        embedded.set(*name, *src)?;
     }
     lua.globals().set("__nsub_embedded", embedded)?;
     lua.load(PRELUDE).set_name("=prelude").exec()

@@ -4,6 +4,7 @@ pub mod ass;
 pub mod metrics;
 pub mod color;
 pub mod formats;
+pub mod kara;
 pub mod ops;
 pub mod qc;
 pub mod tags;

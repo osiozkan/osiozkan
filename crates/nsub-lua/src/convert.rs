@@ -47,13 +47,12 @@ pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
             t.set("section", "Script Info")?;
             t.set("key", i.key.as_str())?;
             t.set("value", i.value.as_str())?;
-            if i.key == ";" {
-                t.set("raw", i.value.as_str())?;
-            }
+            t.set("raw", if i.key == ";" { i.value.clone() } else { format!("{}: {}", i.key, i.value) })?;
         }
         Entry::Style(s) => {
             t.set("class", "style")?;
             t.set("section", "V4+ Styles")?;
+            t.set("raw", s.to_line())?;
             t.set("name", s.name.as_str())?;
             t.set("fontname", s.fontname.as_str())?;
             t.set("fontsize", s.fontsize)?;
@@ -77,12 +76,13 @@ pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
             t.set("margin_r", s.margin_r)?;
             t.set("margin_t", s.margin_t)?;
             t.set("margin_b", s.margin_b)?;
-            t.set("margin_v", s.margin_t)?;
+            t.set("relative_to", 2)?;
             t.set("encoding", s.encoding)?;
         }
         Entry::Event(e) => {
             t.set("class", "dialogue")?;
             t.set("section", "Events")?;
+            t.set("raw", e.to_line())?;
             t.set("comment", e.comment)?;
             t.set("layer", e.layer)?;
             t.set("start_time", e.start)?;

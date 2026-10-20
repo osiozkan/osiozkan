@@ -32,37 +32,48 @@ aegisub.progress = {
 }
 aegisub.unicode = nil
 
--- ---------------------------------------------------------------- include / require
-local function read_file(path)
-  local f = io.open(path, "rb")
-  if not f then return nil end
-  local s = f:read("*a")
-  f:close()
-  return s
+-- Aegisub's subs object supports ipairs(); plain LuaJIT's ipairs only takes tables.
+do
+  local real_ipairs = ipairs
+  function ipairs(t)
+    if type(t) == "userdata" then
+      local i = 0
+      return function()
+        i = i + 1
+        if i > #t then return nil end
+        return i, t[i]
+      end, t, 0
+    end
+    return real_ipairs(t)
+  end
+  table.unpack = table.unpack or unpack
 end
 
-local function load_embedded(name)
-  local src = __nsub_embedded[name]
+-- ---------------------------------------------------------------- include / require
+-- Embedded sources: "include/<file>.lua" are Aegisub's stock include files, "aegisub/<mod>" our module ports.
+local function load_embedded(key)
+  local src = __nsub_embedded[key]
   if not src then return nil end
-  local fn, err = loadstring(src, "=" .. name)
+  src = src:gsub("^\239\187\191", "") -- strip UTF-8 BOM
+  local fn, err = loadstring(src, "=" .. key)
   if not fn then error(err) end
   return fn
 end
 
--- Aliases: include("util.lua") / include("utils.lua") / require "aegisub.util" ...
-local alias = {
-  ["util"] = "utils", ["utils"] = "utils", ["aegisub.util"] = "utils",
-  ["karaskel"] = "karaskel", ["unicode"] = "unicode", ["aegisub.unicode"] = "unicode",
-  ["l0.DependencyControl"] = "l0.DependencyControl",
-}
-
-for modname, emb in pairs(alias) do
-  package.preload[modname] = function()
-    local fn = load_embedded(emb)
-    local r = fn(modname)
-    return r
+for _, m in ipairs { "util", "unicode", "re", "lfs", "clipboard", "argcheck", "ffi" } do
+  package.preload["aegisub." .. m] = function(name)
+    return load_embedded("aegisub/" .. m)(name)
   end
 end
+package.preload["l0.DependencyControl"] = function(name) return load_embedded("depctrl")(name) end
+
+-- require "karaskel" / "utils" / "cleantags" ... resolve against the embedded include directory.
+table.insert(package.loaders, 2, function(name)
+  local fn = load_embedded("include/" .. name .. ".lua")
+  if fn then return fn end
+  return nil
+end)
+-- Aegisub also allows require "aegisub.util" style names for stock include files.
 
 local function find_in_dirs(name)
   local candidates = { name }
@@ -83,90 +94,16 @@ local function find_in_dirs(name)
   end
 end
 
+-- include("file.lua"): search include dirs / script dir, then the embedded stock files.
 function include(name)
-  local base = name:gsub("%.lua$", "")
   local p = find_in_dirs(name)
   if p then
     local fn, err = loadfile(p)
     if not fn then error(err, 0) end
     return fn()
   end
-  if alias[base] then
-    local fn = load_embedded(alias[base])
-    return fn(base)
-  end
+  local key = name:match("%.lua$") and name or (name .. ".lua")
+  local fn = load_embedded("include/" .. key)
+  if fn then return fn(name) end
   error("Lua include not found: " .. name, 2)
 end
-
--- Aegisub exposes these helpers globally when utils.lua is included; we keep them lazy:
--- the scripts that need them call include("utils.lua") first, exactly as under Aegisub.
-
--- ---------------------------------------------------------------- re module
-local re = {}
-re.ICASE, re.NO_MOD_M, re.MOD_S, re.MOD_X, re.NOSUB, re.NEWLINE = 1, 2, 4, 8, 16, 32
-local function mkflags(f) return type(f) == "number" and f or 0 end
-
-local Regex = {}
-Regex.__index = Regex
-function re.compile(pattern, flags)
-  return setmetatable({ pattern = pattern, flags = mkflags(flags) }, Regex)
-end
-function Regex:match(str, flags)
-  local m = __re_matches(self.pattern, self.flags, str, 1)
-  return m[1]
-end
-function Regex:find(str, flags)
-  local all = __re_matches(self.pattern, self.flags, str)
-  if #all == 0 then return nil end
-  local out = {}
-  for i, m in ipairs(all) do out[i] = m[1] end
-  return out
-end
-function Regex:gmatch(str)
-  local all = __re_matches(self.pattern, self.flags, str)
-  local i = 0
-  return function() i = i + 1; return all[i] and all[i][1] end
-end
-function Regex:sub(str, repl, count)
-  if type(repl) == "function" then
-    local all = __re_matches(self.pattern, self.flags, str, count)
-    local out, last = {}, 1
-    for _, m in ipairs(all) do
-      local w = m[1]
-      out[#out + 1] = str:sub(last, w.first - 1)
-      out[#out + 1] = repl(w.str) or ""
-      last = w.last + 1
-    end
-    out[#out + 1] = str:sub(last)
-    return table.concat(out)
-  end
-  return __re_sub(self.pattern, self.flags, str, repl, count)
-end
-Regex.gsub = Regex.sub
-function Regex:split(str, skip_empty, max)
-  return __re_split(self.pattern, self.flags, str, skip_empty, max)
-end
-
-function re.match(pattern, str, flags) return re.compile(pattern, flags):match(str) end
-function re.find(str, pattern, flags) return re.compile(pattern, flags):find(str) end
-function re.gmatch(str, pattern, flags) return re.compile(pattern, flags):gmatch(str) end
-function re.sub(str, pattern, repl, count, flags) return re.compile(pattern, flags):sub(str, repl, count) end
-re.gsub = re.sub
-function re.split(str, sep, skip_empty, max, flags) return re.compile(sep, flags):split(str, skip_empty, max) end
-function re.escape(s) return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?{}|\\]", "\\%0")) end
-package.preload["re"] = function() return re end
-package.preload["aegisub.re"] = function() return re end
-
--- ---------------------------------------------------------------- lfs (minimal)
-local lfs = {}
-function lfs.attributes(path, attr)
-  local f = io.open(path, "rb")
-  if not f then return nil, "No such file or directory" end
-  local size = f:seek("end")
-  f:close()
-  local t = { mode = "file", size = size }
-  if attr then return t[attr] end
-  return t
-end
-function lfs.currentdir() return "." end
-package.preload["lfs"] = function() return lfs end
