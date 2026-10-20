@@ -1,3 +1,5 @@
+> **Not:** Ana ürün artık `../yuzu/` (bkz. `yuzu/CLAUDE.md`). SubForge donör olarak kalır; yeni geliştirme Yuzu'da yapılır.
+
 # SubForge — geliştirme rehberi (otomatik gece oturumları için)
 
 Amaç: Aegisub'ı tamamen kopyalayan, Subtitle Edit'in iyi özelliklerini katan, anime altyazı iş akışı için her şeyi içeren, hızlı ve kolay arayüzlü, sahibinin Lua (Automation 4) betikleriyle uyumlu bir program. Sahibi Türkçe konuşuyor; arayüz Türkçe, kod/yorum İngilizce.

@@ -195,7 +195,7 @@ pub fn scan_scripts(dirs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
             es.sort();
             for p in es {
                 let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-                if ext == "lua" { files.push(p); }
+                if ext == "lua" || ext == "moon" { files.push(p); }
             }
         }
         if let Some(parent) = d.parent() {

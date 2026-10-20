@@ -35,7 +35,8 @@ Her gece bir sonraki sürüm bu listeden ilerler. `[x]` tamamlandı.
 - [x] DependencyControl uyumluluk katmanı (modül listesi, yapılandırma, alt menü), `json`; uyumluluk testleri
 - [x] Hata izi, otomatik yeniden yükleme, makro doğrulama/is_active, otomasyon yöneticisi
 - [ ] Gerçek ILL / ASSFoundation / a-mo kurulumuyla deneme (bu ortamdan indirilemedi)
-- [ ] MoonScript (`.moon`) betikleri, `aegisub.get_frame`, dışa aktarma süzgeci ayar pencereleri
+- [x] MoonScript (`.moon`) betikleri ve modülleri (gömülü MoonScript 0.5 + LuLPeg)
+- [ ] `aegisub.get_frame`, dışa aktarma süzgeci ayar pencereleri
 - [ ] Betik sandbox ayarları
 
 ## Kalite

@@ -152,6 +152,29 @@ pub struct LuaScript {
 
 const CANCEL: &str = "__yuzu_cancel__";
 
+mod moon_modules;
+
+/// Translate MoonScript source to Lua with the embedded compiler (v0.5.0 + LuLPeg).
+fn compile_moon(lua: &Lua, src: &str) -> LResult<String> {
+    let require: Function = lua.globals().get("require")?;
+    let base: Table = require.call("moonscript.base")?;
+    let to_lua: Function = base.get("to_lua")?;
+    let (code, extra): (Option<String>, Value) = to_lua.call(src)?;
+    code.ok_or_else(|| mlua::Error::runtime(format!("MoonScript: {}", extra.to_string().unwrap_or_else(|_| "compile failed".into()))))
+}
+
+/// Lazily loadable MoonScript runtime plus a package searcher that finds `x.moon`.
+fn install_moonscript(lua: &Lua) -> LResult<()> {
+    let package: Table = lua.globals().get("package")?;
+    let preload: Table = package.get("preload")?;
+    for &(name, src) in moon_modules::MODULES {
+        preload.set(name, lua.create_function(move |lua, ()| lua.load(src).set_name(format!("=moon:{name}")).call::<Value>(name))?)?;
+    }
+    preload.set("lpeg", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("lulpeg"))?)?;
+    preload.set("moonscript", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("moonscript.base"))?)?;
+    lua.load(include_str!("../lua/moon_searcher.lua")).set_name("=moon_searcher").exec()
+}
+
 fn lerr(e: mlua::Error) -> String {
     e.to_string()
 }
@@ -320,6 +343,10 @@ impl LuaScript {
             host: host.clone(),
         };
         sc.setup(&host, include_dirs).map_err(lerr)?;
+        let src: Vec<u8> = if path.extension().is_some_and(|e| e == "moon") {
+            let text = String::from_utf8_lossy(&src);
+            compile_moon(&sc.lua, text.trim_start_matches('\u{feff}')).map_err(lerr)?.into_bytes()
+        } else { src };
         let chunk = sc.lua.load(&src[..]).set_name(format!("@{}", path.display())).into_function().map_err(lerr)?;
         sc.call_traced(chunk, ())?;
         let g = sc.lua.globals();
@@ -376,6 +403,7 @@ impl LuaScript {
             preload.set(name, f)?;
         }
         re::install(lua)?;
+        install_moonscript(lua)?;
         // modules used only when nothing on the package path provides them (a user's own json.lua wins)
         let fallback = lua.create_table()?;
         fallback.set("json", include_str!("../lua/json.lua"))?;

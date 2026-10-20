@@ -341,3 +341,17 @@ aegisub.register_macro(script_name, script_description, add_blur, function(subs,
     assert_eq!(d.events[0].text, "{\\be1}Hello");
     assert_eq!(d.events[1].text, "{\\be1\\k20}ka{\\k30}ra");
 }
+
+#[test]
+fn moonscript_main_script_and_module() {
+    let dir = std::env::temp_dir().join(format!("yuzu-moon-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("helper.moon"), "{ shout: (s) -> s\\upper! .. \"!\", twice: (n) -> n * 2 }\n").unwrap();
+    let main = dir.join("m.moon");
+    std::fs::write(&main, "script_name = \"Moon\"\nh = require \"helper\"\naegisub.register_macro \"shout\", \"d\", (subs, sel) ->\n  for i in *sel\n    l = subs[i]\n    l.text = h.shout l.text\n    subs[i] = l\n").unwrap();
+    let s = LuaScript::load(&main, Rc::new(TestHost::default()), &[]).expect("moon script loads");
+    assert_eq!(s.macros().len(), 1);
+    let mut doc = sample();
+    s.run_macro(0, &mut doc, &[0], None).unwrap();
+    assert_eq!(doc.events[0].text, "HELLO!");
+}
