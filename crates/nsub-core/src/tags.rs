@@ -225,3 +225,57 @@ mod tests {
         assert!(!has_unbalanced_braces("{a}b"));
     }
 }
+
+/// `\pos(x,y)` of the first override block, if present.
+pub fn get_pos(text: &str) -> Option<(f64, f64)> {
+    for seg in parse(text) {
+        if let Segment::Block(tags) = seg {
+            for t in tags {
+                if t.name == "pos" {
+                    let v: Vec<f64> = t.value.trim().trim_start_matches('(').trim_end_matches(')').split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if v.len() == 2 {
+                        return Some((v[0], v[1]));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn fmt_coord(v: f64) -> String {
+    let r = (v * 100.0).round() / 100.0;
+    if r == r.trunc() { format!("{}", r as i64) } else { format!("{r}") }
+}
+
+/// Set (or insert) `\pos(x,y)`: replaces an existing one, else prepends it to the first block (creating one if needed).
+pub fn set_pos(text: &str, x: f64, y: f64) -> String {
+    let new = format!("\\pos({},{})", fmt_coord(x), fmt_coord(y));
+    let mut segs = parse(text);
+    for seg in &mut segs {
+        if let Segment::Block(tags) = seg {
+            if let Some(t) = tags.iter_mut().find(|t| t.name == "pos") {
+                t.value = format!("({},{})", fmt_coord(x), fmt_coord(y));
+                return serialize(&segs);
+            }
+        }
+    }
+    if let Some(Segment::Block(tags)) = segs.first_mut() {
+        tags.insert(0, Tag { name: "pos".into(), value: format!("({},{})", fmt_coord(x), fmt_coord(y)) });
+        return serialize(&segs);
+    }
+    format!("{{{new}}}{text}")
+}
+
+#[cfg(test)]
+mod pos_tests {
+    use super::*;
+    #[test]
+    fn pos_roundtrip() {
+        assert_eq!(get_pos("{\\an8\\pos(10.5,20)}x"), Some((10.5, 20.0)));
+        assert_eq!(set_pos("{\\an8\\pos(10,20)}x", 100.0, 50.25), "{\\an8\\pos(100,50.25)}x");
+        assert_eq!(set_pos("{\\an8}x", 1.0, 2.0), "{\\pos(1,2)\\an8}x");
+        assert_eq!(set_pos("plain", 1.0, 2.0), "{\\pos(1,2)}plain");
+        assert_eq!(get_pos("none"), None);
+    }
+}

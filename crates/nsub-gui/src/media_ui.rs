@@ -283,6 +283,31 @@ impl Media {
         if let Some(t) = &self.tex {
             ui.painter().image(t.id(), rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
+        // visual typesetting: drag the \pos handle of the active line
+        let (rw, rh) = app.doc.script.resolution();
+        if let Some(a) = app.active.filter(|&a| a < app.doc.script.events.len()) {
+            if let Some((px, py)) = nsub_core::tags::get_pos(&app.doc.script.events[a].text) {
+                let to_screen = |x: f64, y: f64| Pos2::new(rect.left() + (x as f32 / rw as f32) * rect.width(), rect.top() + (y as f32 / rh as f32) * rect.height());
+                let c = to_screen(px, py);
+                let hr = Rect::from_center_size(c, egui::vec2(18.0, 18.0));
+                let r = ui.interact(hr, ui.id().with("posh"), Sense::drag());
+                if r.drag_started() {
+                    app.doc.checkpoint();
+                }
+                if r.dragged() {
+                    if let Some(p) = r.interact_pointer_pos() {
+                        let nx = ((p.x - rect.left()) / rect.width() * rw as f32).clamp(0.0, rw as f32) as f64;
+                        let ny = ((p.y - rect.top()) / rect.height() * rh as f32).clamp(0.0, rh as f32) as f64;
+                        app.doc.script.events[a].text = nsub_core::tags::set_pos(&app.doc.script.events[a].text, nx, ny);
+                        app.doc.rev += 1;
+                        app.doc.dirty = true;
+                    }
+                }
+                ui.painter().circle_stroke(c, 8.0, Stroke::new(2.0_f32, Color32::from_rgb(255, 200, 0)));
+                ui.painter().line_segment([c - egui::vec2(12.0, 0.0), c + egui::vec2(12.0, 0.0)], Stroke::new(1.0_f32, Color32::from_rgb(255, 200, 0)));
+                ui.painter().line_segment([c - egui::vec2(0.0, 12.0), c + egui::vec2(0.0, 12.0)], Stroke::new(1.0_f32, Color32::from_rgb(255, 200, 0)));
+            }
+        }
         if self.video.is_none() && !self.show_subs {
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "No video loaded\n(File → Open video…)", egui::FontId::proportional(14.0), Color32::GRAY);
         }
