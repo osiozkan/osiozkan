@@ -95,6 +95,7 @@ pub const COMMANDS: &[CommandDef] = &[
     c("qc", "Quality check…", "Tools", &[]),
     c("resample", "Resample resolution…", "Tools", &[]),
     c("fix", "Fix common errors…", "Tools", &[]),
+    c("spell", "Spell check…", "Tools", &[]),
     c("netflix_qc", "Netflix-style quality check", "Tools", &[]),
     c("fonts", "Fonts collector / embed…", "Tools", &[]),
     c("karaoke", "Karaoke editor…", "Tools", &[]),

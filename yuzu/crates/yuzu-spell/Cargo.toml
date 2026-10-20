@@ -1,0 +1,9 @@
+[package]
+name = "yuzu-spell"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+asscore = { path = "../asscore" }
+spellbook = "0.4"
+ureq = "3"

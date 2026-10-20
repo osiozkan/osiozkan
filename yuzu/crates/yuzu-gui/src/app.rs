@@ -24,7 +24,7 @@ struct Snapshot {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke, Fonts, Fix, Reference, Compare, Sync, Glossary, SelectLines, MultiReplace, Translate, StyleAssist, Scripts }
+enum Panel { Find, Shift, Styles, Qc, Props, Console, Post, Resample, About, Karaoke, Fonts, Fix, Reference, Compare, Sync, Glossary, SelectLines, MultiReplace, Translate, StyleAssist, Scripts, Spell }
 
 pub struct App {
     doc: Script,
@@ -98,6 +98,7 @@ pub struct App {
     bom: bool,
     fonts_report: Vec<String>,
     osi: tools::OsiTools,
+    spell: spell::SpellState,
     edit: editing::EditTools,
     auto: automation::AutoState,
     fixes: asscore::fixes::CommonFixes,
@@ -238,6 +239,7 @@ impl App {
             kara_audio: false,
             fonts_report: vec![],
             osi: tools::OsiTools::default(),
+            spell: spell::SpellState::default(),
             edit: editing::EditTools::default(),
             auto: automation::AutoState::default(),
             fixes: asscore::fixes::CommonFixes::default(),
@@ -634,6 +636,9 @@ mod editing;
 #[path = "visual.rs"]
 mod visual;
 
+#[path = "spell.rs"]
+mod spell;
+
 #[path = "automation.rs"]
 mod automation;
 
@@ -810,6 +815,7 @@ impl App {
             "sync_speech" => { self.osi.sync_use_ref = false; self.osi.sync_plan = None; self.show_panel(Panel::Sync); }
             "sync_ref" => { self.osi.sync_use_ref = true; self.osi.sync_plan = None; self.show_panel(Panel::Sync); }
             "glossary" => { self.autoload_glossary(); self.show_panel(Panel::Glossary); }
+            "spell" => self.show_panel(Panel::Spell),
             "toggle_ref_column" => self.osi.show_ref_column = !self.osi.show_ref_column,
             "properties" => self.show_panel(Panel::Props),
             "quit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
@@ -1031,7 +1037,7 @@ impl App {
                     });
                 });
                 ui.menu_button(t("Tools"), |ui| {
-                    for id in ["styles", "style_assist", "qc", "netflix_qc", "fix", "resample", "fonts", "karaoke"] { self.menu_cmd(ui, id); }
+                    for id in ["styles", "style_assist", "qc", "netflix_qc", "fix", "spell", "resample", "fonts", "karaoke"] { self.menu_cmd(ui, id); }
                     ui.separator();
                     for id in ["clean_tags", "strip_tags", "strip_karaoke", "dedupe", "trim"] { self.menu_cmd(ui, id); }
                 });
@@ -1426,6 +1432,7 @@ impl App {
                 Panel::Reference => { egui::Window::new(t("Reference")).open(&mut open).default_width(560.0).show(ctx, |ui| self.reference_ui(ui)); }
                 Panel::Compare => { egui::Window::new(t("Compare with the source")).open(&mut open).default_width(860.0).default_height(560.0).show(ctx, |ui| self.compare_ui(ui)); }
                 Panel::Sync => { egui::Window::new(t("Piecewise sync")).open(&mut open).default_width(640.0).show(ctx, |ui| self.sync_ui(ui)); }
+                Panel::Spell => { egui::Window::new(t("Spell check")).open(&mut open).default_width(560.0).default_height(440.0).show(ctx, |ui| self.spell_ui(ui)); }
                 Panel::Glossary => { egui::Window::new(t("Term check")).open(&mut open).default_width(620.0).show(ctx, |ui| self.glossary_ui(ui)); }
                 Panel::SelectLines => { egui::Window::new(t("Select lines")).open(&mut open).default_width(520.0).show(ctx, |ui| self.select_lines_ui(ui)); }
                 Panel::MultiReplace => { egui::Window::new(t("Multiple replace")).open(&mut open).default_width(860.0).show(ctx, |ui| self.multi_replace_ui(ui)); }

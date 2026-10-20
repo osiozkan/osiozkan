@@ -235,7 +235,7 @@ const TR: &[(&str, &str)] = &[
     ("Translation", "Çeviri"), ("CPL", "CPL"),
     ("Reference panel…", "Referans paneli…"), ("Reference column in the grid", "Izgarada Referans sütunu"),
     ("Compare with the source (aligncompare)…", "Kaynakla karşılaştır (aligncompare)…"), ("Sync to the reference…", "Referansa göre senkron…"),
-    ("Sync to speech…", "Konuşmaya göre senkron…"), ("Term check…", "Terim denetimi…"),
+    ("Sync to speech…", "Konuşmaya göre senkron…"), ("Term check…", "Terim denetimi…"), ("Spell check…", "Yazım denetimi…"),
     ("Reference", "Referans"), ("Reference ({} s)", "Referans ({} sn)"), ("Reference: {}", "Referans: {}"), ("No reference loaded", "Referans yüklü değil"),
     ("Load…", "Yükle…"), ("Offset", "Kayma"), ("How much later the document is than the reference", "Belge referanstan ne kadar geç"),
     ("Find offset", "Kaymayı bul"), ("Offset {} s (confidence {}%)", "Kayma {} sn (güven %{})"),
@@ -269,7 +269,7 @@ const TR: &[(&str, &str)] = &[
     ("Nothing to change", "Değişecek bir şey yok"), ("{} lines moved", "{} satır kaydırıldı"), ("{} scenes · {} lines will move", "{} sahne · {} satır kayacak"),
     ("Scene", "Sahne"), ("Margin", "Fark payı"),
     ("How much better the chosen offset fits than the best one at least 0.3 s away, as a share of the scene's anchor speech. Under 5% is doubtful.", "Seçilen kaymanın, en az 0,3 sn uzaktaki en iyi rakibinden ne kadar iyi oturduğu (sahnenin dayanak konuşmasına oranla). %5'in altı şüphelidir."), ("Note", "Not"), ("Apply ({} lines)", "Uygula ({} satır)"),
-    ("Term check", "Terim denetimi"), ("{} terms", "{} terim"), ("No glossary (terimler.tsv next to the script is loaded automatically)", "Sözlük yok (betiğin yanındaki terimler.tsv kendiliğinden yüklenir)"),
+    ("Term check", "Terim denetimi"), ("Spell check", "Yazım denetimi"), ("Dictionary downloaded.", "Sözlük indirildi."), ("Download failed: {}", "İndirilemedi: {}"), ("Language", "Dil"), ("No dictionary installed for this language (LibreOffice dictionaries, downloaded from the internet; tr_TR ≈ 38 MB).", "Bu dil için sözlük kurulu değil (LibreOffice sözlükleri, internetten indirilir; tr_TR ≈ 38 MB)."), ("Download dictionary", "Sözlüğü indir"), ("Downloading…", "İndiriliyor…"), ("{} misspelled words", "{} yanlış yazılmış sözcük"), ("in {} lines", "{} satırda"), ("Fix all", "Tümünü düzelt"), ("Ignore", "Yoksay"), ("Add to dictionary", "Sözlüğe ekle"), ("{} terms", "{} terim"), ("No glossary (terimler.tsv next to the script is loaded automatically)", "Sözlük yok (betiğin yanındaki terimler.tsv kendiliğinden yüklenir)"),
     ("Reload", "Yeniden yükle"), ("Check", "Denetle"), ("{} findings", "{} bulgu"), ("Fix forbidden terms ({})", "Yasak terimleri düzelt ({})"),
     ("Fix", "Düzelt"), ("{} lines fixed", "{} satır düzeltildi"),
     // ---------------------------------------------------------------- palette / preferences

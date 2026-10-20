@@ -1,5 +1,8 @@
 # Değişiklik günlüğü
 
+## 0.7.0 (hazırlanıyor)
+- **Yazım denetimi** (Araçlar → Yazım denetimi): Hunspell sözlükleriyle (saf Rust `spellbook`), Türkçe sözlük LibreOffice deposundan ilk kullanımda indirilir ve sayısal bayrakları yamalanır; `Ahmet'in` gibi ek almış özel adlar kabul edilir; öneriler, tümünü düzelt, yoksay, kullanıcı sözlüğüne ekle. Yeni crate: `yuzu-spell`.
+
 ## 0.6.0 — Lua otomasyonu (2026-10-20)
 - **Hata izi**: makro, doğrulama ve yükleme hataları yığın iziyle gelir (`dosya.lua:12: in function 'f'`);
   çağrı düzeneğinin kendi çerçeveleri gizlenir.

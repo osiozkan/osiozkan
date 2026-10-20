@@ -26,7 +26,7 @@ Her gece bir sonraki sürüm bu listeden ilerler. `[x]` tamamlandı.
 - [x] Terim denetimi (termcheck), Osi CPL kuralı
 - [ ] Konuşma algılamayla satır başlangıç/bitişlerini yapıştırma önerileri
 - [x] Stil kataloğu / depolama, kaydedilmiş arama-değiştirme (çoklu değiştir)
-- [ ] Yazım denetimi (Hunspell sözlükleri, Türkçe)
+- [x] Yazım denetimi (Hunspell/spellbook; tr_TR indirilir, bayrak yaması; `yuzu-spell`)
 
 ## Lua
 - [x] macro/filter, karaskel, utils, unicode, re, dialog
