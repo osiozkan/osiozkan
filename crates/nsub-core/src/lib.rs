@@ -3,6 +3,7 @@
 pub mod ass;
 pub mod metrics;
 pub mod color;
+pub mod fixes;
 pub mod formats;
 pub mod kara;
 pub mod ops;

@@ -1,7 +1,7 @@
 //! `nightsub` command line: convert, inspect, QC, fix, time-shift and run Aegisub Lua macros headlessly.
 
 use nsub_core::formats::{self, Format};
-use nsub_core::{ops, qc, Script};
+use nsub_core::{fixes, ops, qc, Script};
 use nsub_lua::{Automation, Options};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,7 +14,8 @@ USAGE:
   nightsub info <file>
   nightsub convert <in> <out> [--fps N]            format chosen by <out> extension
   nightsub check <file> [--cps N] [--min-dur MS] [--max-dur MS] [--line-len N] [--lines N] [--gap MS]
-  nightsub fix <file> -o <out> [--overlaps] [--min-dur MS] [--spaces]
+  nightsub fix <file> -o <out> [--overlaps] [--min-dur MS] [--spaces] [--gap MS] [--cps N] [--case upper|lower|sentence|title|invert]
+                [--hi] [--balance N] [--unbreak] [--split N] [--merge-dups MS] [--merge-short N] [--snap FPS]
   nightsub shift <file> <+/-ms> -o <out>
   nightsub sync <file> <old1> <new1> <old2> <new2> -o <out>   (times in ms or H:MM:SS.cc)
   nightsub replace <file> <pattern> <with> -o <out> [--regex] [--case] [--word] [--style S] [--skip-tags]
@@ -107,7 +108,7 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     };
     let rest = &raw[1..];
-    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video"];
+    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video", "case", "balance", "split", "merge-dups", "merge-short", "snap"];
     let a = parse_args(rest, &valued);
     match cmd.as_str() {
         "help" | "--help" | "-h" => print!("{HELP}"),
@@ -156,6 +157,26 @@ fn run() -> Result<ExitCode, String> {
             if a.has("overlaps") { n += qc::fix_overlaps(&mut s, 0) }
             if let Some(ms) = a.num::<i64>("min-dur")? { n += qc::fix_min_duration(&mut s, ms) }
             if a.has("spaces") { n += qc::fix_double_spaces(&mut s) }
+            if let Some(ms) = a.num::<i64>("gap")? { n += fixes::apply_min_gap(&mut s, ms) }
+            if let Some(c) = a.num::<f64>("cps")? { n += fixes::fix_cps(&mut s, c, a.num::<i64>("gap")?.unwrap_or(0), 7000) }
+            if let Some(c) = a.get("case") {
+                let mode = match c {
+                    "upper" => fixes::Case::Upper,
+                    "lower" => fixes::Case::Lower,
+                    "sentence" => fixes::Case::Sentence,
+                    "title" => fixes::Case::Title,
+                    "invert" => fixes::Case::Invert,
+                    other => return Err(format!("unknown --case '{other}'")),
+                };
+                n += fixes::change_case(&mut s, mode, None);
+            }
+            if a.has("hi") { n += fixes::remove_hearing_impaired(&mut s) }
+            if a.has("unbreak") { n += fixes::unbreak(&mut s) }
+            if let Some(l) = a.num::<usize>("balance")? { n += fixes::balance_all(&mut s, l) }
+            if let Some(l) = a.num::<usize>("split")? { n += fixes::split_long(&mut s, l) }
+            if let Some(ms) = a.num::<i64>("merge-dups")? { n += fixes::merge_duplicates(&mut s, ms) }
+            if let Some(l) = a.num::<usize>("merge-short")? { n += fixes::merge_short(&mut s, l, 500) }
+            if let Some(f) = a.num::<f64>("snap")? { fixes::snap_to_frames(&mut s, f); n += 1 }
             save(&s, out)?;
             println!("{n} fix(es) applied -> {out}");
         }
