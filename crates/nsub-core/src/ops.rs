@@ -150,3 +150,132 @@ mod tests {
         assert_eq!(s.events.len(), 2);
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Selection, sorting, post-processing
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    Text,
+    /// Text with override tags removed.
+    PlainText,
+    Style,
+    Actor,
+    Effect,
+}
+
+/// Indices of events whose `field` matches `pattern` (substring or regex); `invert` flips the result.
+pub fn select_matching(script: &Script, pattern: &str, field: Field, regex: bool, case_sensitive: bool, invert: bool, include_comments: bool) -> Result<Vec<usize>, String> {
+    let mut pat = if regex { pattern.to_string() } else { regex::escape(pattern) };
+    if !case_sensitive {
+        pat = format!("(?i){pat}");
+    }
+    let re = Regex::new(&pat).map_err(|e| e.to_string())?;
+    Ok(script
+        .events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| include_comments || !e.comment)
+        .filter(|(_, e)| {
+            let hay = match field {
+                Field::Text => e.text.clone(),
+                Field::PlainText => crate::tags::visible_text(&e.text),
+                Field::Style => e.style.clone(),
+                Field::Actor => e.actor.clone(),
+                Field::Effect => e.effect.clone(),
+            };
+            re.is_match(&hay) != invert
+        })
+        .map(|(i, _)| i)
+        .collect())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortKey {
+    Start,
+    End,
+    Style,
+    Actor,
+    Effect,
+    Layer,
+}
+
+/// Stable sort of all events by `key`.
+pub fn sort_events(script: &mut Script, key: SortKey) {
+    match key {
+        SortKey::Start => script.events.sort_by_key(|e| e.start),
+        SortKey::End => script.events.sort_by_key(|e| e.end),
+        SortKey::Style => script.events.sort_by(|a, b| a.style.cmp(&b.style)),
+        SortKey::Actor => script.events.sort_by(|a, b| a.actor.cmp(&b.actor)),
+        SortKey::Effect => script.events.sort_by(|a, b| a.effect.cmp(&b.effect)),
+        SortKey::Layer => script.events.sort_by_key(|e| e.layer),
+    }
+}
+
+/// Timing post-processor: extend starts earlier by `lead_in_ms` and ends later by `lead_out_ms`
+/// without overlapping neighbouring events of the same style/layer.
+pub fn lead_in_out(script: &mut Script, lead_in_ms: i64, lead_out_ms: i64) -> usize {
+    let mut idx: Vec<usize> = (0..script.events.len()).filter(|&i| !script.events[i].comment).collect();
+    idx.sort_by_key(|&i| (script.events[i].start, i));
+    let mut n = 0;
+    for (k, &i) in idx.iter().enumerate() {
+        let (style, layer, start, end) = {
+            let e = &script.events[i];
+            (e.style.clone(), e.layer, e.start, e.end)
+        };
+        let prev_end = idx[..k].iter().rev().map(|&j| &script.events[j]).find(|o| o.style == style && o.layer == layer).map(|o| o.end).unwrap_or(0);
+        let next_start = idx[k + 1..].iter().map(|&j| &script.events[j]).find(|o| o.style == style && o.layer == layer).map(|o| o.start).unwrap_or(i64::MAX);
+        let new_start = (start - lead_in_ms).max(prev_end).max(0).min(start);
+        let new_end = (end + lead_out_ms).min(next_start).max(end);
+        if (new_start, new_end) != (start, end) {
+            script.events[i].start = new_start;
+            script.events[i].end = new_end;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Remove styles no event uses (the `Default` style is always kept).
+pub fn drop_unused_styles(script: &mut Script) -> usize {
+    use std::collections::HashSet;
+    let used: HashSet<&str> = script.events.iter().map(|e| e.style.as_str()).collect();
+    let before = script.styles.len();
+    let used: HashSet<String> = used.into_iter().map(String::from).collect();
+    script.styles.retain(|s| used.contains(&s.name) || s.name == "Default");
+    before - script.styles.len()
+}
+
+#[cfg(test)]
+mod tests2 {
+    use super::*;
+    use crate::ass::Event;
+    fn ev(s: i64, e: i64, t: &str, style: &str) -> Event {
+        Event { start: s, end: e, text: t.into(), style: style.into(), ..Event::default() }
+    }
+    #[test]
+    fn select_and_sort() {
+        let mut s = Script::new();
+        s.events = vec![ev(3000, 4000, "{\\i1}hello", "A"), ev(1000, 2000, "world", "B"), ev(0, 500, "HELLO again", "A")];
+        let hits = select_matching(&s, "hello", Field::PlainText, false, false, false, true).unwrap();
+        assert_eq!(hits, vec![0, 2]);
+        let hits = select_matching(&s, "^hello", Field::Text, true, true, false, true).unwrap();
+        assert!(hits.is_empty());
+        let hits = select_matching(&s, "A", Field::Style, false, true, true, true).unwrap();
+        assert_eq!(hits, vec![1]);
+        sort_events(&mut s, SortKey::Start);
+        assert_eq!(s.events[0].start, 0);
+    }
+    #[test]
+    fn lead_and_unused() {
+        let mut s = Script::new();
+        s.events = vec![ev(1000, 2000, "a", "Default"), ev(2100, 3000, "b", "Default")];
+        assert_eq!(lead_in_out(&mut s, 200, 200), 2);
+        assert_eq!(s.events[0].start, 800);
+        assert_eq!(s.events[0].end, 2100); // limited by next line start
+        assert_eq!(s.events[1].start, 2100);
+        assert_eq!(s.events[1].end, 3200);
+        s.styles.push(crate::Style { name: "Unused".into(), ..Default::default() });
+        assert_eq!(drop_unused_styles(&mut s), 1);
+    }
+}

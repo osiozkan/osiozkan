@@ -19,6 +19,10 @@ USAGE:
   nightsub shift <file> <+/-ms> -o <out>
   nightsub sync <file> <old1> <new1> <old2> <new2> -o <out>   (times in ms or H:MM:SS.cc)
   nightsub replace <file> <pattern> <with> -o <out> [--regex] [--case] [--word] [--style S] [--skip-tags]
+  nightsub resample <file> <w> <h> -o <out>          scale styles, margins, \\pos/\\move/\\clip/\\fs/… to a new PlayRes
+  nightsub sort <file> start|end|style|actor|effect|layer -o <out>
+  nightsub select <file> <pattern> [--field text|plain|style|actor|effect] [--regex] [--case] [--invert] [--comments]
+  nightsub fonts <file> [--copy DIR]                 list/collect fonts used (exit 1 if any are missing)
   nightsub eval '<lua code>' [--include DIR]...     run Lua in the Aegisub-compatible runtime
   nightsub macros <script.lua>...                  list macros registered by Lua scripts
   nightsub run <file> --script <x.lua> [--script ...] --macro <name> [-o out] [--sel 1-5,9]
@@ -109,7 +113,7 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     };
     let rest = &raw[1..];
-    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video", "case", "balance", "split", "merge-dups", "merge-short", "snap"];
+    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video", "case", "balance", "split", "merge-dups", "merge-short", "snap", "field", "copy", "lead-in", "lead-out"];
     let a = parse_args(rest, &valued);
     match cmd.as_str() {
         "help" | "--help" | "-h" => print!("{HELP}"),
@@ -178,6 +182,10 @@ fn run() -> Result<ExitCode, String> {
             if let Some(ms) = a.num::<i64>("merge-dups")? { n += fixes::merge_duplicates(&mut s, ms) }
             if let Some(l) = a.num::<usize>("merge-short")? { n += fixes::merge_short(&mut s, l, 500) }
             if let Some(f) = a.num::<f64>("snap")? { fixes::snap_to_frames(&mut s, f); n += 1 }
+            if a.has("lead-in") || a.has("lead-out") {
+                n += ops::lead_in_out(&mut s, a.num::<i64>("lead-in")?.unwrap_or(0), a.num::<i64>("lead-out")?.unwrap_or(0));
+            }
+            if a.has("drop-unused-styles") { n += ops::drop_unused_styles(&mut s) }
             save(&s, out)?;
             println!("{n} fix(es) applied -> {out}");
         }
@@ -207,6 +215,71 @@ fn run() -> Result<ExitCode, String> {
             let n = ops::find_replace(&mut s, &r)?;
             save(&s, a.get("out").ok_or("-o <out> required")?)?;
             println!("{n} line(s) changed");
+        }
+        "resample" => {
+            let mut s = load(a.pos(0, "file")?)?;
+            let (w, h): (i32, i32) = (a.pos(1, "width")?.parse().map_err(|_| "bad width")?, a.pos(2, "height")?.parse().map_err(|_| "bad height")?);
+            let n = nsub_core::resample::resample(&mut s, w, h, Default::default());
+            save(&s, a.get("out").ok_or("-o <out> required")?)?;
+            println!("resampled to {w}x{h}; {n} event(s) changed");
+        }
+        "sort" => {
+            let mut s = load(a.pos(0, "file")?)?;
+            let key = match a.pos(1, "key (start|end|style|actor|effect|layer)")? {
+                "start" => ops::SortKey::Start,
+                "end" => ops::SortKey::End,
+                "style" => ops::SortKey::Style,
+                "actor" => ops::SortKey::Actor,
+                "effect" => ops::SortKey::Effect,
+                "layer" => ops::SortKey::Layer,
+                other => return Err(format!("unknown sort key '{other}'")),
+            };
+            ops::sort_events(&mut s, key);
+            save(&s, a.get("out").ok_or("-o <out> required")?)?;
+        }
+        "select" => {
+            let s = load(a.pos(0, "file")?)?;
+            let field = match a.get("field").unwrap_or("plain") {
+                "text" => ops::Field::Text,
+                "plain" => ops::Field::PlainText,
+                "style" => ops::Field::Style,
+                "actor" => ops::Field::Actor,
+                "effect" => ops::Field::Effect,
+                other => return Err(format!("unknown --field '{other}'")),
+            };
+            let hits = ops::select_matching(&s, a.pos(1, "pattern")?, field, a.has("regex"), a.has("case"), a.has("invert"), a.has("comments"))?;
+            for i in &hits {
+                println!("{}\t{}", i + 1, s.events[*i].text);
+            }
+            eprintln!("{} line(s)", hits.len());
+        }
+        "fonts" => {
+            let s = load(a.pos(0, "file")?)?;
+            let mut fm = nsub_fonts::FontMetrics::system();
+            if let Some(dir) = std::path::Path::new(a.pos(0, "file")?).parent() {
+                fm.add_dir(dir);
+            }
+            if let Some(out) = a.get("copy") {
+                let (rep, n) = nsub_fonts::collect_fonts(&fm, &s, std::path::Path::new(out)).map_err(|e| e.to_string())?;
+                println!("copied {n} font file(s) to {out}");
+                for m in &rep.missing {
+                    println!("MISSING: {} (bold={}, italic={})", m.family, m.bold, m.italic);
+                }
+                if !rep.missing.is_empty() {
+                    return Ok(ExitCode::from(1));
+                }
+            } else {
+                let rep = fm.report(&s);
+                for (u, p) in &rep.found {
+                    println!("{} (bold={}, italic={}) -> {}", u.family, u.bold, u.italic, p.display());
+                }
+                for m in &rep.missing {
+                    println!("MISSING: {} (bold={}, italic={})", m.family, m.bold, m.italic);
+                }
+                if !rep.missing.is_empty() {
+                    return Ok(ExitCode::from(1));
+                }
+            }
         }
         "eval" => {
             // debugging aid: run Lua code inside the Aegisub-compatible runtime

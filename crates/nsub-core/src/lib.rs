@@ -8,6 +8,7 @@ pub mod formats;
 pub mod kara;
 pub mod ops;
 pub mod qc;
+pub mod resample;
 pub mod tags;
 pub mod text;
 pub mod time;

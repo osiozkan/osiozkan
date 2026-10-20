@@ -4,6 +4,7 @@ mod config;
 mod i18n;
 mod media_ui;
 mod state;
+mod tools_ui;
 mod worker;
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense};
@@ -43,6 +44,8 @@ struct Gui {
     show_wave: bool,
     last_doc_path: Option<PathBuf>,
     cfg: config::Config,
+    tools: tools_ui::Tools,
+    fonts: nsub_fonts::FontMetrics,
 }
 
 const ROW_H: f32 = 22.0;
@@ -84,6 +87,8 @@ impl Gui {
             show_wave: true,
             last_doc_path: None,
             cfg,
+            tools: tools_ui::Tools::new(),
+            fonts: nsub_fonts::FontMetrics::system(),
         }
     }
 
@@ -261,6 +266,32 @@ impl Gui {
                 ui.menu_button(tr("Timing"), |ui| {
                     if ui.button(tr("Shift times…")).clicked() { self.show_shift = true; ui.close_menu(); }
                     if ui.button(tr("Sort by start time")).clicked() { self.app.sort_by_time(); ui.close_menu(); }
+                });
+                ui.menu_button(if i18n::lang() == i18n::Lang::Tr { "Araçlar" } else { "Tools" }, |ui| {
+                    let tr_ = i18n::lang() == i18n::Lang::Tr;
+                    if ui.button(if tr_ { "Hataları düzelt…" } else { "Fix common errors…" }).clicked() { self.tools.show_fix = true; ui.close_menu(); }
+                    if ui.button(if tr_ { "Satır seç…" } else { "Select lines…" }).clicked() { self.tools.show_select = true; ui.close_menu(); }
+                    if ui.button(if tr_ { "Zamanlama son işlemcisi…" } else { "Timing post-processor…" }).clicked() { self.tools.show_post = true; ui.close_menu(); }
+                    ui.separator();
+                    if ui.button(if tr_ { "Betik özellikleri / yeniden örnekle…" } else { "Script properties / resample…" }).clicked() { self.tools.show_props = true; ui.close_menu(); }
+                    if ui.button(if tr_ { "Yazı tipleri…" } else { "Fonts…" }).clicked() { self.tools.show_fonts = true; ui.close_menu(); }
+                    ui.separator();
+                    ui.menu_button(if tr_ { "Sırala" } else { "Sort" }, |ui| {
+                        for (label, key) in [("Start time", ops::SortKey::Start), ("End time", ops::SortKey::End), ("Style", ops::SortKey::Style), ("Actor", ops::SortKey::Actor), ("Effect", ops::SortKey::Effect), ("Layer", ops::SortKey::Layer)] {
+                            if ui.button(label).clicked() {
+                                self.app.doc.checkpoint();
+                                ops::sort_events(&mut self.app.doc.script, key);
+                                self.app.refresh_qc();
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    if ui.button(if tr_ { "Kullanılmayan stilleri sil" } else { "Remove unused styles" }).clicked() {
+                        self.app.doc.checkpoint();
+                        let n = ops::drop_unused_styles(&mut self.app.doc.script);
+                        self.app.status = format!("{n} style(s) removed");
+                        ui.close_menu();
+                    }
                 });
                 ui.menu_button(tr("Automation"), |ui| {
                     if ui.button(tr("Load Lua script…")).clicked() {
@@ -811,6 +842,7 @@ impl eframe::App for Gui {
         });
         egui::CentralPanel::default().show(ctx, |ui| self.grid(ui));
         self.windows(ctx);
+        self.tools.windows(ctx, &mut self.app, &self.fonts);
         self.dialog_window(ctx);
     }
 }
