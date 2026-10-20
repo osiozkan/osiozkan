@@ -133,6 +133,8 @@ pub struct App {
     pub status: String,
     pub log: String,
     pub scripts: Vec<PathBuf>,
+    /// Automation directories (`autoload/` scripts are loaded, `include/` is on the module path).
+    pub automation_dirs: Vec<PathBuf>,
     pub macros: Vec<MacroInfo>,
     pub fps: f64,
     worker: Option<Worker>,
@@ -165,6 +167,7 @@ impl App {
             status: String::new(),
             log: String::new(),
             scripts: vec![],
+            automation_dirs: vec![],
             macros: vec![],
             fps: 23.976,
             worker: None,
@@ -387,7 +390,16 @@ impl App {
 
     fn reload_automation(&mut self) {
         self.macros.clear();
-        let cmd = Cmd::Load { scripts: self.scripts.clone(), doc_path: self.doc.path.clone(), fps: self.fps };
+        // Aegisub-style: every autoload script from the user's automation dirs, plus explicitly added ones.
+        let mut scripts = vec![];
+        let mut include_dirs = vec![];
+        for d in &self.automation_dirs {
+            include_dirs.push(d.join("include"));
+            scripts.extend(nsub_lua::autoload_scripts(d));
+        }
+        scripts.extend(self.scripts.iter().cloned());
+        scripts.dedup();
+        let cmd = Cmd::Load { scripts, include_dirs, doc_path: self.doc.path.clone(), fps: self.fps };
         self.worker().send(cmd);
     }
 

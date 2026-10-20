@@ -15,6 +15,10 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+extern "C-unwind" {
+    fn luaopen_lpeg(l: *mut mlua_sys::lua_State) -> std::os::raw::c_int;
+}
+
 pub use nsub_core::metrics::{Extents, HeuristicMetrics, TextMetrics};
 
 pub(crate) const CANCEL_MARK: &str = "__nsub_cancel__";
@@ -52,7 +56,10 @@ pub struct Options {
     pub cancel_flag: Arc<AtomicBool>,
     pub fps: f64,
     pub script_path: Option<PathBuf>,
+    /// Extra `include` directories (searched by `include`/`require`), e.g. Aegisub's `automation/include`.
     pub include_dirs: Vec<PathBuf>,
+    /// Load the real DependencyControl from `include_dirs` instead of the built-in offline shim.
+    pub real_depctrl: bool,
     pub video_path: Option<PathBuf>,
     pub audio_path: Option<PathBuf>,
     /// Pre-seeded answers for `aegisub.dialog.display`, keyed by control name.
@@ -72,6 +79,7 @@ impl Default for Options {
             fps: 23.976,
             script_path: None,
             include_dirs: vec![],
+            real_depctrl: false,
             video_path: None,
             audio_path: None,
             dialog_answers: HashMap::new(),
@@ -121,6 +129,10 @@ impl Automation {
         }));
         let registry = lua.create_table().map_err(err)?;
         lua.set_named_registry_value("nsub_macros", registry.clone()).map_err(err)?;
+        // LPeg (needed by MoonScript and some scripts): available via require "lpeg"
+        let lpeg = unsafe { lua.create_c_function(luaopen_lpeg) }.map_err(err)?;
+        let preload: Table = lua.globals().get::<Table>("package").map_err(err)?.get("preload").map_err(err)?;
+        preload.set("lpeg", lpeg).map_err(err)?;
         api::install(&lua, &shared).map_err(err)?;
         relib::install(&lua).map_err(err)?;
         api::install_prelude(&lua, &shared).map_err(err)?;
@@ -158,11 +170,22 @@ impl Automation {
         for k in ["script_name", "script_description", "script_author", "script_version"] {
             g.set(k, Value::Nil).map_err(err)?;
         }
-        self.lua
-            .load(&src[..])
-            .set_name(format!("@{}", path.display()))
-            .exec()
-            .map_err(|e| format!("{}: {}", path.display(), clean_err(&e.to_string())))?;
+        let src = src.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(&src[..]);
+        let is_moon = path.extension().map_or(false, |e| e.eq_ignore_ascii_case("moon"));
+        let chunk: Function = if is_moon {
+            // MoonScript: compile with the bundled compiler, then run like any chunk
+            let loadstring: Function = self
+                .lua
+                .load("return require('moonscript').loadstring")
+                .eval()
+                .map_err(|e| format!("MoonScript unavailable: {}", clean_err(&e.to_string())))?;
+            let text = String::from_utf8_lossy(src).to_string();
+            let (f, e): (Option<Function>, Option<String>) = loadstring.call((text, path.display().to_string())).map_err(|e| clean_err(&e.to_string()))?;
+            f.ok_or_else(|| format!("{}: {}", path.display(), e.unwrap_or_default()))?
+        } else {
+            self.lua.load(src).set_name(format!("@{}", path.display())).into_function().map_err(|e| format!("{}: {}", path.display(), clean_err(&e.to_string())))?
+        };
+        chunk.call::<()>(()).map_err(|e| format!("{}: {}", path.display(), clean_err(&e.to_string())))?;
         // Scripts without register_macro/filter that define script_name+process_macro are not supported by Aegisub either.
         Ok(self.macros().into_iter().skip(before).collect())
     }
@@ -269,4 +292,37 @@ impl Automation {
 
 fn clean_err(s: &str) -> String {
     s.lines().filter(|l| !l.trim_start().starts_with("stack traceback")).take(8).collect::<Vec<_>>().join("\n")
+}
+
+/// Directories where an existing Aegisub installation keeps user automation (`autoload/`, `include/`).
+pub fn aegisub_user_dirs() -> Vec<PathBuf> {
+    let mut v = vec![];
+    let join = |base: Option<std::ffi::OsString>, rest: &[&str]| {
+        base.map(|b| {
+            let mut p = PathBuf::from(b);
+            for r in rest {
+                p.push(r);
+            }
+            p
+        })
+    };
+    if cfg!(windows) {
+        v.extend(join(std::env::var_os("APPDATA"), &["Aegisub", "automation"]));
+    } else if cfg!(target_os = "macos") {
+        v.extend(join(std::env::var_os("HOME"), &["Library", "Application Support", "Aegisub", "automation"]));
+    } else {
+        v.extend(join(std::env::var_os("HOME"), &[".aegisub", "automation"]));
+    }
+    v.extend(join(if cfg!(windows) { std::env::var_os("USERPROFILE") } else { std::env::var_os("HOME") }, &[".nightsub", "automation"]));
+    v.retain(|p| p.is_dir());
+    v
+}
+
+/// All `*.lua` / `*.moon` files in `<dir>/autoload`, sorted.
+pub fn autoload_scripts(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir.join("autoload"))
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |e| e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("moon"))).collect())
+        .unwrap_or_default();
+    out.sort();
+    out
 }

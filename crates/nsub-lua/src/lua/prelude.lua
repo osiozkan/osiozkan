@@ -65,15 +65,52 @@ for _, m in ipairs { "util", "unicode", "re", "lfs", "clipboard", "argcheck", "f
     return load_embedded("aegisub/" .. m)(name)
   end
 end
-package.preload["l0.DependencyControl"] = function(name) return load_embedded("depctrl")(name) end
+if not __nsub_real_depctrl then
+  package.preload["l0.DependencyControl"] = function(name) return load_embedded("depctrl")(name) end
+end
 
--- require "karaskel" / "utils" / "cleantags" ... resolve against the embedded include directory.
+-- Module loader (replaces the default file searcher, like Aegisub): walks package.path, prefers a
+-- sibling .moon file over .lua, and finally falls back to the embedded stock include files.
+local function read_file(p)
+  local f = io.open(p, "rb")
+  if not f then return nil end
+  local d = f:read("*a")
+  f:close()
+  return d
+end
+
+local function load_moon(path, text)
+  local moon = require("moonscript")
+  local fn, err = moon.loadstring(text, path)
+  if not fn then error("Error loading Lua module \"" .. path .. "\":\n" .. tostring(err), 0) end
+  return fn
+end
+
 table.insert(package.loaders, 2, function(name)
+  local rel = name:gsub("%.", "/")
+  for tok in package.path:gmatch("[^;]+") do
+    local path = tok:gsub("%?", rel)
+    local moonpath = path:match("%.lua$") and (path:gsub("%.lua$", ".moon"))
+    local text, p = nil, path
+    if moonpath then
+      text = read_file(moonpath)
+      if text then
+        text = text:gsub("^\239\187\191", "")
+        return load_moon(moonpath, text)
+      end
+    end
+    text = read_file(path)
+    if text then
+      text = text:gsub("^\239\187\191", "")
+      local fn, err = loadstring(text, "@" .. path)
+      if not fn then error("Error loading Lua module \"" .. path .. "\":\n" .. tostring(err), 0) end
+      return fn
+    end
+  end
   local fn = load_embedded("include/" .. name .. ".lua")
   if fn then return fn end
   return nil
 end)
--- Aegisub also allows require "aegisub.util" style names for stock include files.
 
 local function find_in_dirs(name)
   local candidates = { name }

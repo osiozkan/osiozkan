@@ -59,17 +59,10 @@ impl Gui {
         if let Some(p) = initial {
             app.open(&p);
         }
-        // Auto-load macros from ~/.nightsub/automation/autoload/*.lua
-        if let Ok(home) = std::env::var("HOME") {
-            let dir = PathBuf::from(home).join(".nightsub/automation/autoload");
-            if let Ok(rd) = std::fs::read_dir(dir) {
-                let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |e| e == "lua")).collect();
-                v.sort();
-                for p in v {
-                    app.add_script(p);
-                }
-            }
-        }
+        // Like Aegisub: load `autoload/*.lua|moon` from the user's automation directories
+        // (an existing Aegisub install's folder is picked up automatically, plus ~/.nightsub/automation).
+        app.automation_dirs = nsub_lua::aegisub_user_dirs();
+        app.reload_scripts();
         Gui {
             app,
             side: Side::Video,
@@ -272,7 +265,7 @@ impl Gui {
                 ui.menu_button(tr("Automation"), |ui| {
                     if ui.button(tr("Load Lua script…")).clicked() {
                         ui.close_menu();
-                        if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() {
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() {
                             self.app.add_script(p);
                         }
                     }
@@ -751,7 +744,7 @@ impl eframe::App for Gui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         for f in ctx.input(|i| i.raw.dropped_files.clone()) {
             if let Some(p) = f.path {
-                if p.extension().map_or(false, |e| e == "lua") {
+                if p.extension().map_or(false, |e| e == "lua" || e == "moon") {
                     self.app.add_script(p);
                 } else {
                     self.app.open(&p);

@@ -9,3 +9,7 @@ nsub-core = { path = "../nsub-core" }
 mlua.workspace = true
 regex.workspace = true
 fancy-regex.workspace = true
+mlua-sys = "0.13"
+
+[build-dependencies]
+cc = "1"

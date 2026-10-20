@@ -483,6 +483,7 @@ const EMBEDDED: &[(&str, &str)] = embed! {
     "include/unicode-monkeypatch.lua" => "lua/include/unicode-monkeypatch.lua",
     "include/re.lua" => "lua/include/re.lua",
     "include/lfs.lua" => "lua/include/lfs.lua",
+    "include/moonscript.lua" => "lua/include/moonscript.lua",
     "aegisub/util" => "lua/aegisub/util.lua",
     "aegisub/unicode" => "lua/aegisub/unicode.lua",
     "aegisub/re" => "lua/aegisub/re.lua",
@@ -495,7 +496,18 @@ const EMBEDDED: &[(&str, &str)] = embed! {
 
 pub(crate) fn install_prelude(lua: &Lua, sh: &Sh) -> Result<()> {
     let inc: Vec<String> = sh.borrow().opts.include_dirs.iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect();
+    {
+        // include dirs join package.path so require() sees them, exactly like Aegisub's include path
+        let pkg: Table = lua.globals().get("package")?;
+        let cur: String = pkg.get("path").unwrap_or_default();
+        let mut path = String::new();
+        for d in &inc {
+            path.push_str(&format!("{d}/?.lua;{d}/?/init.lua;"));
+        }
+        pkg.set("path", format!("{path}{cur}"))?;
+    }
     lua.globals().set("__nsub_include_dirs", lua.create_sequence_from(inc)?)?;
+    lua.globals().set("__nsub_real_depctrl", sh.borrow().opts.real_depctrl)?;
     let embedded = lua.create_table()?;
     for (name, src) in EMBEDDED {
         embedded.set(*name, *src)?;

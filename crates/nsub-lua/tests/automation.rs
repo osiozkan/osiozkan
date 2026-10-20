@@ -126,3 +126,38 @@ end)"#,
     assert!(seen.contains(&(None, Some("working 3".to_string()))));
     assert!(seen.iter().any(|(f, _)| *f == Some(50.0)));
 }
+
+#[test]
+fn lpeg_and_moonscript() {
+    let a = Automation::new(Options { echo_log: false, ..Default::default() }).unwrap();
+    assert_eq!(a.eval("local lpeg = require('lpeg'); return tostring(lpeg.match(lpeg.C(lpeg.R('az')^1), 'hello world'))").unwrap(), "hello");
+    let r = a
+        .eval("local moon = require('moonscript'); local f = assert(moon.loadstring('f = (x) -> x * 2\\nreturn f 21')); return tostring(f())")
+        .unwrap();
+    assert_eq!(r, "42");
+}
+
+#[test]
+fn moon_script_file_registers_macro() {
+    let dir = std::env::temp_dir().join(format!("nsub-moon-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("m.moon"),
+        "export script_name = 'moon'\naegisub.register_macro 'Moon/Hello', 'says hi', (subs, sel) ->\n  l = subs[sel[1]]\n  l.text = 'moon: ' .. l.text\n  subs[sel[1]] = l\n",
+    )
+    .unwrap();
+    // a .moon module next to the script is found by require
+    std::fs::write(dir.join("helper.moon"), "{ twice: (x) -> x * 2 }\n").unwrap();
+    std::fs::write(dir.join("uses.lua"), "local h = require('helper'); aegisub.register_macro('Uses', '', function() aegisub.log('%d', h.twice(4)) end)\n").unwrap();
+    let mut a = Automation::new(Options { echo_log: false, ..Default::default() }).unwrap();
+    let m = a.load_script(&dir.join("m.moon")).unwrap();
+    assert_eq!(m[0].name, "Moon/Hello");
+    let mut s = script();
+    let i = Automation::flat_index_of_event(&s, 1);
+    a.run(m[0].id, &mut s, &[i], i).unwrap();
+    assert_eq!(s.events[1].text, "moon: hello world");
+    let u = a.load_script(&dir.join("uses.lua")).unwrap();
+    let r = a.run(u[0].id, &mut s, &[], 1).unwrap();
+    assert_eq!(r.log, "8");
+    std::fs::remove_dir_all(dir).ok();
+}

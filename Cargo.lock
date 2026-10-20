@@ -1868,8 +1868,10 @@ dependencies = [
 name = "nsub-lua"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "fancy-regex",
  "mlua",
+ "mlua-sys",
  "nsub-core",
  "regex",
 ]

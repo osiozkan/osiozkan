@@ -11,7 +11,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 pub enum Cmd {
-    Load { scripts: Vec<PathBuf>, doc_path: Option<PathBuf>, fps: f64 },
+    Load { scripts: Vec<PathBuf>, include_dirs: Vec<PathBuf>, doc_path: Option<PathBuf>, fps: f64 },
     Run { id: usize, script: Box<Script>, sel: Vec<usize>, active: usize },
     DialogAnswer(DialogResponse),
 }
@@ -67,7 +67,7 @@ fn run_loop(cmd_rx: Receiver<Cmd>, msg_tx: Sender<Msg>, cancel: Arc<AtomicBool>,
     let mut macros: Vec<MacroInfo> = vec![];
     while let Ok(cmd) = cmd_rx.recv() {
         match cmd {
-            Cmd::Load { scripts, doc_path, fps } => {
+            Cmd::Load { scripts, include_dirs, doc_path, fps } => {
                 let dialog_tx = msg_tx.clone();
                 let dialog_rx = cmd_rx.clone();
                 let dialog_wake = wake.clone();
@@ -75,6 +75,7 @@ fn run_loop(cmd_rx: Receiver<Cmd>, msg_tx: Sender<Msg>, cancel: Arc<AtomicBool>,
                 let progress_wake = wake.clone();
                 let opts = Options {
                     fps,
+                    include_dirs,
                     echo_log: false,
                     script_path: doc_path.clone(),
                     cancel_flag: cancel.clone(),
