@@ -11,3 +11,4 @@ path = "src/main.rs"
 [dependencies]
 nsub-core = { path = "../nsub-core" }
 nsub-lua = { path = "../nsub-lua" }
+nsub-fonts = { path = "../nsub-fonts" }

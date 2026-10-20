@@ -1,0 +1,10 @@
+[package]
+name = "nsub-fonts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nsub-core = { path = "../nsub-core" }
+fontdb = "0.23"
+ttf-parser = "0.25"

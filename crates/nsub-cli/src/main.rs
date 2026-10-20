@@ -207,7 +207,12 @@ fn run() -> Result<ExitCode, String> {
                 let (k, v) = kv.split_once('=').ok_or("--answer expects name=value")?;
                 opts.dialog_answers.insert(k.to_string(), v.to_string());
             }
+            let mut fm = nsub_fonts::FontMetrics::system();
+            if let Some(dir) = std::path::Path::new(&path).parent() {
+                fm.add_dir(dir);
+            }
             let mut auto = Automation::new(opts)?;
+            auto.set_metrics(Box::new(fm));
             let mut all = vec![];
             for sc in a.flags.get("script").ok_or("--script required")? {
                 all.extend(auto.load_script(&PathBuf::from(sc))?);

@@ -3,7 +3,7 @@
 //! The default implementation is a proportional-width heuristic that is stable across machines.
 //! A font-backed implementation can be plugged in via [`Automation::set_metrics`].
 
-use nsub_core::Style;
+use crate::ass::Style;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Extents {

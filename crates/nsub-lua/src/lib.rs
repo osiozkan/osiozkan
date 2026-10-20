@@ -2,7 +2,7 @@
 
 mod api;
 mod convert;
-pub mod metrics;
+pub use nsub_core::metrics;
 mod relib;
 
 use mlua::{Function, Lua, Table, Value};
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-pub use metrics::{Extents, TextMetrics};
+pub use nsub_core::metrics::{Extents, HeuristicMetrics, TextMetrics};
 
 pub(crate) const CANCEL_MARK: &str = "__nsub_cancel__";
 
@@ -104,7 +104,7 @@ impl Automation {
             cancelled: false,
             current_script_file: String::new(),
             clipboard: String::new(),
-            metrics: Box::new(metrics::HeuristicMetrics),
+            metrics: Box::new(HeuristicMetrics),
             res: (1920, 1080),
             ycbcr: "None".into(),
         }));
