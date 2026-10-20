@@ -50,7 +50,7 @@ impl Format {
         if t.starts_with('{') && t.contains("}{") {
             return Some(Format::MicroDvd);
         }
-        if t.starts_with('[') && t.contains("]") && t.lines().next().map_or(false, |l| l.contains(':')) && !t.contains("-->") {
+        if t.starts_with('[') && t.contains("]") && t.lines().next().is_some_and(|l| l.contains(':')) && !t.contains("-->") {
             return Some(Format::Lrc);
         }
         if t.contains("-->") {
@@ -123,7 +123,7 @@ pub fn html_to_ass(s: &str) -> String {
     t = re
         .replace_all(&t, |c: &regex::Captures| {
             let v = &c[1];
-            format!("{{\\c&H{}{}{}&}}", &v[4..6].to_uppercase(), &v[2..4].to_uppercase(), &v[0..2].to_uppercase())
+            format!("{{\\c&H{}{}{}&}}", v[4..6].to_uppercase(), v[2..4].to_uppercase(), v[0..2].to_uppercase())
         })
         .into_owned();
     t = regex::Regex::new(r"(?i)</font>").unwrap().replace_all(&t, "{\\c}").into_owned();
@@ -180,7 +180,7 @@ pub fn parse_srt(text: &str) -> Script {
         let lines: Vec<&str> = block.trim_matches('\n').lines().collect();
         let Some(ti) = lines.iter().position(|l| l.contains("-->")) else { continue };
         let Some((a, b)) = lines[ti].split_once("-->") else { continue };
-        let b = b.trim().split_whitespace().next().unwrap_or("");
+        let b = b.split_whitespace().next().unwrap_or("");
         let (Some(start), Some(end)) = (time::parse_clock(a.trim()), time::parse_clock(b)) else {
             script.warnings.push(format!("bad time line: {}", lines[ti]));
             continue;

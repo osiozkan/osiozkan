@@ -60,7 +60,7 @@ pub fn find_replace(script: &mut Script, r: &Replace) -> Result<usize, String> {
     let rep = if r.regex { r.with.clone() } else { r.with.replace('$', "$$") };
     let mut n = 0;
     for e in &mut script.events {
-        if r.style.as_ref().map_or(false, |s| *s != e.style) {
+        if r.style.as_ref().is_some_and(|s| *s != e.style) {
             continue;
         }
         let new = if r.skip_tags {

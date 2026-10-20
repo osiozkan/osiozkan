@@ -117,7 +117,7 @@ pub fn fix_overlaps(script: &mut Script, min_gap_ms: i64) -> usize {
             (a.layer, a.style.clone(), a.end, a.start)
         };
         let b = &script.events[bi];
-        if a_layer == b.layer && a_style == b.style && b.start - a_end < min_gap_ms.max(0) + if min_gap_ms > 0 { 0 } else { 0 } && b.start < a_end + min_gap_ms {
+        if a_layer == b.layer && a_style == b.style && b.start < a_end + min_gap_ms.max(0) {
             let new_end = (b.start - min_gap_ms).max(a_start + 1);
             if new_end != a_end {
                 script.events[ai].end = new_end;
