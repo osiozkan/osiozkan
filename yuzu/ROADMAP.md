@@ -24,7 +24,7 @@ Her gece bir sonraki sürüm bu listeden ilerler. `[x]` tamamlandı.
 - [x] Kaynakla karşılaştırma (aligncompare): bayraklar, HTML/CSV rapor, işaretli kopya
 - [x] Parçalı senkron: referansa (bsnap) ve sesteki konuşmaya (bsync, modelsiz VAD)
 - [x] Terim denetimi (termcheck), Osi CPL kuralı
-- [ ] Konuşma algılamayla satır başlangıç/bitişlerini yapıştırma önerileri
+- [x] Konuşmadan boş satır oluşturma (Video → Konuşmadan satır oluştur); [ ] mevcut satırları konuşmaya yapıştırma önerileri
 - [x] Stil kataloğu / depolama, kaydedilmiş arama-değiştirme (çoklu değiştir)
 - [x] Yazım denetimi (Hunspell/spellbook; tr_TR indirilir, bayrak yaması; `yuzu-spell`)
 

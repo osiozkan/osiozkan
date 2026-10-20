@@ -871,6 +871,7 @@ impl App {
             "play_end_f" => self.play_active_line(-500, 500),
             "stop" => self.media.stop(),
             "play_pause" | "play_pause_key" => self.toggle_play(),
+            "speech_lines" => self.speech_lines(),
             "set_start" | "start_at_playhead" => self.set_line_time_from_pos(true),
             "set_end" | "end_at_playhead" => self.set_line_time_from_pos(false),
             "scroll_left" | "scroll_right" => {
@@ -1097,7 +1098,7 @@ impl App {
                     self.menu_cmd(ui, "open_audio");
                     self.menu_cmd_if(ui, "close_media", has_media);
                     ui.separator();
-                    for id in ["set_start", "set_end", "play_line_f", "play_end_f", "play_pause", "frame_prev", "frame_next", "seek_back", "seek_fwd"] { self.menu_cmd(ui, id); }
+                    for id in ["speech_lines", "set_start", "set_end", "play_line_f", "play_end_f", "play_pause", "frame_prev", "frame_next", "seek_back", "seek_fwd"] { self.menu_cmd(ui, id); }
                     ui.separator();
                     self.menu_cmd(ui, "goto_start");
                     self.menu_cmd(ui, "goto_end");

@@ -775,3 +775,14 @@ fn extradata_markers_stay_hidden_and_intact() {
     app.prefix_tag("{\\an8}");
     assert_eq!(app.doc.events[0].text, "{=1}{\\an8}abcd");
 }
+
+#[test]
+fn speech_lines_skip_covered_ranges() {
+    let (_ctx, mut app) = app_with(&[(1000, 2000, "a")]);
+    app.insert_speech_lines(&[(1200, 1800), (3000, 4000)]);
+    assert_eq!(app.doc.events.len(), 2);
+    assert_eq!((app.doc.events[1].start, app.doc.events[1].end), (3000, 4000));
+    assert!(app.doc.events[1].text.is_empty());
+    app.do_undo();
+    assert_eq!(app.doc.events.len(), 1);
+}

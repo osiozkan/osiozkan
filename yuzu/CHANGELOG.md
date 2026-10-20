@@ -3,6 +3,7 @@
 ## 0.7.0 (hazırlanıyor)
 - **Yazım denetimi** (Araçlar → Yazım denetimi): Hunspell sözlükleriyle (saf Rust `spellbook`), Türkçe sözlük LibreOffice deposundan ilk kullanımda indirilir ve sayısal bayrakları yamalanır; `Ahmet'in` gibi ek almış özel adlar kabul edilir; öneriler, tümünü düzelt, yoksay, kullanıcı sözlüğüne ekle. Yeni crate: `yuzu-spell`.
 - **MoonScript**: `.moon` betikleri ve `require` ile `.moon` modülleri çalışır (gömülü MoonScript 0.5.0 ve saf Lua LuLPeg; lisanslar `crates/yuzu-lua/lua/vendor/`). Autoload klasörlerinde `.moon` dosyaları da taranır.
+- **Konuşmadan satır oluştur** (Video menüsü / palet): sesteki konuşma bölümleri için, mevcut satırlarla çakışmayanlara boş satır ekler; tek geri alma adımı.
 
 ## 0.6.0 — Lua otomasyonu (2026-10-20)
 - **Hata izi**: makro, doğrulama ve yükleme hataları yığın iziyle gelir (`dosya.lua:12: in function 'f'`);

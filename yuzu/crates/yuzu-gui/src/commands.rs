@@ -121,6 +121,7 @@ pub const COMMANDS: &[CommandDef] = &[
     c("open_video", "Open video…", "Video", &[]),
     c("open_audio", "Open audio…", "Video", &[]),
     c("close_media", "Close media", "Video", &[]),
+    c("speech_lines", "Create lines from speech", "Video", &[]),
     c("set_start", "Set line start from video", "Video", &["F1"]),
     c("set_end", "Set line end from video", "Video", &["F2"]),
     c("play_line_f", "Play line", "Video", &["F3"]),

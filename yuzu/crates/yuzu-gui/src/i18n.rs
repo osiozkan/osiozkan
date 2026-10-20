@@ -235,7 +235,7 @@ const TR: &[(&str, &str)] = &[
     ("Translation", "Çeviri"), ("CPL", "CPL"),
     ("Reference panel…", "Referans paneli…"), ("Reference column in the grid", "Izgarada Referans sütunu"),
     ("Compare with the source (aligncompare)…", "Kaynakla karşılaştır (aligncompare)…"), ("Sync to the reference…", "Referansa göre senkron…"),
-    ("Sync to speech…", "Konuşmaya göre senkron…"), ("Term check…", "Terim denetimi…"), ("Spell check…", "Yazım denetimi…"),
+    ("Sync to speech…", "Konuşmaya göre senkron…"), ("Term check…", "Terim denetimi…"), ("Spell check…", "Yazım denetimi…"), ("Create lines from speech", "Konuşmadan satır oluştur"), ("No new speech found", "Yeni konuşma bulunamadı"), ("{} speech lines added", "{} konuşma satırı eklendi"),
     ("Reference", "Referans"), ("Reference ({} s)", "Referans ({} sn)"), ("Reference: {}", "Referans: {}"), ("No reference loaded", "Referans yüklü değil"),
     ("Load…", "Yükle…"), ("Offset", "Kayma"), ("How much later the document is than the reference", "Belge referanstan ne kadar geç"),
     ("Find offset", "Kaymayı bul"), ("Offset {} s (confidence {}%)", "Kayma {} sn (güven %{})"),

@@ -546,4 +546,25 @@ impl App {
         self.osi.gl_msg = tf!("{} lines fixed", n);
         self.run_qc();
     }
+
+    // ------------------------------------------------------------ speech → empty lines
+    /// Insert empty lines for detected speech that no existing line covers (a timer's starting point).
+    pub(super) fn speech_lines(&mut self) {
+        if self.media.pcm.is_empty() { self.last_status = t("Open the video or audio first (the speech is read from it)").into(); return; }
+        if self.media.peaks_loading { self.last_status = t("Wait until the audio is decoded").into(); return; }
+        let segs = yuzu_media::vad::speech_segments(&self.media.pcm, yuzu_media::audio::RATE);
+        self.insert_speech_lines(&segs);
+    }
+
+    pub(super) fn insert_speech_lines(&mut self, segs: &[(i64, i64)]) {
+        let style = self.doc.events.get(self.active).map(|e| e.style.clone()).or_else(|| self.doc.styles.first().map(|s| s.name.clone())).unwrap_or_else(|| "Default".into());
+        let fresh: Vec<(i64, i64)> = segs.iter().copied().filter(|s| !self.doc.events.iter().any(|e| !e.comment && e.start < s.1 && s.0 < e.end)).collect();
+        if fresh.is_empty() { self.last_status = t("No new speech found").into(); return; }
+        self.push_undo();
+        for (a, b) in &fresh { self.doc.events.push(Event::new(*a, *b, &style, "")); }
+        self.doc.events.sort_by_key(|e| (e.start, e.end));
+        self.buf_key = (usize::MAX, 0, 0);
+        self.run_qc();
+        self.last_status = tf!("{} speech lines added", fresh.len());
+    }
 }
