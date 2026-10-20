@@ -3,7 +3,9 @@
 
 use nsub_core::formats::{self, Format};
 use nsub_core::{ops, qc, Event, Script};
-use nsub_lua::{Automation, MacroInfo, Options};
+use crate::worker::{Cmd, Msg, Waker, Worker};
+use nsub_lua::dialog::{DialogRequest, DialogResponse, Progress};
+use nsub_lua::MacroInfo;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -121,7 +123,19 @@ pub struct App {
     pub scripts: Vec<PathBuf>,
     pub macros: Vec<MacroInfo>,
     pub fps: f64,
-    automation: Option<Automation>,
+    worker: Option<Worker>,
+    pub waker: Option<Waker>,
+    /// Dialog the running macro is waiting on.
+    pub pending_dialog: Option<DialogRequest>,
+    pub running: Option<RunState>,
+}
+
+#[derive(Default, Clone)]
+pub struct RunState {
+    pub name: String,
+    pub fraction: f64,
+    pub task: String,
+    pub title: String,
 }
 
 impl App {
@@ -137,7 +151,10 @@ impl App {
             scripts: vec![],
             macros: vec![],
             fps: 23.976,
-            automation: None,
+            worker: None,
+            waker: None,
+            pending_dialog: None,
+            running: None,
         }
     }
 
@@ -302,33 +319,17 @@ impl App {
 
     // ------------------------------------------------------------ automation
 
-    fn reload_automation(&mut self) {
-        let mut opts = Options { fps: self.fps, echo_log: false, ..Default::default() };
-        opts.script_path = self.doc.path.clone();
-        self.automation = None;
-        self.macros.clear();
-        match Automation::new(opts) {
-            Ok(mut a) => {
-                let mut fm = nsub_fonts::FontMetrics::system();
-                if let Some(dir) = self.doc.path.as_ref().and_then(|p| p.parent()) {
-                    fm.add_dir(dir);
-                }
-                a.set_metrics(Box::new(fm));
-                let mut errors = vec![];
-                for s in self.scripts.clone() {
-                    match a.load_script(&s) {
-                        Ok(m) => self.macros.extend(m),
-                        Err(e) => errors.push(e),
-                    }
-                }
-                if !errors.is_empty() {
-                    self.log = errors.join("\n");
-                    self.status = format!("{} automation script(s) failed to load (see Log)", errors.len());
-                }
-                self.automation = Some(a);
-            }
-            Err(e) => self.status = format!("Lua init failed: {e}"),
+    fn worker(&mut self) -> &Worker {
+        if self.worker.is_none() {
+            self.worker = Some(Worker::spawn(self.waker.clone()));
         }
+        self.worker.as_ref().unwrap()
+    }
+
+    fn reload_automation(&mut self) {
+        self.macros.clear();
+        let cmd = Cmd::Load { scripts: self.scripts.clone(), doc_path: self.doc.path.clone(), fps: self.fps };
+        self.worker().send(cmd);
     }
 
     pub fn add_script(&mut self, path: PathBuf) {
@@ -343,42 +344,102 @@ impl App {
     }
 
     pub fn run_macro(&mut self, id: usize) {
-        let Some(auto) = self.automation.as_ref() else { return };
+        if self.running.is_some() {
+            self.status = "A macro is already running".into();
+            return;
+        }
         let info = self.doc.script.info.len();
         let styles = self.doc.script.styles.len();
         let to_flat = |i: usize| info + styles + i + 1;
-        let sel: Vec<usize> = if self.sel.is_empty() { vec![] } else { self.sel.iter().map(|&i| to_flat(i)).collect() };
+        let sel: Vec<usize> = self.sel.iter().map(|&i| to_flat(i)).collect();
         let active = self.active.map(to_flat).unwrap_or(info + styles + 1);
-        let mut work = self.doc.script.clone();
         let name = self.macros.iter().find(|m| m.id == id).map(|m| m.name.clone()).unwrap_or_default();
-        if let Ok(false) = auto.validate(id, &work, &sel, active) {
-            self.status = format!("'{name}' is not applicable to the current selection");
-            return;
+        self.running = Some(RunState { name, ..Default::default() });
+        let script = Box::new(self.doc.script.clone());
+        self.worker().send(Cmd::Run { id, script, sel, active });
+    }
+
+    pub fn cancel_macro(&mut self) {
+        if let Some(w) = &self.worker {
+            w.request_cancel();
         }
-        match auto.run(id, &mut work, &sel, active) {
-            Ok(res) => {
-                self.log = res.log.clone();
-                if res.canceled {
-                    self.status = format!("'{name}' cancelled");
-                    return;
-                }
-                self.doc.checkpoint();
-                self.doc.script = work;
-                let (ni, ns) = (self.doc.script.info.len(), self.doc.script.styles.len());
-                let n = self.doc.script.events.len();
-                let new_sel: BTreeSet<usize> = res.selection.iter().filter_map(|&f| f.checked_sub(ni + ns + 1)).filter(|&i| i < n).collect();
-                if !res.selection.is_empty() {
-                    self.sel = new_sel;
-                }
-                self.clamp_selection();
-                self.status = format!("'{name}' done");
-                self.refresh_qc();
-            }
-            Err(e) => {
-                self.log = e;
-                self.status = format!("'{name}' failed (see Log)");
+        // a blocked dialog also has to be released
+        if self.pending_dialog.is_some() {
+            self.answer_dialog(DialogResponse::default());
+        }
+    }
+
+    pub fn answer_dialog(&mut self, resp: DialogResponse) {
+        self.pending_dialog = None;
+        if let Some(w) = &self.worker {
+            w.send(Cmd::DialogAnswer(resp));
+        }
+    }
+
+    /// Handle messages from the automation worker. Call every frame.
+    pub fn pump(&mut self) {
+        let mut msgs = vec![];
+        if let Some(w) = &self.worker {
+            while let Ok(m) = w.rx.try_recv() {
+                msgs.push(m);
             }
         }
+        for m in msgs {
+            match m {
+                Msg::Loaded { macros, errors } => {
+                    self.macros = macros;
+                    if !errors.is_empty() {
+                        self.log = errors.join("\n");
+                        self.status = format!("{} automation script(s) failed to load (see Log)", errors.len());
+                    }
+                }
+                Msg::Dialog(req) => self.pending_dialog = Some(req),
+                Msg::Progress(Progress { fraction, task, title }) => {
+                    if let Some(r) = &mut self.running {
+                        if let Some(f) = fraction {
+                            r.fraction = (f / 100.0).clamp(0.0, 1.0);
+                        }
+                        if let Some(t) = task {
+                            r.task = t;
+                        }
+                        if let Some(t) = title {
+                            r.title = t;
+                        }
+                    }
+                }
+                Msg::Finished(result) => {
+                    let name = self.running.take().map(|r| r.name).unwrap_or_default();
+                    self.pending_dialog = None;
+                    match result {
+                        Ok((script, res)) => {
+                            self.log = res.log.clone();
+                            if res.canceled {
+                                self.status = format!("'{name}' cancelled");
+                                continue;
+                            }
+                            self.doc.checkpoint();
+                            self.doc.script = *script;
+                            let (ni, ns) = (self.doc.script.info.len(), self.doc.script.styles.len());
+                            let n = self.doc.script.events.len();
+                            if !res.selection.is_empty() {
+                                self.sel = res.selection.iter().filter_map(|&f| f.checked_sub(ni + ns + 1)).filter(|&i| i < n).collect();
+                            }
+                            self.clamp_selection();
+                            self.status = format!("'{name}' done");
+                            self.refresh_qc();
+                        }
+                        Err(e) => {
+                            self.log = e;
+                            self.status = format!("'{name}' failed (see Log)");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.running.is_some()
     }
 }
 
@@ -391,6 +452,17 @@ impl Default for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wait(a: &mut App, done: impl Fn(&App) -> bool) {
+        for _ in 0..500 {
+            a.pump();
+            if done(a) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("timed out waiting for worker");
+    }
 
     fn app_with(n: usize) -> App {
         let mut a = App::new();
@@ -466,15 +538,43 @@ mod tests {
         std::fs::write(&lua, "script_name='x'\naegisub.register_macro('Mark','d',function(subs,sel) for _,i in ipairs(sel) do local l=subs[i]; l.actor='M'; subs[i]=l end return sel end)\n").unwrap();
         let mut a = app_with(3);
         a.add_script(lua);
+        wait(&mut a, |a| !a.macros.is_empty());
         assert_eq!(a.macros.len(), 1);
         a.select_range_to(1);
         a.run_macro(a.macros[0].id);
+        wait(&mut a, |a| !a.is_busy());
         assert_eq!(a.doc.script.events[0].actor, "M");
         assert_eq!(a.doc.script.events[1].actor, "M");
         assert_eq!(a.doc.script.events[2].actor, "");
         assert_eq!(a.sel.len(), 2);
         a.undo();
         assert_eq!(a.doc.script.events[0].actor, "");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn macro_dialog_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("nsub-gui-dlg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lua = dir.join("d.lua");
+        std::fs::write(&lua, "aegisub.register_macro('Ask','d',function(subs,sel) local b,r=aegisub.dialog.display({{class='edit',name='t',value='x'}},{'Apply','Cancel'},{ok='Apply',cancel='Cancel'}); if b ~= 'Apply' then aegisub.cancel() end; local l=subs[sel[1]]; l.text=r.t; subs[sel[1]]=l end)\n").unwrap();
+        let mut a = app_with(2);
+        a.add_script(lua);
+        wait(&mut a, |a| !a.macros.is_empty());
+        a.run_macro(a.macros[0].id);
+        wait(&mut a, |a| a.pending_dialog.is_some());
+        let mut resp = DialogResponse { button: Some("Apply".into()), ..Default::default() };
+        resp.values.insert("t".into(), nsub_lua::dialog::Val::Str("typed".into()));
+        a.answer_dialog(resp);
+        wait(&mut a, |a| !a.is_busy());
+        assert_eq!(a.doc.script.events[0].text, "typed");
+        // cancel path
+        a.run_macro(a.macros[0].id);
+        wait(&mut a, |a| a.pending_dialog.is_some());
+        a.cancel_macro();
+        wait(&mut a, |a| !a.is_busy());
+        assert_eq!(a.doc.script.events[0].text, "typed");
+        assert!(a.status.contains("cancelled"));
         std::fs::remove_dir_all(dir).ok();
     }
 }

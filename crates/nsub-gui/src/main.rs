@@ -1,10 +1,13 @@
 //! nightsub GUI (egui). Logic lives in `state.rs`; this file only renders and routes input.
 
 mod state;
+mod worker;
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense};
 use nsub_core::{ops, tags, text, time, Color};
+use nsub_lua::dialog::{DialogResponse, Val};
 use state::App;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -28,13 +31,16 @@ struct Gui {
     scroll_to: Option<usize>,
     last_autosave: Instant,
     last_title: String,
+    dlg_vals: HashMap<String, Val>,
+    dlg_open: bool,
 }
 
 const ROW_H: f32 = 22.0;
 
 impl Gui {
-    fn new(initial: Option<PathBuf>) -> Gui {
+    fn new(initial: Option<PathBuf>, ctx: egui::Context) -> Gui {
         let mut app = App::new();
+        app.waker = Some(std::sync::Arc::new(move || ctx.request_repaint()));
         if let Some(p) = initial {
             app.open(&p);
         }
@@ -63,6 +69,8 @@ impl Gui {
             scroll_to: None,
             last_autosave: Instant::now(),
             last_title: String::new(),
+            dlg_vals: HashMap::new(),
+            dlg_open: false,
         }
     }
 
@@ -184,6 +192,7 @@ impl Gui {
                     if ui.button("Reload scripts").clicked() { self.app.reload_scripts(); ui.close_menu(); }
                     ui.separator();
                     let macros = self.app.macros.clone();
+                    let busy = self.app.is_busy();
                     if macros.is_empty() {
                         ui.label(RichText::new("(no macros loaded)").weak());
                     }
@@ -199,7 +208,7 @@ impl Gui {
                         let mut draw = |ui: &mut egui::Ui| {
                             for m in &ms {
                                 let label = m.name.split_once('/').map(|x| x.1).unwrap_or(&m.name);
-                                if ui.button(label).on_hover_text(&m.description).clicked() {
+                                if ui.add_enabled(!busy, egui::Button::new(label)).on_hover_text(&m.description).clicked() {
                                     self.app.run_macro(m.id);
                                     ui.close_menu();
                                 }
@@ -486,6 +495,52 @@ impl Gui {
         }
     }
 
+    fn dialog_window(&mut self, ctx: &egui::Context) {
+        let Some(req) = self.app.pending_dialog.clone() else {
+            self.dlg_open = false;
+            return;
+        };
+        if !self.dlg_open {
+            self.dlg_vals = req.controls.iter().filter(|c| !c.name.is_empty()).map(|c| (c.name.clone(), c.value.clone())).collect();
+            self.dlg_open = true;
+        }
+        let title = self.app.running.as_ref().map(|r| r.name.clone()).unwrap_or_else(|| "Automation".into());
+        let mut answer: Option<Option<String>> = None;
+        egui::Window::new(title).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            let mut rows: Vec<i32> = req.controls.iter().map(|c| c.y).collect();
+            rows.sort_unstable();
+            rows.dedup();
+            for y in rows {
+                let mut cs: Vec<&nsub_lua::dialog::Control> = req.controls.iter().filter(|c| c.y == y).collect();
+                cs.sort_by_key(|c| c.x);
+                ui.horizontal(|ui| {
+                    for c in cs {
+                        control_ui(ui, c, &mut self.dlg_vals);
+                    }
+                });
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if req.buttons.is_empty() {
+                    if ui.button("OK").clicked() { answer = Some(Some("OK".into())) }
+                    if ui.button("Cancel").clicked() { answer = Some(None) }
+                } else {
+                    for b in &req.buttons {
+                        if ui.button(b).clicked() {
+                            let is_cancel = req.cancel_id.as_deref() == Some(b.as_str());
+                            answer = Some(if is_cancel { None } else { Some(b.clone()) });
+                        }
+                    }
+                }
+            });
+        });
+        if let Some(button) = answer {
+            self.dlg_open = false;
+            let values = std::mem::take(&mut self.dlg_vals);
+            self.app.answer_dialog(DialogResponse { button, values });
+        }
+    }
+
     fn windows(&mut self, ctx: &egui::Context) {
         let mut open = self.show_shift;
         egui::Window::new("Shift times").open(&mut open).collapsible(false).show(ctx, |ui| {
@@ -590,6 +645,7 @@ impl eframe::App for Gui {
                 }
             }
         }
+        self.app.pump();
         self.shortcuts(ctx);
         self.autosave();
         let title = self.app.doc.title();
@@ -600,7 +656,15 @@ impl eframe::App for Gui {
         self.menu(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(&self.app.status);
+                if let Some(r) = self.app.running.clone() {
+                    ui.add(egui::ProgressBar::new(r.fraction as f32).desired_width(160.0).animate(true));
+                    ui.label(format!("{} {}", r.name, r.task));
+                    if ui.small_button("Cancel").clicked() {
+                        self.app.cancel_macro();
+                    }
+                } else {
+                    ui.label(&self.app.status);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!("{} lines · {} selected · {} issues", self.app.doc.script.events.len(), self.app.sel.len(), self.app.issues.len()));
                 });
@@ -620,11 +684,61 @@ impl eframe::App for Gui {
         });
         egui::CentralPanel::default().show(ctx, |ui| self.grid(ui));
         self.windows(ctx);
+        self.dialog_window(ctx);
     }
 }
 
 fn main() -> eframe::Result {
     let initial = std::env::args().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]).with_title("nightsub"), ..Default::default() };
-    eframe::run_native("nightsub", options, Box::new(|_cc| Ok(Box::new(Gui::new(initial)))))
+    eframe::run_native("nightsub", options, Box::new(|cc| Ok(Box::new(Gui::new(initial, cc.egui_ctx.clone())))))
+}
+
+fn control_ui(ui: &mut egui::Ui, c: &nsub_lua::dialog::Control, vals: &mut HashMap<String, Val>) {
+    let entry = vals.entry(c.name.clone()).or_insert_with(|| c.value.clone());
+    match c.class.as_str() {
+        "label" => {
+            ui.label(&c.label);
+        }
+        "edit" | "textbox" | "alpha" => {
+            let mut t = match entry { Val::Str(s) => s.clone(), Val::Num(n) => n.to_string(), _ => String::new() };
+            let w = (c.width.max(1) as f32 * 120.0).min(520.0);
+            let r = if c.class == "textbox" {
+                ui.add(egui::TextEdit::multiline(&mut t).desired_width(w).desired_rows(c.height.max(2) as usize))
+            } else {
+                ui.add(egui::TextEdit::singleline(&mut t).desired_width(w))
+            };
+            if r.changed() { *entry = Val::Str(t); }
+            if !c.hint.is_empty() { r.on_hover_text(&c.hint); }
+        }
+        "intedit" | "floatedit" => {
+            let mut v = match entry { Val::Num(n) => *n, Val::Str(s) => s.parse().unwrap_or(0.0), _ => 0.0 };
+            let mut d = egui::DragValue::new(&mut v);
+            if c.class == "intedit" { d = d.speed(1.0).max_decimals(0) } else { d = d.speed(c.step.unwrap_or(0.1)) }
+            if let (Some(lo), Some(hi)) = (c.min, c.max) { d = d.range(lo..=hi) }
+            if ui.add(d).changed() { *entry = Val::Num(v); }
+        }
+        "checkbox" => {
+            let mut b = matches!(entry, Val::Bool(true));
+            if ui.checkbox(&mut b, &c.label).changed() { *entry = Val::Bool(b); }
+        }
+        "dropdown" => {
+            let mut cur = match entry { Val::Str(s) => s.clone(), _ => String::new() };
+            egui::ComboBox::from_id_salt(&c.name).selected_text(cur.clone()).show_ui(ui, |ui| {
+                for it in &c.items { ui.selectable_value(&mut cur, it.clone(), it); }
+            });
+            *entry = Val::Str(cur);
+        }
+        "color" | "coloralpha" => {
+            let col = match entry { Val::Str(s) => Color::parse(s).unwrap_or(Color::WHITE), _ => Color::WHITE };
+            let mut c32 = Color32::from_rgba_unmultiplied(col.r, col.g, col.b, 255 - col.a);
+            if ui.color_edit_button_srgba(&mut c32).changed() {
+                let n = Color::new(c32.r(), c32.g(), c32.b(), 255 - c32.a());
+                *entry = Val::Str(if c.class == "color" { n.to_tag_string() } else { n.to_style_string() });
+            }
+        }
+        _ => {
+            ui.label(format!("[{}]", c.class));
+        }
+    }
 }

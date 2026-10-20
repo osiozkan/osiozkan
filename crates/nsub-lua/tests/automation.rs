@@ -81,3 +81,48 @@ fn lua_errors_surface() {
     assert_eq!(a.eval("return unicode and 1 or 'none'").unwrap(), "none");
     assert_eq!(a.eval("local u = require('unicode'); return u.upper_tr('işık')").unwrap(), "İŞIK");
 }
+
+#[test]
+fn dialog_handler_and_progress() {
+    use nsub_lua::dialog::{DialogResponse, Val};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let seen = Rc::new(RefCell::new(vec![]));
+    let seen2 = seen.clone();
+    let opts = Options {
+        echo_log: false,
+        dialog_handler: Some(Rc::new(|req| {
+            assert_eq!(req.buttons, vec!["Go", "Stop"]);
+            let mut r = DialogResponse { button: Some("Go".into()), ..Default::default() };
+            r.values.insert("n".into(), Val::Num(7.0));
+            r.values.insert("pick".into(), Val::Str("b".into()));
+            r
+        })),
+        progress_handler: Some(Rc::new(move |p| seen2.borrow_mut().push((p.fraction, p.task)))),
+        ..Default::default()
+    };
+    let mut a = Automation::new(opts).unwrap();
+    let dir = std::env::temp_dir().join(format!("nsub-dlg-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("d.lua");
+    std::fs::write(
+        &f,
+        r#"aegisub.register_macro("D", "", function(subs)
+  aegisub.progress.task("working %d", 3)
+  aegisub.progress.set(50)
+  local b, r = aegisub.dialog.display({
+    {class="intedit", name="n", value=1, x=0, y=0},
+    {class="dropdown", name="pick", items={"a","b"}, value="a", x=0, y=1},
+  }, {"Go", "Stop"}, {ok="Go", cancel="Stop"})
+  aegisub.log("%s %d %s", b, r.n, r.pick)
+end)"#,
+    )
+    .unwrap();
+    let m = a.load_script(&f).unwrap();
+    let mut s = script();
+    let r = a.run(m[0].id, &mut s, &[], 1).unwrap();
+    assert_eq!(r.log, "Go 7 b");
+    let seen = seen.borrow();
+    assert!(seen.contains(&(None, Some("working 3".to_string()))));
+    assert!(seen.iter().any(|(f, _)| *f == Some(50.0)));
+}

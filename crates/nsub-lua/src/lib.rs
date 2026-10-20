@@ -2,6 +2,7 @@
 
 mod api;
 mod convert;
+pub mod dialog;
 pub use nsub_core::metrics;
 mod relib;
 
@@ -11,6 +12,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 pub use nsub_core::metrics::{Extents, HeuristicMetrics, TextMetrics};
 
@@ -42,6 +45,11 @@ pub struct RunResult {
 }
 
 pub struct Options {
+    /// Shows dialogs requested by `aegisub.dialog.display`; headless defaults are used when unset.
+    pub dialog_handler: Option<dialog::DialogHandler>,
+    pub progress_handler: Option<dialog::ProgressHandler>,
+    /// Set by the host to ask a running macro to stop (`aegisub.progress.is_cancelled`).
+    pub cancel_flag: Arc<AtomicBool>,
     pub fps: f64,
     pub script_path: Option<PathBuf>,
     pub include_dirs: Vec<PathBuf>,
@@ -58,6 +66,9 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Options {
+            dialog_handler: None,
+            progress_handler: None,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
             fps: 23.976,
             script_path: None,
             include_dirs: vec![],

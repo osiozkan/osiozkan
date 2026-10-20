@@ -1,6 +1,7 @@
 //! The `aegisub.*` table, the `subs` object and the embedded Lua prelude.
 
 use crate::convert::{self, Entry};
+use crate::dialog::{Control, DialogRequest, DialogResponse, Progress, Val};
 use crate::{Shared, CANCEL_MARK};
 use mlua::{AnyUserData, Function, Lua, MultiValue, Result, Table, UserData, UserDataMethods, Value};
 use nsub_core::ass::Script;
@@ -271,7 +272,30 @@ pub(crate) fn install(lua: &Lua, sh: &Sh) -> Result<()> {
     }
     a.set("get_audio_selection", lua.create_function(|_, ()| Ok(Value::Nil))?)?;
     a.set("gettext", lua.create_function(|_, s: String| Ok(s))?)?;
-    a.set("is_cancelled", lua.create_function(|_, ()| Ok(false))?)?;
+    {
+        let sh1 = sh.clone();
+        a.set(
+            "is_cancelled",
+            lua.create_function(move |_, ()| Ok(sh1.borrow().opts.cancel_flag.load(std::sync::atomic::Ordering::Relaxed)))?,
+        )?;
+        let sh2 = sh.clone();
+        g.set(
+            "__nsub_progress",
+            lua.create_function(move |_, (kind, num, text): (String, Option<f64>, Option<String>)| {
+                let h = sh2.borrow().opts.progress_handler.clone();
+                if let Some(h) = h {
+                    let mut p = Progress::default();
+                    match kind.as_str() {
+                        "set" => p.fraction = num,
+                        "task" => p.task = text,
+                        _ => p.title = text,
+                    }
+                    h(p);
+                }
+                Ok(())
+            })?,
+        )?;
+    }
 
     // register_macro / register_filter
     for (fname, kind) in [("register_macro", "macro"), ("register_filter", "filter")] {
@@ -327,56 +351,35 @@ pub(crate) fn install(lua: &Lua, sh: &Sh) -> Result<()> {
         a.set("clipboard", c)?;
     }
 
-    // dialogs (headless: answer from pre-seeded values or control defaults)
+    // dialogs: delegated to the host's handler when present, else answered headlessly
     {
         let d = lua.create_table()?;
         let sh1 = sh.clone();
         d.set(
             "display",
-            lua.create_function(move |lua, (dialog, buttons, _ids): (Table, Option<Table>, Option<Table>)| {
-                let s = sh1.borrow();
+            lua.create_function(move |lua, (dialog, buttons, ids): (Table, Option<Table>, Option<Table>)| {
+                let req = build_request(&dialog, buttons.as_ref(), ids.as_ref())?;
+                let handler = sh1.borrow().opts.dialog_handler.clone();
+                let resp = match handler {
+                    Some(h) => h(req.clone()),
+                    None => headless_answer(&sh1.borrow(), &req),
+                };
                 let res = lua.create_table()?;
-                for pair in dialog.sequence_values::<Table>() {
-                    let c = pair?;
-                    let class: String = c.get("class").unwrap_or_default();
-                    let Ok(name) = c.get::<String>("name") else { continue };
-                    if class == "label" || class == "image" {
+                for c in &req.controls {
+                    if c.name.is_empty() || c.class == "label" || c.class == "image" {
                         continue;
                     }
-                    let seeded = s.opts.dialog_answers.get(&name);
-                    let default: Value = match class.as_str() {
-                        "edit" | "textbox" => c.get::<Value>("value").ok().filter(|v| !v.is_nil()).or_else(|| c.get::<Value>("text").ok()).unwrap_or(Value::Nil),
-                        _ => c.get::<Value>("value").unwrap_or(Value::Nil),
-                    };
-                    let v = match (seeded, class.as_str()) {
-                        (Some(x), "checkbox") => Value::Boolean(matches!(x.as_str(), "1" | "true" | "yes" | "on")),
-                        (Some(x), "intedit") => Value::Integer(x.parse::<f64>().unwrap_or(0.0) as _),
-                        (Some(x), "floatedit" | "slider") => Value::Number(x.parse().unwrap_or(0.0)),
-                        (Some(x), _) => Value::String(lua.create_string(x)?),
-                        (None, "checkbox") => match default {
-                            Value::Boolean(b) => Value::Boolean(b),
-                            _ => Value::Boolean(false),
-                        },
-                        (None, "dropdown") => match default {
-                            Value::Nil => c.get::<Table>("items").ok().and_then(|t| t.get::<Value>(1).ok()).unwrap_or(Value::Nil),
-                            v => v,
-                        },
-                        (None, "edit" | "textbox") => match default {
-                            Value::Nil => Value::String(lua.create_string("")?),
-                            v => v,
-                        },
-                        (None, "intedit" | "floatedit") => match default {
-                            Value::Nil => Value::Integer(0),
-                            v => v,
-                        },
-                        (None, _) => default,
-                    };
-                    res.set(name, v)?;
+                    let v = resp.values.get(&c.name).cloned().unwrap_or_else(|| c.value.clone());
+                    res.set(c.name.as_str(), val_to_lua(lua, &c.class, v)?)?;
                 }
-                let button: Value = match (&s.opts.dialog_button, buttons) {
-                    (Some(b), _) => Value::String(lua.create_string(b)?),
-                    (None, Some(bt)) => bt.get::<Value>(1)?,
-                    (None, None) => Value::Boolean(true),
+                let button: Value = match (&resp.button, req.buttons.is_empty()) {
+                    (Some(b), true) => Value::Boolean(b == "OK"),
+                    (Some(b), false) => Value::String(lua.create_string(b)?),
+                    (None, true) => Value::Boolean(false),
+                    (None, false) => match &req.cancel_id {
+                        Some(c) => Value::String(lua.create_string(c)?),
+                        None => Value::Boolean(false),
+                    },
                 };
                 Ok((button, res))
             })?,
@@ -409,4 +412,106 @@ pub(crate) fn install_prelude(lua: &Lua, sh: &Sh) -> Result<()> {
     }
     lua.globals().set("__nsub_embedded", embedded)?;
     lua.load(PRELUDE).set_name("=prelude").exec()
+}
+
+fn lua_to_val(v: Value) -> Val {
+    match v {
+        Value::Nil => Val::None,
+        Value::Boolean(b) => Val::Bool(b),
+        Value::Integer(i) => Val::Num(i as f64),
+        Value::Number(n) => Val::Num(n),
+        Value::String(s) => Val::Str(s.to_string_lossy().to_string()),
+        _ => Val::None,
+    }
+}
+
+fn val_to_lua(lua: &Lua, class: &str, v: Val) -> Result<Value> {
+    Ok(match (class, v) {
+        ("checkbox", Val::Bool(b)) => Value::Boolean(b),
+        ("checkbox", Val::Num(n)) => Value::Boolean(n != 0.0),
+        ("checkbox", Val::Str(s)) => Value::Boolean(matches!(s.as_str(), "1" | "true" | "yes" | "on")),
+        ("checkbox", Val::None) => Value::Boolean(false),
+        ("intedit", Val::Num(n)) => Value::Integer(n as _),
+        ("intedit", Val::Str(s)) => Value::Integer(s.trim().parse::<f64>().unwrap_or(0.0) as _),
+        ("floatedit", Val::Num(n)) => Value::Number(n),
+        ("floatedit", Val::Str(s)) => Value::Number(s.trim().parse().unwrap_or(0.0)),
+        ("intedit" | "floatedit", _) => Value::Integer(0),
+        (_, Val::Str(s)) => Value::String(lua.create_string(s)?),
+        (_, Val::Num(n)) => Value::Number(n),
+        (_, Val::Bool(b)) => Value::Boolean(b),
+        (_, Val::None) => Value::String(lua.create_string("")?),
+    })
+}
+
+fn opt_num(t: &Table, k: &str) -> Option<f64> {
+    match t.get::<Value>(k) {
+        Ok(Value::Number(n)) => Some(n),
+        Ok(Value::Integer(i)) => Some(i as f64),
+        _ => None,
+    }
+}
+
+fn build_request(dialog: &Table, buttons: Option<&Table>, ids: Option<&Table>) -> Result<DialogRequest> {
+    let mut req = DialogRequest::default();
+    for c in dialog.sequence_values::<Table>() {
+        let c = c?;
+        let class: String = c.get::<String>("class").unwrap_or_default().to_ascii_lowercase();
+        let s = |k: &str| c.get::<Option<String>>(k).ok().flatten().unwrap_or_default();
+        let mut value = lua_to_val(c.get::<Value>("value").unwrap_or(Value::Nil));
+        if value == Val::None && matches!(class.as_str(), "edit" | "textbox") {
+            value = lua_to_val(c.get::<Value>("text").unwrap_or(Value::Nil));
+        }
+        if value == Val::None && class == "dropdown" {
+            if let Ok(items) = c.get::<Table>("items") {
+                value = lua_to_val(items.get::<Value>(1).unwrap_or(Value::Nil));
+            }
+        }
+        let items = c.get::<Table>("items").map(|t| t.sequence_values::<String>().filter_map(|v| v.ok()).collect()).unwrap_or_default();
+        req.controls.push(Control {
+            class,
+            name: s("name"),
+            label: s("label"),
+            hint: s("hint"),
+            value,
+            items,
+            min: opt_num(&c, "min"),
+            max: opt_num(&c, "max"),
+            step: opt_num(&c, "step"),
+            x: opt_num(&c, "x").unwrap_or(0.0) as i32,
+            y: opt_num(&c, "y").unwrap_or(0.0) as i32,
+            width: opt_num(&c, "width").unwrap_or(1.0) as i32,
+            height: opt_num(&c, "height").unwrap_or(1.0) as i32,
+        });
+    }
+    if let Some(b) = buttons {
+        req.buttons = b.sequence_values::<String>().filter_map(|v| v.ok()).collect();
+    }
+    if let Some(i) = ids {
+        req.ok_id = i.get::<Option<String>>("ok").ok().flatten();
+        req.cancel_id = i.get::<Option<String>>("cancel").ok().flatten();
+    }
+    Ok(req)
+}
+
+fn headless_answer(s: &Shared, req: &DialogRequest) -> DialogResponse {
+    let mut r = DialogResponse::default();
+    for c in &req.controls {
+        if c.name.is_empty() {
+            continue;
+        }
+        if let Some(x) = s.opts.dialog_answers.get(&c.name) {
+            let v = match c.class.as_str() {
+                "checkbox" => Val::Bool(matches!(x.as_str(), "1" | "true" | "yes" | "on")),
+                "intedit" | "floatedit" => Val::Num(x.parse().unwrap_or(0.0)),
+                _ => Val::Str(x.clone()),
+            };
+            r.values.insert(c.name.clone(), v);
+        }
+    }
+    r.button = Some(match (&s.opts.dialog_button, req.buttons.first()) {
+        (Some(b), _) => b.clone(),
+        (None, Some(b)) => b.clone(),
+        (None, None) => "OK".to_string(),
+    });
+    r
 }

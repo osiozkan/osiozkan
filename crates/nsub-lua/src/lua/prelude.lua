@@ -23,11 +23,12 @@ aegisub.log = logger
 aegisub.debug = { out = logger }
 aegisub.debug.warn = logger
 aegisub.debug.error = logger
+local real_is_cancelled = aegisub.is_cancelled
 aegisub.progress = {
-  set = function() end,
-  task = function() end,
-  title = function() end,
-  is_cancelled = function() return false end,
+  set = function(v) __nsub_progress("set", tonumber(v) or 0, nil) end,
+  task = function(...) __nsub_progress("task", nil, fmt(...)) end,
+  title = function(...) __nsub_progress("title", nil, fmt(...)) end,
+  is_cancelled = function() return real_is_cancelled() end,
 }
 aegisub.unicode = nil
 
