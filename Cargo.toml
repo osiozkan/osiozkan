@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nsub-core", "crates/nsub-lua", "crates/nsub-cli", "crates/nsub-fonts", "crates/nsub-gui"]
+members = ["crates/nsub-core", "crates/nsub-lua", "crates/nsub-cli", "crates/nsub-fonts", "crates/nsub-gui", "crates/nsub-media"]
 
 [workspace.package]
 version = "0.1.0"

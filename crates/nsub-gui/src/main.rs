@@ -1,5 +1,6 @@
 //! nightsub GUI (egui). Logic lives in `state.rs`; this file only renders and routes input.
 
+mod media_ui;
 mod state;
 mod worker;
 
@@ -13,6 +14,7 @@ use std::time::{Duration, Instant};
 
 #[derive(PartialEq, Clone, Copy)]
 enum Side {
+    Video,
     Qc,
     Styles,
 }
@@ -33,6 +35,10 @@ struct Gui {
     last_title: String,
     dlg_vals: HashMap<String, Val>,
     dlg_open: bool,
+    media: media_ui::Media,
+    last_active: Option<usize>,
+    show_wave: bool,
+    last_doc_path: Option<PathBuf>,
 }
 
 const ROW_H: f32 = 22.0;
@@ -40,6 +46,7 @@ const ROW_H: f32 = 22.0;
 impl Gui {
     fn new(initial: Option<PathBuf>, ctx: egui::Context) -> Gui {
         let mut app = App::new();
+        let ctx2 = ctx.clone();
         app.waker = Some(std::sync::Arc::new(move || ctx.request_repaint()));
         if let Some(p) = initial {
             app.open(&p);
@@ -57,7 +64,7 @@ impl Gui {
         }
         Gui {
             app,
-            side: Side::Qc,
+            side: Side::Video,
             show_log: false,
             show_shift: false,
             show_replace: false,
@@ -71,6 +78,10 @@ impl Gui {
             last_title: String::new(),
             dlg_vals: HashMap::new(),
             dlg_open: false,
+            media: media_ui::Media::new(ctx2),
+            last_active: None,
+            show_wave: true,
+            last_doc_path: None,
         }
     }
 
@@ -140,6 +151,47 @@ impl Gui {
         }
     }
 
+    fn attach_video(&mut self, p: PathBuf, ctx: &egui::Context) {
+        self.media.load_video(p.clone(), ctx);
+        if let Some(f) = self.media.fps() {
+            self.app.fps = f;
+        }
+        if self.media.video.is_some() {
+            self.app.doc.script.set_project_property("Video File", &p.to_string_lossy());
+            if let Some((_, info)) = &self.media.video {
+                // like Aegisub: adopt the video resolution when the script has none
+                if self.app.doc.script.get_info("PlayResX").is_none() {
+                    self.app.doc.script.set_info("PlayResX", &info.width.to_string());
+                    self.app.doc.script.set_info("PlayResY", &info.height.to_string());
+                }
+            }
+        }
+        self.side = Side::Video;
+    }
+
+    fn autoload_media(&mut self, ctx: &egui::Context) {
+        let base = self.app.doc.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        let resolve = |v: &str| -> Option<PathBuf> {
+            let p = PathBuf::from(v);
+            if p.is_file() {
+                return Some(p);
+            }
+            let q = base.as_ref()?.join(&p);
+            q.is_file().then_some(q)
+        };
+        if let Some(v) = self.app.doc.script.project_property("Video File").and_then(resolve) {
+            self.media.load_video(v, ctx);
+            if let Some(f) = self.media.fps() {
+                self.app.fps = f;
+            }
+        }
+        if self.media.audio.is_none() {
+            if let Some(a) = self.app.doc.script.project_property("Audio File").and_then(resolve) {
+                self.media.load_audio(a, ctx);
+            }
+        }
+    }
+
     fn menu(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -159,6 +211,20 @@ impl Gui {
                     if ui.button("Save as…").clicked() {
                         ui.close_menu();
                         self.save(true);
+                    }
+                    ui.separator();
+                    if ui.button("Open video…").clicked() {
+                        ui.close_menu();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "avi", "webm", "mov", "m2ts", "ts", "flv"]).pick_file() {
+                            self.attach_video(p, ctx);
+                        }
+                    }
+                    if ui.button("Open audio…").clicked() {
+                        ui.close_menu();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Audio", &["mka", "mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "mkv", "mp4"]).pick_file() {
+                            self.media.load_audio(p.clone(), ctx);
+                            self.app.doc.script.set_project_property("Audio File", &p.to_string_lossy());
+                        }
                     }
                 });
                 ui.menu_button("Edit", |ui| {
@@ -218,6 +284,8 @@ impl Gui {
                     }
                 });
                 ui.menu_button("View", |ui| {
+                    if ui.button("Video").clicked() { self.side = Side::Video; ui.close_menu(); }
+                    ui.checkbox(&mut self.show_wave, "Waveform");
                     if ui.button("QC panel").clicked() { self.side = Side::Qc; ui.close_menu(); }
                     if ui.button("Styles manager").clicked() { self.side = Side::Styles; ui.close_menu(); }
                     if ui.button("Log").clicked() { self.show_log = true; ui.close_menu(); }
@@ -646,6 +714,14 @@ impl eframe::App for Gui {
             }
         }
         self.app.pump();
+        if self.last_active != self.app.active {
+            self.last_active = self.app.active;
+            self.media.on_active_changed(&self.app);
+        }
+        if self.app.doc.path != self.last_doc_path {
+            self.last_doc_path = self.app.doc.path.clone();
+            self.autoload_media(ctx);
+        }
         self.shortcuts(ctx);
         self.autosave();
         let title = self.app.doc.title();
@@ -670,14 +746,19 @@ impl eframe::App for Gui {
                 });
             });
         });
+        if self.show_wave {
+            egui::TopBottomPanel::bottom("wave").resizable(true).default_height(110.0).height_range(60.0..=400.0).show(ctx, |ui| self.media.waveform(ui, &mut self.app));
+        }
         egui::TopBottomPanel::bottom("editor").min_height(90.0).show(ctx, |ui| self.editor(ui));
-        egui::SidePanel::right("side").default_width(300.0).show(ctx, |ui| {
+        egui::SidePanel::right("side").default_width(460.0).width_range(300.0..=1000.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.side, Side::Video, "Video");
                 ui.selectable_value(&mut self.side, Side::Qc, "Quality");
                 ui.selectable_value(&mut self.side, Side::Styles, "Styles");
             });
             ui.separator();
             match self.side {
+                Side::Video => self.media.video_panel(ui, &mut self.app),
                 Side::Qc => self.qc_panel(ui),
                 Side::Styles => self.styles_panel(ui),
             }

@@ -18,22 +18,25 @@ pub struct Doc {
     undo: Vec<Script>,
     redo: Vec<Script>,
     last_key: String,
+    /// Bumped on every change; lets previews know when to re-render.
+    pub rev: u64,
 }
 
 impl Doc {
     pub fn new() -> Doc {
-        Doc { script: Script::new(), path: None, dirty: false, undo: vec![], redo: vec![], last_key: String::new() }
+        Doc { script: Script::new(), path: None, dirty: false, undo: vec![], redo: vec![], last_key: String::new(), rev: 0 }
     }
 
     pub fn open(path: &Path) -> Result<Doc, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let script = formats::load(&bytes, path.to_str())?;
         let is_ass = matches!(Format::from_extension(&path.to_string_lossy()), Some(Format::Ass | Format::Ssa));
-        Ok(Doc { script, path: if is_ass { Some(path.to_path_buf()) } else { None }, dirty: !is_ass, undo: vec![], redo: vec![], last_key: String::new() })
+        Ok(Doc { script, path: if is_ass { Some(path.to_path_buf()) } else { None }, dirty: !is_ass, undo: vec![], redo: vec![], last_key: String::new(), rev: 0 })
     }
 
     /// Snapshot before a structural change.
     pub fn checkpoint(&mut self) {
+        self.rev += 1;
         self.undo.push(self.script.clone());
         if self.undo.len() > UNDO_LIMIT {
             self.undo.remove(0);
@@ -49,6 +52,7 @@ impl Doc {
             self.checkpoint();
             self.last_key = key.to_string();
         }
+        self.rev += 1;
         self.dirty = true;
     }
 
@@ -59,6 +63,7 @@ impl Doc {
     pub fn undo(&mut self) -> bool {
         match self.undo.pop() {
             Some(prev) => {
+                self.rev += 1;
                 self.redo.push(std::mem::replace(&mut self.script, prev));
                 self.dirty = true;
                 self.last_key.clear();
@@ -71,6 +76,7 @@ impl Doc {
     pub fn redo(&mut self) -> bool {
         match self.redo.pop() {
             Some(next) => {
+                self.rev += 1;
                 self.undo.push(std::mem::replace(&mut self.script, next));
                 self.dirty = true;
                 self.last_key.clear();

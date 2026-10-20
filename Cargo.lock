@@ -1859,6 +1859,7 @@ dependencies = [
  "nsub-core",
  "nsub-fonts",
  "nsub-lua",
+ "nsub-media",
  "regex",
  "rfd",
 ]
@@ -1872,6 +1873,10 @@ dependencies = [
  "nsub-core",
  "regex",
 ]
+
+[[package]]
+name = "nsub-media"
+version = "0.1.0"
 
 [[package]]
 name = "num-traits"

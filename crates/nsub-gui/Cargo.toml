@@ -12,6 +12,7 @@ path = "src/main.rs"
 nsub-core = { path = "../nsub-core" }
 nsub-lua = { path = "../nsub-lua" }
 nsub-fonts = { path = "../nsub-fonts" }
+nsub-media = { path = "../nsub-media" }
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 regex.workspace = true

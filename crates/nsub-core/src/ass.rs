@@ -219,6 +219,32 @@ impl Script {
         }
     }
 
+    /// Value from the `[Aegisub Project Garbage]` section (video/audio paths, active line, ...).
+    pub fn project_property(&self, key: &str) -> Option<&str> {
+        let sec = self.extra.iter().find(|x| x.name.eq_ignore_ascii_case("Aegisub Project Garbage"))?;
+        sec.lines.iter().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.trim().eq_ignore_ascii_case(key).then(|| v.trim())
+        })
+    }
+
+    pub fn set_project_property(&mut self, key: &str, value: &str) {
+        let name = "Aegisub Project Garbage";
+        let idx = match self.extra.iter().position(|x| x.name.eq_ignore_ascii_case(name)) {
+            Some(i) => i,
+            None => {
+                self.extra.push(ExtraSection { name: name.into(), lines: vec![] });
+                self.extra.len() - 1
+            }
+        };
+        let line = format!("{key}: {value}");
+        let lines = &mut self.extra[idx].lines;
+        match lines.iter_mut().find(|l| l.split_once(':').map_or(false, |(k, _)| k.trim().eq_ignore_ascii_case(key))) {
+            Some(l) => *l = line,
+            None => lines.push(line),
+        }
+    }
+
     pub fn resolution(&self) -> (i32, i32) {
         let x = self.get_info("PlayResX").and_then(|v| v.trim().parse().ok());
         let y = self.get_info("PlayResY").and_then(|v| v.trim().parse().ok());
@@ -525,6 +551,17 @@ mod tests {
         assert_eq!(s.styles, s2.styles);
         assert_eq!(s.extra, s2.extra);
         assert!(out.contains("; hello"));
+    }
+
+    #[test]
+    fn project_properties() {
+        let mut s = Script::parse(SAMPLE);
+        assert_eq!(s.project_property("Audio File"), Some("a.mka"));
+        s.set_project_property("Video File", "v.mkv");
+        s.set_project_property("Audio File", "b.mka");
+        let r = Script::parse(&s.to_ass_string());
+        assert_eq!(r.project_property("video file"), Some("v.mkv"));
+        assert_eq!(r.project_property("Audio File"), Some("b.mka"));
     }
 
     #[test]
