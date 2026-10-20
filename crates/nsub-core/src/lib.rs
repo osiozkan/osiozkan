@@ -1,0 +1,13 @@
+//! nsub-core: subtitle document model, formats, timing and QC tools.
+
+pub mod ass;
+pub mod color;
+pub mod formats;
+pub mod ops;
+pub mod qc;
+pub mod tags;
+pub mod text;
+pub mod time;
+
+pub use ass::{Event, Script, Style};
+pub use color::Color;
