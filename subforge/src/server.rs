@@ -145,6 +145,7 @@ pub struct Session {
     pub name: String,
     pub encoding: String,
     pub path: Option<std::path::PathBuf>,
+    pub reference: Option<Document>,
     last_autosave: Option<std::time::Instant>,
     undo: Vec<Document>,
     redo: Vec<Document>,
@@ -253,7 +254,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, last_autosave: None, undo: vec![], redo: vec![], dirty: false }
+        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, last_autosave: None, undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -459,6 +460,21 @@ impl Session {
                 });
                 json_resp(json!({"path": dir.display().to_string(), "parent": dir.parent().map(|p| p.display().to_string()), "entries": entries}))
             }
+            ("POST", "/api/ref") => {
+                // reference subtitle (e.g. the source-language track) for translation / bilingual merge
+                let name = q.get("name").map(|n| url_decode(n)).unwrap_or_default();
+                let hint = q.get("encoding").map(|e| url_decode(e)).filter(|e| !e.is_empty() && e != "auto");
+                let d = crate::encoding::decode(body, hint.as_deref());
+                let lower = name.to_lowercase();
+                let doc = if lower.ends_with(".srt") || lower.ends_with(".vtt") { srt::parse_srt(&d.text) } else { Document::parse(&d.text) };
+                let evs: Vec<EventJson> = doc.events().filter(|e| !e.comment).map(EventJson::from).collect();
+                self.reference = Some(doc);
+                json_resp(json!({"name": name, "events": evs, "encoding": d.encoding}))
+            }
+            ("POST", "/api/ref/clear") => {
+                self.reference = None;
+                json_resp(json!({"ok": true}))
+            }
             ("POST", "/api/new") => {
                 *self = Session::new();
                 json_resp(self.state())
@@ -559,6 +575,13 @@ impl Session {
                         msg = format!("fixed {} overlap(s), extended {} short line(s)", a, b);
                     }
                     "strip_tags" => ops::strip_all_tags(&mut work),
+                    "merge_ref" => {
+                        let Some(r) = &self.reference else { return err_resp(400, "load a reference subtitle first") };
+                        let stack = v.get("stack").and_then(|x| x.as_bool()).unwrap_or(true);
+                        let style = v.get("style").and_then(|x| x.as_str()).unwrap_or("");
+                        let style = if !stack && style.is_empty() { "Secondary" } else { style };
+                        msg = format!("{} line(s) merged", ops::merge_reference(&mut work, r, stack, style));
+                    }
                     "resample" => {
                         let (x, y) = (num("x").unwrap_or(0.0) as i32, num("y").unwrap_or(0.0) as i32);
                         if x <= 0 || y <= 0 {

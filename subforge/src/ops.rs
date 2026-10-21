@@ -241,3 +241,67 @@ mod tests {
         change_framerate(&mut d, 23.976, 25.0);
     }
 }
+
+/// Bilingual merge: for every primary event, attach the reference events that overlap it most.
+/// `stack`: reference text is appended to the same event after `\N` (wrapped in `{\rStyle}` if a style is given).
+/// otherwise each reference event is added as its own event using `style` (created from the primary
+/// style, top-aligned, when missing). Returns the number of primary events that received text.
+pub fn merge_reference(primary: &mut Document, reference: &Document, stack: bool, style: &str) -> usize {
+    let refs: Vec<&Event> = reference.events().filter(|e| !e.comment).collect();
+    if refs.is_empty() {
+        return 0;
+    }
+    let mut touched = 0;
+    if stack {
+        for e in primary.events_mut().filter(|e| !e.comment) {
+            let mut hits: Vec<&&Event> = refs.iter().filter(|r| r.end > e.start && r.start < e.end).collect();
+            hits.sort_by_key(|r| r.start);
+            if hits.is_empty() {
+                continue;
+            }
+            let txt = hits.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join(" ");
+            let prefix = if style.is_empty() { String::new() } else { format!("{{\\r{}}}", style) };
+            e.text = format!("{}\\N{}{}", e.text, prefix, txt);
+            touched += 1;
+        }
+    } else {
+        if primary.style(style).is_none() {
+            let mut st = primary.styles().next().cloned().unwrap_or_default();
+            st.name = style.to_string();
+            st.align = 8;
+            st.fontsize = (st.fontsize * 0.8).round();
+            let pos = primary.entries.iter().rposition(|e| matches!(e, Entry::Style(_))).map(|p| p + 1).unwrap_or(primary.entries.len());
+            primary.entries.insert(pos, Entry::Style(st));
+        }
+        for r in &refs {
+            primary.entries.push(Entry::Event(Event { style: style.to_string(), layer: r.layer, start: r.start, end: r.end, text: r.text.clone(), ..Event::default() }));
+            touched += 1;
+        }
+        primary.sort_events_by_start();
+    }
+    touched
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    fn d(lines: &[(&str, i64, i64)]) -> Document {
+        let mut doc = Document::new_default();
+        for (t, s, e) in lines {
+            doc.entries.push(Entry::Event(Event { text: t.to_string(), start: *s, end: *e, ..Event::default() }));
+        }
+        doc
+    }
+    #[test]
+    fn bilingual() {
+        let mut a = d(&[("Merhaba", 0, 1000), ("Dünya", 1000, 2000), ("Yalnız", 5000, 6000)]);
+        let b = d(&[("Hello", 100, 900), ("World", 1100, 1900)]);
+        assert_eq!(merge_reference(&mut a, &b, true, ""), 2);
+        let t: Vec<_> = a.events().map(|e| e.text.clone()).collect();
+        assert_eq!(t, ["Merhaba\\NHello", "Dünya\\NWorld", "Yalnız"]);
+        let mut a = d(&[("Merhaba", 0, 1000)]);
+        assert_eq!(merge_reference(&mut a, &b, false, "Ref"), 2);
+        assert_eq!(a.events().count(), 3);
+        assert!(a.style("Ref").is_some() && a.style("Ref").unwrap().align == 8);
+    }
+}

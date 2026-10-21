@@ -1,5 +1,6 @@
 // UI smoke test: node tests/ui_smoke.cjs  (expects `subforge serve tests/fixtures/sample.ass` on :8765)
 const { chromium } = require(process.env.PW_PATH || "playwright");
+const process_cwd = process.cwd();
 const fs = require("fs");
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
@@ -107,10 +108,20 @@ const fs = require("fs");
   ok(true, "Lua script added from disk");
   // save as to tmp then save in place
   await p.click("#bSaveAs"); await p.waitForSelector("#fName");
-  await p.fill("#fPath", "/tmp/claude-0"); await p.press("#fPath", "Enter"); await p.waitForSelector("#fName");
+  await p.fill("#fPath", "/tmp/claude-0"); await p.press("#fPath", "Enter");
+  await p.waitForFunction(() => document.querySelector("#fPath").value === "/tmp/claude-0" && document.querySelector("#fName") && document.querySelector("#mbox .issue"));
   await p.fill("#fName", "ui_saved.ass"); await p.click("#fOk");
   await p.waitForFunction(() => S.path === "/tmp/claude-0/ui_saved.ass");
   ok(require("fs").readFileSync("/tmp/claude-0/ui_saved.ass", "utf8").includes("[Events]"), "save as wrote the file");
+  // reference subtitle + bilingual merge
+  await p.evaluate(async (cwd) => { const st = await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" }); setState(st); selectOnly(0); }, process_cwd);
+  await p.setInputFiles("#fRef", "tests/fixtures/ref.srt");
+  await p.waitForFunction(() => REF.length === 2);
+  await p.evaluate(() => { const i = S.events.findIndex(e => e.start >= 1000); selectOnly(i); });
+  await p.waitForFunction(() => document.querySelector("#refBox").textContent.includes("source"));
+  ok(true, "reference text shown for selected line");
+  const merged = await p.evaluate(async () => { const st = await api("/api/tool", { name: "merge_ref", stack: true }); setState(st); return st.message; });
+  ok(/merged/.test(merged), "merge reference tool: " + merged);
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");

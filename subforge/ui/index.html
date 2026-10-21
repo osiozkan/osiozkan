@@ -76,12 +76,14 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
   <select id="senc" title="Save encoding"><option value="utf-8">UTF-8 (BOM)</option><option value="utf-8nobom">UTF-8</option><option value="windows-1254">Turkish (1254)</option><option value="windows-1252">Western (1252)</option><option value="utf-16le">UTF-16 LE</option><option value="shift_jis">Shift-JIS</option></select>
   <select id="oenc" title="Encoding used when opening (auto-detect by default)"><option value="auto">Open: auto</option><option value="utf-8">Open: UTF-8</option><option value="windows-1254">Open: Turkish (1254)</option><option value="windows-1252">Open: Western (1252)</option><option value="shift_jis">Open: Shift-JIS</option><option value="gbk">Open: GBK</option><option value="euc-kr">Open: EUC-KR</option></select>
+  <select id="lang" title="Spell-check language of the text box"><option value="tr">TR</option><option value="en">EN</option><option value="ja">JA</option><option value="de">DE</option><option value="es">ES</option><option value="fr">FR</option><option value="ru">RU</option><option value="pt">PT</option><option value="it">IT</option></select>
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
   <button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
   <button id="bTools">Tools…</button>
   <span class="sp"></span>
-  <button id="bVideo">Video…</button>
+  <button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
+  <input type="file" id="fRef" hidden accept=".ass,.ssa,.srt,.vtt">
   <span class="hint" id="dirty"></span>
   <input type="file" id="fOpen" hidden accept=".ass,.ssa,.srt,.vtt,.txt">
   <input type="file" id="fVideo" hidden accept="video/*,audio/*">
@@ -103,7 +105,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <div id="wavewrap"><canvas id="wave"></canvas><div class="wl" id="waveInfo"></div></div>
   <div id="edit">
     <div class="f" id="eFields"></div>
-    <textarea id="eText" placeholder="Select a line…" spellcheck="true"></textarea>
+    <div><div id="refBox" class="hint" style="display:none;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 8px;margin-bottom:4px;white-space:pre-wrap;max-height:60px;overflow:auto"></div><textarea id="eText" placeholder="Select a line…" spellcheck="true" lang="tr"></textarea></div>
   </div>
   <div id="gridwrap">
     <div id="head"><div>#</div><div>C</div><div>Ly</div><div>Start</div><div>End</div><div>Dur</div><div>Style</div><div>Actor</div><div>CPS</div><div>Text</div></div>
@@ -205,6 +207,7 @@ function renderEdit(){
     el.disabled=!e;el.value=e?(t==="t"?fmt(e[k]):e[k]):"";
   }
   st.disabled=!e;if(e)st.value=e.style;
+  const rb=$("#refBox");if(REF.length&&e){rb.style.display="block";rb.textContent=refFor(e)||"(no reference line at this time)"}else rb.style.display="none";
   const ta=$("#eText");ta.disabled=!e;if(document.activeElement!==ta)ta.value=e?e.text:"";
   $("#eInfo").textContent=e?`dur ${((e.end-e.start)/1000).toFixed(2)}s · ${vis(e.text).replace(/\n/g,"").length} chars · ${cps(e).toFixed(1)} cps`:"";
 }
@@ -354,6 +357,7 @@ function toolModal(){
   <label>Casing</label><span><select id="cMode"><option value="sentence">Sentence case</option><option value="title">Title Case</option><option value="upper">UPPER</option><option value="lower">lower</option></select> <label style="display:inline"><input type="checkbox" id="cTr"> Turkish i/İ rules</label> <button data-t="case">All</button> <button data-t="casesel" ${n?"":"disabled"}>Selected (${n})</button></span>
   <label>Line breaks</label><span>max <input id="lMax" type="number" value="42" style="width:60px"> chars <button data-t="rebalance">Balance long lines</button> &nbsp; <br><button data-t="split_long">Split events longer than</button> <input id="sMax" type="number" value="84" style="width:60px"> chars &nbsp; <button data-t="merge_short">Merge neighbours with gap ≤</button> <input id="mGap" type="number" value="250" style="width:60px"> ms</span>
   <label>Find &amp; replace</label><span><input id="rFind" placeholder="find" style="width:150px"> → <input id="rWith" placeholder="replace" style="width:150px"> <label style="display:inline"><input type="checkbox" id="rRx"> regex</label> <label style="display:inline"><input type="checkbox" id="rIc"> ignore case</label> <button data-t="replace">Replace all</button></span>
+  <label>Reference</label><span><button data-t="merge_ref_stack">Merge reference under each line</button> <button data-t="merge_ref_sep">Add reference as separate (top) lines</button></span>
   <label>Reports</label><span><button data-t="stats">Statistics</button> <button data-t="fonts">Fonts used</button></span>
   </div><p><button onclick="closeModal()">Close</button></p><div id="tMsg" class="hint" style="white-space:pre-wrap"></div>`);
   document.querySelectorAll("#mbox [data-t]").forEach(b=>b.onclick=()=>runTool(b.dataset.t));
@@ -374,6 +378,8 @@ async function runTool(t){
     case"split_long":body={name:"split_long",max:+v("sMax")};break;
     case"merge_short":body={name:"merge_short",gap:+v("mGap"),max:+v("lMax")};break;
     case"replace":body={name:"replace",find:v("rFind"),with:v("rWith"),regex:$("#rRx").checked,ignore_case:$("#rIc").checked};break;
+    case"merge_ref_stack":body={name:"merge_ref",stack:true};break;
+    case"merge_ref_sep":body={name:"merge_ref",stack:false,style:"Secondary"};break;
     case"stats":{const r=await act(()=>api("/api/stats"));if(r)out(`Lines: ${r.lines} (+${r.comments} comments)\nWords: ${r.words}   Characters: ${r.chars}\nTotal display time: ${(r.total_ms/1000).toFixed(1)} s\nAvg CPS: ${r.avg_cps.toFixed(1)}   Max CPS: ${r.max_cps.toFixed(1)}   Avg line length: ${r.avg_line_len.toFixed(1)}`);return}
     case"fonts":{const r=await act(()=>api("/api/fonts"));if(r)out(r.fonts.map(f=>`${f.installed?"✔":"✘ MISSING"}  ${f.family} ${f.bold?"[B]":""}${f.italic?"[I]":""}  (${f.uses} line(s))${f.path?"  "+f.path:""}`).join("\n")||"No fonts used.");return}
     default:body={name:t};
@@ -460,6 +466,16 @@ vid.addEventListener("loadedmetadata",updateOverlay);
 window.addEventListener("resize",updateOverlay);
 (function loop(){if(!vid.paused){updateOverlay()}requestAnimationFrame(loop)})();
 
+
+// ---- reference subtitle (translation helper) ----
+let REF=[];
+$("#bRef").onclick=()=>{if(REF.length&&confirm("Clear the loaded reference subtitle? (Cancel = load another)")){REF=[];api("/api/ref/clear",{});renderEdit();return}$("#fRef").click()};
+$("#fRef").onchange=ev=>act(async()=>{
+  const f=ev.target.files[0];if(!f)return;
+  const r=await sfetch("/api/ref?name="+encodeURIComponent(f.name)+"&encoding="+encodeURIComponent($("#oenc").value),{method:"POST",body:await f.arrayBuffer()});
+  const j=await r.json();if(!r.ok)throw new Error(j.error);REF=j.events;ev.target.value="";renderEdit();msg("Reference loaded: "+f.name+" ("+REF.length+" lines)");
+});
+function refFor(e){return REF.filter(r=>r.end>e.start&&r.start<e.end).map(r=>vis(r.text).replace(/\n/g," / ")).join("\n")}
 
 // ---- audio waveform & timing ----
 const wc=$("#wave"),wctx=wc.getContext("2d");
@@ -581,6 +597,9 @@ function renderAll(){
   const ce=S.events[cur];if(ce&&!W.drag){const t1=W.t0+W.span;if(ce.start<W.t0||ce.start>t1)centerOn(ce.start)}
   if(typeof drawWave==="function")drawWave();
 }
+try{const l=localStorage.getItem("sf_lang");if(l)$("#lang").value=l}catch(e){}
+$("#eText").lang=$("#lang").value;
+$("#lang").onchange=()=>{$("#eText").lang=$("#lang").value;try{localStorage.setItem("sf_lang",$("#lang").value)}catch(e){}const t=$("#eText");t.blur();setTimeout(()=>t.focus(),0)};
 buildFields();
 act(async()=>{setState(await api("/api/state"));if(S.events.length)selectOnly(0);refreshMacros()});
 window.addEventListener("resize",renderGrid);
