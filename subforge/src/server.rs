@@ -142,6 +142,7 @@ impl From<StyleJson> for Style {
 pub struct Session {
     pub doc: Document,
     pub name: String,
+    pub encoding: String,
     undo: Vec<Document>,
     redo: Vec<Document>,
     pub dirty: bool,
@@ -249,7 +250,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { doc: Document::new_default(), name: "untitled.ass".into(), undo: vec![], redo: vec![], dirty: false }
+        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -272,7 +273,7 @@ impl Session {
         let events: Vec<EventJson> = self.doc.events().map(EventJson::from).collect();
         let (rx, ry) = self.doc.res();
         json!({
-            "name": self.name, "info": info, "styles": styles, "events": events,
+            "name": self.name, "encoding": self.encoding, "info": info, "styles": styles, "events": events,
             "can_undo": !self.undo.is_empty(), "can_redo": !self.redo.is_empty(), "dirty": self.dirty,
             "res": [rx, ry],
         })
@@ -288,7 +289,7 @@ impl Session {
         self.dirty = false;
     }
 
-    pub fn handle(&mut self, method: &str, path: &str, body: &str) -> Response {
+    pub fn handle(&mut self, method: &str, path: &str, body: &[u8]) -> Response {
         let (route, query) = path.split_once('?').unwrap_or((path, ""));
         let q: HashMap<String, String> = query
             .split('&')
@@ -296,10 +297,10 @@ impl Session {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         let jbody = || -> Result<Value, Response> {
-            if body.trim().is_empty() {
+            if body.iter().all(|b| b.is_ascii_whitespace()) {
                 Ok(json!({}))
             } else {
-                serde_json::from_str(body).map_err(|e| err_resp(400, format!("bad json: {}", e)))
+                serde_json::from_slice(body).map_err(|e| err_resp(400, format!("bad json: {}", e)))
             }
         };
         match (method, route) {
@@ -312,6 +313,17 @@ impl Session {
                 let text = v.get("text").and_then(|x| x.as_str()).unwrap_or("");
                 self.open_text(name, text);
                 json_resp(self.state())
+            }
+            ("POST", "/api/open_raw") => {
+                // raw file bytes in the body; ?name=file.ass&encoding=windows-1254 (optional override)
+                let name = q.get("name").map(|n| url_decode(n)).unwrap_or_else(|| "untitled.ass".into());
+                let hint = q.get("encoding").map(|e| url_decode(e)).filter(|e| !e.is_empty() && e != "auto");
+                let d = crate::encoding::decode(body, hint.as_deref());
+                self.open_text(&name, &d.text);
+                self.encoding = d.encoding.to_string();
+                let mut st = self.state();
+                st["decode_errors"] = json!(d.had_errors);
+                json_resp(st)
             }
             ("POST", "/api/new") => {
                 *self = Session::new();
@@ -345,6 +357,18 @@ impl Session {
                 json_resp(self.state())
             }
             ("GET", "/api/export") => {
+                let fmt = q.get("fmt").map(|s| s.as_str()).unwrap_or("ass");
+                let enc = q.get("enc").map(|e| url_decode(e)).unwrap_or_else(|| "utf-8".into());
+                let text = match fmt {
+                    "srt" => srt::to_srt(&self.doc),
+                    "vtt" => srt::to_vtt(&self.doc),
+                    "txt" => self.doc.events().filter(|e| !e.comment).map(|e| crate::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n"),
+                    _ => self.doc.to_string(),
+                };
+                let bom = q.get("bom").map(|b| b != "0").unwrap_or(fmt == "ass");
+                Response { status: 200, content_type: "application/octet-stream", body: crate::encoding::encode(&text, &enc, bom) }
+            }
+            ("GET", "/api/export_text") => {
                 let fmt = q.get("fmt").map(|s| s.as_str()).unwrap_or("ass");
                 match fmt {
                     "srt" => text_resp("text/plain; charset=utf-8", srt::to_srt(&self.doc)),
@@ -459,6 +483,34 @@ impl Session {
     }
 }
 
+fn url_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' if i + 2 < b.len() => {
+                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                    out.push(v);
+                    i += 3;
+                    continue;
+                }
+                out.push(b'%');
+                i += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
 fn script_file(src: &str) -> Result<std::path::PathBuf, String> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -492,8 +544,8 @@ pub fn serve(addr: &str, initial: Option<(String, String)>) -> anyhow::Result<()
     }
     eprintln!("SubForge UI: http://{}/", addr);
     for mut req in server.incoming_requests() {
-        let mut body = String::new();
-        let _ = std::io::Read::read_to_string(req.as_reader(), &mut body);
+        let mut body = Vec::new();
+        let _ = std::io::Read::read_to_end(req.as_reader(), &mut body);
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
         let r = session.handle(&method, &url, &body);
@@ -513,7 +565,7 @@ mod tests {
         s
     }
     fn post(s: &mut Session, path: &str, v: Value) -> Value {
-        let r = s.handle("POST", path, &v.to_string());
+        let r = s.handle("POST", path, v.to_string().as_bytes());
         serde_json::from_slice(&r.body).unwrap()
     }
 
@@ -534,6 +586,21 @@ mod tests {
     }
 
     #[test]
+    fn open_raw_detects_turkish_codepage() {
+        let mut s = Session::new();
+        let text = "[Script Info]\nTitle: T\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Şimdi gidiyoruz çocuklar, İstanbul'a. Işık ğüöç\n";
+        let bytes = crate::encoding::encode(text, "windows-1254", false);
+        let r = s.handle("POST", "/api/open_raw?name=tr.ass", &bytes);
+        let v: Value = serde_json::from_slice(&r.body).unwrap();
+        assert_eq!(v["events"][0]["text"], "Şimdi gidiyoruz çocuklar, İstanbul'a. Işık ğüöç", "enc={}", v["encoding"]);
+        let r = s.handle("GET", "/api/export?fmt=ass&enc=windows-1254&bom=0", b"");
+        assert_eq!(r.body, crate::encoding::encode(&s.doc.to_string(), "windows-1254", false));
+        let r = s.handle("POST", "/api/open_raw?name=x.ass&encoding=windows-1254", &bytes);
+        let v: Value = serde_json::from_slice(&r.body).unwrap();
+        assert_eq!(v["encoding"], "windows-1254");
+    }
+
+    #[test]
     fn insert_delete_and_style_rename() {
         let mut s = session();
         let st = s.state();
@@ -544,7 +611,7 @@ mod tests {
         sty["name"] = json!("Main");
         let st = post(&mut s, "/api/patch", json!({"ops": [{"op": "set_style", "i": 0, "style": sty}]}));
         assert_eq!(st["events"][0]["style"], "Main");
-        let bad = s.handle("POST", "/api/patch", &json!({"ops": [{"op": "set_event", "i": 99, "event": {}}]}).to_string());
+        let bad = s.handle("POST", "/api/patch", json!({"ops": [{"op": "set_event", "i": 99, "event": {}}]}).to_string().as_bytes());
         assert_eq!(bad.status, 400);
     }
 
@@ -557,7 +624,7 @@ mod tests {
         assert_eq!(st["message"], "1 event(s) changed");
         let q = post(&mut s, "/api/qa", json!({}));
         assert!(q["issues"].as_array().unwrap().iter().any(|i| i["kind"] == "whitespace") || q["issues"].is_array());
-        let r = s.handle("GET", "/api/export?fmt=srt", "");
+        let r = s.handle("GET", "/api/export_text?fmt=srt", b"");
         assert!(String::from_utf8(r.body).unwrap().contains("-->"));
         let script = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test_macro.lua")).unwrap();
         let m = post(&mut s, "/api/macros", json!({"script": script}));

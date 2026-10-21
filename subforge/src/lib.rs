@@ -1,6 +1,8 @@
 pub mod ass;
 pub mod automation;
+pub mod encoding;
 pub mod fonts;
+pub mod lua_lfs;
 pub mod lua_re;
 pub mod ops;
 pub mod server;

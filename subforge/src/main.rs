@@ -11,6 +11,12 @@ use subforge::{ops, srt};
 #[derive(Parser)]
 #[command(name = "subforge", version, about = "Anime subtitle toolkit: ASS core, Lua automation (Aegisub-compatible), timing & QA tools")]
 struct Cli {
+    /// input encoding (default: auto-detect; e.g. windows-1254 for legacy Turkish files)
+    #[arg(long, global = true)]
+    in_encoding: Option<String>,
+    /// output encoding (default utf-8)
+    #[arg(long, global = true, default_value = "utf-8")]
+    out_encoding: String,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -76,12 +82,25 @@ fn ext(p: &Path) -> String {
     p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
 }
 
+thread_local! {
+    static ENC: std::cell::RefCell<(Option<String>, String)> = const { std::cell::RefCell::new((None, String::new())) };
+}
+
 fn read_text(p: &Path) -> Result<String> {
     let bytes = std::fs::read(p).with_context(|| format!("reading {}", p.display()))?;
-    Ok(match String::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(e) => String::from_utf8_lossy(e.as_bytes()).to_string(),
-    })
+    let hint = ENC.with(|e| e.borrow().0.clone());
+    let d = subforge::encoding::decode(&bytes, hint.as_deref());
+    if d.encoding != "UTF-8" {
+        eprintln!("note: {} decoded as {}{}", p.display(), d.encoding, if d.had_errors { " (some bytes invalid)" } else { "" });
+    }
+    Ok(d.text)
+}
+
+fn write_text(p: &Path, text: &str) -> Result<()> {
+    let enc = ENC.with(|e| e.borrow().1.clone());
+    let bom = ext(p) == "ass" || ext(p) == "ssa";
+    std::fs::write(p, subforge::encoding::encode(text, &enc, bom))?;
+    Ok(())
 }
 
 fn load(p: &Path) -> Result<Document> {
@@ -103,7 +122,7 @@ fn render(doc: &Document, p: &Path) -> String {
 
 fn save(doc: &Document, input: &Path, output: &Option<PathBuf>) -> Result<()> {
     let target = output.clone().unwrap_or_else(|| input.to_path_buf());
-    std::fs::write(&target, render(doc, &target))?;
+    write_text(&target, &render(doc, &target))?;
     eprintln!("wrote {}", target.display());
     Ok(())
 }
@@ -117,6 +136,7 @@ fn main() {
 
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
+    ENC.with(|e| *e.borrow_mut() = (cli.in_encoding.clone(), cli.out_encoding.clone()));
     match cli.cmd {
         Cmd::Info { file } => {
             let d = load(&file)?;
@@ -135,7 +155,7 @@ fn real_main() -> Result<()> {
         }
         Cmd::Convert { input, output } => {
             let d = load(&input)?;
-            std::fs::write(&output, render(&d, &output))?;
+            write_text(&output, &render(&d, &output))?;
         }
         Cmd::Shift { input, ms, output } => {
             let mut d = load(&input)?;

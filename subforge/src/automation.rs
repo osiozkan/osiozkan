@@ -353,7 +353,8 @@ fn text_extents(db: &mut crate::fonts::FontDb, style: &Table, text: &str) -> (f6
 
 impl Script {
     pub fn load(path: &Path, doc: SharedDoc, opts: &RunOptions) -> Result<Script> {
-        let lua = Lua::new();
+        // Full standard libraries (ffi, debug, jit) like Aegisub: scripts are trusted user code.
+        let lua = unsafe { Lua::unsafe_new() };
         let log: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let script_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
         let script_dir = if script_dir.as_os_str().is_empty() { PathBuf::from(".") } else { script_dir };
@@ -473,6 +474,7 @@ impl Script {
             .map_err(lerr)?;
         }
         crate::lua_re::install(&lua, &sf).map_err(lerr)?;
+        crate::lua_lfs::install(&lua, &sf).map_err(lerr)?;
         lua.globals().set("__sf", sf).map_err(lerr)?;
         lua.load(PRELUDE).set_name("prelude.lua").exec().map_err(lerr)?;
         // package.path so `require "mod"` finds modules next to the script

@@ -72,7 +72,9 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bNew">New</button>
   <button id="bOpen">Open…</button>
   <button id="bSave" class="primary">Save</button>
-  <select id="fmt"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
+  <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
+  <select id="senc" title="Save encoding"><option value="utf-8">UTF-8 (BOM)</option><option value="utf-8nobom">UTF-8</option><option value="windows-1254">Turkish (1254)</option><option value="windows-1252">Western (1252)</option><option value="utf-16le">UTF-16 LE</option><option value="shift_jis">Shift-JIS</option></select>
+  <select id="oenc" title="Encoding used when opening (auto-detect by default)"><option value="auto">Open: auto</option><option value="utf-8">Open: UTF-8</option><option value="windows-1254">Open: Turkish (1254)</option><option value="windows-1252">Open: Western (1252)</option><option value="shift_jis">Open: Shift-JIS</option><option value="gbk">Open: GBK</option><option value="euc-kr">Open: EUC-KR</option></select>
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
   <button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
@@ -219,7 +221,14 @@ $("#eText").addEventListener("keydown",ev=>{
 function selIdx(){return sel.size?[...sel].sort((a,b)=>a-b):(cur>=0?[cur]:[])}
 $("#bNew").onclick=()=>act(async()=>{if(S.dirty&&!confirm("Discard unsaved changes?"))return;sel.clear();cur=-1;setState(await api("/api/new",{}))});
 $("#bOpen").onclick=()=>$("#fOpen").click();
-$("#fOpen").onchange=ev=>act(async()=>{const f=ev.target.files[0];if(!f)return;const text=await f.text();sel.clear();cur=-1;setState(await api("/api/open",{name:f.name,text}));ev.target.value="";if(S.events.length)selectOnly(0)});
+$("#fOpen").onchange=ev=>act(async()=>{
+  const f=ev.target.files[0];if(!f)return;const buf=await f.arrayBuffer();
+  const r=await fetch("/api/open_raw?name="+encodeURIComponent(f.name)+"&encoding="+encodeURIComponent($("#oenc").value),{method:"POST",body:buf});
+  const st=await r.json();if(!r.ok)throw new Error(st.error);
+  sel.clear();cur=-1;setState(st);ev.target.value="";
+  {const m={"UTF-8":"utf-8","windows-1254":"windows-1254","windows-1252":"windows-1252","UTF-16LE":"utf-16le","Shift_JIS":"shift_jis"}[st.encoding];if(m)$("#senc").value=m}if(S.events.length)selectOnly(0);
+  msg("Opened "+f.name+" ("+st.encoding+")"+(st.decode_errors?" — some bytes could not be decoded, try another encoding":""),!!st.decode_errors);
+});
 $("#bSave").onclick=()=>save();
 async function save(){return act(async()=>{
   const fmt=$("#fmt").value;const r=await fetch("/api/export?fmt="+fmt);const t=await r.text();
