@@ -4,7 +4,9 @@ const process_cwd = process.cwd();
 const fs = require("fs");
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
-  const p = await b.newPage({ viewport: { width: 1400, height: 850 } });
+  const ctx = await b.newContext({ viewport: { width: 1400, height: 850 }, permissions: ["clipboard-read", "clipboard-write"] });
+  await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:" + (process.env.SF_PORT || 8765) });
+  const p = await ctx.newPage();
   const errs = [];
   p.on("pageerror", e => errs.push("pageerror: " + e.message));
   p.on("console", m => { if (m.type() === "error") errs.push("console: " + m.text()); });
@@ -162,6 +164,26 @@ const fs = require("fs");
   await p.waitForSelector('#mbox [data-n="ms"]'); await p.click('#mbox [data-b="Cancel"]');
   await p.waitForFunction(() => document.querySelector("#macLog").textContent.includes("cancelled"), null, { timeout: 10000 });
   ok(true, "Cancel button cancels the macro (document unchanged)");
+  // find / select
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/typeset.ass" })); selectOnly(0); }, process_cwd);
+  await p.keyboard.press("Control+Shift+F");
+  await p.waitForSelector("#fQ"); await p.fill("#fQ", "line"); await p.click("#fSel");
+  await p.waitForFunction(() => document.querySelector("#fMsg").textContent.includes("selected"));
+  ok((await p.evaluate(() => sel.size)) >= 1, "select all matches (" + (await p.evaluate(() => sel.size)) + ")");
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => { sel = new Set(); cur = 0; renderAll(); });
+  await p.fill("#eText", ""); // focus away from list shortcuts
+  await p.evaluate(() => document.activeElement.blur());
+  await p.keyboard.press("Control+a");
+  ok((await p.evaluate(() => sel.size)) === 6, "Ctrl+A selects all lines");
+  await p.evaluate(() => { sel = new Set([0]); cur = 0; });
+  await p.evaluate(async () => { await copyLines(false); });
+  const clip = await p.evaluate(() => Promise.race([navigator.clipboard.readText(), new Promise(r => setTimeout(() => r("no-clipboard"), 3000))]).catch(() => "no-clipboard"));
+  ok(clip.startsWith("Dialogue:"), "copy lines to clipboard (" + clip.slice(0, 12) + ")");
+  // paste: duplicate the copied line after itself
+  await p.evaluate(async () => { await pasteLines(); });
+  await p.waitForFunction(() => S.events.length === 7);
+  ok(true, "paste inserts the copied line");
   // karaoke tab
   await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
   await p.click('#tabs [data-p="kara"]');

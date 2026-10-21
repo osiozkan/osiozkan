@@ -80,7 +80,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <select id="lang" title="Spell-check language of the text box"><option value="tr">TR</option><option value="en">EN</option><option value="ja">JA</option><option value="de">DE</option><option value="es">ES</option><option value="fr">FR</option><option value="ru">RU</option><option value="pt">PT</option><option value="it">IT</option></select>
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
-  <button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
+  <button id="bFind" title="Find next (F3) / Select lines (Ctrl+Shift+F)">Find…</button><button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
   <button id="bTools">Tools…</button><button id="bRecover" title="Open a crash-recovery autosave">Recover…</button><button id="bSettings" title="Automation folders, fonts">⚙</button>
   <span class="sp"></span>
   <button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
@@ -113,7 +113,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
     </div>
     <div class="pane" id="p-mac"><button id="bLua">Upload .lua…</button> <button id="bLuaDisk" class="primary">Add script from disk…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
-      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
+      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find / select lines · <b>F3</b> next · <b>Ctrl+G</b> go to line · <b>Ctrl+A/C/X/V</b> select all / copy / cut / paste lines<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
   </div>
   <div id="wavewrap"><canvas id="wave"></canvas><div class="wl" id="waveInfo"></div></div>
   <div id="edit">
@@ -779,6 +779,63 @@ window.addEventListener("mouseup",()=>{
   if(t!==d.orig)patch([{op:"set_event",i:cur,event:{...e,text:t}}]);else renderAll();
 });
 
+
+// ---- find / select / go to line / clipboard ----
+let FIND={q:"",rx:false,ic:true,field:"text"};
+function matcher(q,rx,ic){
+  if(!q)return()=>false;
+  if(rx){try{const re=new RegExp(q,ic?"i":"");return t=>re.test(t)}catch(e){msg("Bad regex: "+e.message,true);return()=>false}}
+  const nq=ic?q.toLowerCase():q;return t=>(ic?t.toLowerCase():t).includes(nq);
+}
+function fieldText(e,f){return f==="text"?strip(e.text):f==="raw"?e.text:String(e[f]==null?"":e[f])}
+function findNext(dir=1){
+  if(!FIND.q){findDialog();return}
+  const m=matcher(FIND.q,FIND.rx,FIND.ic),n=S.events.length;if(!n)return;
+  for(let k=1;k<=n;k++){const i=((cur<0?-1:cur)+k*dir+n*2)%n;if(m(fieldText(S.events[i],FIND.field))){selectOnly(i);return}}
+  msg("No match for “"+FIND.q+"”",true);
+}
+function findDialog(){
+  modal(`<h3>Find / select lines</h3><div class="fgrid">
+   <label>Search</label><input id="fQ" value="${esc(FIND.q).replace(/"/g,"&quot;")}" style="width:280px">
+   <label>In</label><select id="fField"><option value="text">Text (without tags)</option><option value="raw">Text (with tags)</option><option value="style">Style</option><option value="actor">Actor</option><option value="effect">Effect</option></select>
+   <label></label><span><label style="display:inline"><input type="checkbox" id="fRx" ${FIND.rx?"checked":""}> regex</label> <label style="display:inline"><input type="checkbox" id="fIc" ${FIND.ic?"checked":""}> ignore case</label></span></div>
+   <p><button class="primary" id="fNext">Find next</button> <button id="fSel">Select all matches</button> <button id="fAdd">Add matches to selection</button> <button id="fInv">Select non-matching</button> <button onclick="closeModal()">Close</button></p><div id="fMsg" class="hint"></div>`);
+  $("#fField").value=FIND.field;
+  const read=()=>{FIND={q:$("#fQ").value,rx:$("#fRx").checked,ic:$("#fIc").checked,field:$("#fField").value}};
+  const matches=(neg)=>{read();const m=matcher(FIND.q,FIND.rx,FIND.ic);const r=[];S.events.forEach((e,i)=>{if(m(fieldText(e,FIND.field))!==neg)r.push(i)});return r};
+  $("#fQ").focus();$("#fQ").onkeydown=e=>{if(e.key==="Enter"){read();closeModal();findNext(1)}};
+  $("#fNext").onclick=()=>{read();closeModal();findNext(1)};
+  $("#fSel").onclick=()=>{const r=matches(false);sel=new Set(r);cur=r.length?r[0]:cur;anchor=cur;$("#fMsg").textContent=r.length+" line(s) selected";if(r.length)scrollTo(cur);renderAll()};
+  $("#fAdd").onclick=()=>{const r=matches(false);r.forEach(i=>sel.add(i));$("#fMsg").textContent=sel.size+" line(s) selected";renderAll()};
+  $("#fInv").onclick=()=>{const r=matches(true);sel=new Set(r);if(r.length){cur=r[0];anchor=cur;scrollTo(cur)}$("#fMsg").textContent=r.length+" line(s) selected";renderAll()};
+}
+$("#bFind").onclick=findDialog;
+function goToLine(){const v=prompt("Go to line number (1-"+S.events.length+"):");const n=parseInt(v,10);if(n>=1&&n<=S.events.length)selectOnly(n-1)}
+async function copyLines(cut){
+  const idx=selIdx();if(!idx.length)return;
+  const fmtT=t=>fmt(t);
+  const text=idx.map(i=>{const e=S.events[i];return `${e.comment?"Comment":"Dialogue"}: ${e.layer},${fmtT(e.start)},${fmtT(e.end)},${e.style},${e.actor},${e.ml},${e.mr},${e.mv},${e.effect},${e.text}`}).join("\n");
+  try{await navigator.clipboard.writeText(text);msg(idx.length+" line(s) copied")}catch(e){msg("Clipboard not available: "+e.message,true);return}
+  if(cut)$("#bDel").click();
+}
+async function pasteLines(){
+  let text;try{text=await navigator.clipboard.readText()}catch(e){msg("Clipboard not available: "+e.message,true);return}
+  const evs=[];
+  for(const l of text.split(/\r?\n/)){
+    const m=/^(Dialogue|Comment):\s?(.*)$/.exec(l);if(!m)continue;
+    const p=m[2].split(",");if(p.length<10)continue;
+    const t1=parse(p[1]),t2=parse(p[2]);if(t1===null||t2===null)continue;
+    evs.push({comment:m[1]==="Comment",layer:parseInt(p[0])||0,start:t1,end:t2,style:p[3],actor:p[4],ml:parseInt(p[5])||0,mr:parseInt(p[6])||0,mv:parseInt(p[7])||0,effect:p[8],text:p.slice(9).join(",")});
+  }
+  if(!evs.length){// plain text: one new line per text line
+    const lines=text.split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return;
+    let t=cur>=0?S.events[cur].end:0;for(const l of lines){const e=newEventAfter(cur);e.start=t;e.end=t+2000;t+=2000;e.text=l.replace(/\n/g,"\\N");evs.push(e)}
+  }
+  const at=cur>=0?cur+1:S.events.length;
+  await patch(evs.map((event,k)=>({op:"insert_event",at:at+k,event})));
+  sel=new Set(evs.map((_,k)=>at+k));cur=at;anchor=at;renderAll();msg(evs.length+" line(s) pasted");
+}
+
 // ---- keyboard ----
 document.addEventListener("keydown",e=>{
   const inText=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
@@ -786,8 +843,14 @@ document.addEventListener("keydown",e=>{
   if(mod&&e.key==="s"){e.preventDefault();save();return}
   if(mod&&e.key==="z"&&!e.shiftKey&&!inText){e.preventDefault();$("#bUndo").click();return}
   if(mod&&(e.key==="y"||(e.key==="Z"&&e.shiftKey))&&!inText){e.preventDefault();$("#bRedo").click();return}
-  if(mod&&e.key==="f"){e.preventDefault();toolModal();setTimeout(()=>$("#rFind")&&$("#rFind").focus(),0);return}
+  if(mod&&e.key==="f"&&!e.shiftKey){e.preventDefault();findDialog();return}
+  if(mod&&e.shiftKey&&(e.key==="F"||e.key==="f")){e.preventDefault();findDialog();return}
+  if(e.key==="F3"){e.preventDefault();findNext(e.shiftKey?-1:1);return}
+  if(mod&&e.key==="g"){e.preventDefault();goToLine();return}
   if(inText)return;
+  if(mod&&e.key==="a"){e.preventDefault();sel=new Set(S.events.map((_,i)=>i));if(cur<0&&S.events.length)cur=0;renderAll();return}
+  if(mod&&(e.key==="c"||e.key==="x")){e.preventDefault();copyLines(e.key==="x");return}
+  if(mod&&e.key==="v"){e.preventDefault();pasteLines();return}
   if(mod&&e.key==="d"){e.preventDefault();$("#bDup").click();return}
   if(mod&&e.shiftKey&&(e.key==="C"||e.key==="c")){e.preventDefault();$("#bCmt").click();return}
   if(e.key==="Delete"){e.preventDefault();$("#bDel").click();return}
