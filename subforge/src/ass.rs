@@ -401,6 +401,32 @@ impl Document {
             _ => (384, 288),
         }
     }
+    /// Value of a `Key: value` line inside `[Aegisub Project Garbage]` (e.g. "Video File").
+    pub fn garbage(&self, key: &str) -> Option<String> {
+        let sec = self.extras.iter().find(|x| x.header.eq_ignore_ascii_case("[Aegisub Project Garbage]"))?;
+        sec.lines.iter().find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            if k.trim().eq_ignore_ascii_case(key) { Some(v.trim().to_string()) } else { None }
+        })
+    }
+
+    pub fn set_garbage(&mut self, key: &str, value: &str) {
+        let idx = self.extras.iter().position(|x| x.header.eq_ignore_ascii_case("[Aegisub Project Garbage]"));
+        let idx = match idx {
+            Some(i) => i,
+            None => {
+                self.extras.push(RawSection { header: "[Aegisub Project Garbage]".into(), lines: vec![], after_events: false });
+                self.extras.len() - 1
+            }
+        };
+        let lines = &mut self.extras[idx].lines;
+        let new = format!("{}: {}", key, value);
+        match lines.iter_mut().find(|l| l.split_once(':').map(|(k, _)| k.trim().eq_ignore_ascii_case(key)).unwrap_or(false)) {
+            Some(l) => *l = new,
+            None => lines.push(new),
+        }
+    }
+
     pub fn sort_events_by_start(&mut self) {
         let first = self.entries.iter().position(|e| matches!(e, Entry::Event(_)));
         if let Some(first) = first {
@@ -478,6 +504,21 @@ pub fn format_event(e: &Event) -> String {
 mod tests {
     use super::*;
     const SAMPLE: &str = "\u{feff}[Script Info]\r\n; hi\r\nTitle: T\r\nPlayResX: 1280\r\nPlayResY: 720\r\n\r\n[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\r\n\r\n[Aegisub Project Garbage]\r\nAudio File: a.mka\r\n\r\n[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\k50}Hel{\\k50}lo, world\r\nComment: 1,0:00:03.00,0:00:04.00,Default,act,0,0,0,fx, note\r\n";
+    #[test]
+    fn garbage_get_set() {
+        let mut d = Document::parse(SAMPLE);
+        assert_eq!(d.garbage("audio file").as_deref(), Some("a.mka"));
+        d.set_garbage("Video File", "../v.mkv");
+        d.set_garbage("Audio File", "b.mka");
+        assert_eq!(d.garbage("Video File").as_deref(), Some("../v.mkv"));
+        let out = d.to_string();
+        assert!(out.contains("Audio File: b.mka") && out.contains("Video File: ../v.mkv"));
+        assert!(!out.contains("a.mka"));
+        let mut n = Document::new_default();
+        n.set_garbage("Video File", "x.mkv");
+        assert!(n.to_string().contains("[Aegisub Project Garbage]"));
+    }
+
     #[test]
     fn parse_write_roundtrip() {
         let d = Document::parse(SAMPLE);

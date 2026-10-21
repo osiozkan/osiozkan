@@ -309,10 +309,23 @@ impl Session {
         let events: Vec<EventJson> = if with_events { self.events_json() } else { vec![] };
         let (rx, ry) = self.doc.res();
         json!({
-            "name": self.name, "encoding": self.encoding, "path": self.path.as_ref().map(|p| p.display().to_string()), "info": info, "styles": styles, "events": events,
+            "name": self.name, "encoding": self.encoding, "path": self.path.as_ref().map(|p| p.display().to_string()), "video_file": self.resolve_media("Video File"), "audio_file": self.resolve_media("Audio File"), "info": info, "styles": styles, "events": events,
             "can_undo": !self.undo.is_empty(), "can_redo": !self.redo.is_empty(), "dirty": self.dirty,
             "res": [rx, ry],
         })
+    }
+
+    /// Resolve Aegisub's relative "Video File"/"Audio File" project entries against the script's folder.
+    fn resolve_media(&self, key: &str) -> Option<String> {
+        let raw = self.doc.garbage(key)?;
+        if raw.is_empty() || raw.starts_with("dummy") {
+            return None;
+        }
+        let dir = self.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let cleaned = raw.trim_start_matches("?script/").trim_start_matches("?video/").to_string();
+        let p = std::path::PathBuf::from(&cleaned);
+        let cand = if p.is_absolute() { Some(p) } else { dir.map(|d| d.join(&cleaned)) }?;
+        if cand.exists() { Some(cand.display().to_string()) } else { None }
     }
 
     fn events_json(&self) -> Vec<EventJson> {
@@ -509,6 +522,30 @@ impl Session {
                     }
                     Err(e) => err_resp(400, e),
                 }
+            }
+            ("POST", "/api/set_media") => {
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                let video = v.get("video").and_then(|x| x.as_str());
+                let audio = v.get("audio").and_then(|x| x.as_str());
+                let rel = |p: &str| -> String {
+                    // store relative to the script when possible (portable project)
+                    match (&self.path, std::path::Path::new(p).parent()) {
+                        (Some(sp), _) => {
+                            let dir = sp.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+                            std::path::Path::new(p).strip_prefix(&dir).map(|r| r.display().to_string()).unwrap_or_else(|_| p.to_string())
+                        }
+                        _ => p.to_string(),
+                    }
+                };
+                if let Some(p) = video {
+                    let r = rel(p);
+                    self.doc.set_garbage("Video File", &r);
+                }
+                if let Some(p) = audio.or(video) {
+                    let r = rel(p);
+                    self.doc.set_garbage("Audio File", &r);
+                }
+                json_resp(json!({"ok": true}))
             }
             ("POST", "/api/ref") => {
                 // reference subtitle (e.g. the source-language track) for translation / bilingual merge

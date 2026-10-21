@@ -18,12 +18,24 @@ scripts/fetch-aegisub-scripts.sh DIR && AEGISUB_SCRIPTS=DIR cargo test   # run A
 
 ## Editor (`subforge serve`)
 
-Event grid (virtualized, 50k+ lines), inline edit panel, undo/redo, styles & properties dialogs, server-side file
-browser (open / save in place with `.bak` / save as), encoding auto-detect + Windows-1254 etc., waveform with
-drag-to-retime, video preview with a canvas ASS renderer (pos/move/an/frz/fad/\t/karaoke/drawings), visual
-typesetting (drag = `\pos`, Shift-drag = `\clip`), reference subtitle for translation, bilingual merge, QA panel,
-Lua macro runner (scripts from disk keep their real path, so `include`/`require` just work), crash-recovery autosave
-(`~/.cache/subforge/autosave`). The API is protected by a per-run token + loopback Host/Origin checks.
+Running `subforge` with no arguments starts the editor and opens your browser.
+
+* Event grid (virtualized, 50k+ lines, delta updates), inline edit panel, undo/redo, find / select lines (regex),
+  copy/cut/paste lines, go to line, Turkish or English UI (auto by browser language).
+* Styles dialog with live preview (Turkish glyph sample), script properties, tools dialog (timing, resample, cleanup,
+  casing, rebalance, merge/split, lead-in/out, chain, sort, find&replace, stats, fonts).
+* Files: server-side file browser (open / save in place with `.bak` / save as), encoding auto-detect + Windows-1254 etc.,
+  autosave + “Recover…”, persistent settings (`~/.config/subforge/settings.json`: autoload/include/font folders).
+* Media: video by path (range streaming) or upload, ffmpeg waveform + keyframes (Alt-drag snaps), frame stepping,
+  fps from ffprobe, waveform drag-to-retime, Aegisub Video/Audio File project entries auto-loaded.
+* Preview: canvas ASS renderer (pos/move/an/frz/fad/\t/karaoke/drawings), visual typesetting (drag = `\pos`,
+  Shift-drag = `\clip`).
+* Translation: reference subtitle panel, bilingual merge. Karaoke tab: syllable chips, auto-split (romaji/Turkish),
+  fit-to-line, shift.
+* QA: CPS, durations, overlaps, line length, styles, whitespace, **missing glyphs / missing fonts**.
+* Lua macros: your own scripts (+ Aegisub autoload folders) run on the selection with real **interactive dialogs**
+  (`aegisub.dialog.display` rendered in the browser), progress and cancel.
+* The API is protected by a per-run token + loopback Host/Origin checks.
 
 ## CLI
 
