@@ -47,6 +47,12 @@ enum Cmd {
         #[arg(short, long)] ignore_case: bool,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+    /// Start the local editor UI (open http://ADDR/ in a browser)
+    Serve {
+        /// optional subtitle file to open
+        file: Option<PathBuf>,
+        #[arg(long, default_value = "127.0.0.1:8765")] addr: String,
+    },
     /// List macros/filters registered by a Lua automation script
     Macros { script: PathBuf },
     /// Run an Aegisub-style Lua macro/filter on a subtitle file
@@ -174,6 +180,13 @@ fn real_main() -> Result<()> {
             let n = ops::find_replace(&mut d, &find, &with, regex, ignore_case)?;
             eprintln!("{} event(s) changed", n);
             save(&d, &input, &output)?;
+        }
+        Cmd::Serve { file, addr } => {
+            let initial = match file {
+                Some(f) => Some((f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), read_text(&f)?)),
+                None => None,
+            };
+            subforge::server::serve(&addr, initial)?;
         }
         Cmd::Macros { script } => {
             let doc = Rc::new(RefCell::new(Document::new_default()));
