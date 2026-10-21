@@ -1,0 +1,23 @@
+[package]
+name = "subforge"
+version = "0.1.0"
+edition = "2024"
+description = "Anime subtitle authoring toolkit: Aegisub-compatible ASS core, Lua automation, Subtitle Edit style tools"
+
+[lib]
+name = "subforge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "subforge"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+mlua = { version = "0.12", features = ["lua51", "vendored"] }
+regex = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
