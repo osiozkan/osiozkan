@@ -54,13 +54,15 @@ pub struct Syllable {
     /// offset from line start in ms
     pub start_ms: i64,
     pub tags: String,
+    /// text including non-karaoke override blocks (karaoke tag removed)
+    pub raw: String,
 }
 
 /// Parse karaoke syllables. Text before the first \k is syllable 0 with dur 0 (like karaskel).
 pub fn syllables(text: &str) -> Vec<Syllable> {
     let re = regex::Regex::new(r"\\(kf|ko|k|K)(-?\d+(?:\.\d+)?)").unwrap();
     let mut out: Vec<Syllable> = Vec::new();
-    let mut cur = Syllable { dur_cs: 0, kind: "k".into(), text: String::new(), start_ms: 0, tags: String::new() };
+    let mut cur = Syllable { dur_cs: 0, kind: "k".into(), text: String::new(), start_ms: 0, tags: String::new(), raw: String::new() };
     let mut elapsed_ms = 0i64;
     let mut started = false;
     for seg in split_blocks(text) {
@@ -79,6 +81,7 @@ pub fn syllables(text: &str) -> Vec<Syllable> {
                         text: String::new(),
                         start_ms: elapsed_ms,
                         tags: t.to_string(),
+                        raw: String::new(),
                     };
                     started = true;
                 } else {
@@ -90,6 +93,44 @@ pub fn syllables(text: &str) -> Vec<Syllable> {
     }
     if started || !cur.text.is_empty() {
         out.push(cur);
+    }
+    out
+}
+
+/// Aegisub `parse_karaoke_data` semantics: index 0 is always the text before the first `\k` tag
+/// (possibly empty, duration 0); then one entry per karaoke tag. `raw` keeps non-karaoke override
+/// blocks, with the karaoke tag itself removed.
+pub fn karaoke_data(text: &str) -> Vec<Syllable> {
+    let re = regex::Regex::new(r"\\(kf|ko|k|K)(-?\d+(?:\.\d+)?)").unwrap();
+    let mk = |dur: i64, kind: &str, start: i64| Syllable { dur_cs: dur, kind: kind.into(), text: String::new(), start_ms: start, tags: String::new(), raw: String::new() };
+    let mut out = vec![mk(0, "k", 0)];
+    let mut elapsed = 0i64;
+    for seg in split_blocks(text) {
+        match seg {
+            Seg::Tags(t) => {
+                if let Some(m) = re.captures(t) {
+                    let last = out.last().unwrap();
+                    elapsed += last.dur_cs * 10;
+                    let kind = if &m[1] == "K" { "kf" } else { &m[1] };
+                    let mut syl = mk(m[2].parse::<f64>().unwrap_or(0.0).round() as i64, kind, elapsed);
+                    syl.tags = t.to_string();
+                    let rest = re.replace_all(t, "").to_string();
+                    if !rest.is_empty() {
+                        syl.raw.push_str(&format!("{{{}}}", rest));
+                    }
+                    out.push(syl);
+                } else {
+                    let cur = out.last_mut().unwrap();
+                    cur.tags.push_str(t);
+                    cur.raw.push_str(&format!("{{{}}}", t));
+                }
+            }
+            Seg::Text(t) => {
+                let cur = out.last_mut().unwrap();
+                cur.text.push_str(t);
+                cur.raw.push_str(t);
+            }
+        }
     }
     out
 }
@@ -156,6 +197,17 @@ mod tests {
         let lead = syllables("Intro{\\k10}x");
         assert_eq!(lead.len(), 2);
         assert_eq!(lead[0].dur_cs, 0);
+    }
+    #[test]
+    fn kdata() {
+        let k = karaoke_data("{\\k20\\fad(1,2)}Ka{\\kf30}ra");
+        assert_eq!(k.len(), 3);
+        assert_eq!(k[0].text, "");
+        assert_eq!(k[1].raw, "{\\fad(1,2)}Ka");
+        assert_eq!(k[2].start_ms, 200);
+        let k = karaoke_data("lead{\\k5}x");
+        assert_eq!(k[0].text, "lead");
+        assert_eq!(k[1].dur_cs, 5);
     }
     #[test]
     fn rm_merge() {

@@ -33,6 +33,8 @@ pub struct RunOptions {
     /// Values to answer `aegisub.dialog.display` controls with, keyed by control name.
     pub params: HashMap<String, String>,
     pub fps: Option<f64>,
+    /// Extra directories searched by `include()` (e.g. an Aegisub `automation/include`).
+    pub include_dirs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -234,6 +236,10 @@ impl UserData for Subs {
             let name = name.to_string_lossy().to_string();
             let f: Function = match name.as_str() {
                 "n" => return Ok(Value::Integer(doc.borrow().entries.len() as i64)),
+                "script_resolution" => lua.create_function(move |_, _: Variadic<Value>| {
+                    let (x, y) = doc.borrow().res();
+                    Ok((x, y))
+                })?,
                 "append" => lua.create_function(move |_, args: Variadic<Value>| {
                     let es = val_to_entries(&args)?;
                     doc.borrow_mut().entries.extend(es);
@@ -331,19 +337,18 @@ pub fn approx_char_width(c: char) -> f64 {
     }
 }
 
-fn text_extents(style: &Table, text: &str) -> (f64, f64, f64, f64) {
-    let fs = get_f64(style, "fontsize", 48.0);
-    let sx = get_f64(style, "scale_x", 100.0) / 100.0;
-    let sy = get_f64(style, "scale_y", 100.0) / 100.0;
-    let sp = get_f64(style, "spacing", 0.0);
-    let mut w = 0.0;
-    let mut n = 0.0;
-    for c in text.chars() {
-        w += approx_char_width(c) * fs + sp;
-        n += 1.0;
-    }
-    let _ = n;
-    (w * sx, fs * 1.2 * sy, fs * 0.22 * sy, 0.0)
+fn text_extents(db: &mut crate::fonts::FontDb, style: &Table, text: &str) -> (f64, f64, f64, f64) {
+    let e = db.extents(
+        &get_str(style, "fontname", "Arial"),
+        get_f64(style, "fontsize", 48.0),
+        get_bool(style, "bold"),
+        get_bool(style, "italic"),
+        get_f64(style, "scale_x", 100.0),
+        get_f64(style, "scale_y", 100.0),
+        get_f64(style, "spacing", 0.0),
+        text,
+    );
+    (e.width, e.height, e.descent, e.extlead)
 }
 
 impl Script {
@@ -366,13 +371,39 @@ impl Script {
             .map_err(lerr)?;
         }
         sf.set("progress", lua.create_function(|_, _: Variadic<Value>| Ok(())).map_err(lerr)?).map_err(lerr)?;
-        sf.set(
-            "text_extents",
-            lua.create_function(|_, (style, text): (Table, Option<String>)| Ok(text_extents(&style, &text.unwrap_or_default())))
+        {
+            let mut db = crate::fonts::FontDb::new();
+            db.add_dir(script_dir.clone());
+            db.add_dir(script_dir.join("fonts"));
+            let db = RefCell::new(db);
+            sf.set(
+                "text_extents",
+                lua.create_function(move |_, (style, text): (Table, Option<String>)| {
+                    Ok(text_extents(&mut db.borrow_mut(), &style, &text.unwrap_or_default()))
+                })
                 .map_err(lerr)?,
+            )
+            .map_err(lerr)?;
+        }
+        sf.set(
+            "parse_karaoke_data",
+            lua.create_function(|lua, text: String| {
+                let t = lua.create_table()?;
+                for (i, s) in crate::tags::karaoke_data(&text).iter().enumerate() {
+                    let e = lua.create_table()?;
+                    e.set("duration", s.dur_cs * 10)?;
+                    e.set("start_time", s.start_ms)?;
+                    e.set("end_time", s.start_ms + s.dur_cs * 10)?;
+                    e.set("tag", s.kind.as_str())?;
+                    e.set("text", s.raw.as_str())?;
+                    e.set("text_stripped", s.text.as_str())?;
+                    t.raw_set(i as i64, e)?;
+                }
+                Ok(t)
+            })
+            .map_err(lerr)?,
         )
         .map_err(lerr)?;
-        sf.set("charwidth", lua.create_function(|_, c: String| Ok(c.chars().next().map(|c| if approx_char_width(c) >= 1.0 { 2 } else { 1 }).unwrap_or(0))).map_err(lerr)?).map_err(lerr)?;
         sf.set("codepoint", lua.create_function(|_, c: String| Ok(c.chars().next().map(|c| c as u32).unwrap_or(0))).map_err(lerr)?).map_err(lerr)?;
         sf.set("upper", lua.create_function(|_, s: String| Ok(s.to_uppercase())).map_err(lerr)?).map_err(lerr)?;
         sf.set("lower", lua.create_function(|_, s: String| Ok(s.to_lowercase())).map_err(lerr)?).map_err(lerr)?;
@@ -419,17 +450,21 @@ impl Script {
         }
         {
             let dir = script_dir.clone();
+            let extra = opts.include_dirs.clone();
             sf.set(
                 "find_include",
                 lua.create_function(move |_, name: String| {
-                    if name == "karaskel.lua" {
-                        return Ok((Some(KARASKEL.to_string()), Some("karaskel.lua".to_string())));
-                    }
-                    let candidates = [dir.join(&name), dir.join("include").join(&name), PathBuf::from(&name)];
+                    let mut candidates = vec![dir.join(&name), dir.join("include").join(&name), PathBuf::from(&name)];
+                    candidates.extend(extra.iter().map(|d| d.join(&name)));
                     for c in candidates {
-                        if let Ok(s) = std::fs::read_to_string(&c) {
+                        if let Ok(bytes) = std::fs::read(&c) {
+                            let s = String::from_utf8_lossy(&bytes);
+                            let s = s.strip_prefix('\u{feff}').unwrap_or(&s).to_string();
                             return Ok((Some(s), Some(c.to_string_lossy().to_string())));
                         }
+                    }
+                    if name == "karaskel.lua" || name == "karaskel-auto4.lua" {
+                        return Ok((Some(KARASKEL.to_string()), Some("karaskel.lua (built-in)".to_string())));
                     }
                     Ok((None, None))
                 })

@@ -33,10 +33,14 @@ aegisub.log = function(a, b, ...)
 end
 aegisub.debug = {
 	out = function(a, b, ...)
-		if type(a) == "number" then return aegisub.log(a, b, ...) end
+		if type(a) == "number" then
+			if a >= 4 then return end -- trace levels hidden by default, like Aegisub
+			return aegisub.log(a, b, ...)
+		end
 		return aegisub.log(a, b, ...)
 	end,
 }
+aegisub.parse_karaoke_data = function(line) return sf.parse_karaoke_data(line.text) end
 
 function aegisub.register_macro(name, description, process, validate, is_active)
 	table.insert(sf.macros, { name = name, description = description, process = process, validate = validate, is_active = is_active })
@@ -182,15 +186,21 @@ local unicode = {}
 local function chars(s) local t = {}; for c in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do t[#t + 1] = c end; return t end
 function unicode.chars(s) local i, t = 0, chars(s); return function() i = i + 1; return t[i] end end
 function unicode.len(s) return #chars(s) end
-function unicode.charwidth(c) return sf.charwidth(c) end
+function unicode.charwidth(s, i)
+	i = i or 1
+	local b = s:byte(i)
+	if not b then return 0 end
+	if b < 0x80 then return 1 elseif b < 0xE0 then return 2 elseif b < 0xF0 then return 3 else return 4 end
+end
 function unicode.codepoint(c) return sf.codepoint(c) end
 function unicode.codepoints(s) local i, t = 0, chars(s); return function() i = i + 1; if t[i] then return sf.codepoint(t[i]) end end end
 function unicode.sub(s, i, j) local t = chars(s); return table.concat(t, "", i, j or #t) end
 function unicode.to_upper(s) return sf.upper(s) end
 function unicode.to_lower(s) return sf.lower(s) end
 function unicode.to_fold_case(s) return sf.lower(s) end
+unicode.to_upper_case, unicode.to_lower_case = unicode.to_upper, unicode.to_lower
 aegisub.unicode = unicode
-for k, v in pairs(unicode) do if unicode[k] == nil then unicode[k] = v end end
+_G.unicode = unicode
 
 -- ---- re (Boost-like regex via fancy-regex) ----
 local re = { ICASE = 1, NOSUB = 2, NO_MOD_M = 4, MOD_S = 8, MOD_X = 16, NEWLINE_ANY = 0, NEWLINE_CR = 0, NEWLINE_LF = 0 }
@@ -265,3 +275,17 @@ package.preload["clipboard"] = function() return aegisub.clipboard end
 package.preload["aegisub.lfs"] = function() return sf.lfs end
 package.preload["lfs"] = function() return sf.lfs end
 package.preload["aegisub"] = function() return aegisub end
+
+-- Aegisub's `subs` is userdata that ipairs() can walk (LuaJIT); make PUC Lua behave the same.
+do
+	local _ipairs = ipairs
+	function ipairs(t)
+		if type(t) == "userdata" then
+			return function(_, i)
+				i = i + 1
+				if i <= #t then return i, t[i] end
+			end, t, 0
+		end
+		return _ipairs(t)
+	end
+end

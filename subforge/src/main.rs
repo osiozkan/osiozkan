@@ -66,6 +66,8 @@ enum Cmd {
         /// answers for aegisub.dialog.display controls: name=value (repeatable)
         #[arg(short, long = "param")] params: Vec<String>,
         #[arg(long)] fps: Option<f64>,
+        /// extra include() search directory (repeatable), e.g. Aegisub's automation/include
+        #[arg(short = 'I', long = "include")] include: Vec<PathBuf>,
         #[arg(short, long)] output: Option<PathBuf>,
     },
 }
@@ -199,9 +201,9 @@ fn real_main() -> Result<()> {
                 println!("{} {}: {}", if x.is_filter { "[filter]" } else { "[macro] " }, x.name, x.description);
             }
         }
-        Cmd::Run { input, script, name, select, params, fps, output } => {
+        Cmd::Run { input, script, name, select, params, fps, include, output } => {
             let doc = Rc::new(RefCell::new(load(&input)?));
-            let mut opts = RunOptions { fps, ..Default::default() };
+            let mut opts = RunOptions { fps, include_dirs: include, ..Default::default() };
             if let Some(s) = select {
                 opts.selection = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
             }

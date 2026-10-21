@@ -1,5 +1,6 @@
 pub mod ass;
 pub mod automation;
+pub mod fonts;
 pub mod lua_re;
 pub mod ops;
 pub mod server;
