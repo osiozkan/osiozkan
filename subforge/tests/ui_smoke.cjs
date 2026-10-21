@@ -54,6 +54,22 @@ const fs = require("fs");
   await p.waitForFunction(() => [...document.querySelectorAll(".row .txt")].some(e => e.textContent === "Hello world"));
   ok(true, "macro edited text through Rust/Lua");
   ok((await p.textContent("#macLog")).includes("fixed"), "macro log shown");
+  // waveform
+  await p.setInputFiles("#fVideo", "tests/fixtures/tone.wav");
+  await p.waitForFunction(() => W.peaks && W.peaks.length > 100, null, { timeout: 10000 });
+  ok(true, "waveform decoded");
+  await p.waitForTimeout(100);
+  const painted = await p.evaluate(() => { const c = document.querySelector("#wave"); const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 150 && d[i] < 120) n++; return n; });
+  ok(painted > 500, "waveform pixels painted (" + painted + ")");
+  // drag end handle of event 0 (ends 3.00s) right by ~0.5s
+  await p.evaluate(() => { W.t0 = 0; W.span = 10000; drawWave(); });
+  await p.locator('.row[data-i="0"]').click();
+  const box = await p.locator("#wave").boundingBox();
+  const before = await p.evaluate(() => S.events[0].end);
+  const xEnd = box.x + before / 10000 * box.width, y = box.y + box.height / 2;
+  await p.mouse.move(xEnd, y); await p.mouse.down(); await p.mouse.move(xEnd + box.width * 0.05, y, { steps: 5 }); await p.mouse.up();
+  await p.waitForFunction((b) => S.events[0].end > b + 300, before);
+  ok(true, "dragging waveform handle retimes line: " + before + " -> " + (await p.evaluate(() => S.events[0].end)));
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");

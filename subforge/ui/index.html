@@ -17,7 +17,7 @@ button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 #top .sp{flex:1}
 #title{font-weight:600;margin-right:8px}
 #title b{color:var(--acc)}
-#main{flex:1;display:grid;grid-template-columns:minmax(320px,42%) 1fr;grid-template-rows:minmax(160px,38%) auto 1fr;min-height:0}
+#main{flex:1;display:grid;grid-template-columns:minmax(320px,42%) 1fr;grid-template-rows:minmax(160px,34%) auto auto 1fr;min-height:0}
 #video{grid-row:1;grid-column:1;background:#000;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
 #video video{max-width:100%;max-height:100%}
 #overlay{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0 4% 6%}
@@ -28,12 +28,15 @@ button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 #tabs button{border:0;border-radius:0;background:none;padding:7px 12px;border-bottom:2px solid transparent}
 #tabs button.on{border-bottom-color:var(--acc);color:var(--acc)}
 .pane{display:none;flex:1;overflow:auto;padding:8px;min-height:0}.pane.on{display:block}
-#edit{grid-row:2;grid-column:1/3;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 8px;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:start}
+#wavewrap{grid-row:2;grid-column:1/3;display:none;background:#0d0f13;border-top:1px solid var(--line);position:relative;height:120px}
+#wavewrap canvas{width:100%;height:100%;display:block;cursor:crosshair}
+#wavewrap .wl{position:absolute;right:8px;top:4px;color:var(--dim);font-size:11px;pointer-events:none}
+#edit{grid-row:3;grid-column:1/3;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 8px;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:start}
 #edit .f{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 #edit label{color:var(--dim);font-size:11px;display:flex;flex-direction:column;gap:2px}
 #edit input.t{width:98px;font-family:ui-monospace,Consolas,monospace}
 #edit textarea{width:100%;height:58px;resize:vertical;font-family:ui-monospace,Consolas,monospace}
-#gridwrap{grid-row:3;grid-column:1/3;display:flex;flex-direction:column;min-height:0}
+#gridwrap{grid-row:4;grid-column:1/3;display:flex;flex-direction:column;min-height:0}
 #head,.row{display:grid;grid-template-columns:48px 28px 44px 92px 92px 62px 120px 90px 48px 1fr;align-items:center}
 #head{background:var(--panel);border-bottom:1px solid var(--line);color:var(--dim);font-size:11px;padding-right:12px}
 #head>div,.row>div{padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -63,7 +66,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
 .macro{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}
 .macro .d{color:var(--dim);flex:1}
 .hint{color:var(--dim);font-size:12px}
-@media (max-width:800px){#main{grid-template-columns:1fr;grid-template-rows:200px 180px auto 1fr}#side{grid-row:2;grid-column:1}#video{grid-column:1}#edit{grid-row:3;grid-column:1}#gridwrap{grid-row:4;grid-column:1}}
+@media (max-width:800px){#main{grid-template-columns:1fr;grid-template-rows:200px 180px auto auto 1fr}#side{grid-row:2;grid-column:1}#video{grid-column:1}#wavewrap{grid-row:3}#edit{grid-row:4;grid-column:1}#gridwrap{grid-row:5;grid-column:1}}
 </style>
 </head>
 <body>
@@ -97,8 +100,9 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
       <button id="bQa" class="primary">Run checks</button></div><div id="issues" class="hint">No checks run yet.</div></div>
     <div class="pane" id="p-mac"><button id="bLua">Load .lua scripts…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
-      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace</div></div>
+      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
   </div>
+  <div id="wavewrap"><canvas id="wave"></canvas><div class="wl" id="waveInfo"></div></div>
   <div id="edit">
     <div class="f" id="eFields"></div>
     <textarea id="eText" placeholder="Select a line…" spellcheck="true"></textarea>
@@ -376,7 +380,7 @@ $("#p-mac").addEventListener("click",()=>{});
 // ---- video & overlay ----
 const vid=$("#vid"),overlay=$("#overlay");
 $("#bVideo").onclick=()=>$("#fVideo").click();
-$("#fVideo").onchange=ev=>{const f=ev.target.files[0];if(!f)return;vid.src=URL.createObjectURL(f);vid.style.display="block";$("#novideo").style.display="none"};
+$("#fVideo").onchange=ev=>{const f=ev.target.files[0];if(!f)return;vid.src=URL.createObjectURL(f);vid.style.display="block";$("#novideo").style.display="none";loadWave(f)};
 function updateOverlay(){
   if(vid.style.display==="none")return;
   const t=vid.currentTime*1000;const act=S.events.filter(e=>!e.comment&&t>=e.start&&t<e.end);
@@ -385,6 +389,99 @@ function updateOverlay(){
 vid.addEventListener("timeupdate",()=>{updateOverlay();renderGrid()});
 vid.addEventListener("seeked",updateOverlay);
 (function loop(){if(!vid.paused){updateOverlay()}requestAnimationFrame(loop)})();
+
+
+// ---- audio waveform & timing ----
+const wc=$("#wave"),wctx=wc.getContext("2d");
+const W={peaks:null,bin:10,dur:0,t0:0,span:10000,drag:null,hover:null};
+async function loadWave(file){
+  $("#wavewrap").style.display="block";$("#waveInfo").textContent="decoding audio…";
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;const ctx=new AC();
+    const buf=await ctx.decodeAudioData(await file.arrayBuffer());
+    const n=buf.length,sr=buf.sampleRate,per=Math.max(1,Math.floor(sr*W.bin/1000));
+    const bins=Math.ceil(n/per),pk=new Float32Array(bins*2);
+    const chs=[];for(let c=0;c<buf.numberOfChannels;c++)chs.push(buf.getChannelData(c));
+    for(let b=0;b<bins;b++){let mn=1,mx=-1;const a=b*per,e=Math.min(n,a+per);
+      for(let i=a;i<e;i+=1){let v=0;for(let c=0;c<chs.length;c++)v+=chs[c][i];v/=chs.length;if(v<mn)mn=v;if(v>mx)mx=v}
+      pk[b*2]=mn;pk[b*2+1]=mx}
+    W.peaks=pk;W.dur=n/sr*1000;ctx.close&&ctx.close();
+    $("#waveInfo").textContent=(W.dur/1000).toFixed(0)+" s";
+  }catch(e){W.peaks=null;$("#waveInfo").textContent="audio could not be decoded in the browser ("+e.message+")"}
+  drawWave();
+}
+function wsize(){const r=wc.getBoundingClientRect(),d=window.devicePixelRatio||1;if(wc.width!==Math.round(r.width*d)){wc.width=Math.round(r.width*d);wc.height=Math.round(r.height*d)}return{w:wc.width,h:wc.height,d}}
+const t2x=(t,w)=>(t-W.t0)/W.span*w, x2t=(x,w)=>W.t0+x/w*W.span;
+function drawWave(){
+  if($("#wavewrap").style.display==="none")return;
+  const {w,h,d}=wsize();wctx.clearRect(0,0,w,h);wctx.fillStyle="#0d0f13";wctx.fillRect(0,0,w,h);
+  // events
+  const t1=W.t0+W.span;
+  S.events.forEach((e,i)=>{
+    if(e.comment||e.end<W.t0||e.start>t1)return;
+    const x1=t2x(e.start,w),x2=t2x(e.end,w);const on=sel.has(i);
+    wctx.fillStyle=on?"rgba(110,168,255,.30)":"rgba(110,168,255,.10)";wctx.fillRect(x1,0,x2-x1,h);
+    wctx.fillStyle=on?"#6ea8ff":"rgba(110,168,255,.55)";wctx.fillRect(x1-1,0,2*d,h);wctx.fillRect(x2-1,0,2*d,h);
+    if(x2-x1>40*d){wctx.fillStyle=on?"#fff":"#9fb4d6";wctx.font=(11*d)+"px system-ui";wctx.fillText(strip(e.text).slice(0,Math.floor((x2-x1)/(6*d))),x1+4*d,12*d)}
+  });
+  // peaks
+  if(W.peaks){
+    wctx.fillStyle="#58c2a0";const mid=h/2,amp=h*0.45;const mpp=W.span/w;
+    for(let x=0;x<w;x++){
+      const a=Math.floor((W.t0+x*mpp)/W.bin),b=Math.max(a+1,Math.floor((W.t0+(x+1)*mpp)/W.bin));
+      if(a<0||a*2>=W.peaks.length)continue;let mn=1,mx=-1;
+      for(let k=a;k<b&&k*2<W.peaks.length;k++){const lo=W.peaks[k*2],hi=W.peaks[k*2+1];if(lo<mn)mn=lo;if(hi>mx)mx=hi}
+      wctx.fillRect(x,mid-mx*amp,1,Math.max(1,(mx-mn)*amp));
+    }
+  }
+  // grid ticks
+  wctx.fillStyle="#445";wctx.font=(10*d)+"px system-ui";
+  const step=[100,250,500,1000,2000,5000,10000,30000,60000].find(s=>s/W.span*w>70*d)||60000;
+  for(let t=Math.ceil(W.t0/step)*step;t<t1;t+=step){const x=t2x(t,w);wctx.fillRect(x,h-8*d,1,8*d);wctx.fillText(fmt(t).replace(/^0:/,""),x+3*d,h-2*d)}
+  // playhead
+  if(vid.style.display!=="none"){const x=t2x(vid.currentTime*1000,w);wctx.fillStyle="#ff6b6b";wctx.fillRect(x,0,1.5*d,h)}
+}
+function wsel(){return cur>=0?S.events[cur]:null}
+function centerOn(t){W.t0=Math.max(0,t-W.span*0.3)}
+function hit(ev){ // returns {i,edge} for nearest visible handle within 6px
+  const r=wc.getBoundingClientRect(),x=ev.clientX-r.left,w=r.width;let best=null,bd=7;
+  S.events.forEach((e,i)=>{if(e.comment)return;for(const k of["start","end"]){const dx=Math.abs(t2x(e[k],w)-x);if(dx<bd&&(sel.has(i)||!best)){bd=dx;best={i,edge:k}}}});
+  return best;
+}
+wc.addEventListener("mousemove",ev=>{
+  const r=wc.getBoundingClientRect(),w=r.width;
+  if(W.drag){const t=Math.max(0,Math.round(x2t(ev.clientX-r.left,w)/10)*10);W.drag.t=t;drawWaveDrag();return}
+  const h=hit(ev);wc.style.cursor=h?"ew-resize":"crosshair";
+});
+function drawWaveDrag(){const e=S.events[W.drag.i];const keep=e[W.drag.edge];e[W.drag.edge]=W.drag.t;drawWave();e[W.drag.edge]=keep}
+wc.addEventListener("mousedown",ev=>{
+  if(ev.button!==0)return;const r=wc.getBoundingClientRect(),w=r.width,t=Math.round(x2t(ev.clientX-r.left,w));
+  if(ev.shiftKey&&cur>=0){const e={...S.events[cur],start:Math.max(0,Math.round(t/10)*10)};patch([{op:"set_event",i:cur,event:e}]);return}
+  const h=hit(ev);
+  if(h){if(!sel.has(h.i)){sel=new Set([h.i]);anchor=cur=h.i;renderAll()}W.drag={i:h.i,edge:h.edge,t:S.events[h.i][h.edge]};return}
+  if(vid.style.display!=="none")vid.currentTime=t/1000;
+  // click inside an event selects it
+  const idx=S.events.findIndex(e=>!e.comment&&t>=e.start&&t<e.end);if(idx>=0){sel=new Set([idx]);anchor=cur=idx;renderAll()}
+});
+window.addEventListener("mouseup",()=>{
+  if(!W.drag)return;const d=W.drag;W.drag=null;const e={...S.events[d.i]};
+  if(e[d.edge]!==d.t){e[d.edge]=d.t;if(e.end<e.start){if(d.edge==="start")e.start=e.end;else e.end=e.start}patch([{op:"set_event",i:d.i,event:e}])}
+});
+wc.addEventListener("contextmenu",ev=>{ev.preventDefault();if(cur<0)return;const r=wc.getBoundingClientRect(),t=Math.max(0,Math.round(x2t(ev.clientX-r.left,r.width)/10)*10);patch([{op:"set_event",i:cur,event:{...S.events[cur],end:t}}])});
+wc.addEventListener("wheel",ev=>{
+  ev.preventDefault();const r=wc.getBoundingClientRect(),fx=(ev.clientX-r.left)/r.width;
+  if(ev.ctrlKey||ev.metaKey){const tc=W.t0+W.span*fx;W.span=Math.min(600000,Math.max(500,W.span*(ev.deltaY>0?1.25:0.8)));W.t0=Math.max(0,tc-W.span*fx)}
+  else W.t0=Math.max(0,W.t0+(ev.deltaY+ev.deltaX)/r.width*W.span*0.6);
+  drawWave();
+},{passive:false});
+window.addEventListener("resize",drawWave);
+let playEnd=null;
+function playLine(){const e=wsel();if(!e||vid.style.display==="none")return;vid.currentTime=e.start/1000;playEnd=e.end/1000;vid.play()}
+vid.addEventListener("timeupdate",()=>{if(playEnd!==null&&vid.currentTime>=playEnd){vid.pause();playEnd=null}});
+vid.addEventListener("pause",()=>{playEnd=null});
+(function wloop(){
+  if(!vid.paused){const t=vid.currentTime*1000;if(t<W.t0||t>W.t0+W.span*0.92)W.t0=Math.max(0,t-W.span*0.1);drawWave()}
+  requestAnimationFrame(wloop)})();
 
 // ---- keyboard ----
 document.addEventListener("keydown",e=>{
@@ -401,6 +498,7 @@ document.addEventListener("keydown",e=>{
   if(e.key==="ArrowDown"||e.key==="ArrowUp"){
     e.preventDefault();const n=Math.max(0,Math.min(S.events.length-1,(cur<0?0:cur)+(e.key==="ArrowDown"?1:-1)));
     if(e.shiftKey){if(anchor<0)anchor=cur;sel=new Set();for(let k=Math.min(anchor,n);k<=Math.max(anchor,n);k++)sel.add(k);cur=n;scrollTo(n);renderAll()}else selectOnly(n);return}
+  if((e.key==="p"||e.key==="P")&&!mod){e.preventDefault();playLine();return}
   if(e.key===" "&&vid.style.display!=="none"){e.preventDefault();vid.paused?vid.play():vid.pause();return}
   if((e.key==="["||e.key==="]")&&cur>=0&&vid.style.display!=="none"){
     e.preventDefault();const t=Math.round(vid.currentTime*1000);const ev={...S.events[cur]};ev[e.key==="["?"start":"end"]=t;patch([{op:"set_event",i:cur,event:ev}]);
@@ -410,6 +508,8 @@ document.addEventListener("keydown",e=>{
 function renderAll(){
   $("#sLines").textContent=S.events.length+" lines";$("#sSel").textContent=sel.size>1?sel.size+" selected":"";
   renderGrid();renderEdit();updateOverlay();
+  const ce=S.events[cur];if(ce&&!W.drag){const t1=W.t0+W.span;if(ce.start<W.t0||ce.start>t1)centerOn(ce.start)}
+  if(typeof drawWave==="function")drawWave();
 }
 buildFields();
 act(async()=>{setState(await api("/api/state"));if(S.events.length)selectOnly(0);refreshMacros()});
