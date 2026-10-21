@@ -80,7 +80,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
   <button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
-  <button id="bTools">Tools…</button><button id="bSettings" title="Automation folders, fonts">⚙</button>
+  <button id="bTools">Tools…</button><button id="bRecover" title="Open a crash-recovery autosave">Recover…</button><button id="bSettings" title="Automation folders, fonts">⚙</button>
   <span class="sp"></span>
   <button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
   <input type="file" id="fRef" hidden accept=".ass,.ssa,.srt,.vtt">
@@ -410,7 +410,10 @@ $("#bTools").onclick=toolModal;
 // ---- QA ----
 $("#bQa").onclick=()=>act(async()=>{
   const r=await api("/api/qa",{max_cps:+$("#qCps").value,min_duration:+$("#qMin").value,max_line_len:+$("#qLen").value});
-  issues=r.issues;issueRows=new Map();issues.forEach(i=>issueRows.set(i.event-1,i));
+  issues=r.issues;
+  try{const g=await api("/api/glyphs");for(const x of g.issues)issues.push({event:x.event,kind:x.font_found?"glyph":"font-missing",message:x.font_found?`“${x.missing}” missing in ${x.family} (will render as boxes)`:`font “${x.family}” is not installed`})}catch(e){}
+  issues.sort((a,b)=>a.event-b.event);
+  issueRows=new Map();issues.forEach(i=>issueRows.set(i.event-1,i));
   $("#issues").innerHTML=issues.length?issues.map(i=>`<div class="issue" data-e="${i.event-1}"><b>#${i.event} ${i.kind}</b>${esc(i.message)}</div>`).join(""):"<span style='color:var(--ok)'>No issues found.</span>";
   document.querySelectorAll(".issue").forEach(d=>d.onclick=()=>selectOnly(+d.dataset.e));
   renderGrid();
@@ -480,6 +483,8 @@ $("#bSettings").onclick=async()=>{
     const r=await act(()=>api("/api/settings",body));if(r){CFG=r;closeModal();msg("Settings saved");refreshMacros()}
   };
 };
+
+$("#bRecover").onclick=async()=>{await loadCfg();fileModal({mode:"open",exts:[".ass"],title:"Autosaved copies (newest edits of unsaved work)",dir:CFG.autosave_dir,onPick:path=>act(async()=>{const st=await api("/api/open_path",{path});sel.clear();cur=-1;setState(st);if(S.events.length)selectOnly(0);msg("Recovered "+path+" — use Save as… to keep it")})})};
 
 // ---- Lua macros ----
 $("#bLua").onclick=()=>$("#fLua").click();

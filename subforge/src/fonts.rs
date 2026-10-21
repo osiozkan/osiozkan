@@ -134,6 +134,14 @@ impl FontDb {
         Some(b)
     }
 
+    /// Does the font contain a glyph for `c`? `None` when the font is not installed.
+    pub fn has_glyph(&mut self, family: &str, bold: bool, italic: bool, c: char) -> Option<bool> {
+        let entry = self.lookup(family, bold, italic)?;
+        let bytes = self.bytes(&entry.path)?;
+        let face = ttf_parser::Face::parse(&bytes, entry.index).ok()?;
+        Some(face.glyph_index(c).is_some())
+    }
+
     /// Measure `text` for a style. Falls back to a heuristic when the font is not installed.
     pub fn extents(&mut self, family: &str, size: f64, bold: bool, italic: bool, scale_x: f64, scale_y: f64, spacing: f64, text: &str) -> Extents {
         let entry = self.lookup(family, bold, italic);

@@ -113,6 +113,23 @@ mod tests {
     use crate::ass::{Entry, Event, Style};
 
     #[test]
+    fn glyph_check() {
+        let mut db = FontDb::new();
+        if db.lookup("DejaVu Sans", false, false).is_none() {
+            return;
+        }
+        let mut d = Document::new_default();
+        d.entries.push(Entry::Style(Style { name: "Dj".into(), fontname: "DejaVu Sans".into(), ..Style::default() }));
+        d.entries.push(Entry::Style(Style { name: "Nope".into(), fontname: "Surely Not Installed Font".into(), ..Style::default() }));
+        d.entries.push(Entry::Event(Event { style: "Dj".into(), text: "Şişli ğüöçİı \\N日本".into(), ..Event::default() }));
+        d.entries.push(Entry::Event(Event { style: "Nope".into(), text: "x".into(), ..Event::default() }));
+        let iss = glyph_issues(&d, &mut db);
+        let jp = iss.iter().find(|i| i.family == "DejaVu Sans").expect("CJK is missing in DejaVu");
+        assert!(jp.missing.contains(&'日') && !jp.missing.contains(&'Ş'), "{:?}", jp);
+        assert!(iss.iter().any(|i| i.family == "Surely Not Installed Font" && !i.font_found));
+    }
+
+    #[test]
     fn finds_fonts_from_styles_and_tags() {
         let mut d = Document::new_default();
         d.entries.push(Entry::Style(Style { name: "Alt".into(), fontname: "Impact".into(), bold: true, ..Style::default() }));
@@ -125,4 +142,87 @@ mod tests {
         assert_eq!(get("Comic Sans MS", false, true), 1);
         assert_eq!(get("Impact", true, false), 1);
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlyphIssue {
+    /// 1-based event index
+    pub event: usize,
+    pub family: String,
+    pub missing: Vec<char>,
+    pub font_found: bool,
+}
+
+/// Characters that the effective font of an event cannot render (tofu boxes in the final video).
+/// Tracks \fn/\r/\b/\i like `fonts_used`. Fonts that are not installed are reported once per event
+/// with `font_found = false` (nothing to check against).
+pub fn glyph_issues(doc: &Document, db: &mut FontDb) -> Vec<GlyphIssue> {
+    let tag = Regex::new(r"\\(fn|b|i|r)([^\\}()]*)").unwrap();
+    let mut out = Vec::new();
+    let mut cache: BTreeMap<(FontKey, char), bool> = BTreeMap::new();
+    let style_key = |name: &str| -> FontKey {
+        let s = doc.style(name).or_else(|| doc.style("Default")).or_else(|| doc.styles().next());
+        match s {
+            Some(s) => FontKey { family: s.fontname.clone(), bold: s.bold, italic: s.italic },
+            None => FontKey { family: "Arial".into(), bold: false, italic: false },
+        }
+    };
+    for (idx, e) in doc.events().enumerate().filter(|(_, e)| !e.comment) {
+        if e.text.contains("\\p1") {
+            continue;
+        }
+        let base = style_key(&e.style);
+        let mut cur = base.clone();
+        let mut missing: BTreeMap<String, Vec<char>> = BTreeMap::new();
+        let mut not_found: Vec<String> = vec![];
+        for seg in split_blocks(&e.text) {
+            match seg {
+                Seg::Tags(t) => {
+                    for c in tag.captures_iter(t) {
+                        let v = c[2].trim();
+                        match &c[1] {
+                            "fn" if !v.is_empty() => cur.family = v.to_string(),
+                            "b" => cur.bold = v == "1" || v.parse::<i32>().map(|w| w >= 600).unwrap_or(false),
+                            "i" => cur.italic = v == "1",
+                            "r" => cur = if v.is_empty() { base.clone() } else { style_key(v) },
+                            _ => {}
+                        }
+                    }
+                }
+                Seg::Text(t) => {
+                    for ch in t.replace("\\N", "").replace("\\n", "").replace("\\h", "").chars() {
+                        if ch.is_whitespace() || ch.is_control() {
+                            continue;
+                        }
+                        let key = (cur.clone(), ch);
+                        let has = match cache.get(&key) {
+                            Some(h) => *h,
+                            None => {
+                                let h = db.has_glyph(&cur.family, cur.bold, cur.italic, ch);
+                                cache.insert(key, h.unwrap_or(true));
+                                h.unwrap_or(true)
+                            }
+                        };
+                        if db.lookup(&cur.family, cur.bold, cur.italic).is_none() {
+                            if !not_found.contains(&cur.family) {
+                                not_found.push(cur.family.clone());
+                            }
+                        } else if !has {
+                            let v = missing.entry(cur.family.clone()).or_default();
+                            if !v.contains(&ch) {
+                                v.push(ch);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (family, chars) in missing {
+            out.push(GlyphIssue { event: idx + 1, family, missing: chars, font_found: true });
+        }
+        for family in not_found {
+            out.push(GlyphIssue { event: idx + 1, family, missing: vec![], font_found: false });
+        }
+    }
+    out
 }

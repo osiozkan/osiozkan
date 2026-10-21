@@ -7,7 +7,7 @@ BIN="${1:-target/debug/subforge}"
 export SF_PORT="${SF_PORT:-18765}"
 CFG=$(mktemp -d)
 export SUBFORGE_CONFIG_DIR="$CFG/cfg" SUBFORGE_AUTOSAVE_DIR="$CFG/autosave"
-"$BIN" serve tests/fixtures/sample.ass --addr "127.0.0.1:$SF_PORT" >/tmp/subforge-ui-test.log 2>&1 &
+"$BIN" serve tests/fixtures/sample.ass --addr "127.0.0.1:$SF_PORT" --no-open >/tmp/subforge-ui-test.log 2>&1 &
 PID=$!
 trap 'kill $PID 2>/dev/null || true; rm -rf "$CFG"' EXIT
 sleep 1

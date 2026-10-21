@@ -18,7 +18,7 @@ struct Cli {
     #[arg(long, global = true, default_value = "utf-8")]
     out_encoding: String,
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand)]
@@ -41,6 +41,8 @@ enum Cmd {
         #[arg(long, default_value_t = 20.0)] max_cps: f64,
         #[arg(long, default_value_t = 42)] max_line_len: usize,
         #[arg(long, default_value_t = 500)] min_duration: i64,
+        /// also report characters the fonts cannot render (e.g. Turkish ş ğ İ ı missing) and missing fonts
+        #[arg(long)] glyphs: bool,
     },
     /// Apply automatic fixes: overlaps, short lines, sort
     Fix { input: PathBuf, #[arg(long, default_value_t = 500)] min_duration: i64, #[arg(short, long)] output: Option<PathBuf> },
@@ -83,6 +85,8 @@ enum Cmd {
         /// optional subtitle file to open
         file: Option<PathBuf>,
         #[arg(long, default_value = "127.0.0.1:8765")] addr: String,
+        /// do not open the browser automatically
+        #[arg(long)] no_open: bool,
     },
     /// List macros/filters registered by a Lua automation script
     Macros {
@@ -104,6 +108,20 @@ enum Cmd {
         #[arg(short = 'I', long = "include")] include: Vec<PathBuf>,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+}
+
+fn open_browser(url: &str) {
+    use std::process::{Command, Stdio};
+    let r = if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", "start", "", url]).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+    } else {
+        Command::new("xdg-open").arg(url).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+    };
+    if r.is_err() {
+        eprintln!("open {} in your browser", url);
+    }
 }
 
 fn ext(p: &Path) -> String {
@@ -165,7 +183,9 @@ fn main() {
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
     ENC.with(|e| *e.borrow_mut() = (cli.in_encoding.clone(), cli.out_encoding.clone()));
-    match cli.cmd {
+    // no subcommand (double-click): start the editor and open it
+    let cmd = cli.cmd.unwrap_or(Cmd::Serve { file: None, addr: "127.0.0.1:8765".into(), no_open: false });
+    match cmd {
         Cmd::Info { file } => {
             let d = load(&file)?;
             let (rx, ry) = d.res();
@@ -205,15 +225,27 @@ fn real_main() -> Result<()> {
             ops::snap_to_frames(&mut d, fps);
             save(&d, &input, &output)?;
         }
-        Cmd::Qa { input, max_cps, max_line_len, min_duration } => {
+        Cmd::Qa { input, max_cps, max_line_len, min_duration, glyphs } => {
             let d = load(&input)?;
             let o = ops::QaOptions { max_cps, max_line_len, min_duration_ms: min_duration, ..Default::default() };
             let issues = ops::qa(&d, &o);
             for i in &issues {
                 println!("#{:<5} {:<14} {}", i.event, i.kind, i.message);
             }
-            println!("{} issue(s)", issues.len());
-            if !issues.is_empty() {
+            let mut extra = 0;
+            if glyphs {
+                let mut db = subforge::fonts::FontDb::new();
+                for g in subforge::fontcollect::glyph_issues(&d, &mut db) {
+                    extra += 1;
+                    if g.font_found {
+                        println!("#{:<5} {:<14} '{}' missing in {}", g.event, "glyph", g.missing.iter().collect::<String>(), g.family);
+                    } else {
+                        println!("#{:<5} {:<14} font '{}' is not installed", g.event, "font-missing", g.family);
+                    }
+                }
+            }
+            println!("{} issue(s)", issues.len() + extra);
+            if !issues.is_empty() || extra > 0 {
                 std::process::exit(1);
             }
         }
@@ -308,7 +340,14 @@ fn real_main() -> Result<()> {
             println!("lines {} (+{} comments), words {}, chars {}", s.lines, s.comments, s.words, s.chars);
             println!("total display time {:.1}s, avg CPS {:.1}, max CPS {:.1}, avg line length {:.1}", s.total_ms as f64 / 1000.0, s.avg_cps, s.max_cps, s.avg_line_len);
         }
-        Cmd::Serve { file, addr } => {
+        Cmd::Serve { file, addr, no_open } => {
+            if !no_open {
+                let url = format!("http://{}/", addr);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    open_browser(&url);
+                });
+            }
             let initial = match file {
                 Some(f) => Some((f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), read_text(&f)?)),
                 None => None,

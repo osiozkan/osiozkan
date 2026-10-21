@@ -316,6 +316,13 @@ impl Session {
         st
     }
 
+    fn autosave_dir() -> std::path::PathBuf {
+        std::env::var_os("SUBFORGE_AUTOSAVE_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache/subforge/autosave")))
+            .unwrap_or_else(|| std::env::temp_dir().join("subforge-autosave"))
+    }
+
     /// Crash-recovery copy of unsaved work (at most one write every 10 s).
     fn maybe_autosave(&mut self) {
         if !self.dirty {
@@ -325,10 +332,7 @@ impl Session {
             return;
         }
         self.last_autosave = Some(std::time::Instant::now());
-        let dir = std::env::var_os("SUBFORGE_AUTOSAVE_DIR")
-            .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache/subforge/autosave")))
-            .unwrap_or_else(|| std::env::temp_dir().join("subforge-autosave"));
+        let dir = Self::autosave_dir();
         if std::fs::create_dir_all(&dir).is_ok() {
             let stem = std::path::Path::new(&self.name).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into());
             let _ = std::fs::write(dir.join(format!("{}.autosave.ass", stem)), self.doc.to_string());
@@ -463,7 +467,7 @@ impl Session {
             }
             ("GET", "/api/settings") => {
                 let files: Vec<String> = self.settings.script_files().iter().map(|p| p.display().to_string()).collect();
-                json_resp(json!({"settings": self.settings, "scripts": files, "config_dir": crate::settings::config_dir().display().to_string()}))
+                json_resp(json!({"settings": self.settings, "scripts": files, "config_dir": crate::settings::config_dir().display().to_string(), "autosave_dir": Self::autosave_dir().display().to_string()}))
             }
             ("POST", "/api/settings") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
@@ -567,6 +571,17 @@ impl Session {
                     .map(|r| json!({"family": r.key.family, "bold": r.key.bold, "italic": r.key.italic, "uses": r.uses, "installed": r.path.is_some(), "path": r.path.map(|p| p.display().to_string())}))
                     .collect();
                 json_resp(json!({"fonts": list}))
+            }
+            ("GET", "/api/glyphs") => {
+                let mut db = crate::fonts::FontDb::new();
+                for d in &self.settings.font_dirs {
+                    db.add_dir(d.clone());
+                }
+                let list: Vec<Value> = crate::fontcollect::glyph_issues(&self.doc, &mut db)
+                    .into_iter()
+                    .map(|g| json!({"event": g.event, "family": g.family, "missing": g.missing.iter().collect::<String>(), "font_found": g.font_found}))
+                    .collect();
+                json_resp(json!({"issues": list}))
             }
             ("POST", "/api/qa") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
