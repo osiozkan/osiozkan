@@ -90,6 +90,17 @@ const fs = require("fs");
   ok(rng[0] === 206 && rng[1] === 100, "range streaming: " + rng.join(" "));
   const noTok = await p.evaluate(async (cwd) => (await fetch("/media?path=" + encodeURIComponent(cwd + "/tests/fixtures/tone.wav"))).status, process_cwd);
   ok(noTok === 403, "media without token is rejected");
+  // region selection in the waveform -> Enter applies it to the current line
+  await p.evaluate(() => { W.t0 = 0; W.span = 10000; drawWave(); selectOnly(1); });
+  const wb = await p.locator("#wave").boundingBox();
+  const regionY = wb.y + wb.height / 2, xa = wb.x + wb.width * 0.88, xb = wb.x + wb.width * 0.97;
+  await p.mouse.move(xa, regionY); await p.mouse.down(); await p.mouse.move(xb, regionY, { steps: 5 }); await p.mouse.up();
+  const hasRegion = await p.evaluate(() => !!W.region && Math.abs(W.region.b - W.region.a) > 500);
+  ok(hasRegion, "dragging empty waveform space selects a region");
+  await p.evaluate(() => document.activeElement && document.activeElement.blur());
+  await p.keyboard.press("Enter");
+  await p.waitForFunction(() => S.events[1].start >= 8500 && S.events[1].end >= 9000, null, { timeout: 5000 });
+  ok(true, "Enter applies the region to the selected line");
   // renderer: typeset fixture
   const ts = require("fs").readFileSync("tests/fixtures/typeset.ass");
   await p.evaluate(async (t) => { await sfetch("/api/open_raw?name=typeset.ass", { method: "POST", body: t }).then(r => r.json()).then(st => setState(st)); }, ts.toString());

@@ -118,7 +118,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
     </div>
     <div class="pane" id="p-mac"><button id="bLua">Upload .lua…</button> <button id="bLuaDisk" class="primary">Add script from disk…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
-      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find / select lines · <b>F3</b> next · <b>Ctrl+G</b> go to line · <b>Ctrl+A/C/X/V</b> select all / copy / cut / paste lines<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
+      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find / select lines · <b>F3</b> next · <b>Ctrl+G</b> go to line · <b>Ctrl+A/C/X/V</b> select all / copy / cut / paste lines<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · drag empty space = region, <b>Enter</b> sets the line to it, <b>Shift+Enter</b> adds a new line · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
   </div>
   <div id="wavewrap"><canvas id="wave"></canvas><div class="wl" id="waveInfo"></div></div>
   <div id="edit">
@@ -691,7 +691,7 @@ function refFor(e){return REF.filter(r=>r.end>e.start&&r.start<e.end).map(r=>vis
 
 // ---- audio waveform & timing ----
 const wc=$("#wave"),wctx=wc.getContext("2d");
-const W={peaks:null,bin:10,dur:0,t0:0,span:10000,drag:null,hover:null};
+const W={peaks:null,bin:10,dur:0,t0:0,span:10000,drag:null,hover:null,region:null,regionDrag:null};
 async function loadWave(file){
   $("#wavewrap").style.display="block";$("#waveInfo").textContent="decoding audio…";
   try{
@@ -736,6 +736,8 @@ function drawWave(){
   wctx.fillStyle="#445";wctx.font=(10*d)+"px system-ui";
   const step=[100,250,500,1000,2000,5000,10000,30000,60000].find(s=>s/W.span*w>70*d)||60000;
   for(let t=Math.ceil(W.t0/step)*step;t<t1;t+=step){const x=t2x(t,w);wctx.fillRect(x,h-8*d,1,8*d);wctx.fillText(fmt(t).replace(/^0:/,""),x+3*d,h-2*d)}
+  // selected audio region (drag on empty space; Enter = apply to current line, Shift+Enter = new line)
+  if(W.region){const x1=t2x(Math.min(W.region.a,W.region.b),w),x2=t2x(Math.max(W.region.a,W.region.b),w);wctx.fillStyle="rgba(255,200,60,.22)";wctx.fillRect(x1,0,x2-x1,h);wctx.fillStyle="rgba(255,200,60,.9)";wctx.fillRect(x1,0,1.5*d,h);wctx.fillRect(x2-1,0,1.5*d,h)}
   // keyframes
   if(KF.length){wctx.fillStyle="rgba(255,170,60,.55)";let lo=0,hi=KF.length;while(lo<hi){const m=(lo+hi)>>1;if(KF[m]<W.t0)lo=m+1;else hi=m}
     for(let i=lo;i<KF.length&&KF[i]<=t1;i++)wctx.fillRect(t2x(KF[i],w),0,1,h*0.25)}
@@ -751,6 +753,7 @@ function hit(ev){ // returns {i,edge} for nearest visible handle within 6px
 }
 wc.addEventListener("mousemove",ev=>{
   const r=wc.getBoundingClientRect(),w=r.width;
+  if(W.regionDrag){const t=Math.max(0,Math.round(x2t(ev.clientX-r.left,w)/10)*10);if(Math.abs(t-W.regionDrag.a)>40)W.regionDrag.moved=true;if(W.regionDrag.moved){W.region={a:W.regionDrag.a,b:t};drawWave()}return}
   if(W.drag){let t=Math.max(0,Math.round(x2t(ev.clientX-r.left,w)/10)*10);
     if(ev.altKey&&KF.length){let best=null,bd=1e9;for(const k of KF){const dd=Math.abs(k-t);if(dd<bd){bd=dd;best=k}}if(best!==null&&bd/W.span*w<12)t=best}
     W.drag.t=t;drawWaveDrag();return}
@@ -762,11 +765,13 @@ wc.addEventListener("mousedown",ev=>{
   if(ev.shiftKey&&cur>=0){const e={...S.events[cur],start:Math.max(0,Math.round(t/10)*10)};patch([{op:"set_event",i:cur,event:e}]);return}
   const h=hit(ev);
   if(h){if(!sel.has(h.i)){sel=new Set([h.i]);anchor=cur=h.i;renderAll()}W.drag={i:h.i,edge:h.edge,t:S.events[h.i][h.edge]};return}
+  const idx=S.events.findIndex(e=>!e.comment&&t>=e.start&&t<e.end);
+  if(idx>=0){sel=new Set([idx]);anchor=cur=idx;renderAll();if(vid.style.display!=="none")vid.currentTime=t/1000;return}
+  W.regionDrag={a:Math.max(0,Math.round(t/10)*10),moved:false};W.region=null;
   if(vid.style.display!=="none")vid.currentTime=t/1000;
-  // click inside an event selects it
-  const idx=S.events.findIndex(e=>!e.comment&&t>=e.start&&t<e.end);if(idx>=0){sel=new Set([idx]);anchor=cur=idx;renderAll()}
 });
 window.addEventListener("mouseup",()=>{
+  if(W.regionDrag){const rd=W.regionDrag;W.regionDrag=null;if(!rd.moved)W.region=null;drawWave();return}
   if(!W.drag)return;const d=W.drag;W.drag=null;const e={...S.events[d.i]};
   if(e[d.edge]!==d.t){e[d.edge]=d.t;if(e.end<e.start){if(d.edge==="start")e.start=e.end;else e.end=e.start}patch([{op:"set_event",i:d.i,event:e}])}
 });
@@ -907,6 +912,11 @@ document.addEventListener("keydown",e=>{
     if(e.shiftKey){if(anchor<0)anchor=cur;sel=new Set();for(let k=Math.min(anchor,n);k<=Math.max(anchor,n);k++)sel.add(k);cur=n;scrollTo(n);renderAll()}else selectOnly(n);return}
   if((e.key===","||e.key===".")&&vid.style.display!=="none"){e.preventDefault();vid.pause();const f=S.fps||23.976;vid.currentTime=Math.max(0,vid.currentTime+(e.key==="."?1:-1)/f);return}
   if((e.key==="p"||e.key==="P")&&!mod){e.preventDefault();playLine();return}
+  if(e.key==="Enter"&&W.region){
+    e.preventDefault();const a=Math.min(W.region.a,W.region.b),b=Math.max(W.region.a,W.region.b);
+    if(e.shiftKey||cur<0){const ne=newEventAfter(cur);ne.start=a;ne.end=b;const at=cur>=0?cur+1:S.events.length;patch([{op:"insert_event",at,event:ne}]).then(()=>{selectOnly(at);$("#eText").focus()})}
+    else patch([{op:"set_event",i:cur,event:{...S.events[cur],start:a,end:b}}]);
+    W.region=null;drawWave();return}
   if(e.key===" "&&vid.style.display!=="none"){e.preventDefault();vid.paused?vid.play():vid.pause();return}
   if((e.key==="["||e.key==="]")&&cur>=0&&vid.style.display!=="none"){
     e.preventDefault();const t=Math.round(vid.currentTime*1000);const ev={...S.events[cur]};ev[e.key==="["?"start":"end"]=t;patch([{op:"set_event",i:cur,event:ev}]);
