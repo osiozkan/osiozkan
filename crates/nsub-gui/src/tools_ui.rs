@@ -12,6 +12,11 @@ pub struct Tools {
     pub show_select: bool,
     pub show_fix: bool,
     pub show_post: bool,
+    pub show_stats: bool,
+    pub show_kara: bool,
+    kara_chars: bool,
+    kara_tag: usize,
+    kara_msg: String,
     // properties
     res_w: i32,
     res_h: i32,
@@ -63,6 +68,65 @@ impl Tools {
         self.select(ctx, app);
         self.fix(ctx, app);
         self.post(ctx, app);
+        self.stats(ctx, app);
+        self.kara(ctx, app);
+    }
+
+    fn stats(&mut self, ctx: &egui::Context, app: &mut App) {
+        let mut open = self.show_stats;
+        if open {
+            let st = nsub_core::qc::stats(&app.doc.script);
+            egui::Window::new(t_("Statistics", "İstatistikler")).open(&mut open).collapsible(false).show(ctx, |ui| {
+                egui::Grid::new("stats").num_columns(2).show(ui, |ui| {
+                    for (k, v) in [
+                        (t_("Lines", "Satır"), format!("{} (+{} {})", st.lines, st.comments, t_("comments", "yorum"))),
+                        (t_("Words / characters", "Sözcük / karakter"), format!("{} / {}", st.words, st.chars)),
+                        (t_("Total on screen", "Ekranda toplam"), format!("{:.1} s", st.total_ms as f64 / 1000.0)),
+                        ("CPS", format!("{:.1} avg / {:.1} max", st.avg_cps, st.max_cps)),
+                        (t_("Line length", "Satır uzunluğu"), format!("{:.1} avg / {} max", st.avg_line_len, st.longest_line)),
+                    ] {
+                        ui.label(k);
+                        ui.label(v);
+                        ui.end_row();
+                    }
+                });
+            });
+        }
+        self.show_stats = open;
+    }
+
+    fn kara(&mut self, ctx: &egui::Context, app: &mut App) {
+        let mut open = self.show_kara;
+        egui::Window::new(t_("Karaoke tools", "Karaoke araçları")).open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label(t_("Applies to the selected lines.", "Seçili satırlara uygulanır."));
+            ui.checkbox(&mut self.kara_chars, t_("Split per character (otherwise per word)", "Karakter başına böl (aksi halde sözcük başına)"));
+            egui::ComboBox::from_id_salt("karatag").selected_text(["\\k", "\\kf", "\\ko"][self.kara_tag]).show_ui(ui, |ui| {
+                for (i, n) in ["\\k", "\\kf", "\\ko"].into_iter().enumerate() {
+                    ui.selectable_value(&mut self.kara_tag, i, n);
+                }
+            });
+            ui.horizontal(|ui| {
+                for (strip, label) in [(false, t_("Auto-split evenly", "Eşit aralıkla böl")), (true, t_("Remove karaoke tags", "Karaoke etiketlerini sil"))] {
+                    if ui.button(label).clicked() {
+                        app.doc.checkpoint();
+                        let tag = ["\\k", "\\kf", "\\ko"][self.kara_tag];
+                        let mut n = 0;
+                        for &i in &app.sel {
+                            if let Some(e) = app.doc.script.events.get_mut(i) {
+                                let new = if strip { nsub_core::kara::strip_kara(&e.text) } else { nsub_core::kara::auto_split(&e.text, e.end - e.start, self.kara_chars, tag) };
+                                if new != e.text {
+                                    e.text = new;
+                                    n += 1;
+                                }
+                            }
+                        }
+                        self.kara_msg = format!("{n} {}", t_("line(s) changed", "satır değişti"));
+                    }
+                }
+            });
+            ui.label(&self.kara_msg);
+        });
+        self.show_kara = open;
     }
 
     fn props(&mut self, ctx: &egui::Context, app: &mut App) {

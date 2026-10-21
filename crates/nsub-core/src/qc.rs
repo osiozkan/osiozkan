@@ -187,3 +187,61 @@ mod tests {
         assert!(check(&s, &QcConfig::default()).iter().all(|i| i.kind != Kind::Overlap));
     }
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct Stats {
+    pub lines: usize,
+    pub comments: usize,
+    pub chars: usize,
+    pub words: usize,
+    pub total_ms: i64,
+    pub avg_cps: f64,
+    pub max_cps: f64,
+    pub avg_line_len: f64,
+    pub longest_line: usize,
+}
+
+pub fn stats(script: &Script) -> Stats {
+    let mut s = Stats::default();
+    let mut cps_sum = 0.0;
+    let mut len_sum = 0usize;
+    for e in &script.events {
+        if e.comment {
+            s.comments += 1;
+            continue;
+        }
+        s.lines += 1;
+        let vis = tags::visible_text(&e.text);
+        let chars = vis.chars().filter(|c| !c.is_whitespace()).count();
+        s.chars += chars;
+        s.words += vis.split_whitespace().count();
+        s.total_ms += (e.end - e.start).max(0);
+        let ll = vis.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+        len_sum += ll;
+        s.longest_line = s.longest_line.max(ll);
+        if e.end > e.start {
+            let cps = chars as f64 / ((e.end - e.start) as f64 / 1000.0);
+            cps_sum += cps;
+            s.max_cps = s.max_cps.max(cps);
+        }
+    }
+    if s.lines > 0 {
+        s.avg_cps = cps_sum / s.lines as f64;
+        s.avg_line_len = len_sum as f64 / s.lines as f64;
+    }
+    s
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+    use crate::ass::Event;
+    #[test]
+    fn counts() {
+        let mut s = Script::new();
+        s.events = vec![Event { start: 0, end: 1000, text: "{\\i1}ab cd".into(), ..Event::default() }, Event { comment: true, ..Event::default() }];
+        let st = stats(&s);
+        assert_eq!((st.lines, st.comments, st.chars, st.words), (1, 1, 4, 2));
+        assert!((st.max_cps - 4.0).abs() < 1e-9);
+    }
+}

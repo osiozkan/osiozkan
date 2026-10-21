@@ -23,6 +23,9 @@ USAGE:
   nightsub sort <file> start|end|style|actor|effect|layer -o <out>
   nightsub select <file> <pattern> [--field text|plain|style|actor|effect] [--regex] [--case] [--invert] [--comments]
   nightsub fonts <file> [--copy DIR]                 list/collect fonts used (exit 1 if any are missing)
+  nightsub stats <file>
+  nightsub karaoke <file> split|strip [--chars] [--tag k|kf|ko] -o <out>
+  nightsub batch <ass|srt|vtt|sub|lrc> <files...> [--outdir DIR]
   nightsub eval '<lua code>' [--include DIR]...     run Lua in the Aegisub-compatible runtime
   nightsub macros <script.lua>...                  list macros registered by Lua scripts
   nightsub run <file> --script <x.lua> [--script ...] --macro <name> [-o out] [--sel 1-5,9]
@@ -113,7 +116,7 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     };
     let rest = &raw[1..];
-    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video", "case", "balance", "split", "merge-dups", "merge-short", "snap", "field", "copy", "lead-in", "lead-out"];
+    let valued = ["o", "out", "fps", "cps", "min-dur", "max-dur", "line-len", "lines", "gap", "script", "macro", "sel", "answer", "button", "include", "style", "video", "case", "balance", "split", "merge-dups", "merge-short", "snap", "field", "copy", "outdir", "tag", "lead-in", "lead-out"];
     let a = parse_args(rest, &valued);
     match cmd.as_str() {
         "help" | "--help" | "-h" => print!("{HELP}"),
@@ -280,6 +283,46 @@ fn run() -> Result<ExitCode, String> {
                     return Ok(ExitCode::from(1));
                 }
             }
+        }
+        "stats" => {
+            let s = load(a.pos(0, "file")?)?;
+            let t = qc::stats(&s);
+            println!("lines: {} (+{} comments)\nwords: {}  chars: {}\ntotal on-screen: {:.1}s\nCPS avg {:.1} / max {:.1}\nline length avg {:.1} / longest {}", t.lines, t.comments, t.words, t.chars, t.total_ms as f64 / 1000.0, t.avg_cps, t.max_cps, t.avg_line_len, t.longest_line);
+        }
+        "karaoke" => {
+            // karaoke <file> split|strip [--chars] [--tag k|kf|ko] -o out
+            let mut s = load(a.pos(0, "file")?)?;
+            let op = a.pos(1, "split|strip")?;
+            let tag = format!("\\{}", a.get("tag").unwrap_or("k"));
+            let mut n = 0;
+            for e in s.events.iter_mut().filter(|e| !e.comment) {
+                let new = match op {
+                    "split" => nsub_core::kara::auto_split(&e.text, e.end - e.start, a.has("chars"), &tag),
+                    "strip" => nsub_core::kara::strip_kara(&e.text),
+                    other => return Err(format!("unknown karaoke op '{other}'")),
+                };
+                if new != e.text { e.text = new; n += 1 }
+            }
+            save(&s, a.get("out").ok_or("-o <out> required")?)?;
+            println!("{n} line(s) changed");
+        }
+        "batch" => {
+            // batch <out-format> <files...> [--outdir DIR]  (convert many files)
+            let fmt_name = a.pos(0, "format (ass|srt|vtt|sub|lrc)")?;
+            let fmt = Format::from_extension(&format!("x.{fmt_name}")).ok_or("unknown format")?;
+            let mut ok = 0;
+            for f in a.pos.iter().skip(1) {
+                let s = match load(f) { Ok(s) => s, Err(e) => { eprintln!("skip {f}: {e}"); continue } };
+                let p = std::path::Path::new(f);
+                let stem = p.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                let dir = a.get("outdir").map(PathBuf::from).or_else(|| p.parent().map(|x| x.to_path_buf())).unwrap_or_default();
+                let _ = std::fs::create_dir_all(&dir);
+                let out = dir.join(format!("{stem}.{}", fmt.extension()));
+                if out == p { eprintln!("skip {f}: same file"); continue }
+                std::fs::write(&out, formats::save(&s, fmt)).map_err(|e| e.to_string())?;
+                ok += 1;
+            }
+            println!("{ok} file(s) converted");
         }
         "eval" => {
             // debugging aid: run Lua code inside the Aegisub-compatible runtime

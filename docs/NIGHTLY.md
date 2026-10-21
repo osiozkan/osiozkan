@@ -17,3 +17,8 @@
 - Extradata, yazım denetimi (Hunspell tr_TR), kısayol özelleştirme, çoklu belge sekmeleri.
 - Gerçek DependencyControl 0.7 yüklemesi (ModuleProvider/Host kullanıyor) — şimdilik çevrimdışı shim.
 - Windows'ta `release.yml` henüz denenmedi (LuaJIT MSVC derlemesi, rfd).
+
+## 2026-10-21 — sürüm 0.2.0
+- Karaoke araçları (eşit aralıkla `\k` bölme, etiket silme; çekirdek `kara::auto_split/strip_kara`, CLI `nightsub karaoke`, GUI Araçlar menüsü).
+- Zamanlama kısayolları: `[` başlangıcı, `]` bitişi video zamanına ayarla; `,` `.` kare adımı.
+- İstatistik penceresi / `nightsub stats`; toplu dönüştürme `nightsub batch`.

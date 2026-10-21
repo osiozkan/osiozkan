@@ -117,3 +117,73 @@ mod tests {
         assert_eq!(s[1].tag_type, "\\kf");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Karaoke editing helpers
+
+/// Strip karaoke tags, keeping other override tags and text.
+pub fn strip_kara(text: &str) -> String {
+    let syls = parse_syllables(text, 0);
+    syls.iter().map(|s| {
+        let mut c = s.clone();
+        c.duration = 0;
+        c.get_text(false)
+    }).collect()
+}
+
+/// Rebuild a line from syllable texts with `\k` durations (cs) given per syllable.
+fn build(parts: &[(String, i64)], tag: &str) -> String {
+    parts.iter().map(|(t, d)| format!("{{{tag}{d}}}{t}")).collect()
+}
+
+/// Auto-split a line into syllables (per word, per character, or per `chars` characters) and share
+/// the event duration evenly. `tag` is `\k`, `\kf` or `\ko`.
+pub fn auto_split(text: &str, duration_ms: i64, per_char: bool, tag: &str) -> String {
+    let plain = strip_kara(text);
+    let vis = crate::tags::strip_tags(&plain);
+    let units: Vec<String> = if per_char {
+        vis.chars().map(|c| c.to_string()).collect()
+    } else {
+        let mut v: Vec<String> = vec![];
+        let mut cur = String::new();
+        for c in vis.chars() {
+            cur.push(c);
+            if c == ' ' {
+                v.push(std::mem::take(&mut cur));
+            }
+        }
+        if !cur.is_empty() {
+            v.push(cur);
+        }
+        v
+    };
+    if units.is_empty() {
+        return text.to_string();
+    }
+    let total_cs = (duration_ms / 10).max(units.len() as i64);
+    let base = total_cs / units.len() as i64;
+    let mut rem = total_cs - base * units.len() as i64;
+    let parts: Vec<(String, i64)> = units
+        .into_iter()
+        .map(|u| {
+            let extra = if rem > 0 { rem -= 1; 1 } else { 0 };
+            (u, base + extra)
+        })
+        .collect();
+    build(&parts, tag)
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+
+    #[test]
+    fn strips_and_splits() {
+        assert_eq!(strip_kara("{\\k20}ta{\\k30\\fs50}be"), "ta{\\fs50}be");
+        let t = auto_split("ta be ru", 3000, false, "\\k");
+        assert_eq!(t, "{\\k100}ta {\\k100}be {\\k100}ru");
+        let c = auto_split("abc", 1000, true, "\\kf");
+        assert_eq!(c, "{\\kf34}a{\\kf33}b{\\kf33}c");
+        assert_eq!(parse_syllables(&c, 0).iter().map(|s| s.duration).sum::<i64>(), 1000);
+    }
+}

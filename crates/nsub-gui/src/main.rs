@@ -129,6 +129,7 @@ impl Gui {
         let typing = ctx.wants_keyboard_input();
         let (mut undo, mut redo, mut save, mut open, mut find, mut dup, mut del, mut up, mut down, mut all) = (false, false, false, false, false, false, false, false, false, false);
         let (mut play, mut stop) = (false, false);
+        let (mut set_start, mut set_end, mut step_back, mut step_fwd) = (false, false, false, false);
         ctx.input_mut(|i| {
             redo = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y);
             undo = i.consume_key(Modifiers::COMMAND, Key::Z);
@@ -138,6 +139,10 @@ impl Gui {
             if !typing {
                 play = i.consume_key(Modifiers::NONE, Key::Space);
                 stop = i.consume_key(Modifiers::NONE, Key::Escape);
+                set_start = i.consume_key(Modifiers::NONE, Key::OpenBracket);
+                set_end = i.consume_key(Modifiers::NONE, Key::CloseBracket);
+                step_back = i.consume_key(Modifiers::NONE, Key::Comma);
+                step_fwd = i.consume_key(Modifiers::NONE, Key::Period);
                 dup = i.consume_key(Modifiers::COMMAND, Key::D);
                 all = i.consume_key(Modifiers::COMMAND, Key::A);
                 del = i.consume_key(Modifiers::NONE, Key::Delete);
@@ -158,6 +163,17 @@ impl Gui {
             }
         }
         if stop { self.media.stop() }
+        if step_back { self.media.step_frames(-1) }
+        if step_fwd { self.media.step_frames(1) }
+        if set_start || set_end {
+            if let Some(a) = self.app.active.filter(|&a| a < self.app.doc.script.events.len()) {
+                self.app.doc.checkpoint();
+                let t = self.media.time_ms;
+                let ev = &mut self.app.doc.script.events[a];
+                if set_start { ev.start = t.min(ev.end) } else { ev.end = t.max(ev.start) }
+                self.app.refresh_qc();
+            }
+        }
         if dup { self.app.duplicate_selected() }
         if all { self.app.select_all() }
         if del { self.app.delete_selected() }
@@ -292,6 +308,8 @@ impl Gui {
                 ui.menu_button(if i18n::lang() == i18n::Lang::Tr { "Araçlar" } else { "Tools" }, |ui| {
                     let tr_ = i18n::lang() == i18n::Lang::Tr;
                     if ui.button(if tr_ { "Hataları düzelt…" } else { "Fix common errors…" }).clicked() { self.tools.show_fix = true; ui.close_menu(); }
+                    if ui.button(if tr_ { "Karaoke araçları…" } else { "Karaoke tools…" }).clicked() { self.tools.show_kara = true; ui.close_menu(); }
+                    if ui.button(if tr_ { "İstatistikler…" } else { "Statistics…" }).clicked() { self.tools.show_stats = true; ui.close_menu(); }
                     if ui.button(if tr_ { "Satır seç…" } else { "Select lines…" }).clicked() { self.tools.show_select = true; ui.close_menu(); }
                     if ui.button(if tr_ { "Zamanlama son işlemcisi…" } else { "Timing post-processor…" }).clicked() { self.tools.show_post = true; ui.close_menu(); }
                     ui.separator();

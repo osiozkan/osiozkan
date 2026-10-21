@@ -48,7 +48,7 @@ Video/ses: sistemdeki `ffmpeg`/`ffprobe`/`ffplay` (libass tabanlı `subtitles` f
 | Türkçe/İngilizce arayüz, koyu/açık tema, ayarlar kalıcı | ✅ |
 | Video oynatma (gerçek zamanlı), ses spektrumu | ⬜ |
 | Görsel typesetting (video üstünde `\pos` sürükleme, döndürme, klip) | ⬜ |
-| Karaoke zamanlama görsel düzenleyici | ⬜ |
+| Karaoke: eşit bölme, etiket silme | ✅ · görsel zamanlama düzenleyici ⬜ |
 | Yazım denetimi (Türkçe Hunspell), makine çevirisi | ⬜ |
 | Klavye kısayolu özelleştirme | ⬜ |
 | Windows/macOS/Linux sürüm paketleri (GitHub Actions `release.yml`) | 🟡 (yazıldı, henüz çalıştırılmadı) |
