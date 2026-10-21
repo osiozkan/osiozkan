@@ -3,6 +3,7 @@ pub mod automation;
 pub mod cleanup;
 pub mod encoding;
 pub mod fontcollect;
+pub mod formats;
 pub mod fonts;
 pub mod karaoke;
 pub mod lua_lfs;

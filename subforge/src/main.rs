@@ -14,6 +14,9 @@ struct Cli {
     /// input encoding (default: auto-detect; e.g. windows-1254 for legacy Turkish files)
     #[arg(long, global = true)]
     in_encoding: Option<String>,
+    /// frame rate used by frame-based formats (MicroDVD .sub)
+    #[arg(long, global = true, default_value_t = 23.976)]
+    fps: f64,
     /// output encoding (default utf-8)
     #[arg(long, global = true, default_value = "utf-8")]
     out_encoding: String,
@@ -130,6 +133,7 @@ fn ext(p: &Path) -> String {
 
 thread_local! {
     static ENC: std::cell::RefCell<(Option<String>, String)> = const { std::cell::RefCell::new((None, String::new())) };
+    static FPS: std::cell::Cell<f64> = const { std::cell::Cell::new(23.976) };
 }
 
 fn read_text(p: &Path) -> Result<String> {
@@ -151,9 +155,11 @@ fn write_text(p: &Path, text: &str) -> Result<()> {
 
 fn load(p: &Path) -> Result<Document> {
     let s = read_text(p)?;
-    Ok(match ext(p).as_str() {
+    let e = ext(p);
+    Ok(match e.as_str() {
         "srt" | "vtt" => srt::parse_srt(&s),
-        _ => Document::parse(&s),
+        "txt" => subforge::formats::parse_plain(&s, 2000),
+        _ => subforge::formats::parse_by_extension(&e, &s, FPS.with(|f| f.get())).unwrap_or_else(|| Document::parse(&s)),
     })
 }
 
@@ -162,7 +168,7 @@ fn render(doc: &Document, p: &Path) -> String {
         "srt" => srt::to_srt(doc),
         "vtt" => srt::to_vtt(doc),
         "txt" => doc.events().filter(|e| !e.comment).map(|e| subforge::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n") + "\n",
-        _ => doc.to_string(),
+        e => subforge::formats::render_by_extension(e, doc, FPS.with(|f| f.get())).unwrap_or_else(|| doc.to_string()),
     }
 }
 
@@ -189,6 +195,7 @@ fn main() {
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
     ENC.with(|e| *e.borrow_mut() = (cli.in_encoding.clone(), cli.out_encoding.clone()));
+    FPS.with(|f| f.set(cli.fps));
     // no subcommand (double-click): start the editor and open it
     let cmd = cli.cmd.unwrap_or(Cmd::Serve { file: None, addr: "127.0.0.1:8765".into(), no_open: false });
     match cmd {
