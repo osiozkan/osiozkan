@@ -100,7 +100,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
       <button id="bQa" class="primary">Run checks</button></div><div id="issues" class="hint">No checks run yet.</div></div>
     <div class="pane" id="p-mac"><button id="bLua">Upload .lua…</button> <button id="bLuaDisk" class="primary">Add script from disk…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
-      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
+      <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
   </div>
   <div id="wavewrap"><canvas id="wave"></canvas><div class="wl" id="waveInfo"></div></div>
   <div id="edit">
@@ -110,7 +110,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <div id="gridwrap">
     <div id="head"><div>#</div><div>C</div><div>Ly</div><div>Start</div><div>End</div><div>Dur</div><div>Style</div><div>Actor</div><div>CPS</div><div>Text</div></div>
     <div id="grid"><div id="spacer"></div></div>
-    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sMsg"></span></div>
+    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sFps"></span><span id="sFrame"></span><span id="sMsg"></span></div>
   </div>
 </div>
 
@@ -250,7 +250,7 @@ async function fileModal(opts){ // {mode:"open"|"save", exts:[..], title, name, 
     const ok=n=>!opts.exts||opts.exts.some(e=>n.toLowerCase().endsWith(e));
     modal(`<h3>${esc(opts.title||"Files")}</h3><div style="display:flex;gap:6px;margin-bottom:6px"><button id="fUp" ${r.parent?"":"disabled"}>↑</button><input id="fPath" style="flex:1" value="${esc(dir).replace(/"/g,"&quot;")}"></div>
     <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:6px;min-width:420px">${r.entries.map(e=>`<div class="issue" data-n="${esc(e.name).replace(/"/g,"&quot;")}" data-d="${e.dir?1:0}" style="${!e.dir&&!ok(e.name)?"opacity:.35":""}">${e.dir?"📁":"📄"} ${esc(e.name)}</div>`).join("")}</div>
-    ${opts.mode==="save"?`<p><input id="fName" style="width:60%" value="${esc(opts.name||"untitled.ass").replace(/"/g,"&quot;")}"> <button class="primary" id="fOk">Save</button></p>`:""}<p><button onclick="closeModal()">Cancel</button></p>`);
+    ${opts.extra?`<p>${opts.extra}</p>`:""}${opts.mode==="save"?`<p><input id="fName" style="width:60%" value="${esc(opts.name||"untitled.ass").replace(/"/g,"&quot;")}"> <button class="primary" id="fOk">Save</button></p>`:""}<p><button onclick="closeModal()">Cancel</button></p>`);
     const join=(d,n)=>d.replace(/[\\/]+$/,"")+(d.includes("\\")&&!d.includes("/")?"\\":"/")+n;
     $("#fPath").onkeydown=e=>{if(e.key==="Enter"){dir=e.target.value;render()}};
     if(r.parent)$("#fUp").onclick=()=>{dir=r.parent;render()};
@@ -260,6 +260,7 @@ async function fileModal(opts){ // {mode:"open"|"save", exts:[..], title, name, 
       else if(opts.mode==="save"){$("#fName").value=n}
       else if(ok(n)){closeModal();opts.onPick(join(dir,n))}
     });
+    if($("#vUpload"))$("#vUpload").onclick=()=>{closeModal();$("#fVideo").click()};
     if(opts.mode==="save")$("#fOk").onclick=()=>{const n=$("#fName").value.trim();if(n){closeModal();opts.onPick(join(dir,n))}};
   };
   render();
@@ -439,7 +440,7 @@ async function runMacro(s,name){
   const idx=selIdx().map(i=>base+i+1);
   const log=$("#macLog");
   try{
-    const st=await api("/api/macro/run",{script:s.src,path:s.path,name,selection:idx});
+    const st=await api("/api/macro/run",{script:s.src,path:s.path,name,selection:idx,fps:S.fps||undefined});
     setState(st);log.style.display="block";log.textContent=(st.cancelled?"[cancelled]\n":"")+st.log.join("");msg(st.cancelled?"Macro cancelled":"Macro done: "+name);
   }catch(e){log.style.display="block";log.textContent=e.message;msg("Macro failed",true)}
 }
@@ -447,7 +448,25 @@ $("#p-mac").addEventListener("click",()=>{});
 
 // ---- video & overlay ----
 const vid=$("#vid"),ovc=$("#ovc"),ovx=ovc.getContext("2d");
-$("#bVideo").onclick=()=>$("#fVideo").click();
+const MEDIA_EXTS=[".mkv",".mp4",".m4v",".webm",".mov",".avi",".mp3",".flac",".wav",".ogg",".opus",".m4a",".aac",".mka"];
+let KF=[],MEDIA=null;
+$("#bVideo").onclick=()=>fileModal({mode:"open",exts:MEDIA_EXTS,title:"Open video / audio (ffmpeg extracts the waveform on the server)",dir:MEDIA?MEDIA.path.replace(/[\\/][^\\/]*$/,""):(S.path?S.path.replace(/[\\/][^\\/]*$/,""):""),onPick:loadMediaPath,extra:`<button id="vUpload">Upload from browser instead…</button>`});
+async function loadMediaPath(path){
+  MEDIA={path};KF=[];
+  let info=null;try{info=await api("/api/media_info?path="+encodeURIComponent(path))}catch(e){msg("ffprobe unavailable ("+e.message+") – playing without metadata",true)}
+  vid.src="/media?path="+encodeURIComponent(path)+"&token="+TOKEN;vid.style.display="block";$("#novideo").style.display="none";
+  if(info){MEDIA.info=info;S.fps=info.fps||null;$("#sFps").textContent=info.fps?info.fps.toFixed(3)+" fps":"";}
+  $("#wavewrap").style.display="block";$("#waveInfo").textContent="extracting audio with ffmpeg…";
+  try{
+    const r=await sfetch("/api/peaks?path="+encodeURIComponent(path)+"&bin="+W.bin);
+    if(!r.ok){const j=await r.json();throw new Error(j.error)}
+    const i8=new Int8Array(await r.arrayBuffer());const pk=new Float32Array(i8.length);for(let i=0;i<i8.length;i++)pk[i]=i8[i]/127;
+    W.peaks=pk;W.dur=(info&&info.duration_ms)||pk.length/2*W.bin;$("#waveInfo").textContent=(W.dur/1000).toFixed(0)+" s · ffmpeg";
+  }catch(e){W.peaks=null;$("#waveInfo").textContent="no waveform: "+e.message}
+  drawWave();
+  api("/api/keyframes?path="+encodeURIComponent(path)).then(k=>{KF=k.keyframes||[];drawWave();if(KF.length)msg(KF.length+" keyframes loaded")}).catch(()=>{});
+}
+$("#bVideoUpload")&&0;
 $("#fVideo").onchange=ev=>{const f=ev.target.files[0];if(!f)return;vid.src=URL.createObjectURL(f);vid.style.display="block";$("#novideo").style.display="none";loadWave(f)};
 function overlayRect(){
   const box=$("#video").getBoundingClientRect();let ar=S.res[0]/S.res[1];
@@ -467,7 +486,7 @@ function updateOverlay(){
   const dd=ovc.width/ (S.res[0]);
   window.SFRender&&SFRender.draw(ovx,ovc.width,ovc.height,{res:S.res,styles:S.styles,events:S.events,now:t});
 }
-vid.addEventListener("timeupdate",()=>{updateOverlay();renderGrid()});
+vid.addEventListener("timeupdate",()=>{updateOverlay();renderGrid();if(S.fps)$("#sFrame").textContent="frame "+Math.floor(vid.currentTime*S.fps+0.0001)+" · "+fmt(vid.currentTime*1000)});
 vid.addEventListener("seeked",updateOverlay);
 vid.addEventListener("loadedmetadata",updateOverlay);
 window.addEventListener("resize",updateOverlay);
@@ -531,6 +550,9 @@ function drawWave(){
   wctx.fillStyle="#445";wctx.font=(10*d)+"px system-ui";
   const step=[100,250,500,1000,2000,5000,10000,30000,60000].find(s=>s/W.span*w>70*d)||60000;
   for(let t=Math.ceil(W.t0/step)*step;t<t1;t+=step){const x=t2x(t,w);wctx.fillRect(x,h-8*d,1,8*d);wctx.fillText(fmt(t).replace(/^0:/,""),x+3*d,h-2*d)}
+  // keyframes
+  if(KF.length){wctx.fillStyle="rgba(255,170,60,.55)";let lo=0,hi=KF.length;while(lo<hi){const m=(lo+hi)>>1;if(KF[m]<W.t0)lo=m+1;else hi=m}
+    for(let i=lo;i<KF.length&&KF[i]<=t1;i++)wctx.fillRect(t2x(KF[i],w),0,1,h*0.25)}
   // playhead
   if(vid.style.display!=="none"){const x=t2x(vid.currentTime*1000,w);wctx.fillStyle="#ff6b6b";wctx.fillRect(x,0,1.5*d,h)}
 }
@@ -543,7 +565,9 @@ function hit(ev){ // returns {i,edge} for nearest visible handle within 6px
 }
 wc.addEventListener("mousemove",ev=>{
   const r=wc.getBoundingClientRect(),w=r.width;
-  if(W.drag){const t=Math.max(0,Math.round(x2t(ev.clientX-r.left,w)/10)*10);W.drag.t=t;drawWaveDrag();return}
+  if(W.drag){let t=Math.max(0,Math.round(x2t(ev.clientX-r.left,w)/10)*10);
+    if(ev.altKey&&KF.length){let best=null,bd=1e9;for(const k of KF){const dd=Math.abs(k-t);if(dd<bd){bd=dd;best=k}}if(best!==null&&bd/W.span*w<12)t=best}
+    W.drag.t=t;drawWaveDrag();return}
   const h=hit(ev);wc.style.cursor=h?"ew-resize":"crosshair";
 });
 function drawWaveDrag(){const e=S.events[W.drag.i];const keep=e[W.drag.edge];e[W.drag.edge]=W.drag.t;drawWave();e[W.drag.edge]=keep}
@@ -618,6 +642,7 @@ document.addEventListener("keydown",e=>{
   if(e.key==="ArrowDown"||e.key==="ArrowUp"){
     e.preventDefault();const n=Math.max(0,Math.min(S.events.length-1,(cur<0?0:cur)+(e.key==="ArrowDown"?1:-1)));
     if(e.shiftKey){if(anchor<0)anchor=cur;sel=new Set();for(let k=Math.min(anchor,n);k<=Math.max(anchor,n);k++)sel.add(k);cur=n;scrollTo(n);renderAll()}else selectOnly(n);return}
+  if((e.key===","||e.key===".")&&vid.style.display!=="none"){e.preventDefault();vid.pause();const f=S.fps||23.976;vid.currentTime=Math.max(0,vid.currentTime+(e.key==="."?1:-1)/f);return}
   if((e.key==="p"||e.key==="P")&&!mod){e.preventDefault();playLine();return}
   if(e.key===" "&&vid.style.display!=="none"){e.preventDefault();vid.paused?vid.play():vid.pause();return}
   if((e.key==="["||e.key==="]")&&cur>=0&&vid.style.display!=="none"){

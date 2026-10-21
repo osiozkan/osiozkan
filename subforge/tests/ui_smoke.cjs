@@ -80,6 +80,14 @@ const fs = require("fs");
   await p.mouse.move(xEnd, y); await p.mouse.down(); await p.mouse.move(xEnd + box.width * 0.05, y, { steps: 5 }); await p.mouse.up();
   await p.waitForFunction((b) => S.events[0].end > b + 300, before);
   ok(true, "dragging waveform handle retimes line: " + before + " -> " + (await p.evaluate(() => S.events[0].end)));
+  // server-side media: ffmpeg peaks + range streaming
+  await p.evaluate(async (cwd) => { await loadMediaPath(cwd + "/tests/fixtures/tone.wav"); }, process_cwd);
+  await p.waitForFunction(() => W.peaks && W.peaks.length > 2000 && /ffmpeg/.test(document.querySelector("#waveInfo").textContent), null, { timeout: 15000 });
+  ok(true, "ffmpeg waveform via /api/peaks (" + (await p.evaluate(() => W.peaks.length / 2)) + " bins)");
+  const rng = await p.evaluate(async (cwd) => { const r = await fetch("/media?path=" + encodeURIComponent(cwd + "/tests/fixtures/tone.wav") + "&token=" + TOKEN, { headers: { Range: "bytes=0-99" } }); return [r.status, (await r.arrayBuffer()).byteLength, r.headers.get("content-range")]; }, process_cwd);
+  ok(rng[0] === 206 && rng[1] === 100, "range streaming: " + rng.join(" "));
+  const noTok = await p.evaluate(async (cwd) => (await fetch("/media?path=" + encodeURIComponent(cwd + "/tests/fixtures/tone.wav"))).status, process_cwd);
+  ok(noTok === 403, "media without token is rejected");
   // renderer: typeset fixture
   const ts = require("fs").readFileSync("tests/fixtures/typeset.ass");
   await p.evaluate(async (t) => { await sfetch("/api/open_raw?name=typeset.ass", { method: "POST", body: t }).then(r => r.json()).then(st => setState(st)); }, ts.toString());
@@ -148,7 +156,7 @@ const fs = require("fs");
   await p.keyboard.press("Escape");
   await p.screenshot({ path: "/tmp/ui.png" });
   await b.close();
-  const fails = errs.filter(e => e.startsWith("FAIL") || e.startsWith("pageerror") || e.startsWith("console"));
+  const fails = errs.filter(e => e.startsWith("FAIL") || e.startsWith("pageerror") || (e.startsWith("console") && !/403/.test(e)));
   if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
   console.log("UI smoke: all passed");
 })();

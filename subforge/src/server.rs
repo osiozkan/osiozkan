@@ -767,6 +767,78 @@ fn make_token() -> String {
     out
 }
 
+type PeakCache = std::sync::Mutex<HashMap<(String, u64, u32), std::sync::Arc<Vec<i8>>>>;
+
+fn peak_cache() -> &'static PeakCache {
+    static C: std::sync::OnceLock<PeakCache> = std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn mtime_secs(p: &std::path::Path) -> u64 {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn respond_bytes(req: tiny_http::Request, status: u16, ct: &str, body: Vec<u8>) {
+    let hdr = tiny_http::Header::from_bytes(&b"Content-Type"[..], ct.as_bytes()).unwrap();
+    let _ = req.respond(tiny_http::Response::from_data(body).with_status_code(status).with_header(hdr));
+}
+
+/// Media routes run on their own thread: ffmpeg work and large file streaming must not block editing.
+fn media_route(req: tiny_http::Request, route: &str, q: HashMap<String, String>) {
+    let path = std::path::PathBuf::from(q.get("path").map(|p| url_decode(p)).unwrap_or_default());
+    match route {
+        "/api/media_info" => match crate::media::probe(&path) {
+            Ok(m) => respond_bytes(req, 200, "application/json", json!({"duration_ms": m.duration_ms, "fps": m.fps, "width": m.width, "height": m.height, "has_video": m.has_video, "has_audio": m.has_audio}).to_string().into_bytes()),
+            Err(e) => respond_bytes(req, 400, "application/json", json!({"error": e}).to_string().into_bytes()),
+        },
+        "/api/keyframes" => match crate::media::keyframes(&path) {
+            Ok(k) => respond_bytes(req, 200, "application/json", json!({"keyframes": k}).to_string().into_bytes()),
+            Err(e) => respond_bytes(req, 400, "application/json", json!({"error": e}).to_string().into_bytes()),
+        },
+        "/api/peaks" => {
+            let bin: u32 = q.get("bin").and_then(|b| b.parse().ok()).unwrap_or(10).clamp(1, 1000);
+            let key = (path.display().to_string(), mtime_secs(&path), bin);
+            let cached = peak_cache().lock().ok().and_then(|c| c.get(&key).cloned());
+            let data = match cached {
+                Some(d) => Ok(d),
+                None => crate::media::peaks(&path, bin).map(|v| {
+                    let a = std::sync::Arc::new(v);
+                    if let Ok(mut c) = peak_cache().lock() {
+                        c.insert(key, a.clone());
+                    }
+                    a
+                }),
+            };
+            match data {
+                Ok(d) => respond_bytes(req, 200, "application/octet-stream", d.iter().map(|b| *b as u8).collect()),
+                Err(e) => respond_bytes(req, 400, "application/json", json!({"error": e}).to_string().into_bytes()),
+            }
+        }
+        "/media" => {
+            use std::io::{Read, Seek, SeekFrom};
+            let Ok(mut f) = std::fs::File::open(&path) else { return respond_bytes(req, 404, "text/plain", b"not found".to_vec()) };
+            let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+            let range = req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("range")).and_then(|h| crate::media::parse_range(h.value.as_str(), len));
+            let (status, start, end) = match range {
+                Some((a, b)) => (206u16, a, b),
+                None => (200u16, 0, len.saturating_sub(1)),
+            };
+            let n = if len == 0 { 0 } else { end - start + 1 };
+            let _ = f.seek(SeekFrom::Start(start));
+            let mut headers = vec![
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], crate::media::mime_for(&path).as_bytes()).unwrap(),
+                tiny_http::Header::from_bytes(&b"Accept-Ranges"[..], &b"bytes"[..]).unwrap(),
+            ];
+            if status == 206 {
+                headers.push(tiny_http::Header::from_bytes(&b"Content-Range"[..], format!("bytes {}-{}/{}", start, end, len).as_bytes()).unwrap());
+            }
+            let resp = tiny_http::Response::new(tiny_http::StatusCode(status), headers, f.take(n), Some(n as usize), None);
+            let _ = req.respond(resp);
+        }
+        _ => respond_bytes(req, 404, "text/plain", b"not found".to_vec()),
+    }
+}
+
 /// Blocking server loop. The API is protected against other web pages (CSRF / DNS rebinding):
 /// requests need the per-run token embedded in the served page, and a loopback `Host` header.
 pub fn serve(addr: &str, initial: Option<(String, String)>) -> anyhow::Result<()> {
@@ -781,6 +853,24 @@ pub fn serve(addr: &str, initial: Option<(String, String)>) -> anyhow::Result<()
     let allowed_hosts = [format!("127.0.0.1:{}", port), format!("localhost:{}", port), format!("[::1]:{}", port)];
     eprintln!("SubForge UI: http://{}/", addr);
     for mut req in server.incoming_requests() {
+        {
+            // authorize + dispatch media routes before the body is read
+            let url0 = req.url().to_string();
+            let (route0, query0) = url0.split_once('?').unwrap_or((url0.as_str(), ""));
+            if matches!(route0, "/api/media_info" | "/api/peaks" | "/api/keyframes" | "/media") {
+                let q: HashMap<String, String> = query0.split('&').filter_map(|kv| kv.split_once('=')).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+                let hdr_tok = req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("x-subforge-token")).map(|h| h.value.as_str().to_string());
+                let tok_ok = hdr_tok.as_deref() == Some(token.as_str()) || (route0 == "/media" && q.get("token").map(|t| t == &token).unwrap_or(false));
+                let host_ok = !loopback || req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("host")).map(|h| allowed_hosts.iter().any(|a| a.eq_ignore_ascii_case(h.value.as_str()))).unwrap_or(false);
+                if !tok_ok || !host_ok {
+                    respond_bytes(req, 403, "application/json", json!({"error": "forbidden"}).to_string().into_bytes());
+                    continue;
+                }
+                let route = route0.to_string();
+                std::thread::spawn(move || media_route(req, &route, q));
+                continue;
+            }
+        }
         let mut body = Vec::new();
         let _ = std::io::Read::read_to_end(req.as_reader(), &mut body);
         let method = req.method().as_str().to_string();

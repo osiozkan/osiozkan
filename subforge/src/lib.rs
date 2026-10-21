@@ -5,6 +5,7 @@ pub mod encoding;
 pub mod fontcollect;
 pub mod fonts;
 pub mod lua_lfs;
+pub mod media;
 pub mod lua_re;
 pub mod ops;
 pub mod resample;
