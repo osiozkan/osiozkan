@@ -92,12 +92,24 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
 <div id="main">
   <div id="video"><div id="novideo" style="position:absolute;top:6px;left:8px;z-index:1;pointer-events:none;color:var(--dim);font-size:11px">Preview of the selected line · “Video…” loads video/audio</div><video id="vid" controls style="display:none"></video><canvas id="ovc" style="position:absolute;pointer-events:none"></canvas><canvas id="ovi" style="position:absolute;display:none;cursor:move"></canvas></div>
   <div id="side">
-    <div id="tabs"><button data-p="qa" class="on">Checks</button><button data-p="mac">Lua macros</button><button data-p="keys">Keys</button></div>
+    <div id="tabs"><button data-p="qa" class="on">Checks</button><button data-p="kara">Karaoke</button><button data-p="mac">Lua macros</button><button data-p="keys">Keys</button></div>
     <div class="pane on" id="p-qa"><div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
       <label>CPS ≤ <input id="qCps" type="number" value="20" style="width:60px"></label>
       <label>Min ms <input id="qMin" type="number" value="500" style="width:70px"></label>
       <label>Max chars <input id="qLen" type="number" value="42" style="width:60px"></label>
       <button id="bQa" class="primary">Run checks</button></div><div id="issues" class="hint">No checks run yet.</div></div>
+    <div class="pane" id="p-kara">
+      <div class="hint" style="margin-bottom:6px">Selected line(s): split text into <code>\k</code> syllables, then fine-tune the durations (centiseconds).</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+        <select id="kMode"><option value="syllable">romaji/TR syllables</option><option value="char">characters</option><option value="word">words</option></select>
+        <select id="kKind"><option value="kf">\kf (sweep)</option><option value="k">\k</option><option value="ko">\ko</option></select>
+        <button id="kSplit" class="primary">Auto-split</button><button id="kScale" title="Rescale durations to the line length">Fit to line</button>
+        <button id="kStrip">Remove k tags</button>
+        <label>shift first <input id="kShift" type="number" value="10" style="width:56px"> cs <button id="kShiftGo">Apply</button></label>
+      </div>
+      <div id="kChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div class="hint" id="kInfo" style="margin-top:8px"></div>
+    </div>
     <div class="pane" id="p-mac"><button id="bLua">Upload .lua…</button> <button id="bLuaDisk" class="primary">Add script from disk…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
       <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>, / .</b> step one frame · <b>Alt+drag</b> snaps to keyframes · <b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
@@ -408,7 +420,48 @@ $("#bQa").onclick=()=>act(async()=>{
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x===b));
   document.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on",p.id==="p-"+b.dataset.p));
+  if(b.dataset.p==="kara")renderKara();
 });
+
+
+// ---- karaoke tab ----
+function parseK(text){ // -> {prefix, syls:[{kind,dur,extra,text}]} ; non-k leading blocks form the prefix
+  const out=[];let cur={kind:null,dur:0,extra:"",text:"",lead:true};const prefixParts=[];let started=false;
+  const re=/\{([^}]*)\}|([^{]+)/g;let m;
+  while((m=re.exec(text))){
+    if(m[1]!==undefined){
+      const km=/\\(kf|ko|k|K)(-?\d+(?:\.\d+)?)/.exec(m[1]);
+      if(km){if(started||cur.text)out.push(cur);cur={kind:km[1]==="K"?"kf":km[1],dur:Math.round(parseFloat(km[2])),extra:m[1].replace(km[0],""),text:""};started=true}
+      else if(!started&&!cur.text)prefixParts.push("{"+m[1]+"}");
+      else cur.text+="{"+m[1]+"}";
+    }else cur.text+=m[2];
+  }
+  if(started||cur.text)out.push(cur);
+  return{prefix:prefixParts.join(""),syls:out};
+}
+function buildK(p){return p.prefix+p.syls.map(s=>s.kind?`{\\${s.kind}${s.dur}${s.extra||""}}${s.text}`:s.text).join("")}
+function renderKara(){
+  const box=$("#kChips");const e=S.events[cur];
+  if(!e){box.innerHTML="";$("#kInfo").textContent="";return}
+  const p=parseK(e.text);
+  if(!p.syls.some(s=>s.kind)){box.innerHTML='<span class="hint">No \\k tags on this line. Use Auto-split.</span>';$("#kInfo").textContent="";return}
+  const el=(vid.style.display!=="none"?vid.currentTime*1000-e.start:-1);let acc=0;
+  box.innerHTML=p.syls.map((s,i)=>{
+    const st=acc*10,en=(acc+s.dur)*10;acc+=s.dur;
+    const on=el>=st&&el<en;
+    return `<div style="border:1px solid ${on?"var(--ok)":"var(--line)"};border-radius:6px;padding:4px 6px;background:var(--panel2);text-align:center"><div style="font-size:15px;min-width:24px">${esc(strip(s.text)||"·")}</div><input data-ki="${i}" type="number" value="${s.dur}" style="width:54px;text-align:center"><div class="hint" style="font-size:10px">${s.kind}</div></div>`}).join("");
+  const sum=p.syls.reduce((a,s)=>a+s.dur,0);
+  $("#kInfo").textContent=`Σ ${sum} cs = ${(sum*10/1000).toFixed(2)} s · line ${((e.end-e.start)/1000).toFixed(2)} s`+(Math.abs(sum*10-(e.end-e.start))>50?"  ⚠ differs":"");
+  box.querySelectorAll("input").forEach(inp=>inp.onchange=()=>{
+    const q=parseK(S.events[cur].text);q.syls[+inp.dataset.ki].dur=Math.max(0,parseInt(inp.value||0,10)||0);
+    patch([{op:"set_event",i:cur,event:{...S.events[cur],text:buildK(q)}}]);
+  });
+}
+async function karaTool(body){const idx=selIdx();const st=await act(()=>api("/api/tool",{name:"kara",selection:idx,...body}));if(st){setState(st);msg(st.message||"Done")}}
+$("#kSplit").onclick=()=>karaTool({op:"split",mode:$("#kMode").value,kind:$("#kKind").value});
+$("#kScale").onclick=()=>karaTool({op:"scale"});
+$("#kStrip").onclick=()=>karaTool({op:"strip"});
+$("#kShiftGo").onclick=()=>karaTool({op:"shift",cs:+$("#kShift").value});
 
 // ---- Lua macros ----
 $("#bLua").onclick=()=>$("#fLua").click();
@@ -652,7 +705,7 @@ document.addEventListener("keydown",e=>{
 
 function renderAll(){
   $("#sLines").textContent=S.events.length+" lines";$("#sSel").textContent=sel.size>1?sel.size+" selected":"";
-  renderGrid();renderEdit();updateOverlay();
+  renderGrid();renderEdit();updateOverlay();if($("#p-kara").classList.contains("on"))renderKara();
   const ce=S.events[cur];if(ce&&!W.drag){const t1=W.t0+W.span;if(ce.start<W.t0||ce.start>t1)centerOn(ce.start)}
   if(typeof drawWave==="function")drawWave();
 }

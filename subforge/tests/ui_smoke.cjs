@@ -146,6 +146,18 @@ const fs = require("fs");
   // timing tools via API
   const lead = await p.evaluate(async () => { const before = S.events[1].start; const st = await api("/api/tool", { name: "lead", in: 100, out: 0 }); setState(st); return [before, S.events[1].start]; });
   ok(lead[1] <= lead[0], "lead-in tool ran");
+  // karaoke tab
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
+  await p.click('#tabs [data-p="kara"]');
+  await p.waitForSelector("#kChips input");
+  const kvals = await p.$$eval("#kChips input", els => els.map(e => e.value));
+  ok(kvals.join(",") === "20,30,50", "karaoke chips show syllable durations " + kvals);
+  await p.fill('#kChips input[data-ki="1"]', "40"); await p.locator('#kChips input[data-ki="1"]').dispatchEvent("change");
+  await p.waitForFunction(() => S.events[0].text.includes("\\k40"));
+  ok(true, "editing a chip rewrites the \\k tag");
+  await p.selectOption("#kMode", "char"); await p.click("#kSplit");
+  await p.waitForFunction(() => (S.events[0].text.match(/\\kf/g) || []).length === 7);
+  ok(true, "auto-split into characters");
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");

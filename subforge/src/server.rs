@@ -575,6 +575,29 @@ impl Session {
                         msg = format!("fixed {} overlap(s), extended {} short line(s)", a, b);
                     }
                     "strip_tags" => ops::strip_all_tags(&mut work),
+                    "kara" => {
+                        use crate::karaoke as k;
+                        let sel_ref = sel.as_deref();
+                        msg = match v.get("op").and_then(|x| x.as_str()).unwrap_or("") {
+                            "split" => {
+                                let mode = match v.get("mode").and_then(|x| x.as_str()).unwrap_or("syllable") {
+                                    "char" => k::SplitMode::Char,
+                                    "word" => k::SplitMode::Word,
+                                    _ => k::SplitMode::Syllable,
+                                };
+                                let kind = match v.get("kind").and_then(|x| x.as_str()).unwrap_or("kf") {
+                                    "k" => "k",
+                                    "ko" => "ko",
+                                    _ => "kf",
+                                };
+                                format!("{} line(s) split", k::auto_split(&mut work, mode, kind, sel_ref))
+                            }
+                            "scale" => format!("{} line(s) rescaled", k::scale_to_line(&mut work, sel_ref)),
+                            "shift" => format!("{} line(s) shifted", k::shift_first(&mut work, num("cs").unwrap_or(0.0) as i64, sel_ref)),
+                            "strip" => format!("{} line(s) stripped", k::remove_all(&mut work, sel_ref)),
+                            other => return err_resp(400, format!("unknown karaoke op '{}'", other)),
+                        };
+                    }
                     "lead" => ops::lead_in_out(&mut work, num("in").unwrap_or(0.0) as i64, num("out").unwrap_or(0.0) as i64),
                     "chain" => msg = format!("{} gap(s) closed", ops::chain_gaps(&mut work, num("gap").unwrap_or(300.0) as i64)),
                     "min_gap" => msg = format!("{} line(s) trimmed", ops::enforce_min_gap(&mut work, num("gap").unwrap_or(40.0) as i64)),
