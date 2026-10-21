@@ -1,0 +1,33 @@
+name: SubForge
+on:
+  push:
+    paths: ["subforge/**", ".github/workflows/subforge.yml"]
+  pull_request:
+    paths: ["subforge/**"]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: subforge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: subforge
+      - name: Fetch stock Aegisub scripts (compat tests)
+        if: runner.os != 'Windows'
+        run: scripts/fetch-aegisub-scripts.sh "$RUNNER_TEMP/aegisub" && echo "AEGISUB_SCRIPTS=$RUNNER_TEMP/aegisub" >> "$GITHUB_ENV"
+      - run: cargo test --release
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subforge-${{ runner.os }}
+          path: |
+            subforge/target/release/subforge
+            subforge/target/release/subforge.exe
+          if-no-files-found: ignore

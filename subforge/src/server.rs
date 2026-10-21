@@ -575,6 +575,14 @@ impl Session {
                         msg = format!("fixed {} overlap(s), extended {} short line(s)", a, b);
                     }
                     "strip_tags" => ops::strip_all_tags(&mut work),
+                    "lead" => ops::lead_in_out(&mut work, num("in").unwrap_or(0.0) as i64, num("out").unwrap_or(0.0) as i64),
+                    "chain" => msg = format!("{} gap(s) closed", ops::chain_gaps(&mut work, num("gap").unwrap_or(300.0) as i64)),
+                    "min_gap" => msg = format!("{} line(s) trimmed", ops::enforce_min_gap(&mut work, num("gap").unwrap_or(40.0) as i64)),
+                    "sort_by" => ops::sort_events_by(&mut work, v.get("key").and_then(|x| x.as_str()).unwrap_or("start"), v.get("reverse").and_then(|x| x.as_bool()).unwrap_or(false)),
+                    "import_styles" => {
+                        let Some(r) = &self.reference else { return err_resp(400, "load an .ass as the reference first") };
+                        msg = format!("{} style(s) imported", ops::import_styles(&mut work, r, v.get("overwrite").and_then(|x| x.as_bool()).unwrap_or(false)));
+                    }
                     "merge_ref" => {
                         let Some(r) = &self.reference else { return err_resp(400, "load a reference subtitle first") };
                         let stack = v.get("stack").and_then(|x| x.as_bool()).unwrap_or(true);

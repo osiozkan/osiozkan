@@ -9,7 +9,7 @@ const fs = require("fs");
   p.on("pageerror", e => errs.push("pageerror: " + e.message));
   p.on("console", m => { if (m.type() === "error") errs.push("console: " + m.text()); });
   const ok = (c, m) => { if (!c) { errs.push("FAIL: " + m); } else console.log("ok  " + m); };
-  await p.goto("http://127.0.0.1:8765/");
+  await p.goto("http://127.0.0.1:" + (process.env.SF_PORT || 8765) + "/");
   await p.waitForSelector(".row");
   ok((await p.locator(".row").count()) === 3, "grid renders 3 rows");
   await p.locator('.row[data-i="1"]').click();
@@ -108,8 +108,8 @@ const fs = require("fs");
   ok(true, "Lua script added from disk");
   // save as to tmp then save in place
   await p.click("#bSaveAs"); await p.waitForSelector("#fName");
-  await p.fill("#fPath", "/tmp/claude-0"); await p.press("#fPath", "Enter");
-  await p.waitForFunction(() => document.querySelector("#fPath").value === "/tmp/claude-0" && document.querySelector("#fName") && document.querySelector("#mbox .issue"));
+  await p.fill("#fPath", "/tmp/claude-0"); await p.evaluate(() => { document.querySelector("#fPath").dataset.stale = "1"; }); await p.press("#fPath", "Enter");
+  await p.waitForFunction(() => document.querySelector("#fPath") && !document.querySelector("#fPath").dataset.stale && document.querySelector("#fName"));
   await p.fill("#fName", "ui_saved.ass"); await p.click("#fOk");
   await p.waitForFunction(() => S.path === "/tmp/claude-0/ui_saved.ass");
   ok(require("fs").readFileSync("/tmp/claude-0/ui_saved.ass", "utf8").includes("[Events]"), "save as wrote the file");
@@ -122,6 +122,22 @@ const fs = require("fs");
   ok(true, "reference text shown for selected line");
   const merged = await p.evaluate(async () => { const st = await api("/api/tool", { name: "merge_ref", stack: true }); setState(st); return st.message; });
   ok(/merged/.test(merged), "merge reference tool: " + merged);
+  // visual typesetting: drag sets \pos, shift-drag sets \clip
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/typeset.ass" })); selectOnly(0); vid.style.display = "none"; updateOverlay(); }, process_cwd);
+  await p.click("#bTypeset");
+  const ob = await p.locator("#ovi").boundingBox();
+  await p.mouse.move(ob.x + ob.width * 0.25, ob.y + ob.height * 0.5); await p.mouse.down();
+  await p.mouse.move(ob.x + ob.width * 0.5, ob.y + ob.height * 0.5, { steps: 4 }); await p.mouse.up();
+  await p.waitForFunction(() => { const m = /^\{\\pos\(([\d.]+),([\d.]+)\)\}/.exec(S.events[0].text); return m && Math.abs(m[1] - 640) < 12 && Math.abs(m[2] - 360) < 12; });
+  ok(true, "dragging on the preview sets \\pos: " + (await p.evaluate(() => S.events[0].text.slice(0, 20))));
+  await p.keyboard.down("Shift"); await p.mouse.move(ob.x + ob.width * 0.1, ob.y + ob.height * 0.1); await p.mouse.down();
+  await p.mouse.move(ob.x + ob.width * 0.5, ob.y + ob.height * 0.5, { steps: 3 }); await p.mouse.up(); await p.keyboard.up("Shift");
+  await p.waitForFunction(() => /\\clip\(/.test(S.events[0].text));
+  ok(true, "shift-drag adds \\clip");
+  await p.click("#bTypeset");
+  // timing tools via API
+  const lead = await p.evaluate(async () => { const before = S.events[1].start; const st = await api("/api/tool", { name: "lead", in: 100, out: 0 }); setState(st); return [before, S.events[1].start]; });
+  ok(lead[1] <= lead[0], "lead-in tool ran");
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");

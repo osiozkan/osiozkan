@@ -305,3 +305,164 @@ mod merge_tests {
         assert!(a.style("Ref").is_some() && a.style("Ref").unwrap().align == 8);
     }
 }
+
+fn dialogue_order(doc: &Document) -> Vec<usize> {
+    let mut idx: Vec<usize> = doc.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Event(ev) if !ev.comment)).map(|(i, _)| i).collect();
+    idx.sort_by_key(|&i| if let Entry::Event(e) = &doc.entries[i] { (e.start, e.end) } else { (0, 0) });
+    idx
+}
+
+fn ev_mut(doc: &mut Document, i: usize) -> &mut Event {
+    match &mut doc.entries[i] {
+        Entry::Event(e) => e,
+        _ => unreachable!(),
+    }
+}
+
+/// Timing post-processor lead-in / lead-out. Extensions never cross the neighbouring line.
+pub fn lead_in_out(doc: &mut Document, lead_in: i64, lead_out: i64) {
+    let order = dialogue_order(doc);
+    for (k, &i) in order.iter().enumerate() {
+        let prev_end = if k > 0 { if let Entry::Event(p) = &doc.entries[order[k - 1]] { Some(p.end) } else { None } } else { None };
+        let next_start = order.get(k + 1).and_then(|&n| if let Entry::Event(e) = &doc.entries[n] { Some(e.start) } else { None });
+        let e = ev_mut(doc, i);
+        let mut ns = (e.start - lead_in).max(0);
+        if let Some(pe) = prev_end {
+            if pe <= e.start {
+                ns = ns.max(pe);
+            } else {
+                ns = e.start; // already overlapping: leave alone
+            }
+        }
+        let mut ne = e.end + lead_out;
+        if let Some(nx) = next_start {
+            if nx >= e.end {
+                ne = ne.min(nx);
+            } else {
+                ne = e.end;
+            }
+        }
+        e.start = ns;
+        e.end = ne;
+    }
+}
+
+/// Chain: when the gap to the next line is <= `max_gap`, stretch the line so they touch.
+pub fn chain_gaps(doc: &mut Document, max_gap: i64) -> usize {
+    let order = dialogue_order(doc);
+    let mut n = 0;
+    for w in order.windows(2) {
+        let ns = if let Entry::Event(e) = &doc.entries[w[1]] { e.start } else { continue };
+        let e = ev_mut(doc, w[0]);
+        let gap = ns - e.end;
+        if gap > 0 && gap <= max_gap {
+            e.end = ns;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Ensure at least `min_gap` ms between a line's end and the next line's start (trims the earlier end).
+pub fn enforce_min_gap(doc: &mut Document, min_gap: i64) -> usize {
+    let order = dialogue_order(doc);
+    let mut n = 0;
+    for w in order.windows(2) {
+        let ns = if let Entry::Event(e) = &doc.entries[w[1]] { e.start } else { continue };
+        let e = ev_mut(doc, w[0]);
+        if ns - e.end < min_gap && ns > e.start && ns >= e.end.min(ns) {
+            let ne = (ns - min_gap).max(e.start + 1);
+            if ne < e.end {
+                e.end = ne;
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Sort events by a key: start, end, style, actor, layer, text, duration.
+pub fn sort_events_by(doc: &mut Document, key: &str, reverse: bool) {
+    let first = doc.entries.iter().position(|e| matches!(e, Entry::Event(_)));
+    let Some(first) = first else { return };
+    let tail: Vec<Entry> = doc.entries.drain(first..).collect();
+    let (mut evs, rest): (Vec<_>, Vec<_>) = tail.into_iter().partition(|e| matches!(e, Entry::Event(_)));
+    let k = |e: &Entry| -> (String, i64) {
+        let Entry::Event(ev) = e else { return (String::new(), 0) };
+        match key {
+            "end" => (String::new(), ev.end),
+            "style" => (ev.style.to_lowercase(), ev.start),
+            "actor" => (ev.actor.to_lowercase(), ev.start),
+            "layer" => (String::new(), (ev.layer as i64) * 10_000_000_000 + ev.start),
+            "text" => (crate::tags::strip_tags(&ev.text).to_lowercase(), ev.start),
+            "duration" => (String::new(), ev.end - ev.start),
+            _ => (String::new(), ev.start),
+        }
+    };
+    evs.sort_by(|a, b| k(a).cmp(&k(b)));
+    if reverse {
+        evs.reverse();
+    }
+    doc.entries.extend(evs);
+    doc.entries.extend(rest);
+}
+
+/// Copy styles from `other` (existing names are overwritten only with `overwrite`). Returns number copied.
+pub fn import_styles(doc: &mut Document, other: &Document, overwrite: bool) -> usize {
+    let mut n = 0;
+    for st in other.styles() {
+        match doc.entries.iter_mut().find(|e| matches!(e, Entry::Style(s) if s.name == st.name)) {
+            Some(slot) => {
+                if overwrite {
+                    *slot = Entry::Style(st.clone());
+                    n += 1;
+                }
+            }
+            None => {
+                let pos = doc.entries.iter().rposition(|e| matches!(e, Entry::Style(_) | Entry::Info { .. })).map(|p| p + 1).unwrap_or(0);
+                doc.entries.insert(pos, Entry::Style(st.clone()));
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    fn d(lines: &[(i64, i64, &str)]) -> Document {
+        let mut doc = Document::new_default();
+        for (s, e, t) in lines {
+            doc.entries.push(Entry::Event(Event { start: *s, end: *e, text: t.to_string(), ..Event::default() }));
+        }
+        doc
+    }
+    fn times(d: &Document) -> Vec<(i64, i64)> {
+        d.events().map(|e| (e.start, e.end)).collect()
+    }
+    #[test]
+    fn lead_chain_gap() {
+        let mut a = d(&[(1000, 2000, "a"), (2100, 3000, "b"), (6000, 7000, "c")]);
+        lead_in_out(&mut a, 200, 300);
+        assert_eq!(times(&a), vec![(800, 2100), (2100, 3300), (5800, 7300)]);
+        let mut a = d(&[(0, 1000, "a"), (1100, 2000, "b"), (5000, 6000, "c")]);
+        assert_eq!(chain_gaps(&mut a, 200), 1);
+        assert_eq!(times(&a)[0], (0, 1100));
+        assert_eq!(enforce_min_gap(&mut a, 100), 1);
+        assert_eq!(times(&a)[0], (0, 1000));
+    }
+    #[test]
+    fn sorting_and_styles() {
+        let mut a = d(&[(3000, 4000, "b"), (1000, 2000, "A"), (2000, 2500, "c")]);
+        sort_events_by(&mut a, "text", false);
+        assert_eq!(a.events().map(|e| e.text.clone()).collect::<Vec<_>>(), ["A", "b", "c"]);
+        sort_events_by(&mut a, "duration", true);
+        assert_eq!(a.events().next().unwrap().text, "b");
+        let mut other = Document::new_default();
+        other.entries.push(Entry::Style(crate::ass::Style { name: "New".into(), ..Default::default() }));
+        assert_eq!(import_styles(&mut a, &other, false), 1);
+        assert_eq!(import_styles(&mut a, &other, false), 0);
+        assert!(a.style("New").is_some());
+    }
+}
