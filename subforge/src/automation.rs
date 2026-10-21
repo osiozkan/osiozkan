@@ -322,6 +322,8 @@ impl UserData for Subs {
                         d.entries.insert(pos, e);
                     } else if i <= n {
                         d.entries[i as usize - 1] = e;
+                    } else if i == n + 1 {
+                        d.entries.push(e); // lenient: subs[#subs+1] = line appends
                     } else {
                         return Err(mlua::Error::runtime("Attempt to set out-of-range line"));
                     }

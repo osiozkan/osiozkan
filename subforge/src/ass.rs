@@ -312,6 +312,10 @@ impl Document {
                 }
             }
         }
+        if doc.ssa_v4 {
+            // we always write [V4+ Styles]; make the header agree
+            doc.set_info("ScriptType", "v4.00+");
+        }
         doc
     }
 
@@ -504,6 +508,19 @@ pub fn format_event(e: &Event) -> String {
 mod tests {
     use super::*;
     const SAMPLE: &str = "\u{feff}[Script Info]\r\n; hi\r\nTitle: T\r\nPlayResX: 1280\r\nPlayResY: 720\r\n\r\n[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\r\n\r\n[Aegisub Project Garbage]\r\nAudio File: a.mka\r\n\r\n[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\nDialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\k50}Hel{\\k50}lo, world\r\nComment: 1,0:00:03.00,0:00:04.00,Default,act,0,0,0,fx, note\r\n";
+    #[test]
+    fn ssa_v4_import() {
+        let ssa = "[Script Info]\nScriptType: v4.00\n\n[V4 Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\nStyle: Default,Arial,20,16777215,255,0,0,-1,0,1,2,2,6,10,10,10,0,1\n\n[Events]\nFormat: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: Marked=0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hi, there\n";
+        let d = Document::parse(ssa);
+        let st = d.style("Default").unwrap();
+        assert_eq!(st.colors[0], 16777215);
+        assert_eq!(st.align, 8, "SSA 6 (top-center) -> ASS numpad 8");
+        assert!(st.bold);
+        assert_eq!(d.events().next().unwrap().text, "Hi, there");
+        assert_eq!(d.info("ScriptType"), Some("v4.00+"));
+        assert!(d.to_string().contains("[V4+ Styles]"));
+    }
+
     #[test]
     fn garbage_get_set() {
         let mut d = Document::parse(SAMPLE);

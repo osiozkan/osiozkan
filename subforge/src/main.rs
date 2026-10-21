@@ -168,6 +168,12 @@ fn render(doc: &Document, p: &Path) -> String {
 
 fn save(doc: &Document, input: &Path, output: &Option<PathBuf>) -> Result<()> {
     let target = output.clone().unwrap_or_else(|| input.to_path_buf());
+    if output.is_none() && target.exists() {
+        // in-place edit: keep the previous version next to it
+        let mut bak = target.clone().into_os_string();
+        bak.push(".bak");
+        let _ = std::fs::copy(&target, std::path::PathBuf::from(bak));
+    }
     write_text(&target, &render(doc, &target))?;
     eprintln!("wrote {}", target.display());
     Ok(())

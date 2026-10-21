@@ -95,3 +95,32 @@ fn dialog_hook_cancel_makes_script_cancel() {
     assert!(r.cancelled);
     assert_eq!(d.borrow().events().next().unwrap().start, 1000);
 }
+
+#[test]
+fn parsers_never_panic_on_garbage() {
+    use subforge::{ass::Document, srt};
+    let nasty: Vec<String> = vec![
+        "".into(),
+        "[".into(),
+        "[Events]".into(),
+        "[Events]\nDialogue:".into(),
+        "[Events]\nFormat: Layer, Start, End, Text\nDialogue: x,y,z,{unclosed".into(),
+        "[V4+ Styles]\nStyle: ,,,,".into(),
+        "{".repeat(1000),
+        "\u{feff}\u{0}\u{1}\u{2}[Script Info]\nTitle".into(),
+        "1\n00:00:01,000 --> \n\n2\n--> 00:00:02,000\ntext".into(),
+        "WEBVTT\n\n00:01.000 --> 00:02.000 align:start\n<c.yellow>hi</c>".into(),
+        (0..300).map(|i| format!("Dialogue: 0,0:00:0{}.00,0:00:01.00,S,,0,0,0,,{{\\k{}}}x\n", i % 10, i)).collect(),
+    ];
+    for t in nasty {
+        let d = Document::parse(&t);
+        let _ = d.to_string();
+        let d = srt::parse_srt(&t);
+        let _ = srt::to_srt(&d);
+        let _ = srt::to_vtt(&d);
+        let _ = subforge::tags::syllables(&t);
+        let _ = subforge::tags::karaoke_data(&t);
+        let _ = subforge::karaoke::strip_k(&t);
+        let _ = subforge::cleanup::rebalance(&t, 40);
+    }
+}
