@@ -246,7 +246,10 @@ impl Document {
         for line in src.lines() {
             let t = line.trim_end_matches('\r');
             let tt = t.trim();
-            if tt.starts_with('[') && tt.ends_with(']') {
+            let in_blob = matches!(section.to_ascii_lowercase().as_str(), "[fonts]" | "[graphics]");
+            let known = ["[script info]", "[v4+ styles]", "[v4 styles]", "[events]", "[fonts]", "[graphics]", "[aegisub project garbage]", "[aegisub extradata]"];
+            // uuencoded font data can look like "[...]": inside blobs only real section names count
+            if tt.starts_with('[') && tt.ends_with(']') && (!in_blob || known.contains(&tt.to_ascii_lowercase().as_str())) {
                 section = tt.to_string();
                 raw_idx = None;
                 let low = section.to_ascii_lowercase();

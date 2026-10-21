@@ -28,3 +28,10 @@ runs the owner's existing Lua scripts; a new version prepared every night; each 
 - 2026-10-21 (night 1): repo contained only a profile README; started from scratch in `subforge/`. Everything above
   marked [x] was built and tested in this first run (≈ 70 unit/integration tests + a headless-browser UI smoke test
   with ~60 checks). An independent review agent audited the code at the end of the night (findings fixed below).
+- Review fixes applied (night 1): upload-open no longer keeps the old save path; edits/open blocked while a macro runs;
+  macro worker survives panics, dialog wait times out, UI has Cancel; undo/redo mark dirty; numeric tool inputs validated;
+  case change keeps `\N \n \h` and drawings; karaoke split keeps escapes; unmappable codepage characters are an error;
+  `[Fonts]` blobs can't fake section headers; non-loopback bind refused without SUBFORGE_ALLOW_REMOTE=1.
+- Still open from review: macro `selection`/`active` round-trip to UI, resample of `\blur/\be`, VTT entity escaping,
+  predictable temp script paths on shared hosts, regex `$1abc` replacement syntax.
+- Pending wiring (code exists): glossary in UI/QA, scene detection route + snap, LRC/SBV/MicroDVD already in UI/CLI.

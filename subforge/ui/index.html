@@ -73,7 +73,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bNew">New</button>
   <button id="bOpen">Open…</button><button id="bBrowse" title="Open from disk (server-side browser)">Browse…</button>
   <button id="bSave" class="primary">Save</button><button id="bSaveAs">Save as…</button>
-  <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
+  <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option><option>lrc</option><option>sbv</option><option>sub</option></select>
   <select id="senc" title="Save encoding"><option value="utf-8">UTF-8 (BOM)</option><option value="utf-8nobom">UTF-8</option><option value="windows-1254">Turkish (1254)</option><option value="windows-1252">Western (1252)</option><option value="utf-16le">UTF-16 LE</option><option value="shift_jis">Shift-JIS</option></select>
   <select id="oenc" title="Encoding used when opening (auto-detect by default)"><option value="auto">Open: auto</option><option value="utf-8">Open: UTF-8</option><option value="windows-1254">Open: Turkish (1254)</option><option value="windows-1252">Open: Western (1252)</option><option value="shift_jis">Open: Shift-JIS</option><option value="gbk">Open: GBK</option><option value="euc-kr">Open: EUC-KR</option></select>
   <select id="uilang" title="Interface language / Arayüz dili"><option value="en">English</option><option value="tr">Türkçe</option></select>
@@ -86,7 +86,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bExact" title="Render the current frame with libass through ffmpeg (exact)">libass ▶</button><button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
   <input type="file" id="fRef" hidden accept=".ass,.ssa,.srt,.vtt">
   <span class="hint" id="dirty"></span>
-  <input type="file" id="fOpen" hidden accept=".ass,.ssa,.srt,.vtt,.txt">
+  <input type="file" id="fOpen" hidden accept=".ass,.ssa,.srt,.vtt,.txt,.lrc,.sbv,.sub">
   <input type="file" id="fVideo" hidden accept="video/*,audio/*">
   <input type="file" id="fLua" hidden accept=".lua" multiple>
 </div>
@@ -128,7 +128,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <div id="gridwrap">
     <div id="head"><div>#</div><div>C</div><div>Ly</div><div>Start</div><div>End</div><div>Dur</div><div>Style</div><div>Actor</div><div>CPS</div><div>Text</div></div>
     <div id="grid"><div id="spacer"></div></div>
-    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sRun" style="color:var(--acc)"></span><span id="sFps"></span><span id="sFrame"></span><span id="sMsg"></span></div>
+    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sRun" style="color:var(--acc)"></span><button id="bMacCancel" style="display:none;padding:0 8px">Cancel macro</button><span id="sFps"></span><span id="sFrame"></span><span id="sMsg"></span></div>
   </div>
 </div>
 
@@ -285,7 +285,7 @@ async function fileModal(opts){ // {mode:"open"|"save", exts:[..], title, name, 
   };
   render();
 }
-const SUB_EXTS=[".ass",".ssa",".srt",".vtt",".txt"];
+const SUB_EXTS=[".ass",".ssa",".srt",".vtt",".txt",".lrc",".sbv",".sub"];
 $("#bBrowse").onclick=()=>fileModal({mode:"open",exts:SUB_EXTS,title:"Open subtitle file",dir:S.path?S.path.replace(/[\\/][^\\/]*$/,""):"",onPick:path=>act(async()=>{
   const st=await api("/api/open_path",{path,encoding:$("#oenc").value});sel.clear();cur=-1;setState(st);if(S.events.length)selectOnly(0);
   {const m={"UTF-8":"utf-8","windows-1254":"windows-1254","windows-1252":"windows-1252","UTF-16LE":"utf-16le","Shift_JIS":"shift_jis"}[st.encoding];if(m)$("#senc").value=m}
@@ -614,7 +614,7 @@ async function runMacro(s,name){
   const base=S.info.length+S.styles.length;
   const idx=selIdx().map(i=>base+i+1);
   const log=$("#macLog");const run=$("#sRun");
-  macroRunning=true;
+  macroRunning=true;$("#bMacCancel").style.display="inline-block";$("#bMacCancel").onclick=()=>api("/api/macro/cancel",{}).catch(()=>{});
   try{
     await api("/api/macro/start",{script:s.src,path:s.path,name,selection:idx,fps:S.fps||undefined});
     for(;;){
@@ -637,7 +637,7 @@ async function runMacro(s,name){
       break;
     }
   }catch(e){log.style.display="block";log.textContent=e.message;msg("Macro failed",true)}
-  finally{macroRunning=false;run.textContent=""}
+  finally{macroRunning=false;run.textContent="";$("#bMacCancel").style.display="none";api("/api/macro/cancel",{}).catch(()=>{})}
 }
 $("#p-mac").addEventListener("click",()=>{});
 
@@ -651,7 +651,7 @@ async function loadMediaPath(path,quiet){
   if(!quiet)api("/api/set_media",{video:path}).catch(()=>{});
   let info=null;try{info=await api("/api/media_info?path="+encodeURIComponent(path))}catch(e){msg("ffprobe unavailable ("+e.message+") – playing without metadata",true)}
   vid.src="/media?path="+encodeURIComponent(path)+"&token="+TOKEN;vid.style.display="block";$("#novideo").style.display="none";
-  if(info){MEDIA.info=info;S.fps=info.fps||null;$("#sFps").textContent=info.fps?info.fps.toFixed(3)+" fps":"";}
+  if(info){MEDIA.info=info;S.fps=info.fps||null;$("#sFps").textContent=info.fps?info.fps.toFixed(3)+" fps":"";if(info.fps)api("/api/set_media",{fps:info.fps}).catch(()=>{})}
   $("#wavewrap").style.display="block";$("#waveInfo").textContent="extracting audio with ffmpeg…";
   try{
     const r=await sfetch("/api/peaks?path="+encodeURIComponent(path)+"&bin="+W.bin);

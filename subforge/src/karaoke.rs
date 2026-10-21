@@ -32,7 +32,25 @@ pub fn strip_k(text: &str) -> String {
     out
 }
 
+/// Split into syllables; `\N` `\n` `\h` escapes are never torn apart.
 pub fn split_syllables(s: &str, mode: SplitMode) -> Vec<String> {
+    const PH: [(&str, char); 3] = [("\\N", '\u{E000}'), ("\\n", '\u{E001}'), ("\\h", '\u{E002}')];
+    let mut tmp = s.to_string();
+    for (e, c) in PH {
+        tmp = tmp.replace(e, &c.to_string());
+    }
+    split_raw(&tmp, mode)
+        .into_iter()
+        .map(|mut syl| {
+            for (e, c) in PH {
+                syl = syl.replace(c, e);
+            }
+            syl
+        })
+        .collect()
+}
+
+fn split_raw(s: &str, mode: SplitMode) -> Vec<String> {
     match mode {
         SplitMode::Char => s.chars().map(|c| c.to_string()).collect(),
         SplitMode::Word => {
@@ -264,5 +282,17 @@ mod tests {
         assert_eq!(remove_all(&mut d, None), 1);
         assert_eq!(txt(&d), "AB");
         assert_eq!(even_split(10, 3), vec![4, 3, 3]);
+    }
+}
+
+#[cfg(test)]
+mod escape_tests {
+    use super::*;
+    #[test]
+    fn escapes_stay_atomic() {
+        assert_eq!(split_syllables("ka\\Nra", SplitMode::Char), ["k", "a", "\\N", "r", "a"]);
+        let s = split_syllables("ka\\Nra", SplitMode::Syllable);
+        assert_eq!(s.concat(), "ka\\Nra");
+        assert!(s.iter().all(|x| !x.ends_with('\\')), "{:?}", s);
     }
 }

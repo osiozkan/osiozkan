@@ -66,6 +66,19 @@ pub fn encode(text: &str, label: &str, bom: bool) -> Vec<u8> {
     b.into_owned()
 }
 
+/// Like `encode`, but fails instead of silently writing `&#NNNN;` for characters the codepage lacks.
+pub fn try_encode(text: &str, label: &str, bom: bool) -> Result<Vec<u8>, String> {
+    let enc = Encoding::for_label(label.as_bytes()).unwrap_or(UTF_8);
+    if enc != UTF_8 && enc != UTF_16LE && enc != UTF_16BE {
+        let (_, _, unmappable) = enc.encode(text);
+        if unmappable {
+            let bad: String = text.chars().filter(|c| { let mut b = [0u8; 4]; let (_, _, u) = enc.encode(c.encode_utf8(&mut b)); u }).take(8).collect();
+            return Err(format!("{} cannot represent: {} — save as UTF-8 instead", enc.name(), bad));
+        }
+    }
+    Ok(encode(text, label, bom))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +92,13 @@ mod tests {
         let d2 = decode(&b, Some("windows-1254"));
         assert_eq!(d2.text, s);
     }
+    #[test]
+    fn unmappable_is_an_error() {
+        assert!(try_encode("çğş", "windows-1254", false).is_ok());
+        let e = try_encode("日本 ş", "windows-1254", false).unwrap_err();
+        assert!(e.contains('日'), "{}", e);
+    }
+
     #[test]
     fn utf8_and_utf16() {
         let s = "Merhaba dünya çşğ";

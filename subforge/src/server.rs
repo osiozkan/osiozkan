@@ -172,6 +172,8 @@ pub struct Session {
     pub encoding: String,
     pub path: Option<std::path::PathBuf>,
     pub reference: Option<Document>,
+    /// frame rate of the loaded video (for frame-based formats); default 23.976
+    pub fps: f64,
     pub settings: crate::settings::Settings,
     last_autosave: Option<std::time::Instant>,
     undo: Vec<Document>,
@@ -281,7 +283,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { run: None, doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, settings: crate::settings::Settings::load(), last_autosave: None, undo: vec![], redo: vec![], dirty: false }
+        Session { run: None, doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, fps: 23.976, settings: crate::settings::Settings::load(), last_autosave: None, undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -381,8 +383,9 @@ impl Session {
     pub fn open_text(&mut self, name: &str, text: &str) {
         self.checkpoint();
         let lower = name.to_lowercase();
-        self.doc = if lower.ends_with(".srt") || lower.ends_with(".vtt") { srt::parse_srt(text) } else { Document::parse(text) };
+        self.doc = parse_by_name(&lower, text, self.fps);
         self.name = name.to_string();
+        self.path = None; // a freshly opened buffer must never save over the previously opened file
         self.undo.clear();
         self.redo.clear();
         self.dirty = false;
@@ -400,6 +403,13 @@ impl Session {
             _ => None,
         };
         let before = before.as_deref().unwrap_or(&[]);
+        let macro_active = self.run.as_ref().map(|r| r.state.lock().map(|s| s.phase != Phase::Done).unwrap_or(false)).unwrap_or(false);
+        if macro_active
+            && method == "POST"
+            && matches!(route, "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/open" | "/api/open_raw" | "/api/open_path" | "/api/new" | "/api/macro/run" | "/api/macro/start" | "/api/set_media")
+        {
+            return err_resp(409, "a macro is running: finish or cancel it first");
+        }
         let r = self.route(method, route, &q, body, before);
         if method == "POST" && matches!(route, "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/macro/run") {
             self.maybe_autosave();
@@ -458,12 +468,7 @@ impl Session {
                 let path = v.get("path").and_then(|x| x.as_str()).map(std::path::PathBuf::from).or_else(|| self.path.clone());
                 let Some(path) = path else { return err_resp(400, "no path: use Save As") };
                 let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-                let text = match ext.as_str() {
-                    "srt" => srt::to_srt(&self.doc),
-                    "vtt" => srt::to_vtt(&self.doc),
-                    "txt" => self.doc.events().filter(|e| !e.comment).map(|e| crate::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n"),
-                    _ => self.doc.to_string(),
-                };
+                let text = render_by_ext(&ext, &self.doc, self.fps);
                 let enc = v.get("encoding").and_then(|x| x.as_str()).unwrap_or("utf-8");
                 let bom = v.get("bom").and_then(|x| x.as_bool()).unwrap_or(ext == "ass" || ext == "ssa");
                 // keep one backup of the previous version next to the file
@@ -471,6 +476,9 @@ impl Session {
                     let mut bak = path.clone().into_os_string();
                     bak.push(".bak");
                     let _ = std::fs::copy(&path, std::path::PathBuf::from(bak));
+                }
+                if let Err(e) = crate::encoding::try_encode(&text, enc, bom) {
+                    return err_resp(400, e);
                 }
                 if let Err(e) = std::fs::write(&path, crate::encoding::encode(&text, enc, bom)) {
                     return err_resp(400, format!("{}: {}", path.display(), e));
@@ -526,6 +534,9 @@ impl Session {
             }
             ("POST", "/api/set_media") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                if let Some(f) = v.get("fps").and_then(|x| x.as_f64()).filter(|f| *f > 1.0 && *f < 1000.0) {
+                    self.fps = f;
+                }
                 let video = v.get("video").and_then(|x| x.as_str());
                 let audio = v.get("audio").and_then(|x| x.as_str());
                 let rel = |p: &str| -> String {
@@ -554,7 +565,7 @@ impl Session {
                 let hint = q.get("encoding").map(|e| url_decode(e)).filter(|e| !e.is_empty() && e != "auto");
                 let d = crate::encoding::decode(body, hint.as_deref());
                 let lower = name.to_lowercase();
-                let doc = if lower.ends_with(".srt") || lower.ends_with(".vtt") { srt::parse_srt(&d.text) } else { Document::parse(&d.text) };
+                let doc = parse_by_name(&lower, &d.text, self.fps);
                 let evs: Vec<EventJson> = doc.events().filter(|e| !e.comment).map(EventJson::from).collect();
                 self.reference = Some(doc);
                 json_resp(json!({"name": name, "events": evs, "encoding": d.encoding}))
@@ -585,26 +596,26 @@ impl Session {
             ("POST", "/api/undo") => {
                 if let Some(prev) = self.undo.pop() {
                     self.redo.push(std::mem::replace(&mut self.doc, prev));
+                    self.dirty = true;
                 }
                 json_resp(self.delta(before))
             }
             ("POST", "/api/redo") => {
                 if let Some(next) = self.redo.pop() {
                     self.undo.push(std::mem::replace(&mut self.doc, next));
+                    self.dirty = true;
                 }
                 json_resp(self.delta(before))
             }
             ("GET", "/api/export") => {
                 let fmt = q.get("fmt").map(|s| s.as_str()).unwrap_or("ass");
                 let enc = q.get("enc").map(|e| url_decode(e)).unwrap_or_else(|| "utf-8".into());
-                let text = match fmt {
-                    "srt" => srt::to_srt(&self.doc),
-                    "vtt" => srt::to_vtt(&self.doc),
-                    "txt" => self.doc.events().filter(|e| !e.comment).map(|e| crate::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n"),
-                    _ => self.doc.to_string(),
-                };
+                let text = render_by_ext(fmt, &self.doc, q.get("fps").and_then(|f| f.parse().ok()).unwrap_or(self.fps));
                 let bom = q.get("bom").map(|b| b != "0").unwrap_or(fmt == "ass");
-                Response { status: 200, content_type: "application/octet-stream", body: crate::encoding::encode(&text, &enc, bom) }
+                match crate::encoding::try_encode(&text, &enc, bom) {
+                    Ok(b) => Response { status: 200, content_type: "application/octet-stream", body: b },
+                    Err(e) => err_resp(400, e),
+                }
             }
             ("GET", "/api/export_text") => {
                 let fmt = q.get("fmt").map(|s| s.as_str()).unwrap_or("ass");
@@ -683,6 +694,19 @@ impl Session {
                 let sel: Option<Vec<usize>> = v.get("selection").and_then(|x| x.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as usize).collect());
                 let mut work = self.doc.clone();
                 let mut msg = String::new();
+                for k in ["fps", "from", "to"] {
+                    if v.get(k).and_then(|x| x.as_f64()).map(|f| !(f > 0.0 && f < 1000.0)).unwrap_or(false) {
+                        return err_resp(400, format!("'{}' must be a positive frame rate", k));
+                    }
+                }
+                if name == "replace" && v.get("find").and_then(|x| x.as_str()).unwrap_or("").is_empty() {
+                    return err_resp(400, "find text is empty");
+                }
+                for k in ["max", "gap"] {
+                    if v.get(k).and_then(|x| x.as_f64()).map(|f| f < 0.0).unwrap_or(false) {
+                        return err_resp(400, format!("'{}' must not be negative", k));
+                    }
+                }
                 match name {
                     "shift" => ops::shift(&mut work, num("ms").unwrap_or(0.0) as i64, sel.as_deref()),
                     "fps" => ops::change_framerate(&mut work, num("from").unwrap_or(23.976), num("to").unwrap_or(25.0)),
@@ -757,9 +781,9 @@ impl Session {
                         let tr = v.get("turkish").and_then(|x| x.as_bool()).unwrap_or(false);
                         crate::cleanup::change_case_doc(&mut work, mode, tr, sel.as_deref());
                     }
-                    "rebalance" => msg = format!("{} event(s) rebalanced", crate::cleanup::rebalance_doc(&mut work, num("max").unwrap_or(42.0) as usize)),
+                    "rebalance" => msg = format!("{} event(s) rebalanced", crate::cleanup::rebalance_doc(&mut work, (num("max").unwrap_or(42.0) as usize).max(1))),
                     "merge_short" => msg = format!("{} merged", crate::cleanup::merge_short(&mut work, num("gap").unwrap_or(250.0) as i64, num("max").unwrap_or(42.0) as usize)),
-                    "split_long" => msg = format!("{} split", crate::cleanup::split_long(&mut work, num("max").unwrap_or(84.0) as usize)),
+                    "split_long" => msg = format!("{} split", crate::cleanup::split_long(&mut work, (num("max").unwrap_or(84.0) as usize).max(1))),
                     "replace" => {
                         let find = v.get("find").and_then(|x| x.as_str()).unwrap_or("");
                         let with = v.get("with").and_then(|x| x.as_str()).unwrap_or("");
@@ -821,8 +845,10 @@ impl Session {
                         st.reply = None;
                         st.phase = Phase::Dialog;
                         sh.cv.notify_all();
+                        let waited = std::time::Instant::now();
                         loop {
-                            if sh.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            // abandoned UI (tab closed / reloaded): give up after 10 minutes
+                            if sh.cancel.load(std::sync::atomic::Ordering::Relaxed) || waited.elapsed().as_secs() > 600 {
                                 st.phase = Phase::Running;
                                 st.dialog = None;
                                 return Some(json!({"button": null, "values": {}}));
@@ -853,8 +879,11 @@ impl Session {
                 let sh = shared.clone();
                 std::thread::spawn(move || {
                     let rc = Rc::new(RefCell::new(doc));
-                    let res = run_script_on(&src, spath.as_deref(), rc.clone(), &name, &opts);
-                    let out = res.map(|r| (rc.borrow().clone(), r));
+                    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let res = run_script_on(&src, spath.as_deref(), rc.clone(), &name, &opts);
+                        res.map(|r| (rc.borrow().clone(), r))
+                    }));
+                    let out = caught.unwrap_or_else(|_| Err("macro thread panicked".to_string()));
                     let mut st = sh.state.lock().unwrap();
                     st.result = Some(out);
                     st.phase = Phase::Done;
@@ -947,6 +976,25 @@ impl Session {
     }
 }
 
+/// Parse by (lower-case) file name extension: srt/vtt/lrc/sbv/sub/txt, everything else as ASS/SSA.
+fn parse_by_name(lower_name: &str, text: &str, fps: f64) -> Document {
+    let ext = lower_name.rsplit('.').next().unwrap_or("");
+    match ext {
+        "srt" | "vtt" => srt::parse_srt(text),
+        "txt" => crate::formats::parse_plain(text, 2000),
+        _ => crate::formats::parse_by_extension(ext, text, fps).unwrap_or_else(|| Document::parse(text)),
+    }
+}
+
+fn render_by_ext(ext: &str, doc: &Document, fps: f64) -> String {
+    match ext {
+        "srt" => srt::to_srt(doc),
+        "vtt" => srt::to_vtt(doc),
+        "txt" => doc.events().filter(|e| !e.comment).map(|e| crate::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n"),
+        e => crate::formats::render_by_extension(e, doc, fps).unwrap_or_else(|| doc.to_string()),
+    }
+}
+
 fn url_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -954,7 +1002,7 @@ fn url_decode(s: &str) -> String {
     while i < b.len() {
         match b[i] {
             b'%' if i + 2 < b.len() => {
-                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
                     out.push(v);
                     i += 3;
                     continue;
@@ -1104,6 +1152,10 @@ fn media_route(req: tiny_http::Request, route: &str, q: HashMap<String, String>)
 /// Blocking server loop. The API is protected against other web pages (CSRF / DNS rebinding):
 /// requests need the per-run token embedded in the served page, and a loopback `Host` header.
 pub fn serve(addr: &str, initial: Option<(String, String)>) -> anyhow::Result<()> {
+    let is_loopback = addr.starts_with("127.") || addr.starts_with("localhost") || addr.starts_with("[::1]");
+    if !is_loopback && std::env::var("SUBFORGE_ALLOW_REMOTE").ok().as_deref() != Some("1") {
+        anyhow::bail!("refusing to listen on non-loopback address {}: the editor API can read/write files and run Lua. Set SUBFORGE_ALLOW_REMOTE=1 to override", addr);
+    }
     let server = tiny_http::Server::http(addr).map_err(|e| anyhow::anyhow!("{}", e))?;
     let mut session = Session::new();
     if let Some((name, text)) = initial {
@@ -1265,6 +1317,23 @@ mod tests {
         // undo restores
         let st = post(&mut s, "/api/undo", json!({}));
         assert_eq!(st["events"][0]["start"], 1000);
+    }
+
+    #[test]
+    fn review_regressions() {
+        let mut s = session();
+        s.path = Some(std::path::PathBuf::from("/tmp/other.ass"));
+        s.open_text("new.ass", "[Script Info]\n");
+        assert!(s.path.is_none(), "opening a buffer must drop the old save path");
+        let mut s = session();
+        post(&mut s, "/api/tool", json!({"name": "shift", "ms": 10}));
+        s.dirty = false;
+        post(&mut s, "/api/undo", json!({}));
+        assert!(s.dirty, "undo must mark the document dirty");
+        for body in [json!({"name": "fps", "from": 24, "to": 0}), json!({"name": "replace", "find": "", "with": "x"}), json!({"name": "snap", "fps": 0})] {
+            assert_eq!(s.handle("POST", "/api/tool", body.to_string().as_bytes()).status, 400, "{}", body);
+        }
+        assert_eq!(url_decode("%aé%41"), "%aéA");
     }
 
     #[test]

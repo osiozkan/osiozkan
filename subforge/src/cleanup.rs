@@ -78,12 +78,23 @@ pub fn change_case(s: &str, mode: Casing, turkish: bool) -> String {
 }
 
 pub fn change_case_doc(doc: &mut Document, mode: Casing, turkish: bool, only: Option<&[usize]>) {
+    let esc = Regex::new(r"\\[Nnh]").unwrap();
     for (i, e) in doc.events_mut().enumerate() {
+        if e.comment || e.text.contains("\\p1") {
+            continue;
+        }
         if only.map(|o| o.contains(&i)).unwrap_or(true) {
             e.text = map_text(&e.text, &mut |t| {
-                // keep \N / \h escapes intact
-                let parts: Vec<&str> = t.split("\\N").collect();
-                parts.iter().map(|p| change_case(p, mode, turkish)).collect::<Vec<_>>().join("\\N")
+                // keep \N \n \h escapes intact: case-convert only the text between them
+                let mut out = String::new();
+                let mut last = 0;
+                for m in esc.find_iter(t) {
+                    out.push_str(&change_case(&t[last..m.start()], mode, turkish));
+                    out.push_str(m.as_str());
+                    last = m.end();
+                }
+                out.push_str(&change_case(&t[last..], mode, turkish));
+                out
             });
         }
     }
@@ -429,5 +440,21 @@ mod tests {
         let s = stats(&d);
         assert_eq!((s.lines, s.words, s.chars), (2, 3, 13));
         assert!((s.max_cps - 11.0).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod escape_case_tests {
+    use super::*;
+    use crate::ass::{Entry, Event};
+    #[test]
+    fn case_keeps_escapes_and_drawings() {
+        let mut d = Document::new_default();
+        d.entries.push(Entry::Event(Event { text: "a\\hb\\Nc\\nd".into(), ..Event::default() }));
+        d.entries.push(Entry::Event(Event { text: "{\\p1}m 0 0 l 5 5".into(), ..Event::default() }));
+        change_case_doc(&mut d, Casing::Upper, false, None);
+        let t: Vec<_> = d.events().map(|e| e.text.clone()).collect();
+        assert_eq!(t[0], "A\\hB\\Nc\\nD".replace('c', "C"));
+        assert_eq!(t[1], "{\\p1}m 0 0 l 5 5");
     }
 }

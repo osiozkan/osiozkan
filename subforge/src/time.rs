@@ -26,7 +26,7 @@ pub fn parse_ass_time(s: &str) -> Option<i64> {
 
 /// Format as ASS time, rounding to centiseconds (as Aegisub does).
 pub fn fmt_ass_time(ms: i64) -> String {
-    let ms = ms.max(0);
+    let ms = ms.clamp(0, i64::MAX / 4);
     let cs_total = (ms + 5) / 10;
     let cs = cs_total % 100;
     let s_total = cs_total / 100;
