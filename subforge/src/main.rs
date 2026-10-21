@@ -88,6 +88,21 @@ enum Cmd {
         #[arg(long)] apply: bool,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+    /// Process many files at once: convert format/encoding and apply cleanup, writing into --out-dir
+    Batch {
+        /// files, directories or patterns with * and ? (also works on Windows shells)
+        #[arg(required = true)] inputs: Vec<String>,
+        #[arg(long)] out_dir: PathBuf,
+        /// output format/extension: ass srt vtt txt lrc sbv sub (default: keep each file's own)
+        #[arg(long)] to: Option<String>,
+        #[arg(long)] shift: Option<i64>,
+        #[arg(long)] fix: bool,
+        #[arg(long)] hi: bool,
+        #[arg(long)] case: Option<String>,
+        #[arg(long)] turkish: bool,
+        #[arg(long)] rebalance: Option<usize>,
+        #[arg(long)] glossary: Option<PathBuf>,
+    },
     /// Show document statistics
     Stats { input: PathBuf },
     /// Start the local editor UI (open http://ADDR/ in a browser)
@@ -118,6 +133,47 @@ enum Cmd {
         #[arg(short = 'I', long = "include")] include: Vec<PathBuf>,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+}
+
+/// `*`/`?` wildcard match on a file name (no external glob crate, works the same on every OS).
+fn wild_match(pat: &str, name: &str) -> bool {
+    let (p, n): (Vec<char>, Vec<char>) = (pat.to_lowercase().chars().collect(), name.to_lowercase().chars().collect());
+    fn go(p: &[char], n: &[char]) -> bool {
+        match p.first() {
+            None => n.is_empty(),
+            Some('*') => (0..=n.len()).any(|k| go(&p[1..], &n[k..])),
+            Some('?') => !n.is_empty() && go(&p[1..], &n[1..]),
+            Some(c) => n.first() == Some(c) && go(&p[1..], &n[1..]),
+        }
+    }
+    go(&p, &n)
+}
+
+const SUB_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sbv", "sub"];
+
+fn expand_inputs(inputs: &[String]) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for i in inputs {
+        let p = PathBuf::from(i);
+        if p.is_dir() {
+            if let Ok(rd) = std::fs::read_dir(&p) {
+                let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|f| f.is_file() && SUB_EXTS.contains(&ext(f).as_str())).collect();
+                v.sort();
+                out.extend(v);
+            }
+        } else if i.contains('*') || i.contains('?') {
+            let dir = p.parent().filter(|d| !d.as_os_str().is_empty()).map(|d| d.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+            let pat = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|f| f.is_file() && wild_match(&pat, &f.file_name().unwrap().to_string_lossy())).collect();
+                v.sort();
+                out.extend(v);
+            }
+        } else {
+            out.push(p);
+        }
+    }
+    out
 }
 
 fn open_browser(url: &str) {
@@ -353,6 +409,68 @@ fn real_main() -> Result<()> {
                 eprintln!("rebalanced {} event(s)", c::rebalance_doc(&mut d, n));
             }
             save(&d, &input, &output)?;
+        }
+        Cmd::Batch { inputs, out_dir, to, shift, fix, hi, case, turkish, rebalance, glossary } => {
+            use subforge::cleanup as c;
+            std::fs::create_dir_all(&out_dir)?;
+            let files = expand_inputs(&inputs);
+            if files.is_empty() {
+                bail!("no input files matched");
+            }
+            let entries = match &glossary {
+                Some(g) => subforge::glossary::parse(&read_text(g)?),
+                None => vec![],
+            };
+            let mode = match case.as_deref() {
+                None => None,
+                Some("upper") => Some(c::Casing::Upper),
+                Some("lower") => Some(c::Casing::Lower),
+                Some("title") => Some(c::Casing::Title),
+                Some("sentence") => Some(c::Casing::Sentence),
+                Some(o) => bail!("unknown case mode '{}'", o),
+            };
+            let (mut ok, mut failed) = (0, 0);
+            for f in &files {
+                let res: Result<PathBuf> = (|| {
+                    let mut d = load(f)?;
+                    if let Some(ms) = shift {
+                        ops::shift(&mut d, ms, None);
+                    }
+                    if hi {
+                        c::remove_hearing_impaired(&mut d, true, true);
+                    }
+                    if fix {
+                        c::fix_common(&mut d, &c::FixOptions::all());
+                    }
+                    if let Some(m) = mode {
+                        c::change_case_doc(&mut d, m, turkish, None);
+                    }
+                    if !entries.is_empty() {
+                        subforge::glossary::apply(&mut d, &entries);
+                    }
+                    if let Some(n) = rebalance {
+                        c::rebalance_doc(&mut d, n);
+                    }
+                    let out_ext = to.clone().unwrap_or_else(|| ext(f));
+                    let target = out_dir.join(f.file_stem().unwrap_or_default()).with_extension(&out_ext);
+                    write_text(&target, &render(&d, &target))?;
+                    Ok(target)
+                })();
+                match res {
+                    Ok(t) => {
+                        ok += 1;
+                        println!("ok     {} -> {}", f.display(), t.display());
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        println!("FAILED {}: {:#}", f.display(), e);
+                    }
+                }
+            }
+            println!("{} converted, {} failed", ok, failed);
+            if failed > 0 {
+                std::process::exit(1);
+            }
         }
         Cmd::Glossary { input, terms, apply, output } => {
             let mut d = load(&input)?;

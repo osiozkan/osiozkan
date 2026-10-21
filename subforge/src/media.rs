@@ -166,6 +166,30 @@ pub fn render_frame(ass_file: &Path, media: Option<&Path>, t_ms: i64, w: u32, fo
     Ok(out.stdout)
 }
 
+/// Scene-change timestamps (ms) using ffmpeg's `select=gt(scene,T)` (T ~ 0.3 is a good default).
+pub fn scenes(path: &Path, threshold: f64) -> Result<Vec<i64>, String> {
+    let out = Command::new("ffmpeg")
+        .args(["-v", "info", "-nostdin", "-i"])
+        .arg(path)
+        .args(["-an", "-sn", "-vf", &format!("scale=320:-2,select='gt(scene,{})',showinfo", threshold), "-f", "null", "-"])
+        .output()
+        .map_err(|e| format!("ffmpeg not available: {}", e))?;
+    let err = String::from_utf8_lossy(&out.stderr);
+    let mut v: Vec<i64> = err
+        .lines()
+        .filter(|l| l.contains("showinfo") && l.contains("pts_time:"))
+        .filter_map(|l| {
+            let i = l.find("pts_time:")? + "pts_time:".len();
+            let rest = &l[i..];
+            let end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(rest.len());
+            rest[..end].parse::<f64>().ok().map(|t| (t * 1000.0).round() as i64)
+        })
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    Ok(v)
+}
+
 pub fn mime_for(path: &Path) -> &'static str {
     match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
         Some("mp4") | Some("m4v") => "video/mp4",
@@ -229,6 +253,27 @@ mod tests {
         let png = render_frame(&f, None, 1500, 640, None).unwrap();
         assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(png.len() > 2000, "frame suspiciously empty: {} bytes", png.len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scene_detection_when_available() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("sf-scene-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("s.mp4");
+        // 2 s red, then 2 s blue (hard cut at 2.0 s)
+        let st = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=160x90:r=25:d=2", "-f", "lavfi", "-i", "color=c=blue:s=160x90:r=25:d=2", "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map", "[v]", "-pix_fmt", "yuv420p"])
+            .arg(&f)
+            .status();
+        if !st.map(|s| s.success()).unwrap_or(false) {
+            return; // no encoder available
+        }
+        let sc = scenes(&f, 0.3).unwrap();
+        assert!(sc.iter().any(|t| (*t - 2000).abs() <= 80), "scenes: {:?}", sc);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

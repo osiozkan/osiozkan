@@ -80,3 +80,16 @@ fn legacy_turkish_encoding_roundtrip() {
     assert!(bin().arg("convert").arg(&f).arg(&out).status().unwrap().success());
     assert!(std::fs::read_to_string(&out).unwrap().contains("Şimdi çocuklar İstanbul'a ığ"));
 }
+
+#[test]
+fn batch_converts_many_files_with_patterns() {
+    let out = tmp("batch-out");
+    let pattern = format!("{}/*.ass", fx("sample.ass").parent().unwrap().display());
+    let st = bin().arg("batch").arg(&pattern).arg("--out-dir").arg(&out).args(["--to", "srt", "--fix", "--case", "sentence", "--turkish"]).output().unwrap();
+    assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stdout));
+    assert!(out.join("sample.srt").exists() && out.join("typeset.srt").exists());
+    let s = std::fs::read_to_string(out.join("sample.srt")).unwrap();
+    assert!(s.contains("Hello world"));
+    let none = bin().arg("batch").arg("/nonexistent/*.ass").arg("--out-dir").arg(&out).output().unwrap();
+    assert!(!none.status.success());
+}
