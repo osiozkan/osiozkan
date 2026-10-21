@@ -35,6 +35,8 @@ pub struct RunOptions {
     pub fps: Option<f64>,
     /// Extra directories searched by `include()` (e.g. an Aegisub `automation/include`).
     pub include_dirs: Vec<PathBuf>,
+    /// Extra font directories for `aegisub.text_extents`.
+    pub font_dirs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -376,6 +378,9 @@ impl Script {
             let mut db = crate::fonts::FontDb::new();
             db.add_dir(script_dir.clone());
             db.add_dir(script_dir.join("fonts"));
+            for d in &opts.font_dirs {
+                db.add_dir(d.clone());
+            }
             let db = RefCell::new(db);
             sf.set(
                 "text_extents",

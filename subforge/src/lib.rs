@@ -11,6 +11,7 @@ pub mod lua_re;
 pub mod ops;
 pub mod resample;
 pub mod server;
+pub mod settings;
 pub mod srt;
 pub mod tags;
 pub mod time;

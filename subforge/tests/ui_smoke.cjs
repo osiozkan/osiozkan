@@ -114,6 +114,8 @@ const fs = require("fs");
   await p.waitForSelector('#mbox .issue[data-n="test_macro.lua"]'); await p.click('#mbox .issue[data-n="test_macro.lua"]');
   await p.waitForFunction(() => document.querySelectorAll(".macro").length >= 5);
   ok(true, "Lua script added from disk");
+  await p.waitForFunction(async () => (await api("/api/settings")).settings.scripts.some(x => x.endsWith("test_macro.lua")), null, { timeout: 10000 });
+  ok(true, "script path persisted in settings.json");
   // save as to tmp then save in place
   await p.click("#bSaveAs"); await p.waitForSelector("#fName");
   await p.fill("#fPath", "/tmp/claude-0"); await p.evaluate(() => { document.querySelector("#fPath").dataset.stale = "1"; }); await p.press("#fPath", "Enter");

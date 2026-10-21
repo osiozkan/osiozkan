@@ -80,7 +80,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
   <button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
-  <button id="bTools">Tools…</button>
+  <button id="bTools">Tools…</button><button id="bSettings" title="Automation folders, fonts">⚙</button>
   <span class="sp"></span>
   <button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
   <input type="file" id="fRef" hidden accept=".ass,.ssa,.srt,.vtt">
@@ -463,11 +463,30 @@ $("#kScale").onclick=()=>karaTool({op:"scale"});
 $("#kStrip").onclick=()=>karaTool({op:"strip"});
 $("#kShiftGo").onclick=()=>karaTool({op:"shift",cs:+$("#kShift").value});
 
+// ---- settings (persisted on disk by the server) ----
+let CFG={settings:{autoload_dirs:[],include_dirs:[],scripts:[],font_dirs:[]},scripts:[]};
+async function loadCfg(){try{CFG=await api("/api/settings")}catch(e){}}
+$("#bSettings").onclick=async()=>{
+  await loadCfg();const st=CFG.settings;const ta=(id,l,h)=>`<label>${l}</label><textarea id="${id}" rows="3" style="width:100%;font-family:ui-monospace,monospace">${esc((st[id.slice(2)]||[]).join("\n"))}</textarea><div class="hint">${h}</div>`;
+  modal(`<h3>Settings</h3><div style="display:grid;gap:8px;min-width:min(620px,86vw)">
+   ${ta("s_autoload_dirs","Automation autoload folders","Every *.lua in these folders is loaded at start (e.g. your Aegisub automation/autoload). Also scanned: <code>${esc(CFG.config_dir)}/autoload</code>")}
+   ${ta("s_include_dirs","Automation include folders","Searched by include() and require (e.g. Aegisub's automation/include, DependencyControl modules).")}
+   ${ta("s_scripts","Individual scripts","One .lua path per line.")}
+   ${ta("s_font_dirs","Extra font folders","Used for text measuring and the fonts report.")}
+  </div><p><button class="primary" id="sSave">Save</button> <button onclick="closeModal()">Cancel</button></p>`);
+  $("#sSave").onclick=async()=>{
+    const get=id=>$("#"+id).value.split("\n").map(x=>x.trim()).filter(Boolean);
+    const body={autoload_dirs:get("s_autoload_dirs"),include_dirs:get("s_include_dirs"),scripts:get("s_scripts"),font_dirs:get("s_font_dirs")};
+    const r=await act(()=>api("/api/settings",body));if(r){CFG=r;closeModal();msg("Settings saved");refreshMacros()}
+  };
+};
+
 // ---- Lua macros ----
 $("#bLua").onclick=()=>$("#fLua").click();
-$("#bLuaDisk").onclick=()=>fileModal({mode:"open",exts:[".lua"],title:"Add Automation script",onPick:path=>{
-  const name=path.split(/[\\/]/).pop();scripts=scripts.filter(x=>x.path!==path);scripts.push({name,path,src:""});
-  try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}refreshMacros()}});
+$("#bLuaDisk").onclick=()=>fileModal({mode:"open",exts:[".lua"],title:"Add Automation script",onPick:async path=>{
+  const cfg=await act(()=>api("/api/settings"));if(!cfg)return;const st=cfg.settings;
+  if(!st.scripts.includes(path))st.scripts.push(path);
+  await act(()=>api("/api/settings",st));refreshMacros()}});
 $("#fLua").onchange=async ev=>{
   for(const f of ev.target.files){const src=await f.text();scripts=scripts.filter(s=>s.name!==f.name);scripts.push({name:f.name,src})}
   try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}
@@ -475,7 +494,10 @@ $("#fLua").onchange=async ev=>{
 };
 async function refreshMacros(){
   macroLists=[];
-  for(const s of scripts){try{const r=await api("/api/macros",{script:s.src,path:s.path});macroLists.push({s,r})}catch(e){macroLists.push({s,err:e.message})}}
+  await loadCfg();
+  const fromDisk=(CFG.scripts||[]).map(p=>({name:p.split(/[\\/]/).pop(),path:p,src:"",persist:true}));
+  const all=[...fromDisk,...scripts.filter(s=>!(CFG.scripts||[]).includes(s.path))];
+  for(const s of all){try{const r=await api("/api/macros",{script:s.src,path:s.path});macroLists.push({s,r})}catch(e){macroLists.push({s,err:e.message})}}
   const box=$("#macros");box.innerHTML="";
   macroLists.forEach((m,si)=>{
     const h=document.createElement("div");h.style.cssText="margin-top:10px;font-weight:600";h.innerHTML=esc(m.s.name)+` <button data-rm="${si}" title="Remove">✕</button>`;box.appendChild(h);
@@ -485,7 +507,11 @@ async function refreshMacros(){
       d.querySelector("button").onclick=()=>runMacro(m.s,mac.name);box.appendChild(d);
     });
   });
-  box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{scripts.splice(+b.dataset.rm,1);try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}refreshMacros()});
+  box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=async()=>{
+    const m=macroLists[+b.dataset.rm].s;
+    if(m.persist){const st=CFG.settings;st.scripts=st.scripts.filter(x=>x!==m.path);await act(()=>api("/api/settings",st))}
+    else{scripts=scripts.filter(x=>x!==m);try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}}
+    refreshMacros()});
 }
 async function runMacro(s,name){
   // flat subs index = info count + styles count + event index + 1

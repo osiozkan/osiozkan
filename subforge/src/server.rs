@@ -146,6 +146,7 @@ pub struct Session {
     pub encoding: String,
     pub path: Option<std::path::PathBuf>,
     pub reference: Option<Document>,
+    pub settings: crate::settings::Settings,
     last_autosave: Option<std::time::Instant>,
     undo: Vec<Document>,
     redo: Vec<Document>,
@@ -254,7 +255,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, last_autosave: None, undo: vec![], redo: vec![], dirty: false }
+        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, settings: crate::settings::Settings::load(), last_autosave: None, undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -460,6 +461,24 @@ impl Session {
                 });
                 json_resp(json!({"path": dir.display().to_string(), "parent": dir.parent().map(|p| p.display().to_string()), "entries": entries}))
             }
+            ("GET", "/api/settings") => {
+                let files: Vec<String> = self.settings.script_files().iter().map(|p| p.display().to_string()).collect();
+                json_resp(json!({"settings": self.settings, "scripts": files, "config_dir": crate::settings::config_dir().display().to_string()}))
+            }
+            ("POST", "/api/settings") => {
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                match serde_json::from_value::<crate::settings::Settings>(v) {
+                    Ok(st) => {
+                        if let Err(e) = st.save() {
+                            return err_resp(400, format!("could not write settings: {}", e));
+                        }
+                        self.settings = st;
+                        let files: Vec<String> = self.settings.script_files().iter().map(|p| p.display().to_string()).collect();
+                        json_resp(json!({"settings": self.settings, "scripts": files}))
+                    }
+                    Err(e) => err_resp(400, e),
+                }
+            }
             ("POST", "/api/ref") => {
                 // reference subtitle (e.g. the source-language track) for translation / bilingual merge
                 let name = q.get("name").map(|n| url_decode(n)).unwrap_or_default();
@@ -540,6 +559,9 @@ impl Session {
             }
             ("GET", "/api/fonts") => {
                 let mut db = crate::fonts::FontDb::new();
+                for d in &self.settings.font_dirs {
+                    db.add_dir(d.clone());
+                }
                 let list: Vec<Value> = crate::fontcollect::resolve(&self.doc, &mut db)
                     .into_iter()
                     .map(|r| json!({"family": r.key.family, "bold": r.key.bold, "italic": r.key.italic, "uses": r.uses, "installed": r.path.is_some(), "path": r.path.map(|p| p.display().to_string())}))
@@ -663,7 +685,8 @@ impl Session {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
                 let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("");
                 let spath = v.get("path").and_then(|x| x.as_str());
-                match with_script(src, spath, &self.doc, &RunOptions::default(), |s, _| {
+                let lopts = RunOptions { include_dirs: self.settings.all_include_dirs(), font_dirs: self.settings.font_dirs.iter().map(std::path::PathBuf::from).collect(), ..Default::default() };
+                match with_script(src, spath, &self.doc, &lopts, |s, _| {
                     let meta = s.meta();
                     let list = s.list().map_err(|e| e.to_string())?;
                     Ok(json!({"meta": meta, "macros": list.iter().map(|m| json!({"name": m.name, "description": m.description, "filter": m.is_filter})).collect::<Vec<_>>()}))
@@ -677,7 +700,7 @@ impl Session {
                 let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("").to_string();
                 let spath = v.get("path").and_then(|x| x.as_str()).map(|s| s.to_string());
                 let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let mut opts = RunOptions::default();
+                let mut opts = RunOptions { include_dirs: self.settings.all_include_dirs(), font_dirs: self.settings.font_dirs.iter().map(std::path::PathBuf::from).collect(), ..Default::default() };
                 if let Some(a) = v.get("selection").and_then(|x| x.as_array()) {
                     opts.selection = a.iter().filter_map(|x| x.as_u64()).map(|x| x as usize).collect();
                 }
