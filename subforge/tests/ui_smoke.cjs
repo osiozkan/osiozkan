@@ -81,7 +81,7 @@ const fs = require("fs");
   ok(true, "dragging waveform handle retimes line: " + before + " -> " + (await p.evaluate(() => S.events[0].end)));
   // renderer: typeset fixture
   const ts = require("fs").readFileSync("tests/fixtures/typeset.ass");
-  await p.evaluate(async (t) => { await fetch("/api/open_raw?name=typeset.ass", { method: "POST", body: t }).then(r => r.json()).then(st => setState(st)); }, ts.toString());
+  await p.evaluate(async (t) => { await sfetch("/api/open_raw?name=typeset.ass", { method: "POST", body: t }).then(r => r.json()).then(st => setState(st)); }, ts.toString());
   await p.waitForTimeout(300);
   await p.evaluate(() => { vid.style.display = "none"; selectOnly(0); updateOverlay(); });
   await p.waitForTimeout(200);
@@ -89,12 +89,34 @@ const fs = require("fs");
   ok(lit.w > 300, "renderer draws white text (" + lit.w + ")");
   ok(lit.o > 50, "renderer draws red outline / transform colour (" + lit.o + ")");
   await p.locator("#video").screenshot({ path: "/tmp/claude-0/render.png" });
+  // server-side browse/open/save-in-place
+  await p.evaluate(() => { vid.style.display = "none"; });
+  await p.click("#bBrowse");
+  await p.waitForSelector("#fPath");
+  await p.fill("#fPath", process.cwd() + "/tests/fixtures"); await p.press("#fPath", "Enter");
+  await p.waitForSelector('#mbox .issue[data-n="sample.ass"]');
+  await p.click('#mbox .issue[data-n="sample.ass"]');
+  await p.waitForFunction(() => S.path && S.path.endsWith("sample.ass"));
+  ok(true, "open from disk via server browser");
+  // Lua script from disk (real path => includes/requires relative to script work)
+  await p.click('#tabs [data-p="mac"]');
+  await p.click("#bLuaDisk"); await p.waitForSelector("#fPath");
+  await p.fill("#fPath", process.cwd() + "/tests/fixtures"); await p.press("#fPath", "Enter");
+  await p.waitForSelector('#mbox .issue[data-n="test_macro.lua"]'); await p.click('#mbox .issue[data-n="test_macro.lua"]');
+  await p.waitForFunction(() => document.querySelectorAll(".macro").length >= 5);
+  ok(true, "Lua script added from disk");
+  // save as to tmp then save in place
+  await p.click("#bSaveAs"); await p.waitForSelector("#fName");
+  await p.fill("#fPath", "/tmp/claude-0"); await p.press("#fPath", "Enter"); await p.waitForSelector("#fName");
+  await p.fill("#fName", "ui_saved.ass"); await p.click("#fOk");
+  await p.waitForFunction(() => S.path === "/tmp/claude-0/ui_saved.ass");
+  ok(require("fs").readFileSync("/tmp/claude-0/ui_saved.ass", "utf8").includes("[Events]"), "save as wrote the file");
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");
   await p.click("#sOk");
   await p.waitForTimeout(200);
-  const st = await (await fetch("http://127.0.0.1:8765/api/state")).json();
+  const st = await p.evaluate(() => api("/api/state"));
   ok(st.styles[0].fontsize === 52, "style edit persisted");
   await p.keyboard.press("Escape");
   await p.screenshot({ path: "/tmp/ui.png" });

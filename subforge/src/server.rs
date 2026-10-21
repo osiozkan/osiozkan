@@ -144,6 +144,8 @@ pub struct Session {
     pub doc: Document,
     pub name: String,
     pub encoding: String,
+    pub path: Option<std::path::PathBuf>,
+    last_autosave: Option<std::time::Instant>,
     undo: Vec<Document>,
     redo: Vec<Document>,
     pub dirty: bool,
@@ -251,7 +253,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), undo: vec![], redo: vec![], dirty: false }
+        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, last_autosave: None, undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -279,7 +281,7 @@ impl Session {
         let events: Vec<EventJson> = if with_events { self.events_json() } else { vec![] };
         let (rx, ry) = self.doc.res();
         json!({
-            "name": self.name, "encoding": self.encoding, "info": info, "styles": styles, "events": events,
+            "name": self.name, "encoding": self.encoding, "path": self.path.as_ref().map(|p| p.display().to_string()), "info": info, "styles": styles, "events": events,
             "can_undo": !self.undo.is_empty(), "can_redo": !self.redo.is_empty(), "dirty": self.dirty,
             "res": [rx, ry],
         })
@@ -312,6 +314,25 @@ impl Session {
         st
     }
 
+    /// Crash-recovery copy of unsaved work (at most one write every 10 s).
+    fn maybe_autosave(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        if self.last_autosave.map(|t| t.elapsed().as_secs() < 10).unwrap_or(false) {
+            return;
+        }
+        self.last_autosave = Some(std::time::Instant::now());
+        let dir = std::env::var_os("SUBFORGE_AUTOSAVE_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache/subforge/autosave")))
+            .unwrap_or_else(|| std::env::temp_dir().join("subforge-autosave"));
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let stem = std::path::Path::new(&self.name).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into());
+            let _ = std::fs::write(dir.join(format!("{}.autosave.ass", stem)), self.doc.to_string());
+        }
+    }
+
     pub fn open_text(&mut self, name: &str, text: &str) {
         self.checkpoint();
         let lower = name.to_lowercase();
@@ -329,6 +350,19 @@ impl Session {
             .filter_map(|kv| kv.split_once('='))
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
+        let before: Option<Vec<EventJson>> = match route {
+            "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/macro/run" if method == "POST" => Some(self.events_json()),
+            _ => None,
+        };
+        let before = before.as_deref().unwrap_or(&[]);
+        let r = self.route(method, route, &q, body, before);
+        if method == "POST" && matches!(route, "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/macro/run") {
+            self.maybe_autosave();
+        }
+        r
+    }
+
+    fn route(&mut self, method: &str, route: &str, q: &HashMap<String, String>, body: &[u8], before: &[EventJson]) -> Response {
         let jbody = || -> Result<Value, Response> {
             if body.iter().all(|b| b.is_ascii_whitespace()) {
                 Ok(json!({}))
@@ -336,11 +370,6 @@ impl Session {
                 serde_json::from_slice(body).map_err(|e| err_resp(400, format!("bad json: {}", e)))
             }
         };
-        let before: Option<Vec<EventJson>> = match route {
-            "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/macro/run" if method == "POST" => Some(self.events_json()),
-            _ => None,
-        };
-        let before = before.as_deref().unwrap_or(&[]);
         match (method, route) {
             ("GET", "/") | ("GET", "/index.html") => text_resp("text/html; charset=utf-8", INDEX_HTML.to_string()),
             ("GET", "/render.js") => text_resp("text/javascript; charset=utf-8", RENDER_JS.to_string()),
@@ -363,6 +392,72 @@ impl Session {
                 let mut st = self.state();
                 st["decode_errors"] = json!(d.had_errors);
                 json_resp(st)
+            }
+            ("POST", "/api/open_path") => {
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                let Some(path) = v.get("path").and_then(|x| x.as_str()) else { return err_resp(400, "path missing") };
+                let hint = v.get("encoding").and_then(|x| x.as_str()).filter(|e| !e.is_empty() && *e != "auto");
+                let bytes = match std::fs::read(path) { Ok(b) => b, Err(e) => return err_resp(400, format!("{}: {}", path, e)) };
+                let d = crate::encoding::decode(&bytes, hint);
+                let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string());
+                self.open_text(&name, &d.text);
+                self.encoding = d.encoding.to_string();
+                self.path = Some(std::path::PathBuf::from(path));
+                let mut st = self.state();
+                st["decode_errors"] = json!(d.had_errors);
+                json_resp(st)
+            }
+            ("POST", "/api/save_path") => {
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                let path = v.get("path").and_then(|x| x.as_str()).map(std::path::PathBuf::from).or_else(|| self.path.clone());
+                let Some(path) = path else { return err_resp(400, "no path: use Save As") };
+                let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let text = match ext.as_str() {
+                    "srt" => srt::to_srt(&self.doc),
+                    "vtt" => srt::to_vtt(&self.doc),
+                    "txt" => self.doc.events().filter(|e| !e.comment).map(|e| crate::tags::visible_text(&e.text)).collect::<Vec<_>>().join("\n"),
+                    _ => self.doc.to_string(),
+                };
+                let enc = v.get("encoding").and_then(|x| x.as_str()).unwrap_or("utf-8");
+                let bom = v.get("bom").and_then(|x| x.as_bool()).unwrap_or(ext == "ass" || ext == "ssa");
+                // keep one backup of the previous version next to the file
+                if path.exists() && v.get("backup").and_then(|x| x.as_bool()).unwrap_or(true) {
+                    let mut bak = path.clone().into_os_string();
+                    bak.push(".bak");
+                    let _ = std::fs::copy(&path, std::path::PathBuf::from(bak));
+                }
+                if let Err(e) = std::fs::write(&path, crate::encoding::encode(&text, enc, bom)) {
+                    return err_resp(400, format!("{}: {}", path.display(), e));
+                }
+                if ext == "ass" || ext == "ssa" {
+                    self.name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    self.path = Some(path);
+                    self.dirty = false;
+                }
+                json_resp(self.state())
+            }
+            ("GET", "/api/fs") => {
+                let dir = q.get("path").map(|p| url_decode(p)).filter(|p| !p.is_empty());
+                let dir = dir.map(std::path::PathBuf::from).or_else(|| self.path.as_ref().and_then(|p| p.parent().map(|x| x.to_path_buf()))).or_else(|| std::env::current_dir().ok()).unwrap_or_else(|| std::path::PathBuf::from("/"));
+                let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+                let mut entries: Vec<Value> = match std::fs::read_dir(&dir) {
+                    Ok(rd) => rd
+                        .flatten()
+                        .filter_map(|e| {
+                            let name = e.file_name().to_string_lossy().to_string();
+                            if name.starts_with('.') {
+                                return None;
+                            }
+                            let is_dir = e.path().is_dir();
+                            Some(json!({"name": name, "dir": is_dir}))
+                        })
+                        .collect(),
+                    Err(e) => return err_resp(400, format!("{}: {}", dir.display(), e)),
+                };
+                entries.sort_by(|a, b| {
+                    (b["dir"].as_bool(), a["name"].as_str().map(|s| s.to_lowercase())).partial_cmp(&(a["dir"].as_bool(), b["name"].as_str().map(|s| s.to_lowercase()))).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                json_resp(json!({"path": dir.display().to_string(), "parent": dir.parent().map(|p| p.display().to_string()), "entries": entries}))
             }
             ("POST", "/api/new") => {
                 *self = Session::new();
@@ -513,7 +608,8 @@ impl Session {
             ("POST", "/api/macros") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
                 let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("");
-                match with_script(src, &self.doc, &RunOptions::default(), |s, _| {
+                let spath = v.get("path").and_then(|x| x.as_str());
+                match with_script(src, spath, &self.doc, &RunOptions::default(), |s, _| {
                     let meta = s.meta();
                     let list = s.list().map_err(|e| e.to_string())?;
                     Ok(json!({"meta": meta, "macros": list.iter().map(|m| json!({"name": m.name, "description": m.description, "filter": m.is_filter})).collect::<Vec<_>>()}))
@@ -525,6 +621,7 @@ impl Session {
             ("POST", "/api/macro/run") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
                 let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let spath = v.get("path").and_then(|x| x.as_str()).map(|s| s.to_string());
                 let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                 let mut opts = RunOptions::default();
                 if let Some(a) = v.get("selection").and_then(|x| x.as_array()) {
@@ -537,7 +634,7 @@ impl Session {
                 }
                 opts.fps = v.get("fps").and_then(|x| x.as_f64());
                 let shared = Rc::new(RefCell::new(self.doc.clone()));
-                let result = run_script_on(&src, shared.clone(), &name, &opts);
+                let result = run_script_on(&src, spath.as_deref(), shared.clone(), &name, &opts);
                 match result {
                     Ok(r) => {
                         if !r.cancelled {
@@ -599,33 +696,81 @@ fn script_file(src: &str) -> Result<std::path::PathBuf, String> {
     Ok(p)
 }
 
-fn with_script<T>(src: &str, doc: &Document, opts: &RunOptions, f: impl FnOnce(&Script, &RunOptions) -> Result<T, String>) -> Result<T, String> {
-    let p = script_file(src)?;
+fn script_path(src: &str, path: Option<&str>) -> Result<std::path::PathBuf, String> {
+    match path {
+        Some(p) if !p.is_empty() => Ok(std::path::PathBuf::from(p)),
+        _ => script_file(src),
+    }
+}
+
+fn with_script<T>(src: &str, path: Option<&str>, doc: &Document, opts: &RunOptions, f: impl FnOnce(&Script, &RunOptions) -> Result<T, String>) -> Result<T, String> {
+    let p = script_path(src, path)?;
     let shared = Rc::new(RefCell::new(doc.clone()));
     let s = Script::load(&p, shared, opts).map_err(|e| format!("{:#}", e))?;
     f(&s, opts)
 }
 
-fn run_script_on(src: &str, doc: crate::automation::SharedDoc, name: &str, opts: &RunOptions) -> Result<crate::automation::RunResult, String> {
-    let p = script_file(src)?;
+fn run_script_on(src: &str, path: Option<&str>, doc: crate::automation::SharedDoc, name: &str, opts: &RunOptions) -> Result<crate::automation::RunResult, String> {
+    let p = script_path(src, path)?;
     let s = Script::load(&p, doc, opts).map_err(|e| format!("{:#}", e))?;
     s.run(name, opts).map_err(|e| format!("{:#}", e))
 }
 
-/// Blocking server loop.
+fn make_token() -> String {
+    use std::io::Read;
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        if f.read_exact(&mut buf).is_ok() {
+            return buf.iter().map(|b| format!("{:02x}", b)).collect();
+        }
+    }
+    use std::hash::{BuildHasher, Hasher};
+    let mut out = String::new();
+    for i in 0..2u8 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u8(i);
+        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+        h.write_u32(std::process::id());
+        out.push_str(&format!("{:016x}", h.finish()));
+    }
+    out
+}
+
+/// Blocking server loop. The API is protected against other web pages (CSRF / DNS rebinding):
+/// requests need the per-run token embedded in the served page, and a loopback `Host` header.
 pub fn serve(addr: &str, initial: Option<(String, String)>) -> anyhow::Result<()> {
     let server = tiny_http::Server::http(addr).map_err(|e| anyhow::anyhow!("{}", e))?;
     let mut session = Session::new();
     if let Some((name, text)) = initial {
         session.open_text(&name, &text);
     }
+    let token = make_token();
+    let port = addr.rsplit(':').next().unwrap_or("8765").to_string();
+    let loopback = addr.starts_with("127.") || addr.starts_with("localhost") || addr.starts_with("[::1]");
+    let allowed_hosts = [format!("127.0.0.1:{}", port), format!("localhost:{}", port), format!("[::1]:{}", port)];
     eprintln!("SubForge UI: http://{}/", addr);
     for mut req in server.incoming_requests() {
         let mut body = Vec::new();
         let _ = std::io::Read::read_to_end(req.as_reader(), &mut body);
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
-        let r = session.handle(&method, &url, &body);
+        let header = |name: &str| -> Option<String> {
+            req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str().to_string())
+        };
+        let host_ok = !loopback || header("host").map(|h| allowed_hosts.iter().any(|a| a.eq_ignore_ascii_case(&h))).unwrap_or(false);
+        let origin_ok = header("origin").map(|o| allowed_hosts.iter().any(|a| o.eq_ignore_ascii_case(&format!("http://{}", a)))).unwrap_or(true);
+        let route = url.split('?').next().unwrap_or("");
+        let r = if !host_ok || !origin_ok {
+            err_resp(403, "forbidden host/origin")
+        } else if route.starts_with("/api/") && header("x-subforge-token").as_deref() != Some(token.as_str()) {
+            err_resp(403, "missing or wrong token")
+        } else {
+            let mut r = session.handle(&method, &url, &body);
+            if route == "/" || route == "/index.html" {
+                r.body = String::from_utf8_lossy(&r.body).replace("__SF_TOKEN__", &token).into_bytes();
+            }
+            r
+        };
         let hdr = tiny_http::Header::from_bytes(&b"Content-Type"[..], r.content_type.as_bytes()).unwrap();
         let _ = req.respond(tiny_http::Response::from_data(r.body).with_status_code(r.status).with_header(hdr));
     }

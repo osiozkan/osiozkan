@@ -71,8 +71,8 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
 <div id="top">
   <span id="title"><b>Sub</b>Forge</span>
   <button id="bNew">New</button>
-  <button id="bOpen">Open…</button>
-  <button id="bSave" class="primary">Save</button>
+  <button id="bOpen">Open…</button><button id="bBrowse" title="Open from disk (server-side browser)">Browse…</button>
+  <button id="bSave" class="primary">Save</button><button id="bSaveAs">Save as…</button>
   <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
   <select id="senc" title="Save encoding"><option value="utf-8">UTF-8 (BOM)</option><option value="utf-8nobom">UTF-8</option><option value="windows-1254">Turkish (1254)</option><option value="windows-1252">Western (1252)</option><option value="utf-16le">UTF-16 LE</option><option value="shift_jis">Shift-JIS</option></select>
   <select id="oenc" title="Encoding used when opening (auto-detect by default)"><option value="auto">Open: auto</option><option value="utf-8">Open: UTF-8</option><option value="windows-1254">Open: Turkish (1254)</option><option value="windows-1252">Open: Western (1252)</option><option value="shift_jis">Open: Shift-JIS</option><option value="gbk">Open: GBK</option><option value="euc-kr">Open: EUC-KR</option></select>
@@ -96,7 +96,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
       <label>Min ms <input id="qMin" type="number" value="500" style="width:70px"></label>
       <label>Max chars <input id="qLen" type="number" value="42" style="width:60px"></label>
       <button id="bQa" class="primary">Run checks</button></div><div id="issues" class="hint">No checks run yet.</div></div>
-    <div class="pane" id="p-mac"><button id="bLua">Load .lua scripts…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
+    <div class="pane" id="p-mac"><button id="bLua">Upload .lua…</button> <button id="bLuaDisk" class="primary">Add script from disk…</button> <span class="hint">Aegisub Automation 4 macros run on the current selection.</span><div id="macros"></div><pre class="log" id="macLog" style="display:none"></pre></div>
     <div class="pane" id="p-keys"><div class="hint" style="line-height:1.8">
       <b>Ctrl+Z / Ctrl+Y</b> undo / redo<br><b>Ctrl+S</b> save<br><b>↑ ↓</b> move selection · <b>Shift+↑↓</b> extend<br><b>Ctrl+Enter</b> next line<br><b>Ctrl+D</b> duplicate · <b>Del</b> delete lines<br><b>Ctrl+Shift+C</b> toggle comment<br><b>[ / ]</b> set start / end to video time<br><b>Space</b> play/pause (outside text boxes)<br><b>Ctrl+F</b> find &amp; replace<br><b>P</b> play selected line · <b>Wheel</b> scroll waveform · <b>Ctrl+Wheel</b> zoom<br><b>Drag</b> line edges in waveform to retime · <b>Right-click</b> set end · <b>Shift+Click</b> set start</div></div>
   </div>
@@ -124,8 +124,10 @@ let sel=new Set(),cur=-1,anchor=-1,issues=[],issueRows=new Map();
 let scripts=[];try{scripts=JSON.parse(localStorage.getItem("sf_scripts")||"[]")}catch(e){}
 let macroLists=[];
 
+const TOKEN="__SF_TOKEN__";
+const sfetch=(u,o={})=>fetch(u,{...o,headers:{...(o.headers||{}),"X-SubForge-Token":TOKEN}});
 async function api(path,body,method){
-  const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),body:body===undefined?undefined:JSON.stringify(body)});
+  const r=await sfetch(path,{method:method||(body===undefined?"GET":"POST"),body:body===undefined?undefined:JSON.stringify(body)});
   const t=await r.text();let j;try{j=JSON.parse(t)}catch(e){j=null}
   if(!r.ok)throw new Error(j&&j.error||t);return j;
 }
@@ -231,15 +233,48 @@ $("#bNew").onclick=()=>act(async()=>{if(S.dirty&&!confirm("Discard unsaved chang
 $("#bOpen").onclick=()=>$("#fOpen").click();
 $("#fOpen").onchange=ev=>act(async()=>{
   const f=ev.target.files[0];if(!f)return;const buf=await f.arrayBuffer();
-  const r=await fetch("/api/open_raw?name="+encodeURIComponent(f.name)+"&encoding="+encodeURIComponent($("#oenc").value),{method:"POST",body:buf});
+  const r=await sfetch("/api/open_raw?name="+encodeURIComponent(f.name)+"&encoding="+encodeURIComponent($("#oenc").value),{method:"POST",body:buf});
   const st=await r.json();if(!r.ok)throw new Error(st.error);
   sel.clear();cur=-1;setState(st);ev.target.value="";
   {const m={"UTF-8":"utf-8","windows-1254":"windows-1254","windows-1252":"windows-1252","UTF-16LE":"utf-16le","Shift_JIS":"shift_jis"}[st.encoding];if(m)$("#senc").value=m}if(S.events.length)selectOnly(0);
   msg("Opened "+f.name+" ("+st.encoding+")"+(st.decode_errors?" — some bytes could not be decoded, try another encoding":""),!!st.decode_errors);
 });
+// ---- server-side file browser (open / save as / pick lua) ----
+async function fileModal(opts){ // {mode:"open"|"save", exts:[..], title, name, onPick(path)}
+  let dir=opts.dir||"";
+  const render=async()=>{
+    const r=await act(()=>api("/api/fs?path="+encodeURIComponent(dir)));if(!r)return;dir=r.path;
+    const ok=n=>!opts.exts||opts.exts.some(e=>n.toLowerCase().endsWith(e));
+    modal(`<h3>${esc(opts.title||"Files")}</h3><div style="display:flex;gap:6px;margin-bottom:6px"><button id="fUp" ${r.parent?"":"disabled"}>↑</button><input id="fPath" style="flex:1" value="${esc(dir).replace(/"/g,"&quot;")}"></div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:6px;min-width:420px">${r.entries.map(e=>`<div class="issue" data-n="${esc(e.name).replace(/"/g,"&quot;")}" data-d="${e.dir?1:0}" style="${!e.dir&&!ok(e.name)?"opacity:.35":""}">${e.dir?"📁":"📄"} ${esc(e.name)}</div>`).join("")}</div>
+    ${opts.mode==="save"?`<p><input id="fName" style="width:60%" value="${esc(opts.name||"untitled.ass").replace(/"/g,"&quot;")}"> <button class="primary" id="fOk">Save</button></p>`:""}<p><button onclick="closeModal()">Cancel</button></p>`);
+    const join=(d,n)=>d.replace(/[\\/]+$/,"")+(d.includes("\\")&&!d.includes("/")?"\\":"/")+n;
+    $("#fPath").onkeydown=e=>{if(e.key==="Enter"){dir=e.target.value;render()}};
+    if(r.parent)$("#fUp").onclick=()=>{dir=r.parent;render()};
+    document.querySelectorAll("#mbox .issue").forEach(d=>d.onclick=()=>{
+      const n=d.dataset.n;
+      if(d.dataset.d==="1"){dir=join(dir,n);render()}
+      else if(opts.mode==="save"){$("#fName").value=n}
+      else if(ok(n)){closeModal();opts.onPick(join(dir,n))}
+    });
+    if(opts.mode==="save")$("#fOk").onclick=()=>{const n=$("#fName").value.trim();if(n){closeModal();opts.onPick(join(dir,n))}};
+  };
+  render();
+}
+const SUB_EXTS=[".ass",".ssa",".srt",".vtt",".txt"];
+$("#bBrowse").onclick=()=>fileModal({mode:"open",exts:SUB_EXTS,title:"Open subtitle file",dir:S.path?S.path.replace(/[\\/][^\\/]*$/,""):"",onPick:path=>act(async()=>{
+  const st=await api("/api/open_path",{path,encoding:$("#oenc").value});sel.clear();cur=-1;setState(st);if(S.events.length)selectOnly(0);
+  {const m={"UTF-8":"utf-8","windows-1254":"windows-1254","windows-1252":"windows-1252","UTF-16LE":"utf-16le","Shift_JIS":"shift_jis"}[st.encoding];if(m)$("#senc").value=m}
+  msg("Opened "+path+" ("+st.encoding+")"+(st.decode_errors?" — some bytes could not be decoded, try another encoding":""),!!st.decode_errors)})});
+$("#bSaveAs").onclick=()=>fileModal({mode:"save",exts:SUB_EXTS,title:"Save as",name:S.name,dir:S.path?S.path.replace(/[\\/][^\\/]*$/,""):"",onPick:path=>saveTo(path)});
+async function saveTo(path){return act(async()=>{
+  let enc=$("#senc").value,bom=true;if(enc==="utf-8nobom"){enc="utf-8";bom=false}
+  const st=await api("/api/save_path",{path,encoding:enc,bom});setState(st);msg("Saved "+path)})}
 $("#bSave").onclick=()=>save();
-async function save(){return act(async()=>{
-  const fmt=$("#fmt").value;const r=await fetch("/api/export?fmt="+fmt);const t=await r.text();
+async function save(){
+  if(S.path&&/\.(ass|ssa)$/i.test(S.path)&&$("#fmt").value==="ass")return saveTo(S.path);
+  return act(async()=>{
+  const fmt=$("#fmt").value;const r=await sfetch("/api/export?fmt="+fmt);const t=await r.text();
   const base=S.name.replace(/\.[^.]+$/,"");const name=base+"."+fmt;
   const blob=new Blob([fmt==="ass"?"﻿"+t:t],{type:"text/plain;charset=utf-8"});
   if(window.showSaveFilePicker){try{const h=await showSaveFilePicker({suggestedName:name});const w=await h.createWritable();await w.write(blob);await w.close();setState(await api("/api/saved",{}));msg("Saved "+h.name);return}catch(e){if(e.name==="AbortError")return}}
@@ -364,6 +399,9 @@ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
 
 // ---- Lua macros ----
 $("#bLua").onclick=()=>$("#fLua").click();
+$("#bLuaDisk").onclick=()=>fileModal({mode:"open",exts:[".lua"],title:"Add Automation script",onPick:path=>{
+  const name=path.split(/[\\/]/).pop();scripts=scripts.filter(x=>x.path!==path);scripts.push({name,path,src:""});
+  try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}refreshMacros()}});
 $("#fLua").onchange=async ev=>{
   for(const f of ev.target.files){const src=await f.text();scripts=scripts.filter(s=>s.name!==f.name);scripts.push({name:f.name,src})}
   try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}
@@ -371,7 +409,7 @@ $("#fLua").onchange=async ev=>{
 };
 async function refreshMacros(){
   macroLists=[];
-  for(const s of scripts){try{const r=await api("/api/macros",{script:s.src});macroLists.push({s,r})}catch(e){macroLists.push({s,err:e.message})}}
+  for(const s of scripts){try{const r=await api("/api/macros",{script:s.src,path:s.path});macroLists.push({s,r})}catch(e){macroLists.push({s,err:e.message})}}
   const box=$("#macros");box.innerHTML="";
   macroLists.forEach((m,si)=>{
     const h=document.createElement("div");h.style.cssText="margin-top:10px;font-weight:600";h.innerHTML=esc(m.s.name)+` <button data-rm="${si}" title="Remove">✕</button>`;box.appendChild(h);
@@ -389,7 +427,7 @@ async function runMacro(s,name){
   const idx=selIdx().map(i=>base+i+1);
   const log=$("#macLog");
   try{
-    const st=await api("/api/macro/run",{script:s.src,name,selection:idx});
+    const st=await api("/api/macro/run",{script:s.src,path:s.path,name,selection:idx});
     setState(st);log.style.display="block";log.textContent=(st.cancelled?"[cancelled]\n":"")+st.log.join("");msg(st.cancelled?"Macro cancelled":"Macro done: "+name);
   }catch(e){log.style.display="block";log.textContent=e.message;msg("Macro failed",true)}
 }
