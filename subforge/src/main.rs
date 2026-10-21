@@ -81,6 +81,13 @@ enum Cmd {
         #[arg(long)] split: Option<usize>,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+    /// Check (and with --apply fix) names/terms against a glossary file (`wrong => right` per line)
+    Glossary {
+        input: PathBuf,
+        terms: PathBuf,
+        #[arg(long)] apply: bool,
+        #[arg(short, long)] output: Option<PathBuf>,
+    },
     /// Show document statistics
     Stats { input: PathBuf },
     /// Start the local editor UI (open http://ADDR/ in a browser)
@@ -346,6 +353,24 @@ fn real_main() -> Result<()> {
                 eprintln!("rebalanced {} event(s)", c::rebalance_doc(&mut d, n));
             }
             save(&d, &input, &output)?;
+        }
+        Cmd::Glossary { input, terms, apply, output } => {
+            let mut d = load(&input)?;
+            let entries = subforge::glossary::parse(&read_text(&terms)?);
+            if apply {
+                let n = subforge::glossary::apply(&mut d, &entries);
+                eprintln!("{} replacement(s)", n);
+                save(&d, &input, &output)?;
+            } else {
+                let hits = subforge::glossary::check(&d, &entries);
+                for h in &hits {
+                    println!("#{:<5} glossary       '{}' -> '{}'", h.event, h.wrong, h.right);
+                }
+                println!("{} issue(s)", hits.len());
+                if !hits.is_empty() {
+                    std::process::exit(1);
+                }
+            }
         }
         Cmd::Stats { input } => {
             let d = load(&input)?;

@@ -18,6 +18,9 @@ pub struct Settings {
     /// extra directories searched for fonts
     #[serde(default)]
     pub font_dirs: Vec<String>,
+    /// fansub glossary: `wrong => right` per line (see glossary.rs)
+    #[serde(default)]
+    pub glossary: String,
 }
 
 pub fn config_dir() -> PathBuf {

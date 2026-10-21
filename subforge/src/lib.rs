@@ -4,6 +4,7 @@ pub mod cleanup;
 pub mod encoding;
 pub mod fontcollect;
 pub mod formats;
+pub mod glossary;
 pub mod fonts;
 pub mod karaoke;
 pub mod lua_lfs;
