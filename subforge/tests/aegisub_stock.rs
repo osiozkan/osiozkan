@@ -26,3 +26,32 @@ fn stock_kara_templater_runs() {
     // the template/code comment lines must survive
     assert!(d.events().any(|e| e.comment && e.effect.starts_with("template")));
 }
+
+fn stock_dir() -> Option<PathBuf> {
+    std::env::var("AEGISUB_SCRIPTS").ok().map(PathBuf::from)
+}
+
+fn run_stock(file: &str, name: &str, fixture: &str) -> Document {
+    let dir = stock_dir().unwrap();
+    let src = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(fixture)).unwrap();
+    let doc = Rc::new(RefCell::new(Document::parse(&src)));
+    let opts = RunOptions { include_dirs: vec![dir.clone()], ..Default::default() };
+    let s = Script::load(&dir.join(file), doc.clone(), &opts).unwrap();
+    let r = s.run(name, &opts).unwrap();
+    assert!(!r.cancelled, "{:?}", r.log);
+    let d = doc.borrow().clone();
+    d
+}
+
+#[test]
+fn stock_simple_macros() {
+    if stock_dir().is_none() {
+        return;
+    }
+    let d = run_stock("macro-1-edgeblur.lua", "Add edgeblur", "typeset.ass");
+    assert!(d.events().all(|e| e.text.starts_with("{\\be1}")));
+    let d = run_stock("strip-tags.lua", "Strip tags", "typeset.ass");
+    assert!(d.events().all(|e| !e.text.contains('{')));
+    let d = run_stock("cleantags-autoload.lua", "Clean Tags", "typeset.ass");
+    assert_eq!(d.events().count(), 6);
+}

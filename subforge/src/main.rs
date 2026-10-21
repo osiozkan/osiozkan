@@ -85,7 +85,10 @@ enum Cmd {
         #[arg(long, default_value = "127.0.0.1:8765")] addr: String,
     },
     /// List macros/filters registered by a Lua automation script
-    Macros { script: PathBuf },
+    Macros {
+        script: PathBuf,
+        #[arg(short = 'I', long = "include")] include: Vec<PathBuf>,
+    },
     /// Run an Aegisub-style Lua macro/filter on a subtitle file
     Run {
         input: PathBuf,
@@ -312,9 +315,9 @@ fn real_main() -> Result<()> {
             };
             subforge::server::serve(&addr, initial)?;
         }
-        Cmd::Macros { script } => {
+        Cmd::Macros { script, include } => {
             let doc = Rc::new(RefCell::new(Document::new_default()));
-            let s = Script::load(&script, doc, &RunOptions::default())?;
+            let s = Script::load(&script, doc, &RunOptions { include_dirs: include, ..Default::default() })?;
             let m = s.meta();
             if let Some(n) = m.get("script_name") {
                 println!("{} - {}", n, m.get("script_description").cloned().unwrap_or_default());

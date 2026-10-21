@@ -7,7 +7,10 @@ DIR="${1:?usage: $0 DIR}"
 mkdir -p "$DIR"
 BASE=https://raw.githubusercontent.com/Aegisub/Aegisub/master/automation
 curl -fsSL -o "$DIR/kara-templater.lua" "$BASE/autoload/kara-templater.lua"
-for f in karaskel.lua karaskel-auto4.lua utils.lua unicode.lua; do
+for f in cleantags-autoload.lua karaoke-auto-leadin.lua macro-1-edgeblur.lua strip-tags.lua; do
+  curl -fsSL -o "$DIR/$f" "$BASE/autoload/$f"
+done
+for f in karaskel.lua karaskel-auto4.lua utils.lua unicode.lua cleantags.lua clipboard.lua; do
   curl -fsSL -o "$DIR/$f" "$BASE/include/$f"
 done
 echo "fetched into $DIR"

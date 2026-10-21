@@ -110,6 +110,7 @@ aegisub.dialog.display = (function(f)
 	end
 end)(aegisub.dialog.display)
 aegisub.clipboard = { get = function() return nil end, set = function() return false end }
+clipboard = aegisub.clipboard
 
 -- ---- util ----
 local util = {}
