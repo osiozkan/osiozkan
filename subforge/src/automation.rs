@@ -444,6 +444,22 @@ impl Script {
             .map_err(lerr)?;
             if let Some(h) = opts.dialog_hook.clone() {
                 sf.set("has_dialog", true).map_err(lerr)?;
+                {
+                    let h2 = h.clone();
+                    // aegisub.dialog.open/save -> {"file_dialog": {kind, title, default_file, default_dir, wildcards, multiple}}
+                    sf.set(
+                        "file_dialog",
+                        lua.create_function(move |lua, (kind, title, default_file, default_dir, wildcards, multiple): (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<bool>)| {
+                            let spec = serde_json::json!({"file_dialog": {"kind": kind, "title": title, "default_file": default_file, "default_dir": default_dir, "wildcards": wildcards, "multiple": multiple.unwrap_or(false)}});
+                            match h2(spec).and_then(|r| r.get("values").and_then(|v| v.get("path")).cloned()) {
+                                Some(p) if !p.is_null() => json_to_lua(lua, &p),
+                                _ => Ok(Value::Nil),
+                            }
+                        })
+                        .map_err(lerr)?,
+                    )
+                    .map_err(lerr)?;
+                }
                 sf.set(
                     "dialog",
                     lua.create_function(move |lua, (controls, buttons, ids): (Value, Value, Value)| {

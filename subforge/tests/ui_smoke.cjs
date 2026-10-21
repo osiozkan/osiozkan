@@ -175,6 +175,18 @@ const fs = require("fs");
   await p.waitForSelector('#mbox [data-n="ms"]'); await p.click('#mbox [data-b="Cancel"]');
   await p.waitForFunction(() => document.querySelector("#macLog").textContent.includes("cancelled"), null, { timeout: 10000 });
   ok(true, "Cancel button cancels the macro (document unchanged)");
+  // aegisub.dialog.open -> server file browser
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
+  await p.click('#tabs [data-p="mac"]');
+  await p.setInputFiles("#fLua", "tests/fixtures/file_dialog.lua");
+  await p.waitForSelector(".macro:has-text('pick') button, .macro b:text-is('pick')");
+  await p.locator(".macro", { hasText: "pick" }).first().locator("button").click();
+  await p.waitForSelector("#fPath");
+  await p.fill("#fPath", process_cwd + "/tests/fixtures"); await p.evaluate(() => { document.querySelector("#fPath").dataset.stale = "1"; }); await p.press("#fPath", "Enter");
+  await p.waitForFunction(() => document.querySelector("#fPath") && !document.querySelector("#fPath").dataset.stale && document.querySelector('#mbox .issue[data-n="ref.srt"]'));
+  await p.click('#mbox .issue[data-n="ref.srt"]');
+  await p.waitForFunction(() => S.events[0].effect.endsWith("ref.srt"), null, { timeout: 10000 });
+  ok(true, "aegisub.dialog.open returned the picked path to Lua");
   // bundled karaoke templater driven from the Karaoke tab
   await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
   await p.click('#tabs [data-p="kara"]');

@@ -102,8 +102,14 @@ aegisub.dialog = {
 		sf.log(3, "[dialog] auto-confirmed with '" .. tostr(ok) .. "'")
 		return ok, res
 	end,
-	open = function() return nil end,
-	save = function() return nil end,
+	open = function(title, default_file, default_dir, wildcards, multiple)
+		if sf.file_dialog then return sf.file_dialog("open", title, default_file, default_dir, wildcards, multiple) end
+		return nil
+	end,
+	save = function(title, default_file, default_dir, wildcards)
+		if sf.file_dialog then return sf.file_dialog("save", title, default_file, default_dir, wildcards, false) end
+		return nil
+	end,
 }
 aegisub.dialog.display = (function(f)
 	return function(dialog, buttons, button_ids)

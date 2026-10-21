@@ -621,7 +621,17 @@ async function runMacro(s,name){
       await new Promise(r=>setTimeout(r,120));
       const p=await api("/api/macro/poll");
       if(p.phase==="running"){run.textContent="⚙ "+(p.title||name)+(p.task?" – "+p.task:"")+(p.progress?" – "+Math.round(p.progress)+"%":"");continue}
-      if(p.phase==="dialog"){run.textContent="⚙ "+name+" – waiting for input";const reply=await scriptDialog(p.dialog);await api("/api/macro/reply",reply);continue}
+      if(p.phase==="dialog"){
+        run.textContent="⚙ "+name+" – waiting for input";
+        let reply;
+        if(p.dialog&&p.dialog.file_dialog){ // aegisub.dialog.open/save
+          const fd=p.dialog.file_dialog;
+          const path=await new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;res(v)}};
+            fileModal({mode:fd.kind==="save"?"save":"open",title:fd.title||(fd.kind==="save"?"Save as":"Open file"),name:fd.default_file||"",dir:fd.default_dir||"",onPick:fin});
+            const mo=new MutationObserver(()=>{if(!$("#mdl").classList.contains("on")){mo.disconnect();setTimeout(()=>fin(null),50)}});mo.observe($("#mdl"),{attributes:true,attributeFilter:["class"]})});
+          reply={button:path?"ok":null,values:{path}};
+        }else reply=await scriptDialog(p.dialog);
+        await api("/api/macro/reply",reply);continue}
       if(p.phase==="done"){setState(p);log.style.display="block";log.textContent=(p.cancelled?"[cancelled]\n":"")+p.log.join("");msg(p.cancelled?"Macro cancelled":"Macro done: "+name);break}
       if(p.phase==="error"){log.style.display="block";log.textContent=p.error;msg("Macro failed",true);break}
       break;
