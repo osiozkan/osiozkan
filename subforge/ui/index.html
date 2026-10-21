@@ -76,6 +76,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <select id="fmt" title="Save format"><option>ass</option><option>srt</option><option>vtt</option><option>txt</option></select>
   <select id="senc" title="Save encoding"><option value="utf-8">UTF-8 (BOM)</option><option value="utf-8nobom">UTF-8</option><option value="windows-1254">Turkish (1254)</option><option value="windows-1252">Western (1252)</option><option value="utf-16le">UTF-16 LE</option><option value="shift_jis">Shift-JIS</option></select>
   <select id="oenc" title="Encoding used when opening (auto-detect by default)"><option value="auto">Open: auto</option><option value="utf-8">Open: UTF-8</option><option value="windows-1254">Open: Turkish (1254)</option><option value="windows-1252">Open: Western (1252)</option><option value="shift_jis">Open: Shift-JIS</option><option value="gbk">Open: GBK</option><option value="euc-kr">Open: EUC-KR</option></select>
+  <select id="uilang" title="Interface language / Arayüz dili"><option value="en">English</option><option value="tr">Türkçe</option></select>
   <select id="lang" title="Spell-check language of the text box"><option value="tr">TR</option><option value="en">EN</option><option value="ja">JA</option><option value="de">DE</option><option value="es">ES</option><option value="fr">FR</option><option value="ru">RU</option><option value="pt">PT</option><option value="it">IT</option></select>
   <button id="bUndo" disabled>↶</button><button id="bRedo" disabled>↷</button>
   <button id="bAdd">+ Line</button><button id="bDel">Delete</button><button id="bDup">Duplicate</button><button id="bCmt">Comment</button><button id="bSplit">Split</button><button id="bMerge">Merge</button>
@@ -129,6 +130,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
 <div class="modal" id="mdl"><div class="box" id="mbox"></div></div>
 
 <script src="/render.js"></script>
+<script src="/i18n.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -743,6 +745,8 @@ function renderAll(){
 try{const l=localStorage.getItem("sf_lang");if(l)$("#lang").value=l}catch(e){}
 $("#eText").lang=$("#lang").value;
 $("#lang").onchange=()=>{$("#eText").lang=$("#lang").value;try{localStorage.setItem("sf_lang",$("#lang").value)}catch(e){}const t=$("#eText");t.blur();setTimeout(()=>t.focus(),0)};
+$("#uilang").value=SFI18n.lang;$("#uilang").onchange=()=>SFI18n.set($("#uilang").value);
+SFI18n.init();
 buildFields();
 act(async()=>{setState(await api("/api/state"));if(S.events.length)selectOnly(0);refreshMacros()});
 window.addEventListener("resize",renderGrid);

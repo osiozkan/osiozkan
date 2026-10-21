@@ -12,6 +12,7 @@ use std::rc::Rc;
 
 pub const INDEX_HTML: &str = include_str!("../ui/index.html");
 pub const RENDER_JS: &str = include_str!("../ui/render.js");
+pub const I18N_JS: &str = include_str!("../ui/i18n.js");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EventJson {
@@ -378,6 +379,7 @@ impl Session {
         };
         match (method, route) {
             ("GET", "/") | ("GET", "/index.html") => text_resp("text/html; charset=utf-8", INDEX_HTML.to_string()),
+            ("GET", "/i18n.js") => text_resp("text/javascript; charset=utf-8", I18N_JS.to_string()),
             ("GET", "/render.js") => text_resp("text/javascript; charset=utf-8", RENDER_JS.to_string()),
             ("GET", "/favicon.ico") => Response { status: 204, content_type: "image/x-icon", body: vec![] },
             ("GET", "/api/state") => json_resp(self.state()),
