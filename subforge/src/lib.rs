@@ -1,10 +1,13 @@
 pub mod ass;
 pub mod automation;
+pub mod cleanup;
 pub mod encoding;
+pub mod fontcollect;
 pub mod fonts;
 pub mod lua_lfs;
 pub mod lua_re;
 pub mod ops;
+pub mod resample;
 pub mod server;
 pub mod srt;
 pub mod tags;

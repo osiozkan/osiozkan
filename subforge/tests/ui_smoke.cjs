@@ -33,6 +33,15 @@ const fs = require("fs");
   await p.click('[data-t="shift"]');
   await p.waitForFunction(() => document.querySelectorAll(".row")[0].children[3].textContent === "0:00:03.00");
   ok(true, "shift tool");
+  await p.click('[data-t="stats"]');
+  await p.waitForFunction(() => document.querySelector("#tMsg").textContent.includes("Words:"));
+  ok(true, "stats report");
+  await p.click('[data-t="fonts"]');
+  await p.waitForFunction(() => document.querySelector("#tMsg").textContent.includes("Arial"));
+  ok(true, "fonts report");
+  await p.fill("#rsX", "1920"); await p.fill("#rsY", "1080"); await p.click('[data-t="resample"]');
+  await p.waitForFunction(() => S.res[0] === 1920 && S.res[1] === 1080);
+  ok(true, "resample tool");
   await p.keyboard.press("Escape");
   // add / dup / delete
   await p.click("#bAdd");

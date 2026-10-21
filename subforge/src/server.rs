@@ -384,6 +384,18 @@ impl Session {
                 self.dirty = false;
                 json_resp(self.state())
             }
+            ("GET", "/api/stats") => {
+                let st = crate::cleanup::stats(&self.doc);
+                json_resp(json!({"lines": st.lines, "comments": st.comments, "words": st.words, "chars": st.chars, "total_ms": st.total_ms, "avg_cps": st.avg_cps, "max_cps": st.max_cps, "avg_line_len": st.avg_line_len}))
+            }
+            ("GET", "/api/fonts") => {
+                let mut db = crate::fonts::FontDb::new();
+                let list: Vec<Value> = crate::fontcollect::resolve(&self.doc, &mut db)
+                    .into_iter()
+                    .map(|r| json!({"family": r.key.family, "bold": r.key.bold, "italic": r.key.italic, "uses": r.uses, "installed": r.path.is_some(), "path": r.path.map(|p| p.display().to_string())}))
+                    .collect();
+                json_resp(json!({"fonts": list}))
+            }
             ("POST", "/api/qa") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
                 let mut o = ops::QaOptions::default();
@@ -413,6 +425,32 @@ impl Session {
                         msg = format!("fixed {} overlap(s), extended {} short line(s)", a, b);
                     }
                     "strip_tags" => ops::strip_all_tags(&mut work),
+                    "resample" => {
+                        let (x, y) = (num("x").unwrap_or(0.0) as i32, num("y").unwrap_or(0.0) as i32);
+                        if x <= 0 || y <= 0 {
+                            return err_resp(400, "resample needs positive x and y");
+                        }
+                        msg = if crate::resample::resample(&mut work, x, y) { format!("resampled to {}x{}", x, y) } else { "already at that resolution".into() };
+                    }
+                    "fix_common" => msg = format!("{} event(s) fixed", crate::cleanup::fix_common(&mut work, &crate::cleanup::FixOptions::all())),
+                    "remove_hi" => {
+                        let (a, b) = crate::cleanup::remove_hearing_impaired(&mut work, true, true);
+                        msg = format!("{} changed, {} removed", a, b);
+                    }
+                    "case" => {
+                        use crate::cleanup::Casing;
+                        let mode = match v.get("mode").and_then(|x| x.as_str()).unwrap_or("sentence") {
+                            "upper" => Casing::Upper,
+                            "lower" => Casing::Lower,
+                            "title" => Casing::Title,
+                            _ => Casing::Sentence,
+                        };
+                        let tr = v.get("turkish").and_then(|x| x.as_bool()).unwrap_or(false);
+                        crate::cleanup::change_case_doc(&mut work, mode, tr, sel.as_deref());
+                    }
+                    "rebalance" => msg = format!("{} event(s) rebalanced", crate::cleanup::rebalance_doc(&mut work, num("max").unwrap_or(42.0) as usize)),
+                    "merge_short" => msg = format!("{} merged", crate::cleanup::merge_short(&mut work, num("gap").unwrap_or(250.0) as i64, num("max").unwrap_or(42.0) as usize)),
+                    "split_long" => msg = format!("{} split", crate::cleanup::split_long(&mut work, num("max").unwrap_or(84.0) as usize)),
                     "replace" => {
                         let find = v.get("find").and_then(|x| x.as_str()).unwrap_or("");
                         let with = v.get("with").and_then(|x| x.as_str()).unwrap_or("");

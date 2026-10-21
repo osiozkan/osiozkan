@@ -53,6 +53,31 @@ enum Cmd {
         #[arg(short, long)] ignore_case: bool,
         #[arg(short, long)] output: Option<PathBuf>,
     },
+    /// Rescale to a new script resolution (styles, margins, \pos \fs \bord \clip, drawings...)
+    Resample { input: PathBuf, x: i32, y: i32, #[arg(short, long)] output: Option<PathBuf> },
+    /// List fonts used (styles + \fn tags); --collect DIR copies the font files that are installed
+    Fonts { input: PathBuf, #[arg(long)] collect: Option<PathBuf>, #[arg(long = "font-dir")] font_dir: Vec<PathBuf> },
+    /// Text cleanup tools (Subtitle Edit style)
+    Clean {
+        input: PathBuf,
+        /// fix spacing/punctuation/ellipsis/dash errors
+        #[arg(long)] fix: bool,
+        /// remove [sounds], (descriptions), ♪ music ♪ and SPEAKER: labels
+        #[arg(long)] hi: bool,
+        /// change case: upper|lower|title|sentence
+        #[arg(long)] case: Option<String>,
+        /// use Turkish i/İ ı/I casing rules
+        #[arg(long)] turkish: bool,
+        /// re-break lines longer than N chars into two balanced lines
+        #[arg(long)] rebalance: Option<usize>,
+        /// merge neighbours when gap <= MS and merged text <= 42 chars
+        #[arg(long)] merge_gap: Option<i64>,
+        /// split events longer than N chars
+        #[arg(long)] split: Option<usize>,
+        #[arg(short, long)] output: Option<PathBuf>,
+    },
+    /// Show document statistics
+    Stats { input: PathBuf },
     /// Start the local editor UI (open http://ADDR/ in a browser)
     Serve {
         /// optional subtitle file to open
@@ -202,6 +227,83 @@ fn real_main() -> Result<()> {
             let n = ops::find_replace(&mut d, &find, &with, regex, ignore_case)?;
             eprintln!("{} event(s) changed", n);
             save(&d, &input, &output)?;
+        }
+        Cmd::Resample { input, x, y, output } => {
+            let mut d = load(&input)?;
+            let (ox, oy) = d.res();
+            if subforge::resample::resample(&mut d, x, y) {
+                eprintln!("resampled {}x{} -> {}x{}", ox, oy, x, y);
+            } else {
+                eprintln!("already {}x{}", x, y);
+            }
+            save(&d, &input, &output)?;
+        }
+        Cmd::Fonts { input, collect, font_dir } => {
+            let d = load(&input)?;
+            let mut db = subforge::fonts::FontDb::new();
+            for f in font_dir {
+                db.add_dir(f);
+            }
+            if let Some(dir) = collect {
+                let (copied, missing) = subforge::fontcollect::collect(&d, &mut db, &dir)?;
+                for c in &copied {
+                    println!("copied {}", c.display());
+                }
+                for m in &missing {
+                    println!("MISSING {} (bold={}, italic={})", m.family, m.bold, m.italic);
+                }
+                if !missing.is_empty() {
+                    std::process::exit(1);
+                }
+            } else {
+                for r in subforge::fontcollect::resolve(&d, &mut db) {
+                    println!(
+                        "{:<30} {}{} {:>5} line(s)  {}",
+                        r.key.family,
+                        if r.key.bold { "B" } else { "-" },
+                        if r.key.italic { "I" } else { "-" },
+                        r.uses,
+                        r.path.map(|p| p.display().to_string()).unwrap_or_else(|| "MISSING".into())
+                    );
+                }
+            }
+        }
+        Cmd::Clean { input, fix, hi, case, turkish, rebalance, merge_gap, split, output } => {
+            use subforge::cleanup as c;
+            let mut d = load(&input)?;
+            if hi {
+                let (a, b) = c::remove_hearing_impaired(&mut d, true, true);
+                eprintln!("hearing-impaired: {} changed, {} removed", a, b);
+            }
+            if fix {
+                eprintln!("typography: {} event(s) fixed", c::fix_common(&mut d, &c::FixOptions::all()));
+            }
+            if let Some(m) = case {
+                let mode = match m.as_str() {
+                    "upper" => c::Casing::Upper,
+                    "lower" => c::Casing::Lower,
+                    "title" => c::Casing::Title,
+                    "sentence" => c::Casing::Sentence,
+                    o => bail!("unknown case mode '{}'", o),
+                };
+                c::change_case_doc(&mut d, mode, turkish, None);
+            }
+            if let Some(g) = merge_gap {
+                eprintln!("merged {} pair(s)", c::merge_short(&mut d, g, 42));
+            }
+            if let Some(n) = split {
+                eprintln!("split {} long event(s)", c::split_long(&mut d, n));
+            }
+            if let Some(n) = rebalance {
+                eprintln!("rebalanced {} event(s)", c::rebalance_doc(&mut d, n));
+            }
+            save(&d, &input, &output)?;
+        }
+        Cmd::Stats { input } => {
+            let d = load(&input)?;
+            let s = subforge::cleanup::stats(&d);
+            println!("lines {} (+{} comments), words {}, chars {}", s.lines, s.comments, s.words, s.chars);
+            println!("total display time {:.1}s, avg CPS {:.1}, max CPS {:.1}, avg line length {:.1}", s.total_ms as f64 / 1000.0, s.avg_cps, s.max_cps, s.avg_line_len);
         }
         Cmd::Serve { file, addr } => {
             let initial = match file {

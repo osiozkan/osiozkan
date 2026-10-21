@@ -309,23 +309,37 @@ function toolModal(){
   <label>Frame rate</label><span><input id="tFrom" type="number" step="0.001" value="23.976" style="width:80px"> → <input id="tTo" type="number" step="0.001" value="25" style="width:80px"> <button data-t="fps">Convert</button></span>
   <label>Snap to frames</label><span><input id="tSnap" type="number" step="0.001" value="23.976" style="width:80px"> <button data-t="snap">Snap</button></span>
   <label>Two-point resync</label><span><input id="a1" placeholder="a1 h:mm:ss.cc" style="width:100px"> → <input id="b1" placeholder="b1" style="width:100px"> &nbsp; <input id="a2" placeholder="a2" style="width:100px"> → <input id="b2" placeholder="b2" style="width:100px"> <button data-t="resync">Resync</button></span>
-  <label>Cleanup</label><span><button data-t="fix">Fix overlaps &amp; short lines</button> <button data-t="sort">Sort by start</button> <button data-t="strip_tags">Strip all tags</button></span>
+  <label>Resolution</label><span><input id="rsX" type="number" value="${S.res[0]}" style="width:80px"> × <input id="rsY" type="number" value="${S.res[1]}" style="width:80px"> <button data-t="resample">Resample (scales styles, tags, drawings)</button></span>
+  <label>Timing cleanup</label><span><button data-t="fix">Fix overlaps &amp; short lines</button> <button data-t="sort">Sort by start</button></span>
+  <label>Text cleanup</label><span><button data-t="fix_common">Fix common errors</button> <button data-t="remove_hi">Remove [sounds] / ♪ / SPEAKER:</button> <button data-t="strip_tags">Strip all tags</button></span>
+  <label>Casing</label><span><select id="cMode"><option value="sentence">Sentence case</option><option value="title">Title Case</option><option value="upper">UPPER</option><option value="lower">lower</option></select> <label style="display:inline"><input type="checkbox" id="cTr"> Turkish i/İ rules</label> <button data-t="case">All</button> <button data-t="casesel" ${n?"":"disabled"}>Selected (${n})</button></span>
+  <label>Line breaks</label><span>max <input id="lMax" type="number" value="42" style="width:60px"> chars <button data-t="rebalance">Balance long lines</button> &nbsp; <br><button data-t="split_long">Split events longer than</button> <input id="sMax" type="number" value="84" style="width:60px"> chars &nbsp; <button data-t="merge_short">Merge neighbours with gap ≤</button> <input id="mGap" type="number" value="250" style="width:60px"> ms</span>
   <label>Find &amp; replace</label><span><input id="rFind" placeholder="find" style="width:150px"> → <input id="rWith" placeholder="replace" style="width:150px"> <label style="display:inline"><input type="checkbox" id="rRx"> regex</label> <label style="display:inline"><input type="checkbox" id="rIc"> ignore case</label> <button data-t="replace">Replace all</button></span>
-  </div><p><button onclick="closeModal()">Close</button></p><div id="tMsg" class="hint"></div>`);
+  <label>Reports</label><span><button data-t="stats">Statistics</button> <button data-t="fonts">Fonts used</button></span>
+  </div><p><button onclick="closeModal()">Close</button></p><div id="tMsg" class="hint" style="white-space:pre-wrap"></div>`);
   document.querySelectorAll("#mbox [data-t]").forEach(b=>b.onclick=()=>runTool(b.dataset.t));
 }
 async function runTool(t){
   const v=id=>$("#"+id).value;let body;
+  const out=m=>{$("#tMsg").textContent=m};
   switch(t){
     case"shift":body={name:"shift",ms:+v("tShift")};break;
     case"shiftsel":body={name:"shift",ms:+v("tShift"),selection:[...sel]};break;
     case"fps":body={name:"fps",from:+v("tFrom"),to:+v("tTo")};break;
     case"snap":body={name:"snap",fps:+v("tSnap")};break;
     case"resync":{const p=["a1","b1","a2","b2"].map(i=>parse(v(i)));if(p.some(x=>x===null)){msg("Enter times as h:mm:ss.cc",true);return}body={name:"resync",a1:p[0],b1:p[1],a2:p[2],b2:p[3]};break}
+    case"resample":body={name:"resample",x:+v("rsX"),y:+v("rsY")};break;
+    case"case":body={name:"case",mode:v("cMode"),turkish:$("#cTr").checked};break;
+    case"casesel":body={name:"case",mode:v("cMode"),turkish:$("#cTr").checked,selection:[...sel]};break;
+    case"rebalance":body={name:"rebalance",max:+v("lMax")};break;
+    case"split_long":body={name:"split_long",max:+v("sMax")};break;
+    case"merge_short":body={name:"merge_short",gap:+v("mGap"),max:+v("lMax")};break;
     case"replace":body={name:"replace",find:v("rFind"),with:v("rWith"),regex:$("#rRx").checked,ignore_case:$("#rIc").checked};break;
+    case"stats":{const r=await act(()=>api("/api/stats"));if(r)out(`Lines: ${r.lines} (+${r.comments} comments)\nWords: ${r.words}   Characters: ${r.chars}\nTotal display time: ${(r.total_ms/1000).toFixed(1)} s\nAvg CPS: ${r.avg_cps.toFixed(1)}   Max CPS: ${r.max_cps.toFixed(1)}   Avg line length: ${r.avg_line_len.toFixed(1)}`);return}
+    case"fonts":{const r=await act(()=>api("/api/fonts"));if(r)out(r.fonts.map(f=>`${f.installed?"✔":"✘ MISSING"}  ${f.family} ${f.bold?"[B]":""}${f.italic?"[I]":""}  (${f.uses} line(s))${f.path?"  "+f.path:""}`).join("\n")||"No fonts used.");return}
     default:body={name:t};
   }
-  const st=await act(()=>api("/api/tool",body));if(st){setState(st);if(st.message){$("#tMsg").textContent=st.message;msg(st.message)}else msg("Done")}
+  const st=await act(()=>api("/api/tool",body));if(st){setState(st);if(st.message){out(st.message);msg(st.message)}else msg("Done")}
 }
 $("#bTools").onclick=toolModal;
 
