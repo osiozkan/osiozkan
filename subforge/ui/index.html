@@ -20,8 +20,6 @@ button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 #main{flex:1;display:grid;grid-template-columns:minmax(320px,42%) 1fr;grid-template-rows:minmax(160px,34%) auto auto 1fr;min-height:0}
 #video{grid-row:1;grid-column:1;background:#000;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
 #video video{max-width:100%;max-height:100%}
-#overlay{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0 4% 6%}
-#overlay div{color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,1px 1px 2px #000;font-size:clamp(14px,2.6vw,30px);text-align:center;white-space:pre-wrap;margin-top:2px}
 #novideo{color:var(--dim);text-align:center;padding:20px}
 #side{grid-row:1;grid-column:2;display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line)}
 #tabs{display:flex;background:var(--panel);border-bottom:1px solid var(--line)}
@@ -90,7 +88,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <input type="file" id="fLua" hidden accept=".lua" multiple>
 </div>
 <div id="main">
-  <div id="video"><div id="novideo">Load a video or audio file with “Video…” for preview.<br><span class="hint">Space = play/pause · [ / ] = set start/end to playhead</span></div><video id="vid" controls style="display:none"></video><div id="overlay"></div></div>
+  <div id="video"><div id="novideo" style="position:absolute;top:6px;left:8px;z-index:1;pointer-events:none;color:var(--dim);font-size:11px">Preview of the selected line · “Video…” loads video/audio</div><video id="vid" controls style="display:none"></video><canvas id="ovc" style="position:absolute;pointer-events:none"></canvas></div>
   <div id="side">
     <div id="tabs"><button data-p="qa" class="on">Checks</button><button data-p="mac">Lua macros</button><button data-p="keys">Keys</button></div>
     <div class="pane on" id="p-qa"><div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
@@ -116,6 +114,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
 
 <div class="modal" id="mdl"><div class="box" id="mbox"></div></div>
 
+<script src="/render.js"></script>
 <script>
 "use strict";
 const $=s=>document.querySelector(s);
@@ -144,6 +143,11 @@ const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 // ---- state sync ----
 function setState(st){
+  if(st.splice){ // incremental update: splice the event list, keep the rest of the new state
+    const sp=st.splice;
+    if(!S.events||S.events.length!==sp.before){api("/api/state").then(setState);return}
+    const ev=S.events;st.events=sp.ins.length>20000?ev.slice(0,sp.from).concat(sp.ins,ev.slice(sp.from+sp.del)):(ev.splice(sp.from,sp.del,...sp.ins),ev);delete st.splice;
+  }
   S=st;
   sel=new Set([...sel].filter(i=>i<S.events.length));
   if(cur>=S.events.length)cur=S.events.length-1;
@@ -392,16 +396,30 @@ async function runMacro(s,name){
 $("#p-mac").addEventListener("click",()=>{});
 
 // ---- video & overlay ----
-const vid=$("#vid"),overlay=$("#overlay");
+const vid=$("#vid"),ovc=$("#ovc"),ovx=ovc.getContext("2d");
 $("#bVideo").onclick=()=>$("#fVideo").click();
 $("#fVideo").onchange=ev=>{const f=ev.target.files[0];if(!f)return;vid.src=URL.createObjectURL(f);vid.style.display="block";$("#novideo").style.display="none";loadWave(f)};
+function overlayRect(){
+  const box=$("#video").getBoundingClientRect();let ar=S.res[0]/S.res[1];
+  if(vid.style.display!=="none"&&vid.videoWidth)ar=vid.videoWidth/vid.videoHeight;
+  let w=box.width,h=w/ar;if(h>box.height){h=box.height;w=h*ar}
+  if(vid.style.display!=="none"){const ctrl=vid.getBoundingClientRect();w=Math.min(w,ctrl.width);}
+  return{w:Math.floor(w),h:Math.floor(h),l:(box.width-w)/2,t:(box.height-h)/2};
+}
 function updateOverlay(){
-  if(vid.style.display==="none")return;
-  const t=vid.currentTime*1000;const act=S.events.filter(e=>!e.comment&&t>=e.start&&t<e.end);
-  overlay.innerHTML=act.map(e=>`<div>${esc(vis(e.text))}</div>`).join("");
+  const r=overlayRect(),d=window.devicePixelRatio||1;
+  if(ovc.width!==Math.round(r.w*d)||ovc.height!==Math.round(r.h*d)){ovc.width=Math.round(r.w*d);ovc.height=Math.round(r.h*d)}
+  ovc.style.width=r.w+"px";ovc.style.height=r.h+"px";ovc.style.left=r.l+"px";ovc.style.top=r.t+"px";
+  const hasV=vid.style.display!=="none";let t;
+  if(hasV)t=vid.currentTime*1000;else{const e=S.events[cur];if(!e){ovx.clearRect(0,0,ovc.width,ovc.height);return}t=e.start+Math.min((e.end-e.start)/2,1500)}
+  if(!hasV){ovx.fillStyle="#222";ovx.fillRect(0,0,ovc.width,ovc.height)}
+  const dd=ovc.width/ (S.res[0]);
+  window.SFRender&&SFRender.draw(ovx,ovc.width,ovc.height,{res:S.res,styles:S.styles,events:S.events,now:t});
 }
 vid.addEventListener("timeupdate",()=>{updateOverlay();renderGrid()});
 vid.addEventListener("seeked",updateOverlay);
+vid.addEventListener("loadedmetadata",updateOverlay);
+window.addEventListener("resize",updateOverlay);
 (function loop(){if(!vid.paused){updateOverlay()}requestAnimationFrame(loop)})();
 
 

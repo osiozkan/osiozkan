@@ -79,6 +79,16 @@ const fs = require("fs");
   await p.mouse.move(xEnd, y); await p.mouse.down(); await p.mouse.move(xEnd + box.width * 0.05, y, { steps: 5 }); await p.mouse.up();
   await p.waitForFunction((b) => S.events[0].end > b + 300, before);
   ok(true, "dragging waveform handle retimes line: " + before + " -> " + (await p.evaluate(() => S.events[0].end)));
+  // renderer: typeset fixture
+  const ts = require("fs").readFileSync("tests/fixtures/typeset.ass");
+  await p.evaluate(async (t) => { await fetch("/api/open_raw?name=typeset.ass", { method: "POST", body: t }).then(r => r.json()).then(st => setState(st)); }, ts.toString());
+  await p.waitForTimeout(300);
+  await p.evaluate(() => { vid.style.display = "none"; selectOnly(0); updateOverlay(); });
+  await p.waitForTimeout(200);
+  const lit = await p.evaluate(() => { const c = document.querySelector("#ovc"); const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data; let w = 0, y = 0, o = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] > 230 && d[i + 1] > 230 && d[i + 2] > 230) w++; if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] < 80) y++; if (d[i] > 200 && d[i + 1] < 90 && d[i + 2] < 90) o++; } return { w, y, o }; });
+  ok(lit.w > 300, "renderer draws white text (" + lit.w + ")");
+  ok(lit.o > 50, "renderer draws red outline / transform colour (" + lit.o + ")");
+  await p.locator("#video").screenshot({ path: "/tmp/claude-0/render.png" });
   // styles modal
   await p.click("#bStyles");
   await p.fill('#mbox [data-k="fontsize"]', "52");

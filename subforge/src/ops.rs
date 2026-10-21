@@ -72,6 +72,15 @@ pub fn qa(doc: &Document, o: &QaOptions) -> Vec<Issue> {
     let styles: Vec<&str> = doc.styles().map(|s| s.name.as_str()).collect();
     let mut out = Vec::new();
     let evs: Vec<(usize, &Event)> = doc.events().enumerate().filter(|(_, e)| !e.comment).collect();
+    // next event on the same layer (file order) for every event: one reverse pass instead of a scan per line
+    let mut next_same_layer: Vec<Option<usize>> = vec![None; evs.len()];
+    {
+        let mut last: HashMap<i32, usize> = HashMap::new();
+        for n in (0..evs.len()).rev() {
+            next_same_layer[n] = last.get(&evs[n].1.layer).copied();
+            last.insert(evs[n].1.layer, n);
+        }
+    }
     for (n, (i, e)) in evs.iter().enumerate() {
         let id = i + 1;
         let dur = e.end - e.start;
@@ -119,7 +128,7 @@ pub fn qa(doc: &Document, o: &QaOptions) -> Vec<Issue> {
             push("whitespace", "double space".into());
         }
         // overlap with next event on the same layer
-        if let Some((j, nx)) = evs[n + 1..].iter().find(|(_, x)| x.layer == e.layer && x.start >= e.start) {
+        if let Some((j, nx)) = next_same_layer[n].map(|k| &evs[k]).filter(|(_, x)| x.start >= e.start) {
             if nx.start < e.end && nx.style == e.style {
                 push("overlap", format!("overlaps event {} by {} ms", j + 1, e.end - nx.start));
             } else if nx.start - e.end < o.min_gap_ms && nx.start >= e.end {

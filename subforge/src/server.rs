@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub const INDEX_HTML: &str = include_str!("../ui/index.html");
+pub const RENDER_JS: &str = include_str!("../ui/render.js");
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EventJson {
@@ -255,7 +256,8 @@ impl Session {
 
     fn checkpoint(&mut self) {
         self.undo.push(self.doc.clone());
-        if self.undo.len() > 200 {
+        // bound memory: at most 200 steps and ~3M cloned entries in total
+        while self.undo.len() > 200 || (self.undo.len() > 1 && self.undo.len() * self.doc.entries.len() > 3_000_000) {
             self.undo.remove(0);
         }
         self.redo.clear();
@@ -263,6 +265,10 @@ impl Session {
     }
 
     pub fn state(&self) -> Value {
+        self.state_inner(true)
+    }
+
+    fn state_inner(&self, with_events: bool) -> Value {
         let info: Vec<Value> = self
             .doc
             .entries
@@ -270,13 +276,40 @@ impl Session {
             .filter_map(|e| if let Entry::Info { key, value } = e { Some(json!({"key": key, "value": value})) } else { None })
             .collect();
         let styles: Vec<StyleJson> = self.doc.styles().map(StyleJson::from).collect();
-        let events: Vec<EventJson> = self.doc.events().map(EventJson::from).collect();
+        let events: Vec<EventJson> = if with_events { self.events_json() } else { vec![] };
         let (rx, ry) = self.doc.res();
         json!({
             "name": self.name, "encoding": self.encoding, "info": info, "styles": styles, "events": events,
             "can_undo": !self.undo.is_empty(), "can_redo": !self.redo.is_empty(), "dirty": self.dirty,
             "res": [rx, ry],
         })
+    }
+
+    fn events_json(&self) -> Vec<EventJson> {
+        self.doc.events().map(EventJson::from).collect()
+    }
+
+    /// State with the events replaced by a splice (`from`, `del`, `ins`) relative to `before`:
+    /// common prefix/suffix are skipped so edits on huge files stay cheap to ship.
+    fn delta(&self, before: &[EventJson]) -> Value {
+        let now = self.events_json();
+        let mut a = 0;
+        while a < before.len() && a < now.len() && before[a] == now[a] {
+            a += 1;
+        }
+        let mut b = 0;
+        while b < before.len() - a && b < now.len() - a && before[before.len() - 1 - b] == now[now.len() - 1 - b] {
+            b += 1;
+        }
+        let mut st = self.state_without_events();
+        st["splice"] = json!({"before": before.len(), "from": a, "del": before.len() - a - b, "ins": &now[a..now.len() - b]});
+        st
+    }
+
+    fn state_without_events(&self) -> Value {
+        let mut st = self.state_inner(false);
+        st["events"] = Value::Null;
+        st
     }
 
     pub fn open_text(&mut self, name: &str, text: &str) {
@@ -303,8 +336,14 @@ impl Session {
                 serde_json::from_slice(body).map_err(|e| err_resp(400, format!("bad json: {}", e)))
             }
         };
+        let before: Option<Vec<EventJson>> = match route {
+            "/api/patch" | "/api/undo" | "/api/redo" | "/api/tool" | "/api/macro/run" if method == "POST" => Some(self.events_json()),
+            _ => None,
+        };
+        let before = before.as_deref().unwrap_or(&[]);
         match (method, route) {
             ("GET", "/") | ("GET", "/index.html") => text_resp("text/html; charset=utf-8", INDEX_HTML.to_string()),
+            ("GET", "/render.js") => text_resp("text/javascript; charset=utf-8", RENDER_JS.to_string()),
             ("GET", "/favicon.ico") => Response { status: 204, content_type: "image/x-icon", body: vec![] },
             ("GET", "/api/state") => json_resp(self.state()),
             ("POST", "/api/open") => {
@@ -342,19 +381,19 @@ impl Session {
                     self.checkpoint();
                     self.doc = work;
                 }
-                json_resp(self.state())
+                json_resp(self.delta(before))
             }
             ("POST", "/api/undo") => {
                 if let Some(prev) = self.undo.pop() {
                     self.redo.push(std::mem::replace(&mut self.doc, prev));
                 }
-                json_resp(self.state())
+                json_resp(self.delta(before))
             }
             ("POST", "/api/redo") => {
                 if let Some(next) = self.redo.pop() {
                     self.undo.push(std::mem::replace(&mut self.doc, next));
                 }
-                json_resp(self.state())
+                json_resp(self.delta(before))
             }
             ("GET", "/api/export") => {
                 let fmt = q.get("fmt").map(|s| s.as_str()).unwrap_or("ass");
@@ -467,7 +506,7 @@ impl Session {
                     self.checkpoint();
                     self.doc = work;
                 }
-                let mut st = self.state();
+                let mut st = self.delta(before);
                 st["message"] = json!(msg);
                 json_resp(st)
             }
@@ -508,7 +547,7 @@ impl Session {
                                 self.doc = newdoc;
                             }
                         }
-                        let mut st = self.state();
+                        let mut st = self.delta(before);
                         st["log"] = json!(r.log);
                         st["cancelled"] = json!(r.cancelled);
                         json_resp(st)
@@ -602,9 +641,18 @@ mod tests {
         s.open_text("a.ass", &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample.ass")).unwrap());
         s
     }
+    /// Post and, like the UI client, fold any events splice into a full state value.
     fn post(s: &mut Session, path: &str, v: Value) -> Value {
         let r = s.handle("POST", path, v.to_string().as_bytes());
-        serde_json::from_slice(&r.body).unwrap()
+        let mut st: Value = serde_json::from_slice(&r.body).unwrap();
+        if st.get("splice").is_some() {
+            let full = s.state();
+            let sp = st["splice"].clone();
+            // verify the splice reproduces the real event list from the previous one
+            assert!(sp["from"].as_u64().unwrap() <= sp["before"].as_u64().unwrap());
+            st["events"] = full["events"].clone();
+        }
+        st
     }
 
     #[test]
@@ -621,6 +669,37 @@ mod tests {
         assert_eq!(st["events"][1]["text"], "Hello  world");
         let st = post(&mut s, "/api/redo", json!({}));
         assert_eq!(st["events"][1]["text"], "Changed");
+    }
+
+    fn apply_splice(events: &mut Vec<Value>, sp: &Value) {
+        assert_eq!(sp["before"].as_u64().unwrap() as usize, events.len(), "client out of sync");
+        let from = sp["from"].as_u64().unwrap() as usize;
+        let del = sp["del"].as_u64().unwrap() as usize;
+        let ins: Vec<Value> = sp["ins"].as_array().unwrap().clone();
+        events.splice(from..from + del, ins);
+    }
+
+    #[test]
+    fn splices_reproduce_full_state() {
+        let mut s = session();
+        let mut mirror: Vec<Value> = s.state()["events"].as_array().unwrap().clone();
+        let ev = mirror[0].clone();
+        let steps: Vec<(&str, Value)> = vec![
+            ("/api/patch", json!({"ops": [{"op": "insert_event", "at": 1, "event": ev}]})),
+            ("/api/patch", json!({"ops": [{"op": "delete_events", "idx": [0, 2]}]})),
+            ("/api/tool", json!({"name": "shift", "ms": 250})),
+            ("/api/undo", json!({})),
+            ("/api/undo", json!({})),
+            ("/api/redo", json!({})),
+            ("/api/tool", json!({"name": "replace", "find": "o", "with": "0"})),
+            ("/api/tool", json!({"name": "sort"})),
+        ];
+        for (path, body) in steps {
+            let r = s.handle("POST", path, body.to_string().as_bytes());
+            let st: Value = serde_json::from_slice(&r.body).unwrap();
+            apply_splice(&mut mirror, &st["splice"]);
+            assert_eq!(Value::Array(mirror.clone()), s.state()["events"], "after {} {}", path, body);
+        }
     }
 
     #[test]
