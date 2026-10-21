@@ -45,7 +45,7 @@
     "chain gaps ≤": "boşluk ≤ (zincir)", "min gap": "min boşluk", "max": "maks", "chars": "karakter", "find": "bul", "replace": "değiştir",
     "start": "başlangıç", "end": "bitiş", "style": "stil", "actor": "konuşmacı", "layer": "katman", "text": "metin", "duration": "süre",
     "Statistics": "İstatistik", "Apply": "Uygula", "Selected": "Seçili", "Reset": "Sıfırla", "Upload from browser instead…": "Bunun yerine tarayıcıdan yükle…",
-    "Add Automation script": "Automation betiği ekle", "Find…": "Bul…", "Find / select lines": "Bul / satır seç", "Search": "Ara", "Find next": "Sonrakini bul", "Select all matches": "Tüm eşleşmeleri seç", "Add matches to selection": "Eşleşmeleri seçime ekle", "Select non-matching": "Eşleşmeyenleri seç", "Preview": "Önizleme", "unsaved": "kaydedilmedi",
+    "Add Automation script": "Automation betiği ekle", "libass ▶": "libass ▶", "Render the current frame with libass through ffmpeg (exact)": "Geçerli kareyi ffmpeg ile libass kullanarak çiz (birebir)", "Find…": "Bul…", "Find / select lines": "Bul / satır seç", "Search": "Ara", "Find next": "Sonrakini bul", "Select all matches": "Tüm eşleşmeleri seç", "Add matches to selection": "Eşleşmeleri seçime ekle", "Select non-matching": "Eşleşmeyenleri seç", "Preview": "Önizleme", "unsaved": "kaydedilmedi",
   };
   const LANGS = { tr: TR };
   let lang = "en";

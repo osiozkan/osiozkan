@@ -136,6 +136,36 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
     Ok(v)
 }
 
+/// Render one frame with libass via ffmpeg's `ass` filter. `media` = video to draw on (seeking to `t_ms`);
+/// without it a flat dark frame of `w`x`h` is used. Returns PNG bytes.
+pub fn render_frame(ass_file: &Path, media: Option<&Path>, t_ms: i64, w: u32, fontsdir: Option<&Path>) -> Result<Vec<u8>, String> {
+    let esc = |p: &Path| p.display().to_string().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
+    let mut filt = format!("ass='{}'", esc(ass_file));
+    if let Some(d) = fontsdir {
+        filt.push_str(&format!(":fontsdir='{}'", esc(d)));
+    }
+    let secs = format!("{:.3}", t_ms.max(0) as f64 / 1000.0);
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-nostdin", "-y"]);
+    match media {
+        Some(m) => {
+            cmd.args(["-ss", &secs, "-copyts", "-i"]).arg(m);
+            cmd.args(["-vf", &format!("{},scale={}:-2", filt, w)]);
+        }
+        None => {
+            let h = (w as f64 * 9.0 / 16.0).round() as u32 / 2 * 2;
+            cmd.args(["-f", "lavfi", "-i", &format!("color=c=0x222222:s={}x{}:r=25", w, h)]);
+            cmd.args(["-vf", &format!("setpts=PTS+{}/TB,{}", secs, filt)]);
+        }
+    }
+    cmd.args(["-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "-"]);
+    let out = cmd.output().map_err(|e| format!("ffmpeg not available: {}", e))?;
+    if out.stdout.is_empty() {
+        return Err(format!("ffmpeg produced no frame: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(out.stdout)
+}
+
 pub fn mime_for(path: &Path) -> &'static str {
     match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
         Some("mp4") | Some("m4v") => "video/mp4",
@@ -184,6 +214,22 @@ mod tests {
         assert_eq!(parse_range("bytes=-100", 1000), Some((900, 999)));
         assert_eq!(parse_range("bytes=2000-", 1000), None);
         assert_eq!(mime_for(Path::new("a.MKV")), "video/x-matroska");
+    }
+
+    #[test]
+    fn libass_frame_when_available() {
+        let ok = Command::new("ffmpeg").arg("-filters").output().map(|o| String::from_utf8_lossy(&o.stdout).contains(" ass ")).unwrap_or(false);
+        if !ok {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("sf-frame-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.ass");
+        std::fs::write(&f, std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/typeset.ass")).unwrap()).unwrap();
+        let png = render_frame(&f, None, 1500, 640, None).unwrap();
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+        assert!(png.len() > 2000, "frame suspiciously empty: {} bytes", png.len());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

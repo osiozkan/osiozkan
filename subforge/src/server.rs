@@ -622,6 +622,25 @@ impl Session {
                 self.dirty = false;
                 json_resp(self.state())
             }
+            ("GET", "/api/render_frame") => {
+                // exact libass preview through ffmpeg (optional; needs ffmpeg with libass)
+                let t: i64 = q.get("t").and_then(|x| x.parse().ok()).unwrap_or(0);
+                let w: u32 = q.get("w").and_then(|x| x.parse().ok()).unwrap_or(960).clamp(160, 3840);
+                let media = q.get("media").map(|m| url_decode(m)).filter(|m| !m.is_empty()).map(std::path::PathBuf::from);
+                let dir = std::env::temp_dir().join(format!("subforge-frame-{}", std::process::id()));
+                if std::fs::create_dir_all(&dir).is_err() {
+                    return err_resp(500, "cannot create temp dir");
+                }
+                let f = dir.join("frame.ass");
+                if std::fs::write(&f, self.doc.to_string()).is_err() {
+                    return err_resp(500, "cannot write temp file");
+                }
+                let fonts = self.path.as_ref().and_then(|p| p.parent().map(|d| d.join("fonts"))).filter(|d| d.is_dir());
+                match crate::media::render_frame(&f, media.as_deref(), t, w, fonts.as_deref()) {
+                    Ok(png) => Response { status: 200, content_type: "image/png", body: png },
+                    Err(e) => err_resp(400, e),
+                }
+            }
             ("GET", "/api/stats") => {
                 let st = crate::cleanup::stats(&self.doc);
                 json_resp(json!({"lines": st.lines, "comments": st.comments, "words": st.words, "chars": st.chars, "total_ms": st.total_ms, "avg_cps": st.avg_cps, "max_cps": st.max_cps, "avg_line_len": st.avg_line_len}))

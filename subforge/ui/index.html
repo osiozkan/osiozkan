@@ -83,7 +83,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <button id="bFind" title="Find next (F3) / Select lines (Ctrl+Shift+F)">Find…</button><button id="bStyles">Styles…</button><button id="bInfo">Properties…</button>
   <button id="bTools">Tools…</button><button id="bRecover" title="Open a crash-recovery autosave">Recover…</button><button id="bSettings" title="Automation folders, fonts">⚙</button>
   <span class="sp"></span>
-  <button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
+  <button id="bExact" title="Render the current frame with libass through ffmpeg (exact)">libass ▶</button><button id="bTypeset" title="Visual typesetting: drag on the preview to set \\pos, Shift+drag for \\clip">✥ Typeset</button><button id="bRef" title="Load a reference/source-language subtitle for translation">Reference…</button><button id="bVideo">Video…</button>
   <input type="file" id="fRef" hidden accept=".ass,.ssa,.srt,.vtt">
   <span class="hint" id="dirty"></span>
   <input type="file" id="fOpen" hidden accept=".ass,.ssa,.srt,.vtt,.txt">
@@ -91,7 +91,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <input type="file" id="fLua" hidden accept=".lua" multiple>
 </div>
 <div id="main">
-  <div id="video"><div id="novideo" style="position:absolute;top:6px;left:8px;z-index:1;pointer-events:none;color:var(--dim);font-size:11px">Preview of the selected line · “Video…” loads video/audio</div><video id="vid" controls style="display:none"></video><canvas id="ovc" style="position:absolute;pointer-events:none"></canvas><canvas id="ovi" style="position:absolute;display:none;cursor:move"></canvas></div>
+  <div id="video"><div id="novideo" style="position:absolute;top:6px;left:8px;z-index:1;pointer-events:none;color:var(--dim);font-size:11px">Preview of the selected line · “Video…” loads video/audio</div><video id="vid" controls style="display:none"></video><canvas id="ovc" style="position:absolute;pointer-events:none"></canvas><img id="exactImg" style="position:absolute;display:none;pointer-events:none;object-fit:fill"><canvas id="ovi" style="position:absolute;display:none;cursor:move"></canvas></div>
   <div id="side">
     <div id="tabs"><button data-p="qa" class="on">Checks</button><button data-p="kara">Karaoke</button><button data-p="mac">Lua macros</button><button data-p="keys">Keys</button></div>
     <div class="pane on" id="p-qa"><div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
@@ -786,6 +786,20 @@ vid.addEventListener("pause",()=>{playEnd=null});
   if(!vid.paused){const t=vid.currentTime*1000;if(t<W.t0||t>W.t0+W.span*0.92)W.t0=Math.max(0,t-W.span*0.1);drawWave()}
   requestAnimationFrame(wloop)})();
 
+
+// ---- exact libass preview (ffmpeg) ----
+$("#bExact").onclick=async()=>{
+  const img=$("#exactImg");if(img.style.display==="block"){img.style.display="none";$("#bExact").classList.remove("primary");return}
+  const r=overlayRect();const t=vid.style.display!=="none"?Math.round(vid.currentTime*1000):(S.events[cur]?Math.round(S.events[cur].start+Math.min((S.events[cur].end-S.events[cur].start)/2,1500)):0);
+  $("#bExact").classList.add("primary");$("#sRun").textContent="rendering with libass…";
+  try{
+    const q="/api/render_frame?t="+t+"&w="+Math.max(320,Math.round(r.w*(window.devicePixelRatio||1)))+(MEDIA?"&media="+encodeURIComponent(MEDIA.path):"");
+    const resp=await sfetch(q);if(!resp.ok){const j=await resp.json();throw new Error(j.error)}
+    img.src=URL.createObjectURL(await resp.blob());
+    Object.assign(img.style,{display:"block",width:r.w+"px",height:r.h+"px",left:r.l+"px",top:r.t+"px"});
+  }catch(e){msg("libass preview failed: "+e.message,true);$("#bExact").classList.remove("primary")}
+  $("#sRun").textContent="";
+};
 
 // ---- visual typesetting on the preview ----
 const ovi=$("#ovi");let TS={on:false,drag:null};
