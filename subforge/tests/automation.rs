@@ -63,3 +63,35 @@ fn error_rolls_back_and_reports() {
     assert!(e.to_string().contains("kaboom"));
     assert!(matches!(d.borrow().entries[0], Entry::Info { .. }));
 }
+
+#[test]
+fn dialog_hook_receives_spec_and_returns_values() {
+    use std::sync::{Arc, Mutex};
+    let d = doc();
+    let seen: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
+    let seen2 = seen.clone();
+    let mut opts = RunOptions::default();
+    opts.dialog_hook = Some(Arc::new(move |spec| {
+        *seen2.lock().unwrap() = Some(spec);
+        Some(serde_json::json!({"button": "Apply", "values": {"ms": 500, "tag": "zz"}}))
+    }));
+    let s = Script::load(&fx("test_macro.lua"), d.clone(), &opts).unwrap();
+    s.run("Dialog", &opts).unwrap();
+    let spec = seen.lock().unwrap().clone().unwrap();
+    assert_eq!(spec["controls"][1]["name"], "ms");
+    assert_eq!(spec["buttons"], serde_json::json!(["Apply", "Cancel"]));
+    assert_eq!(spec["ids"]["ok"], "Apply");
+    let e = d.borrow().events().next().unwrap().clone();
+    assert_eq!((e.start, e.effect.as_str()), (1500, "zz"));
+}
+
+#[test]
+fn dialog_hook_cancel_makes_script_cancel() {
+    let d = doc();
+    let mut opts = RunOptions::default();
+    opts.dialog_hook = Some(std::sync::Arc::new(|_| Some(serde_json::json!({"button": null, "values": {}}))));
+    let s = Script::load(&fx("test_macro.lua"), d.clone(), &opts).unwrap();
+    let r = s.run("Dialog", &opts).unwrap();
+    assert!(r.cancelled);
+    assert_eq!(d.borrow().events().next().unwrap().start, 1000);
+}

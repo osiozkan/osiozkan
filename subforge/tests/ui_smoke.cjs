@@ -148,6 +148,20 @@ const fs = require("fs");
   // timing tools via API
   const lead = await p.evaluate(async () => { const before = S.events[1].start; const st = await api("/api/tool", { name: "lead", in: 100, out: 0 }); setState(st); return [before, S.events[1].start]; });
   ok(lead[1] <= lead[0], "lead-in tool ran");
+  // interactive script dialog
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
+  await p.click('#tabs [data-p="mac"]');
+  await p.waitForSelector(".macro");
+  await p.locator(".macro", { hasText: "Dialog" }).first().locator("button").click();
+  await p.waitForSelector('#mbox [data-n="ms"]');
+  ok((await p.inputValue('#mbox [data-n="ms"]')) === "100", "script dialog rendered with defaults");
+  await p.fill('#mbox [data-n="ms"]', "333"); await p.fill('#mbox [data-n="tag"]', "ui"); await p.click('#mbox [data-b="Apply"]');
+  await p.waitForFunction(() => S.events[0].effect === "ui" && S.events[0].start === 1333, null, { timeout: 10000 });
+  ok(true, "dialog values reached the Lua macro");
+  await p.locator(".macro", { hasText: "Dialog" }).first().locator("button").click();
+  await p.waitForSelector('#mbox [data-n="ms"]'); await p.click('#mbox [data-b="Cancel"]');
+  await p.waitForFunction(() => document.querySelector("#macLog").textContent.includes("cancelled"), null, { timeout: 10000 });
+  ok(true, "Cancel button cancels the macro (document unchanged)");
   // karaoke tab
   await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
   await p.click('#tabs [data-p="kara"]');

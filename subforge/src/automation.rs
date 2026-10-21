@@ -25,7 +25,13 @@ pub struct MacroInfo {
     pub is_filter: bool,
 }
 
-#[derive(Debug, Default, Clone)]
+/// Interactive dialog callback: receives `{controls, buttons, ids}` as JSON, returns
+/// `{button, values}` (or None => headless defaults).
+pub type DialogHook = std::sync::Arc<dyn Fn(serde_json::Value) -> Option<serde_json::Value> + Send + Sync>;
+/// Progress callback: (`set` | `task` | `title`, value).
+pub type ProgressHook = std::sync::Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+#[derive(Default, Clone)]
 pub struct RunOptions {
     /// 1-based entry indices (into the flat subs list). Empty = all dialogue lines.
     pub selection: Vec<usize>,
@@ -37,6 +43,10 @@ pub struct RunOptions {
     pub include_dirs: Vec<PathBuf>,
     /// Extra font directories for `aegisub.text_extents`.
     pub font_dirs: Vec<PathBuf>,
+    pub dialog_hook: Option<DialogHook>,
+    pub progress_hook: Option<ProgressHook>,
+    /// Set by the host to ask a running script to stop (`aegisub.progress.is_cancelled()`).
+    pub cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 #[derive(Debug, Default)]
@@ -373,7 +383,45 @@ impl Script {
             )
             .map_err(lerr)?;
         }
-        sf.set("progress", lua.create_function(|_, _: Variadic<Value>| Ok(())).map_err(lerr)?).map_err(lerr)?;
+        {
+            let hook = opts.progress_hook.clone();
+            sf.set(
+                "progress",
+                lua.create_function(move |_, (kind, v): (String, Value)| {
+                    if let Some(h) = &hook {
+                        h(&kind, lua_to_json(&v, 0));
+                    }
+                    Ok(())
+                })
+                .map_err(lerr)?,
+            )
+            .map_err(lerr)?;
+            let flag = opts.cancel_flag.clone();
+            sf.set(
+                "is_cancelled",
+                lua.create_function(move |_, ()| Ok(flag.as_ref().map(|f| f.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(false))).map_err(lerr)?,
+            )
+            .map_err(lerr)?;
+            if let Some(h) = opts.dialog_hook.clone() {
+                sf.set("has_dialog", true).map_err(lerr)?;
+                sf.set(
+                    "dialog",
+                    lua.create_function(move |lua, (controls, buttons, ids): (Value, Value, Value)| {
+                        let spec = serde_json::json!({"controls": lua_to_json(&controls, 0), "buttons": lua_to_json(&buttons, 0), "ids": lua_to_json(&ids, 0)});
+                        match h(spec) {
+                            Some(reply) => {
+                                let button = reply.get("button").cloned().unwrap_or(serde_json::Value::Null);
+                                let values = reply.get("values").cloned().unwrap_or(serde_json::json!({}));
+                                Ok((json_to_lua(lua, &button)?, json_to_lua(lua, &values)?))
+                            }
+                            None => Ok((Value::Nil, Value::Nil)),
+                        }
+                    })
+                    .map_err(lerr)?,
+                )
+                .map_err(lerr)?;
+            }
+        }
         {
             let mut db = crate::fonts::FontDb::new();
             db.add_dir(script_dir.clone());
@@ -606,6 +654,59 @@ fn normalize_order(doc: &mut Document) {
         Entry::Event(_) => 2,
     };
     doc.entries.sort_by_key(rank); // stable
+}
+
+fn lua_to_json(v: &Value, depth: usize) -> serde_json::Value {
+    use serde_json::Value as J;
+    if depth > 8 {
+        return J::Null;
+    }
+    match v {
+        Value::Nil => J::Null,
+        Value::Boolean(b) => J::Bool(*b),
+        Value::Integer(i) => J::from(*i),
+        Value::Number(n) => serde_json::Number::from_f64(*n).map(J::Number).unwrap_or(J::Null),
+        Value::String(s) => J::String(s.to_string_lossy().to_string()),
+        Value::Table(t) => {
+            let len = t.raw_len();
+            if len > 0 {
+                J::Array(t.sequence_values::<Value>().filter_map(|x| x.ok()).map(|x| lua_to_json(&x, depth + 1)).collect())
+            } else {
+                let mut m = serde_json::Map::new();
+                for (k, val) in t.pairs::<Value, Value>().flatten() {
+                    if let Value::String(k) = k {
+                        m.insert(k.to_string_lossy().to_string(), lua_to_json(&val, depth + 1));
+                    }
+                }
+                J::Object(m)
+            }
+        }
+        _ => J::Null,
+    }
+}
+
+fn json_to_lua(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
+    use serde_json::Value as J;
+    Ok(match v {
+        J::Null => Value::Nil,
+        J::Bool(b) => Value::Boolean(*b),
+        J::Number(n) => Value::Number(n.as_f64().unwrap_or(0.0)),
+        J::String(s) => Value::String(lua.create_string(s)?),
+        J::Array(a) => {
+            let t = lua.create_table()?;
+            for (i, x) in a.iter().enumerate() {
+                t.raw_set(i as i64 + 1, json_to_lua(lua, x)?)?;
+            }
+            Value::Table(t)
+        }
+        J::Object(o) => {
+            let t = lua.create_table()?;
+            for (k, x) in o {
+                t.set(k.as_str(), json_to_lua(lua, x)?)?;
+            }
+            Value::Table(t)
+        }
+    })
 }
 
 fn lerr(e: mlua::Error) -> anyhow::Error {

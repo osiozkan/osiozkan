@@ -123,7 +123,7 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
   <div id="gridwrap">
     <div id="head"><div>#</div><div>C</div><div>Ly</div><div>Start</div><div>End</div><div>Dur</div><div>Style</div><div>Actor</div><div>CPS</div><div>Text</div></div>
     <div id="grid"><div id="spacer"></div></div>
-    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sFps"></span><span id="sFrame"></span><span id="sMsg"></span></div>
+    <div id="status"><span id="sLines"></span><span id="sSel"></span><span id="sRun" style="color:var(--acc)"></span><span id="sFps"></span><span id="sFrame"></span><span id="sMsg"></span></div>
   </div>
 </div>
 
@@ -323,7 +323,7 @@ $("#bMerge").onclick=()=>{
 // ---- modals ----
 function modal(html){$("#mbox").innerHTML=html;$("#mdl").classList.add("on")}
 function closeModal(){$("#mdl").classList.remove("on")}
-$("#mdl").addEventListener("mousedown",e=>{if(e.target.id==="mdl")closeModal()});
+$("#mdl").addEventListener("mousedown",e=>{if(e.target.id==="mdl"&&!modalLock)closeModal()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
 
 $("#bInfo").onclick=()=>{
@@ -520,15 +520,81 @@ async function refreshMacros(){
     else{scripts=scripts.filter(x=>x!==m);try{localStorage.setItem("sf_scripts",JSON.stringify(scripts))}catch(e){}}
     refreshMacros()});
 }
+// ---- script dialogs (aegisub.dialog.display) ----
+let modalLock=false;
+function assToHex(c){const m=/&?H?([0-9a-fA-F]{2})?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})&?/.exec(String(c||""));if(!m)return"#ffffff";const l=String(c).replace(/[&Hh]/g,"");const p=l.padStart(8,"0");return"#"+p.slice(6,8)+p.slice(4,6)+p.slice(2,4)}
+function hexToAss(h,a){const r=h.slice(1,3),g=h.slice(3,5),b=h.slice(5,7);return a===undefined?`&H${b}${g}${r}&`.toUpperCase():`&H${a.toString(16).padStart(2,"0")}${b}${g}${r}`.toUpperCase()}
+function scriptDialog(spec){
+  return new Promise(resolve=>{
+    const ctl=(spec.controls||[]).filter(c=>c&&typeof c==="object");const W=Math.max(1,...ctl.map(c=>(c.x||0)+(c.width||1)));
+    const attr=c=>`style="grid-column:${(c.x||0)+1} / span ${c.width||1};grid-row:${(c.y||0)+1} / span ${c.height||1};min-width:0" title="${esc(String(c.hint||"")).replace(/"/g,"&quot;")}"`;
+    const q=v=>esc(String(v==null?"":v)).replace(/"/g,"&quot;");
+    const html=ctl.map((c,i)=>{
+      const cls=c.class,nm=`data-n="${q(c.name||"")}" data-c="${cls}" data-i="${i}"`;
+      switch(cls){
+        case"label":return `<div ${attr(c)}>${esc(c.label||"")}</div>`;
+        case"edit":return `<input ${attr(c)} ${nm} value="${q(c.text!=null?c.text:c.value)}">`;
+        case"textbox":return `<textarea ${attr(c)} ${nm} rows="${Math.max(3,(c.height||3)*2)}" style="grid-column:${(c.x||0)+1} / span ${c.width||1};grid-row:${(c.y||0)+1} / span ${c.height||1};width:100%">${esc(String(c.text!=null?c.text:(c.value||"")))}</textarea>`;
+        case"intedit":return `<input ${attr(c)} ${nm} type="number" step="1" ${c.min!=null?`min="${c.min}"`:""} ${c.max!=null?`max="${c.max}"`:""} value="${q(c.value!=null?c.value:0)}">`;
+        case"floatedit":return `<input ${attr(c)} ${nm} type="number" step="${c.step||"any"}" ${c.min!=null?`min="${c.min}"`:""} ${c.max!=null?`max="${c.max}"`:""} value="${q(c.value!=null?c.value:0)}">`;
+        case"checkbox":return `<label ${attr(c)}><input ${nm} type="checkbox" ${c.value?"checked":""}> ${esc(c.label||"")}</label>`;
+        case"dropdown":return `<select ${attr(c)} ${nm}>${(c.items||[]).map(it=>`<option ${it===c.value?"selected":""}>${esc(String(it))}</option>`).join("")}</select>`;
+        case"color":return `<input ${attr(c)} ${nm} type="color" value="${assToHex(c.value)}">`;
+        case"coloralpha":return `<span ${attr(c)}><input ${nm} type="color" value="${assToHex(c.value)}"> α <input data-a="${i}" type="number" min="0" max="255" value="${parseInt(String(c.value||"").replace(/[&Hh]/g,"").padStart(8,"0").slice(0,2),16)||0}" style="width:56px"></span>`;
+        case"alpha":return `<input ${attr(c)} ${nm} type="number" min="0" max="255" value="${parseInt(String(c.value||"0").replace(/[&Hh]/g,""),16)||0}">`;
+        case"slider":return `<input ${attr(c)} ${nm} type="range" min="${c.min||0}" max="${c.max||100}" value="${c.value||0}">`;
+        default:return `<div ${attr(c)}></div>`;
+      }}).join("");
+    const buttons=(spec.buttons&&spec.buttons.length)?spec.buttons:["OK","Cancel"];
+    const ids=spec.ids||{};
+    modalLock=true;
+    modal(`<div class="fgrid" style="display:grid;grid-template-columns:repeat(${W},minmax(70px,auto));gap:6px 8px;align-items:center;min-width:min(520px,86vw)">${html}</div><p style="margin-top:14px">${buttons.map((b,i)=>`<button data-b="${q(b)}" class="${(ids.ok?b===ids.ok:i===0)?"primary":""}">${esc(String(b))}</button>`).join(" ")}</p>`);
+    const finish=btn=>{
+      const values={};
+      document.querySelectorAll("#mbox [data-c]").forEach(el=>{
+        const n=el.dataset.n;if(!n)return;const c=ctl[+el.dataset.i];let v;
+        switch(el.dataset.c){
+          case"checkbox":v=el.checked;break;
+          case"intedit":v=Math.round(parseFloat(el.value)||0);break;
+          case"floatedit":v=parseFloat(el.value)||0;break;
+          case"color":v=hexToAss(el.value);break;
+          case"coloralpha":{const a=document.querySelector(`#mbox [data-a="${el.dataset.i}"]`);v=hexToAss(el.value,Math.max(0,Math.min(255,parseInt(a.value)||0)));break}
+          case"alpha":v=`&H${Math.max(0,Math.min(255,parseInt(el.value)||0)).toString(16).padStart(2,"0")}&`.toUpperCase();break;
+          case"slider":v=parseFloat(el.value)||0;break;
+          default:v=el.value;
+        }
+        values[n]=v;
+      });
+      modalLock=false;closeModal();window.removeEventListener("keydown",esc2,true);resolve({button:btn,values});
+    };
+    const esc2=e=>{if(e.key==="Escape"){e.stopPropagation();finish(null)}};
+    window.addEventListener("keydown",esc2,true);
+    document.querySelectorAll("#mbox [data-b]").forEach(b=>b.onclick=()=>finish(b.dataset.b));
+    const first=document.querySelector("#mbox input,#mbox textarea,#mbox select");if(first)first.focus();
+  });
+}
+
+let macroRunning=false;
 async function runMacro(s,name){
+  if(macroRunning){msg("A macro is already running",true);return}
   // flat subs index = info count + styles count + event index + 1
   const base=S.info.length+S.styles.length;
   const idx=selIdx().map(i=>base+i+1);
-  const log=$("#macLog");
+  const log=$("#macLog");const run=$("#sRun");
+  macroRunning=true;
   try{
-    const st=await api("/api/macro/run",{script:s.src,path:s.path,name,selection:idx,fps:S.fps||undefined});
-    setState(st);log.style.display="block";log.textContent=(st.cancelled?"[cancelled]\n":"")+st.log.join("");msg(st.cancelled?"Macro cancelled":"Macro done: "+name);
+    await api("/api/macro/start",{script:s.src,path:s.path,name,selection:idx,fps:S.fps||undefined});
+    for(;;){
+      await new Promise(r=>setTimeout(r,120));
+      const p=await api("/api/macro/poll");
+      if(p.phase==="running"){run.textContent="⚙ "+(p.title||name)+(p.task?" – "+p.task:"")+(p.progress?" – "+Math.round(p.progress)+"%":"");continue}
+      if(p.phase==="dialog"){run.textContent="⚙ "+name+" – waiting for input";const reply=await scriptDialog(p.dialog);await api("/api/macro/reply",reply);continue}
+      if(p.phase==="done"){setState(p);log.style.display="block";log.textContent=(p.cancelled?"[cancelled]\n":"")+p.log.join("");msg(p.cancelled?"Macro cancelled":"Macro done: "+name);break}
+      if(p.phase==="error"){log.style.display="block";log.textContent=p.error;msg("Macro failed",true);break}
+      break;
+    }
   }catch(e){log.style.display="block";log.textContent=e.message;msg("Macro failed",true)}
+  finally{macroRunning=false;run.textContent=""}
 }
 $("#p-mac").addEventListener("click",()=>{});
 

@@ -141,7 +141,32 @@ impl From<StyleJson> for Style {
     }
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum Phase {
+    Running,
+    Dialog,
+    Done,
+}
+
+struct RunState {
+    phase: Phase,
+    dialog: Option<Value>,
+    reply: Option<Value>,
+    progress: f64,
+    task: String,
+    title: String,
+    result: Option<Result<(Document, crate::automation::RunResult), String>>,
+}
+
+/// A macro running on its own thread (so dialogs can block waiting for the browser).
+struct RunShared {
+    state: std::sync::Mutex<RunState>,
+    cv: std::sync::Condvar,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
 pub struct Session {
+    run: Option<std::sync::Arc<RunShared>>,
     pub doc: Document,
     pub name: String,
     pub encoding: String,
@@ -256,7 +281,7 @@ fn apply_op(doc: &mut Document, op: &Value) -> Result<(), String> {
 
 impl Session {
     pub fn new() -> Session {
-        Session { doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, settings: crate::settings::Settings::load(), last_autosave: None, undo: vec![], redo: vec![], dirty: false }
+        Session { run: None, doc: Document::new_default(), name: "untitled.ass".into(), encoding: "UTF-8".into(), path: None, reference: None, settings: crate::settings::Settings::load(), last_autosave: None, undo: vec![], redo: vec![], dirty: false }
     }
 
     fn checkpoint(&mut self) {
@@ -712,6 +737,120 @@ impl Session {
                     Err(e) => err_resp(400, e),
                 }
             }
+            ("POST", "/api/macro/start") => {
+                if self.run.as_ref().map(|r| r.state.lock().map(|s| s.phase != Phase::Done).unwrap_or(false)).unwrap_or(false) {
+                    return err_resp(409, "a macro is already running");
+                }
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let spath = v.get("path").and_then(|x| x.as_str()).map(|s| s.to_string());
+                let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let mut opts = RunOptions { include_dirs: self.settings.all_include_dirs(), font_dirs: self.settings.font_dirs.iter().map(std::path::PathBuf::from).collect(), ..Default::default() };
+                if let Some(a) = v.get("selection").and_then(|x| x.as_array()) {
+                    opts.selection = a.iter().filter_map(|x| x.as_u64()).map(|x| x as usize).collect();
+                }
+                opts.fps = v.get("fps").and_then(|x| x.as_f64());
+                let shared = std::sync::Arc::new(RunShared {
+                    state: std::sync::Mutex::new(RunState { phase: Phase::Running, dialog: None, reply: None, progress: 0.0, task: String::new(), title: name.clone(), result: None }),
+                    cv: std::sync::Condvar::new(),
+                    cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                });
+                opts.cancel_flag = Some(shared.cancel.clone());
+                {
+                    let sh = shared.clone();
+                    opts.dialog_hook = Some(std::sync::Arc::new(move |spec: Value| {
+                        let mut st = sh.state.lock().unwrap();
+                        st.dialog = Some(spec);
+                        st.reply = None;
+                        st.phase = Phase::Dialog;
+                        sh.cv.notify_all();
+                        loop {
+                            if sh.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                                st.phase = Phase::Running;
+                                st.dialog = None;
+                                return Some(json!({"button": null, "values": {}}));
+                            }
+                            if let Some(r) = st.reply.take() {
+                                st.phase = Phase::Running;
+                                st.dialog = None;
+                                return Some(r);
+                            }
+                            let (g, _) = sh.cv.wait_timeout(st, std::time::Duration::from_millis(200)).unwrap();
+                            st = g;
+                        }
+                    }));
+                }
+                {
+                    let sh = shared.clone();
+                    opts.progress_hook = Some(std::sync::Arc::new(move |kind: &str, val: Value| {
+                        let mut st = sh.state.lock().unwrap();
+                        match kind {
+                            "set" => st.progress = val.as_f64().unwrap_or(0.0),
+                            "task" => st.task = val.as_str().unwrap_or("").to_string(),
+                            "title" => st.title = val.as_str().unwrap_or("").to_string(),
+                            _ => {}
+                        }
+                    }));
+                }
+                let doc = self.doc.clone();
+                let sh = shared.clone();
+                std::thread::spawn(move || {
+                    let rc = Rc::new(RefCell::new(doc));
+                    let res = run_script_on(&src, spath.as_deref(), rc.clone(), &name, &opts);
+                    let out = res.map(|r| (rc.borrow().clone(), r));
+                    let mut st = sh.state.lock().unwrap();
+                    st.result = Some(out);
+                    st.phase = Phase::Done;
+                    sh.cv.notify_all();
+                });
+                self.run = Some(shared);
+                json_resp(json!({"started": true}))
+            }
+            ("GET", "/api/macro/poll") => {
+                let Some(run) = self.run.clone() else { return json_resp(json!({"phase": "idle"})) };
+                let mut st = run.state.lock().unwrap();
+                match st.phase {
+                    Phase::Running => json_resp(json!({"phase": "running", "progress": st.progress, "task": st.task, "title": st.title})),
+                    Phase::Dialog => json_resp(json!({"phase": "dialog", "dialog": st.dialog, "progress": st.progress, "task": st.task, "title": st.title})),
+                    Phase::Done => {
+                        let result = st.result.take();
+                        drop(st);
+                        self.run = None;
+                        match result {
+                            Some(Ok((newdoc, r))) => {
+                                let before = self.events_json();
+                                if !r.cancelled && newdoc != self.doc {
+                                    self.checkpoint();
+                                    self.doc = newdoc;
+                                }
+                                let mut d = self.delta(&before);
+                                d["phase"] = json!("done");
+                                d["log"] = json!(r.log);
+                                d["cancelled"] = json!(r.cancelled);
+                                json_resp(d)
+                            }
+                            Some(Err(e)) => json_resp(json!({"phase": "error", "error": e})),
+                            None => json_resp(json!({"phase": "idle"})),
+                        }
+                    }
+                }
+            }
+            ("POST", "/api/macro/reply") => {
+                let v = match jbody() { Ok(v) => v, Err(r) => return r };
+                if let Some(run) = &self.run {
+                    let mut st = run.state.lock().unwrap();
+                    st.reply = Some(v);
+                    run.cv.notify_all();
+                }
+                json_resp(json!({"ok": true}))
+            }
+            ("POST", "/api/macro/cancel") => {
+                if let Some(run) = &self.run {
+                    run.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    run.cv.notify_all();
+                }
+                json_resp(json!({"ok": true}))
+            }
             ("POST", "/api/macro/run") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
                 let src = v.get("script").and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -1029,6 +1168,43 @@ mod tests {
             apply_splice(&mut mirror, &st["splice"]);
             assert_eq!(Value::Array(mirror.clone()), s.state()["events"], "after {} {}", path, body);
         }
+    }
+
+    #[test]
+    fn interactive_macro_dialog_roundtrip() {
+        let mut s = session();
+        let script = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test_macro.lua")).unwrap();
+        let r = s.handle("POST", "/api/macro/start", json!({"script": script, "name": "Dialog"}).to_string().as_bytes());
+        assert_eq!(r.status, 200);
+        let mut phase = String::new();
+        let mut dialog = Value::Null;
+        for _ in 0..200 {
+            let p: Value = serde_json::from_slice(&s.handle("GET", "/api/macro/poll", b"").body).unwrap();
+            phase = p["phase"].as_str().unwrap().to_string();
+            if phase == "dialog" {
+                dialog = p["dialog"].clone();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(phase, "dialog");
+        assert_eq!(dialog["controls"][1]["name"], "ms");
+        s.handle("POST", "/api/macro/reply", json!({"button": "Apply", "values": {"ms": 700, "tag": "q"}}).to_string().as_bytes());
+        let mut done = Value::Null;
+        for _ in 0..200 {
+            let p: Value = serde_json::from_slice(&s.handle("GET", "/api/macro/poll", b"").body).unwrap();
+            if p["phase"] == "done" {
+                done = p;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(done["phase"], "done", "{}", done);
+        assert_eq!(s.state()["events"][0]["start"], 1700);
+        assert_eq!(done["splice"]["before"], 3);
+        // undo restores
+        let st = post(&mut s, "/api/undo", json!({}));
+        assert_eq!(st["events"][0]["start"], 1000);
     }
 
     #[test]

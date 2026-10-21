@@ -15,7 +15,7 @@ aegisub.progress = {
 	set = function(v) sf.progress("set", v) end,
 	task = function(t) sf.progress("task", t) end,
 	title = function(t) sf.progress("title", t) end,
-	is_cancelled = function() return false end,
+	is_cancelled = function() return sf.is_cancelled() end,
 }
 aegisub.gettext = function(s) return s end
 aegisub.cancel = function() error("__sf_cancel__", 0) end
@@ -91,6 +91,11 @@ local function dialog_defaults(dialog)
 end
 aegisub.dialog = {
 	display = function(dialog, buttons, button_ids)
+		if sf.has_dialog then
+			local btn, vals = sf.dialog(dialog, buttons, button_ids)
+			if btn == nil or btn == false then return false, {} end
+			return btn, vals
+		end
 		local res = dialog_defaults(dialog)
 		if buttons == nil then return "Ok", res end
 		local ok = (button_ids and button_ids.ok) or buttons[1]
@@ -103,7 +108,8 @@ aegisub.dialog = {
 aegisub.dialog.display = (function(f)
 	return function(dialog, buttons, button_ids)
 		if buttons == nil then
-			local _, res = f(dialog, buttons, button_ids)
+			local b, res = f(dialog, buttons, button_ids)
+			if b == false then return false, {} end
 			return true, res
 		end
 		return f(dialog, buttons, button_ids)
@@ -289,4 +295,11 @@ do
 		end
 		return _ipairs(t)
 	end
+end
+
+-- print() goes to the macro log (Aegisub shows it in the debug console)
+function print(...)
+	local t = {}
+	for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
+	sf.log(2, table.concat(t, "\t") .. "\n")
 end
