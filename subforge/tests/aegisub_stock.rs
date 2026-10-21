@@ -55,3 +55,28 @@ fn stock_simple_macros() {
     let d = run_stock("cleantags-autoload.lua", "Clean Tags", "typeset.ass");
     assert_eq!(d.events().count(), 6);
 }
+
+/// Bundled copies work without any download or env var.
+#[test]
+fn builtin_kara_templater_and_macros() {
+    use subforge::automation::materialize_builtin;
+    let src = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/karaoke.ass")).unwrap();
+    let doc = Rc::new(RefCell::new(Document::parse(&src)));
+    let opts = RunOptions::default();
+    let p = materialize_builtin("builtin:kara-templater.lua").unwrap();
+    let s = Script::load(&p, doc.clone(), &opts).unwrap();
+    let r = s.run("Apply karaoke template", &opts).unwrap();
+    assert!(!r.cancelled, "{:?}", r.log);
+    let d = doc.borrow();
+    let fx: Vec<_> = d.events().filter(|e| e.effect == "fx").collect();
+    assert!(fx.len() >= 5, "generated {} fx lines", fx.len());
+    assert!(fx.iter().any(|e| e.text.contains("\\pos(") && e.text.ends_with("ke")));
+    drop(d);
+    for (name, macro_name) in [("macro-1-edgeblur.lua", "Add edgeblur"), ("strip-tags.lua", "Strip tags"), ("cleantags-autoload.lua", "Clean Tags")] {
+        let p = materialize_builtin(name).unwrap();
+        let doc = Rc::new(RefCell::new(Document::parse(&src)));
+        let s = Script::load(&p, doc.clone(), &opts).unwrap();
+        s.run(macro_name, &opts).unwrap();
+        assert!(doc.borrow().events().count() >= 1);
+    }
+}

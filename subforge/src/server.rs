@@ -507,7 +507,8 @@ impl Session {
             }
             ("GET", "/api/settings") => {
                 let files: Vec<String> = self.settings.script_files().iter().map(|p| p.display().to_string()).collect();
-                json_resp(json!({"settings": self.settings, "scripts": files, "config_dir": crate::settings::config_dir().display().to_string(), "autosave_dir": Self::autosave_dir().display().to_string()}))
+                let builtin: Vec<String> = crate::automation::BUILTIN_SCRIPTS.iter().map(|(n, _)| format!("builtin:{}", n)).collect();
+                json_resp(json!({"builtin": builtin, "settings": self.settings, "scripts": files, "config_dir": crate::settings::config_dir().display().to_string(), "autosave_dir": Self::autosave_dir().display().to_string()}))
             }
             ("POST", "/api/settings") => {
                 let v = match jbody() { Ok(v) => v, Err(r) => return r };
@@ -967,6 +968,9 @@ fn script_file(src: &str) -> Result<std::path::PathBuf, String> {
 }
 
 fn script_path(src: &str, path: Option<&str>) -> Result<std::path::PathBuf, String> {
+    if let Some(p) = path.filter(|p| p.starts_with("builtin:")) {
+        return crate::automation::materialize_builtin(p).ok_or_else(|| format!("unknown built-in script '{}'", p));
+    }
     match path {
         Some(p) if !p.is_empty() => Ok(std::path::PathBuf::from(p)),
         _ => script_file(src),

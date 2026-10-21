@@ -16,7 +16,45 @@ use std::rc::Rc;
 pub type SharedDoc = Rc<RefCell<Document>>;
 
 const PRELUDE: &str = include_str!("../lua/prelude.lua");
-const KARASKEL: &str = include_str!("../lua/karaskel.lua");
+
+/// Aegisub's stock macros (unmodified, licence headers intact), bundled so they work out of the box.
+pub const BUILTIN_SCRIPTS: &[(&str, &str)] = &[
+    ("kara-templater.lua", include_str!("../lua/aegisub/autoload/kara-templater.lua")),
+    ("cleantags-autoload.lua", include_str!("../lua/aegisub/autoload/cleantags-autoload.lua")),
+    ("karaoke-auto-leadin.lua", include_str!("../lua/aegisub/autoload/karaoke-auto-leadin.lua")),
+    ("macro-1-edgeblur.lua", include_str!("../lua/aegisub/autoload/macro-1-edgeblur.lua")),
+    ("strip-tags.lua", include_str!("../lua/aegisub/autoload/strip-tags.lua")),
+];
+
+/// Stock include files resolved by `include()` when nothing on disk matches.
+pub const BUILTIN_INCLUDES: &[(&str, &str)] = &[
+    ("karaskel.lua", include_str!("../lua/aegisub/include/karaskel.lua")),
+    ("karaskel-auto4.lua", include_str!("../lua/aegisub/include/karaskel-auto4.lua")),
+    ("cleantags.lua", include_str!("../lua/aegisub/include/cleantags.lua")),
+];
+
+fn strip_bom(s: &str) -> &str {
+    s.strip_prefix('\u{feff}').unwrap_or(s)
+}
+
+/// Write a bundled script to a temp file (scripts are loaded from disk) and return its path.
+/// Accepts `builtin:name.lua` or `name.lua`.
+pub fn materialize_builtin(name: &str) -> Option<PathBuf> {
+    let name = name.strip_prefix("builtin:").unwrap_or(name);
+    let src = builtin_script(name)?;
+    let dir = std::env::temp_dir().join(format!("subforge-builtin-{}", env!("CARGO_PKG_VERSION")));
+    std::fs::create_dir_all(&dir).ok()?;
+    let p = dir.join(name);
+    if std::fs::read_to_string(&p).map(|c| c != src).unwrap_or(true) {
+        std::fs::write(&p, src).ok()?;
+    }
+    Some(p)
+}
+
+/// Source of a bundled script by file name.
+pub fn builtin_script(name: &str) -> Option<&'static str> {
+    BUILTIN_SCRIPTS.iter().find(|(n, _)| *n == name).map(|(_, s)| strip_bom(s))
+}
 
 #[derive(Debug, Clone)]
 pub struct MacroInfo {
@@ -519,8 +557,8 @@ impl Script {
                             return Ok((Some(s), Some(c.to_string_lossy().to_string())));
                         }
                     }
-                    if name == "karaskel.lua" || name == "karaskel-auto4.lua" {
-                        return Ok((Some(KARASKEL.to_string()), Some("karaskel.lua (built-in)".to_string())));
+                    if let Some((n, src)) = BUILTIN_INCLUDES.iter().find(|(n, _)| *n == name) {
+                        return Ok((Some(strip_bom(src).to_string()), Some(format!("{} (built-in)", n))));
                     }
                     Ok((None, None))
                 })

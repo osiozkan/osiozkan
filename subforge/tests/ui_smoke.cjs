@@ -61,7 +61,7 @@ const fs = require("fs");
   await p.click('#tabs [data-p="mac"]');
   await p.setInputFiles("#fLua", "tests/fixtures/test_macro.lua");
   await p.waitForSelector(".macro");
-  ok((await p.locator(".macro").count()) === 5, "5 macros listed");
+  ok((await p.locator(".macro").count()) >= 5, "macros listed (uploaded + built-in)");
   await p.locator(".macro", { hasText: "Collapse spaces" }).locator("button").click();
   await p.waitForFunction(() => [...document.querySelectorAll(".row .txt")].some(e => e.textContent === "Hello world"));
   ok(true, "macro edited text through Rust/Lua");
@@ -164,6 +164,15 @@ const fs = require("fs");
   await p.waitForSelector('#mbox [data-n="ms"]'); await p.click('#mbox [data-b="Cancel"]');
   await p.waitForFunction(() => document.querySelector("#macLog").textContent.includes("cancelled"), null, { timeout: 10000 });
   ok(true, "Cancel button cancels the macro (document unchanged)");
+  // bundled karaoke templater driven from the Karaoke tab
+  await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/sample.ass" })); selectOnly(0); }, process_cwd);
+  await p.click('#tabs [data-p="kara"]');
+  await p.click("#kTplIns");
+  await p.waitForFunction(() => S.events.filter(e => /^template/.test(e.effect)).length === 2);
+  ok(true, "example templates inserted");
+  await p.click("#kTplRun");
+  await p.waitForFunction(() => S.events.filter(e => e.effect === "fx").length >= 3, null, { timeout: 15000 });
+  ok(true, "bundled kara-templater generated fx lines (" + (await p.evaluate(() => S.events.filter(e => e.effect === "fx").length)) + ")");
   // find / select
   await p.evaluate(async (cwd) => { setState(await api("/api/open_path", { path: cwd + "/tests/fixtures/typeset.ass" })); selectOnly(0); }, process_cwd);
   await p.keyboard.press("Control+Shift+F");

@@ -108,6 +108,11 @@ pre.log{background:var(--bg);padding:6px;border-radius:5px;white-space:pre-wrap;
         <button id="kStrip">Remove k tags</button>
         <label>shift first <input id="kShift" type="number" value="10" style="width:56px"> cs <button id="kShiftGo">Apply</button></label>
       </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center;border-top:1px solid var(--line);padding-top:8px">
+        <button id="kTplIns" title="Adds example template comment lines (Effect column = template …)">Insert example templates</button>
+        <button id="kTplRun" class="primary" title="Aegisub's karaoke templater (bundled)">Apply karaoke template</button>
+        <span class="hint">Templates live in <b>comment</b> lines: Effect = <code>template syl</code> / <code>template line</code> / <code>code once</code>…</span>
+      </div>
       <div id="kChips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       <div class="hint" id="kInfo" style="margin-top:8px"></div>
     </div>
@@ -481,6 +486,15 @@ function renderKara(){
   });
 }
 async function karaTool(body){const idx=selIdx();const st=await act(()=>api("/api/tool",{name:"kara",selection:idx,...body}));if(st){setState(st);msg(st.message||"Done")}}
+$("#kTplIns").onclick=async()=>{
+  const st=(S.styles.find(x=>/kara/i.test(x.name))||S.styles[0]||{name:"Default"}).name;
+  const mk=(effect,text)=>({comment:true,layer:0,start:0,end:0,style:st,actor:"",ml:0,mr:0,mv:0,effect,text});
+  await patch([
+    {op:"insert_event",at:S.events.length,event:mk("template line","{\\fad(200,200)}")},
+    {op:"insert_event",at:S.events.length+1,event:mk("template syl","{\\an5\\pos($x,$y)\\t($sstart,$send,\\fscx125\\fscy125)\\t($send,$send+150,\\fscx100\\fscy100)}")}]);
+  msg("Example templates added as comment lines at the end — edit them, then Apply karaoke template");
+};
+$("#kTplRun").onclick=()=>runMacro({path:"builtin:kara-templater.lua",src:"",name:"kara-templater.lua"},"Apply karaoke template");
 $("#kSplit").onclick=()=>karaTool({op:"split",mode:$("#kMode").value,kind:$("#kKind").value});
 $("#kScale").onclick=()=>karaTool({op:"scale"});
 $("#kStrip").onclick=()=>karaTool({op:"strip"});
@@ -520,12 +534,13 @@ $("#fLua").onchange=async ev=>{
 async function refreshMacros(){
   macroLists=[];
   await loadCfg();
+  const builtin=(CFG.builtin||[]).map(p=>({name:p.replace(/^builtin:/,"")+" (built-in)",path:p,src:"",builtin:true}));
   const fromDisk=(CFG.scripts||[]).map(p=>({name:p.split(/[\\/]/).pop(),path:p,src:"",persist:true}));
-  const all=[...fromDisk,...scripts.filter(s=>!(CFG.scripts||[]).includes(s.path))];
+  const all=[...fromDisk,...builtin,...scripts.filter(s=>!(CFG.scripts||[]).includes(s.path))];
   for(const s of all){try{const r=await api("/api/macros",{script:s.src,path:s.path});macroLists.push({s,r})}catch(e){macroLists.push({s,err:e.message})}}
   const box=$("#macros");box.innerHTML="";
   macroLists.forEach((m,si)=>{
-    const h=document.createElement("div");h.style.cssText="margin-top:10px;font-weight:600";h.innerHTML=esc(m.s.name)+` <button data-rm="${si}" title="Remove">✕</button>`;box.appendChild(h);
+    const h=document.createElement("div");h.style.cssText="margin-top:10px;font-weight:600";h.innerHTML=esc(m.s.name)+(m.s.builtin?"":` <button data-rm="${si}" title="Remove">✕</button>`);box.appendChild(h);
     if(m.err){const d=document.createElement("div");d.style.color="var(--bad)";d.textContent=m.err;box.appendChild(d);return}
     m.r.macros.forEach(mac=>{
       const d=document.createElement("div");d.className="macro";d.innerHTML=`<button class="primary">${mac.filter?"Filter":"Run"}</button><b>${esc(mac.name)}</b><span class="d">${esc(mac.description||"")}</span>`;

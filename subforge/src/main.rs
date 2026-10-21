@@ -361,6 +361,7 @@ fn real_main() -> Result<()> {
             subforge::server::serve(&addr, initial)?;
         }
         Cmd::Macros { script, include } => {
+            let script = subforge::automation::materialize_builtin(&script.to_string_lossy()).filter(|_| script.to_string_lossy().starts_with("builtin:")).unwrap_or(script);
             let doc = Rc::new(RefCell::new(Document::new_default()));
             let s = Script::load(&script, doc, &RunOptions { include_dirs: include, ..Default::default() })?;
             let m = s.meta();
@@ -387,6 +388,7 @@ fn real_main() -> Result<()> {
                 }
             }
             opts.params = pm;
+            let script = subforge::automation::materialize_builtin(&script.to_string_lossy()).filter(|_| script.to_string_lossy().starts_with("builtin:")).unwrap_or(script);
             let s = Script::load(&script, doc.clone(), &opts)?;
             let r = s.run(&name, &opts)?;
             for l in &r.log {
