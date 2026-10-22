@@ -9,6 +9,7 @@ use unicode_width::UnicodeWidthChar;
 const PRELUDE: &str = include_str!("../lua/prelude.lua");
 const UTILS: &str = include_str!("../lua/utils.lua");
 const UNICODE: &str = include_str!("../lua/unicode.lua");
+const RE: &str = include_str!("../lua/re.lua");
 const KARASKEL: &str = include_str!("../lua/karaskel.lua");
 
 #[derive(Default, Clone)]
@@ -275,6 +276,52 @@ impl LuaScript {
                 let _ = ids;
                 Ok((btn, res))
             })?)?;
+            let build = |pat: &str, flags: i64| -> mlua::Result<regex::Regex> {
+                regex::RegexBuilder::new(&pat.replace("(?<", "(?P<").replace("(?P<=", "(?<=").replace("(?P<!", "(?<!"))
+                    .case_insensitive(flags & 1 != 0)
+                    .ignore_whitespace(flags & 32 != 0)
+                    .build()
+                    .map_err(|e| mlua::Error::runtime(format!("regex error: {e}")))
+            };
+            host.set("re_find", lua.create_function(move |lua, (s, pat, flags): (mlua::String, String, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                let out = lua.create_table()?;
+                for (mi, caps) in re.captures_iter(&text).enumerate() {
+                    let m = lua.create_table()?;
+                    for (gi, g) in caps.iter().enumerate() {
+                        let (txt, a, b) = match g { Some(g) => (g.as_str().to_string(), g.start() as i64 + 1, g.end() as i64), None => (String::new(), 0, -1) };
+                        let c = lua.create_table()?;
+                        c.set(1, txt)?; c.set(2, a)?; c.set(3, b)?;
+                        m.set(gi + 1, c)?;
+                    }
+                    out.set(mi + 1, m)?;
+                }
+                if out.raw_len() == 0 { return Ok(Value::Nil); }
+                Ok(Value::Table(out))
+            })?)?;
+            host.set("re_sub", lua.create_function(move |_, (s, pat, repl, count, flags): (mlua::String, String, String, i64, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                // Aegisub uses  for groups; Rust uses ${1}.
+                let rep = regex::Regex::new(r"\\(\d)").unwrap().replace_all(&repl.replace('$', "$$"), "$${$1}").into_owned();
+                let (out, n) = if count > 0 {
+                    let mut n = 0;
+                    let o = re.replacen(&text, count as usize, rep.as_str()).into_owned();
+                    for _ in re.find_iter(&text).take(count as usize) { n += 1; }
+                    (o, n)
+                } else {
+                    (re.replace_all(&text, rep.as_str()).into_owned(), re.find_iter(&text).count())
+                };
+                Ok((out, n as i64))
+            })?)?;
+            host.set("re_split", lua.create_function(move |lua, (s, pat, flags): (mlua::String, String, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                let t = lua.create_table()?;
+                for (i, part) in re.split(&text).enumerate() { t.set(i + 1, part)?; }
+                Ok(t)
+            })?)?;
             let dirs = cfg.include_dirs.clone();
             let sd2 = script_dir.clone();
             host.set("find_include", lua.create_function(move |_, name: String| {
@@ -303,8 +350,8 @@ impl LuaScript {
             let loaded: Table = pkg.get::<Table>("loaded")?;
             let _ = loaded;
             let preload: Table = pkg.get("preload")?;
-            for (n, src) in [("utils", UTILS), ("unicode", UNICODE), ("karaskel", KARASKEL)] {
-                let f = lua.create_function(move |lua, ()| { lua.load(src).set_name(n).exec()?; Ok(true) })?;
+            for (n, src) in [("re", RE), ("aegisub.re", RE), ("utils", UTILS), ("unicode", UNICODE), ("karaskel", KARASKEL)] {
+                let f = lua.create_function(move |lua, ()| lua.load(src).set_name(n).eval::<Value>())?;
                 preload.set(n, f)?;
             }
             Ok(())

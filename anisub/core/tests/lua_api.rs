@@ -40,3 +40,16 @@ fn bit_and_ffi_available() {
 fn cancel_is_not_an_error() {
     let (_, _) = run(r#"aegisub.register_macro("m","",function() aegisub.cancel() end)"#, SUBS);
 }
+
+#[test]
+fn re_module() {
+    let (_, log) = run(r#"
+        local re = require("aegisub.re")
+        aegisub.register_macro("x","",function()
+            local r = re.sub("abc 123", "(\\d+)", "<\\1>")
+            local m = re.find("foo bar", "(b)(a)")
+            aegisub.log("%s|%d|%s", r, #m, m[2].str)
+        end)
+    "#, SUBS);
+    assert_eq!(log, "abc <123>|3|b");
+}

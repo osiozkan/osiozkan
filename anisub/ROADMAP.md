@@ -16,7 +16,7 @@ Her gece oturumu bu dosyayı okuyup devam eder; biten maddeleri işaretler, yeni
 
 ## Sıradaki (öncelik sırasıyla)
 1. [ ] Gerçek yazı tipi ölçüleri (fontdb + ttf-parser) → `text_extents` Aegisub/libass ile uyumlu
-2. [ ] `re` modülü (Rust regex ile), `lpeg` ihtiyacı değerlendirilecek, `clipboard`, `aegisub.dialog` GUI hook'u
+2. [x] `re` modülü tamam (Rust regex; lookaround yok). [ ] `lpeg` ihtiyacı değerlendirilecek, `clipboard`, `aegisub.dialog` GUI hook'u
 3. [ ] kara-templater uyumlu şablon motoru (`code line/syl`, `template`, `fx`, `furi`) — kullanıcının mevcut Lua scriptleriyle test edilecek
 4. [ ] Override tag ayrıştırıcı/yazıcı (tam: \t, \clip, \move, \fad, \pos …), tag-aware editörler
 5. [ ] GUI (egui): ızgara, düzenleme kutusu, stil yöneticisi, undo/redo, çoklu seçim
