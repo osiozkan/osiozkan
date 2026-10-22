@@ -35,3 +35,7 @@ runs the owner's existing Lua scripts; a new version prepared every night; each 
 - Still open from review: macro `selection`/`active` round-trip to UI, resample of `\blur/\be`, VTT entity escaping,
   predictable temp script paths on shared hosts, regex `$1abc` replacement syntax.
 - Pending wiring (code exists): glossary in UI/QA, scene detection route + snap, LRC/SBV/MicroDVD already in UI/CLI.
+
+## Nightly routine (owner request)
+At the end of EVERY night session run `python3 subforge/scripts/make_daily_dump.py`, commit and push the resulting
+`daily/subforge-code-YYYY-MM-DD.zip` (one .txt with all code written so far) and send it to the owner.
