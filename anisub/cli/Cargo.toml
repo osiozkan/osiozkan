@@ -1,0 +1,11 @@
+[package]
+name = "anisub-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anisub-core = { version = "0.1.0", path = "../core" }
+
+[[bin]]
+name = "anisub"
+path = "src/main.rs"
