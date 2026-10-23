@@ -4,9 +4,10 @@ Hedef: Aegisub'ın tüm işlevleri + Subtitle Edit'in iyi özellikleri + eksiksi
 
 ## Tamamlandı (gece 1)
 - [x] ASS çekirdeği, SRT/VTT dönüştürücü, Lua host, karaskel/utils alt kümesi, CLI
+- [x] `unicode` ve `re` (regex) modülleri (gece 1, ikinci tur)
 
 ## Sıradaki geceler (öncelik sırasıyla)
-1. Lua uyumluluğu: `unicode`, `re` (regex), `bit`, `lfs` benzeri modüller; `aegisub.dialog.display` için gerçek arayüz bağlama;
+1. Lua uyumluluğu: `bit`, `lfs` benzeri modüller; `aegisub.dialog.display` için gerçek arayüz bağlama;
    Aegisub'ın `karaskel`/`utils`/`clipboard`/`cleantags` tam portu; gerçek font ölçümü (`text_extents`)
 2. Override tag ayrıştırıcı/yazıcı (`\t`, `\clip`, `\move`, `\fad`...), tag temizleme, stil çakışması çözümü
 3. Zamanlama: frame/timecode (VFR), keyframe snapping, lead-in/out, shift, CPS/CPL kontrolleri

@@ -369,6 +369,7 @@ impl Host {
             // Common aliases scripts rely on from LuaJIT / Lua 5.2
             lua.load("unpack = unpack or table.unpack; loadstring = loadstring or load; table.getn = table.getn or function(t) return #t end")
                 .exec()?;
+            crate::modules::install(&lua)?;
             lua.load(AEGISUB_LUA).set_name("@aegisub.lua").exec()?;
         }
         Ok(Host { lua, entries, log, fps: fps_c, script_dir })
@@ -488,6 +489,17 @@ mod tests {
         let out = h.run("t", None).unwrap();
         assert_eq!(out.dialogues().count(), 1);
         assert_eq!(out.dialogues().next().unwrap().text, "b");
+    }
+
+    #[test]
+    fn re_and_unicode() {
+        let h = Host::new(&Document::default(), None, 24.0).unwrap();
+        h.load_source(
+            "aegisub.register_macro('r','',function(subs)\n assert(re.sub('foo bar', '(\\\\w+) (\\\\w+)', '\\\\2 \\\\1') == 'bar foo')\n assert(re.find('abcabc','b')[2].first == 5)\n assert(re.match('(a)(b)', 'xab')[3].str == 'b')\n assert(unicode.len('あい') == 2)\n assert(unicode.sub('あいう', 2, 3) == 'いう')\n end)",
+            "t",
+        )
+        .unwrap();
+        h.run("r", None).unwrap();
     }
 
     #[test]

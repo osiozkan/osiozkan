@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 mlua = { version = "0.10", features = ["lua51", "vendored"] }
 anyhow = "1"
+regex = "1"
 
 [profile.release]
 opt-level = 3

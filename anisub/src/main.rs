@@ -1,5 +1,6 @@
 mod ass;
 mod lua;
+mod modules;
 mod srt;
 
 use anyhow::{anyhow, Result};
