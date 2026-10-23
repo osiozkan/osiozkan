@@ -1,0 +1,2280 @@
+AniSub - tum kaynak kodu ve belgeler (2026-10-23)
+Dal: claude/vibrant-clarke-2efn53
+
+
+==================================================================
+DOSYA: anisub/.gitignore
+==================================================================
+target/
+
+==================================================================
+DOSYA: anisub/Cargo.toml
+==================================================================
+[workspace]
+members = ["core", "cli"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+
+==================================================================
+DOSYA: anisub/README.md
+==================================================================
+# AniSub
+
+Aegisub'un tam işlevselliğini, Subtitle Edit'in en iyi özelliklerini ve anime
+altyazı iş akışının ihtiyaç duyduğu her şeyi tek çatı altında toplamayı hedefleyen,
+sıfırdan Rust ile yazılan altyazı aracı. **Mevcut Aegisub Lua otomasyon
+scriptleri (`aegisub.register_macro`, `karaskel`, `utils` …) değiştirilmeden çalışır.**
+
+## Yapı
+
+| Dizin | İçerik |
+|---|---|
+| `core/` | ASS/SRT modeli, zamanlama, QC, **LuaJIT tabanlı Aegisub uyumlu otomasyon motoru** |
+| `core/lua/` | `prelude.lua` (aegisub.* API), `utils.lua`, `karaskel.lua`, `unicode.lua` |
+| `cli/` | `anisub` komut satırı aracı |
+| `examples/` | örnek altyazı + Lua makro |
+
+## Kullanım
+
+```
+cargo build --release
+anisub macros script.lua                  # makroları listele
+anisub run alt.ass script.lua --macro 0 -o cikti.ass
+anisub qc alt.ass                         # CPS, çakışma, süre, stil kontrolleri
+anisub shift alt.ass 500                  # +500 ms
+anisub convert alt.srt alt.ass
+```
+
+Durum ve yapılacaklar için bkz. [ROADMAP.md](ROADMAP.md).
+
+==================================================================
+DOSYA: anisub/ROADMAP.md
+==================================================================
+# AniSub Yol Haritası ve Gece Günlüğü
+
+Her gece oturumu bu dosyayı okuyup devam eder; biten maddeleri işaretler, yeni sürümü etiketler.
+
+## Karar: Teknoloji
+- Rust (core + cli), GUI: egui/eframe (planlı), Lua: **LuaJIT** (Aegisub ile aynı: `bit`, `ffi`, `jit` mevcut).
+- Aegisub'da `subs` bir userdata olduğu için `#subs` çalışması gerekir → `SubsProxy` userdata (LuaJIT `__len` tablolarda çalışmaz).
+
+## Tamamlanan (v0.1.0, gece 1)
+- [x] ASS ayrıştırma/yazma (sıra-koruyan düz satır modeli, Aegisub `subs[i]` ile birebir)
+- [x] SRT içe/dışa aktarma, zaman kodu yardımcıları
+- [x] Aegisub Lua API: register_macro/filter, subs insert/append/delete/deleterange, log, dialog (headless varsayılanlar), text_extents (yaklaşık), frame/ms, include, cancel
+- [x] utils.lua, unicode.lua, karaskel.lua (kendi yazımımız, API uyumlu)
+- [x] QC (CPS, süre, çakışma, stil, parantez), zamanlama (shift, chain, frame snap)
+- [x] CLI: macros, run, qc, shift, convert, info
+
+## Sıradaki (öncelik sırasıyla)
+1. [ ] Gerçek yazı tipi ölçüleri (fontdb + ttf-parser) → `text_extents` Aegisub/libass ile uyumlu
+2. [x] `re` modülü tamam (Rust regex; lookaround yok). [ ] `lpeg` ihtiyacı değerlendirilecek, `clipboard`, `aegisub.dialog` GUI hook'u
+3. [ ] kara-templater uyumlu şablon motoru (`code line/syl`, `template`, `fx`, `furi`) — kullanıcının mevcut Lua scriptleriyle test edilecek
+4. [ ] Override tag ayrıştırıcı/yazıcı (tam: \t, \clip, \move, \fad, \pos …), tag-aware editörler
+5. [ ] GUI (egui): ızgara, düzenleme kutusu, stil yöneticisi, undo/redo, çoklu seçim
+6. [ ] Video (ffmpeg/libmpv) + libass önizleme, ses dalga formu/spektrum, keyframe, ses ile zamanlama
+7. [ ] Subtitle Edit özellikleri: toplu çeviri (API), OCR içe aktarma (SUP/PGS), yazım denetimi, fark/karşılaştırma, birleştir/böl, FPS dönüştür, format çevirici (VTT, SBV, TTML …)
+8. [ ] Anime özel: karaoke zamanlayıcı, typesetting araçları, \pos/\org/\frz görsel manipülasyon, çoklu stil toplu işlemler, sahne zamanlama, font toplama/gömme
+9. [ ] Performans: 100k satırlık dosyalar, arka plan işleme, bellek profili
+10. [ ] Paketleme: Windows/macOS/Linux sürümleri, otomatik güncelleme
+
+## Notlar
+- Kullanıcının kendi Lua scriptleri depoya eklenirse `examples/user-scripts/` altında regresyon testine alınacak.
+- Önceki oturumlardan taşınan sorun listesi depoda bulunamadı; kullanıcı belirttiğinde buraya eklenecek.
+
+==================================================================
+DOSYA: anisub/cli/Cargo.toml
+==================================================================
+[package]
+name = "anisub-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anisub-core = { version = "0.1.0", path = "../core" }
+
+[[bin]]
+name = "anisub"
+path = "src/main.rs"
+
+==================================================================
+DOSYA: anisub/cli/src/main.rs
+==================================================================
+use anisub_core::ass::Script;
+use anisub_core::lua::{HostConfig, LuaScript};
+use anisub_core::srt;
+use std::path::{Path, PathBuf};
+
+fn usage() -> ! {
+    eprintln!(
+        "anisub - anime subtitle toolkit\n\n\
+         USAGE:\n  anisub macros <script.lua>\n  anisub run <subs.(ass|srt)> <script.lua> [--macro NAME|INDEX] [--fps F] [-o out.ass]\n  anisub convert <in.(ass|srt)> <out.(ass|srt)>\n  anisub info <subs.(ass|srt)>\n  anisub qc <subs.(ass|srt)>\n  anisub shift <subs.(ass|srt)> <ms>"
+    );
+    std::process::exit(2)
+}
+
+fn load_subs(p: &Path) -> Script {
+    let bytes = std::fs::read(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    let text = String::from_utf8_lossy(&bytes);
+    if p.extension().map(|e| e.eq_ignore_ascii_case("srt")).unwrap_or(false) { srt::parse(&text) } else { Script::parse(&text) }
+}
+
+fn save_subs(p: &Path, s: &Script) {
+    let out = if p.extension().map(|e| e.eq_ignore_ascii_case("srt")).unwrap_or(false) { srt::write(s) } else { s.to_ass_string() };
+    std::fs::write(p, out).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+}
+
+fn die(m: &str) -> ! {
+    eprintln!("error: {m}");
+    std::process::exit(1)
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let Some(cmd) = args.first() else { usage() };
+    match cmd.as_str() {
+        "macros" => {
+            let path = args.get(1).unwrap_or_else(|| usage());
+            let s = LuaScript::load(Path::new(path), &HostConfig::default()).unwrap_or_else(|e| die(&e));
+            println!("{} — {} ({} {})", s.name, s.description, s.author, s.version);
+            for (i, m) in s.macros().iter().enumerate() {
+                println!("[{i}] {}{} — {}", m.name, if m.is_filter { " (filter)" } else { "" }, m.description);
+            }
+        }
+        "run" => {
+            let subs_path = PathBuf::from(args.get(1).unwrap_or_else(|| usage()));
+            let lua_path = PathBuf::from(args.get(2).unwrap_or_else(|| usage()));
+            let mut macro_sel: Option<String> = None;
+            let mut out: Option<PathBuf> = None;
+            let mut cfg = HostConfig::default();
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--macro" => { macro_sel = args.get(i + 1).cloned(); i += 1; }
+                    "--fps" => { cfg.fps = args.get(i + 1).and_then(|v| v.parse().ok()); i += 1; }
+                    "-o" => { out = args.get(i + 1).map(PathBuf::from); i += 1; }
+                    _ => usage(),
+                }
+                i += 1;
+            }
+            let mut subs = load_subs(&subs_path);
+            let script = LuaScript::load(&lua_path, &cfg).unwrap_or_else(|e| die(&e));
+            let macros = script.macros();
+            if macros.is_empty() { die("script registered no macros"); }
+            let idx = match macro_sel {
+                None => 0,
+                Some(s) => s.parse::<usize>().ok().or_else(|| macros.iter().position(|m| m.name == s)).unwrap_or_else(|| die("macro not found")),
+            };
+            let n = subs.lines.len();
+            let sel: Vec<usize> = subs.lines.iter().enumerate().filter(|(_, l)| matches!(l.kind, anisub_core::ass::LineKind::Dialogue(_))).map(|(i, _)| i).collect();
+            let active = sel.first().copied().unwrap_or(0);
+            let _ = n;
+            match script.run(idx, &mut subs, &sel, active) {
+                Ok(r) => {
+                    if !r.log.is_empty() { print!("{}", r.log); }
+                    save_subs(&out.unwrap_or(subs_path), &subs);
+                }
+                Err(e) => die(&e),
+            }
+        }
+        "convert" => {
+            let s = load_subs(Path::new(args.get(1).unwrap_or_else(|| usage())));
+            save_subs(Path::new(args.get(2).unwrap_or_else(|| usage())), &s);
+        }
+        "qc" => {
+            let s = load_subs(Path::new(args.get(1).unwrap_or_else(|| usage())));
+            let issues = anisub_core::qc::check(&s, &anisub_core::qc::QcConfig::default());
+            for i in &issues { println!("line {}: [{:?}] {} — {}", i.line + 1, i.severity, i.code, i.message); }
+            println!("{} issue(s)", issues.len());
+            if issues.iter().any(|i| i.severity == anisub_core::qc::Severity::Error) { std::process::exit(1); }
+        }
+        "shift" => {
+            let p = Path::new(args.get(1).unwrap_or_else(|| usage()));
+            let ms: i64 = args.get(2).and_then(|v| v.parse().ok()).unwrap_or_else(|| usage());
+            let mut s = load_subs(p);
+            anisub_core::timing::shift(&mut s, &[], ms);
+            save_subs(p, &s);
+        }
+        "info" => {
+            let s = load_subs(Path::new(args.get(1).unwrap_or_else(|| usage())));
+            let (x, y) = s.play_res();
+            println!("resolution: {x}x{y}\nstyles: {}\nevents: {}", s.styles().count(), s.events().count());
+        }
+        _ => usage(),
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/Cargo.toml
+==================================================================
+[package]
+name = "anisub-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mlua = { version = "0.12.2", features = ["luajit", "vendored"] }
+regex = "1.13.1"
+unicode-width = "0.2.2"
+
+==================================================================
+DOSYA: anisub/core/lua/karaskel.lua
+==================================================================
+-- AniSub karaskel.lua : API-compatible re-implementation of Aegisub's karaskel library.
+include("utils.lua")
+karaskel = {}
+
+function karaskel.collect_head(subs, generate_furigana)
+  local meta = { res_x = 0, res_y = 0 }
+  local styles = { n = 0 }
+  local have_x, have_y = false, false
+  for i = 1, #subs do
+    local l = subs[i]
+    if l.class == "info" then
+      local k = l.key:lower()
+      if k == "playresx" then meta.res_x = tonumber(l.value) or 0; have_x = true
+      elseif k == "playresy" then meta.res_y = tonumber(l.value) or 0; have_y = true
+      elseif k == "wrapstyle" then meta.wrap_style = tonumber(l.value)
+      elseif k == "scaledborderandshadow" then meta.scaled_border_and_shadow = (l.value:lower() == "yes")
+      elseif k == "scripttype" then meta.scripttype = l.value
+      end
+    elseif l.class == "style" then
+      l.margin_v = l.margin_t
+      styles.n = styles.n + 1
+      styles[styles.n] = l
+      styles[l.name] = l
+    end
+  end
+  if meta.res_x == 0 and meta.res_y == 0 then
+    meta.res_x, meta.res_y = 384, 288
+  elseif meta.res_x == 0 then
+    meta.res_x = meta.res_y == 1024 and 1280 or meta.res_y / 3 * 4
+  elseif meta.res_y == 0 then
+    meta.res_y = meta.res_x == 1280 and 1024 or meta.res_x / 4 * 3
+  end
+  return meta, styles
+end
+
+local function strip_tags(text) return (text:gsub("{[^}]*}", "")) end
+
+function karaskel.parse_syllables(line)
+  local text = line.text
+  local kara = { n = 0 }
+  local cur
+  local t = 0
+  local function newsyl(dur, tag)
+    cur = { text = "", duration = dur * 10, tag = tag, start_time = t, i = kara.n + 1 }
+    t = t + cur.duration
+    cur.end_time = t
+    kara.n = kara.n + 1
+    kara[kara.n] = cur
+  end
+  local pos = 1
+  while pos <= #text do
+    local bs, be = text:find("{[^}]*}", pos)
+    if not bs then
+      if cur == nil then newsyl(0, "k") end
+      cur.text = cur.text .. text:sub(pos)
+      break
+    end
+    if bs > pos then
+      if cur == nil then newsyl(0, "k") end
+      cur.text = cur.text .. text:sub(pos, bs - 1)
+    end
+    local block = text:sub(bs + 1, be - 1)
+    if block:find("\\[kK][fot]?%-?%d") then
+      -- walk the block: every k tag starts a new syllable; other tags attach to the syllable
+      local rest, p = "", 1
+      local first = true
+      while true do
+        local ks, ke, ktag, kval = block:find("\\([kK][fot]?)(%-?%d+%.?%d*)", p)
+        if not ks then
+          rest = rest .. block:sub(p)
+          break
+        end
+        rest = rest .. block:sub(p, ks - 1)
+        if not first or cur ~= nil or true then
+          if not first then
+            if rest ~= "" then cur.text = cur.text .. "{" .. rest .. "}" end
+            rest = ""
+          end
+        end
+        newsyl(tonumber(kval), ktag)
+        first = false
+        p = ke + 1
+      end
+      if rest ~= "" then cur.text = cur.text .. "{" .. rest .. "}" end
+    else
+      if cur == nil then newsyl(0, "k") end
+      cur.text = cur.text .. text:sub(bs, be)
+    end
+    pos = be + 1
+  end
+  return kara
+end
+
+function karaskel.preproc_line_text(meta, styles, line)
+  line.text_stripped = strip_tags(line.text)
+  line.duration = line.end_time - line.start_time
+  line.kara = karaskel.parse_syllables(line)
+  for _, s in ipairs(line.kara) do
+    s.text_stripped = strip_tags(s.text)
+    s.prespace = s.text_stripped:match("^%s*")
+    s.postspace = s.text_stripped:match("%s*$")
+    if #s.prespace == #s.text_stripped then s.postspace = "" end
+    s.text_spacestripped = s.text_stripped:sub(#s.prespace + 1, #s.text_stripped - #s.postspace)
+    s.style = line.styleref
+    s.line = line
+  end
+end
+
+function karaskel.preproc_line_size(meta, styles, line)
+  line.width, line.height, line.descent, line.extlead = aegisub.text_extents(line.styleref, line.text_stripped)
+  local left = 0
+  for _, s in ipairs(line.kara) do
+    s.width, s.height, s.descent, s.extlead = aegisub.text_extents(line.styleref, s.text_spacestripped)
+    s.prespace_width = (aegisub.text_extents(line.styleref, s.prespace))
+    s.postspace_width = (aegisub.text_extents(line.styleref, s.postspace))
+    s.rel_left = left + s.prespace_width
+    left = left + s.prespace_width + s.width + s.postspace_width
+  end
+end
+
+function karaskel.preproc_line_pos(meta, styles, line)
+  local st = line.styleref
+  line.margin_v = (line.margin_t ~= 0) and line.margin_t or st.margin_t
+  line.margin_l = (line.margin_l ~= 0) and line.margin_l or st.margin_l
+  line.margin_r = (line.margin_r ~= 0) and line.margin_r or st.margin_r
+  line.margin_t = line.margin_v
+  line.margin_b = (line.margin_b ~= 0) and line.margin_b or st.margin_b
+  local al = st.align
+  line.halign = (al % 3 == 1) and "left" or (al % 3 == 2) and "center" or "right"
+  line.valign = (al > 6) and "top" or (al > 3) and "middle" or "bottom"
+  if line.halign == "left" then
+    line.left = line.margin_l
+    line.x = line.left
+  elseif line.halign == "center" then
+    line.left = (meta.res_x - line.margin_l - line.margin_r - line.width) / 2 + line.margin_l
+    line.x = line.left + line.width / 2
+  else
+    line.left = meta.res_x - line.margin_r - line.width
+    line.x = line.left + line.width
+  end
+  line.center = line.left + line.width / 2
+  line.right = line.left + line.width
+  if line.valign == "top" then
+    line.top = line.margin_v
+    line.middle = line.top + line.height / 2
+    line.bottom = line.top + line.height
+    line.y = line.top
+  elseif line.valign == "middle" then
+    line.top = (meta.res_y - line.height) / 2
+    line.middle = line.top + line.height / 2
+    line.bottom = line.top + line.height
+    line.y = line.middle
+  else
+    line.bottom = meta.res_y - line.margin_v
+    line.middle = line.bottom - line.height / 2
+    line.top = line.bottom - line.height
+    line.y = line.bottom
+  end
+  for _, s in ipairs(line.kara) do
+    s.left = line.left + s.rel_left
+    s.center = s.left + s.width / 2
+    s.right = s.left + s.width
+    s.top, s.middle, s.bottom = line.top, line.middle, line.bottom
+    s.x = (line.halign == "left") and s.left or (line.halign == "center") and s.center or s.right
+    s.y = line.y
+  end
+end
+
+function karaskel.preproc_line(subs, meta, styles, line)
+  line.styleref = styles[line.style]
+  if not line.styleref then
+    aegisub.log(1, "WARNING: Style not found: " .. tostring(line.style) .. "\n")
+    line.styleref = styles["Default"] or styles[1]
+  end
+  karaskel.preproc_line_text(meta, styles, line)
+  karaskel.preproc_line_size(meta, styles, line)
+  karaskel.preproc_line_pos(meta, styles, line)
+end
+
+function karaskel.preproc_lines(subs, meta, styles, lines)
+  for _, l in ipairs(lines) do karaskel.preproc_line(subs, meta, styles, l) end
+end
+
+==================================================================
+DOSYA: anisub/core/lua/prelude.lua
+==================================================================
+-- AniSub: Aegisub-compatible automation prelude.
+-- Provides the `aegisub` table, subtitle-file proxy object, and registration functions.
+local host = __host          -- table of native functions injected by Rust
+local M = { macros = {}, filters = {} }
+__anisub = M
+
+aegisub = aegisub or {}
+aegisub.lua_automation_version = 4
+aegisub.progress = { set = function() end, task = function() end, title = function() end, is_cancelled = function() return false end }
+aegisub.debug = {}
+aegisub.dialog = {}
+
+local function fmt_args(...)
+  local n = select('#', ...)
+  if n == 0 then return "" end
+  local msg = ...
+  if n == 1 then return tostring(msg) end
+  local ok, r = pcall(string.format, ...)
+  if ok then return r end
+  return tostring(msg)
+end
+
+function aegisub.log(...)
+  local first = ...
+  if type(first) == "number" and select('#', ...) >= 2 then
+    host.log(first, fmt_args(select(2, ...)) .. "")
+  else
+    host.log(2, fmt_args(...))
+  end
+end
+function aegisub.debug.out(...)
+  local first = ...
+  if type(first) == "number" and select('#', ...) >= 2 then
+    host.log(first, fmt_args(select(2, ...)))
+  else
+    host.log(2, fmt_args(...))
+  end
+end
+
+function aegisub.cancel() error("__anisub_cancel__", 0) end
+function aegisub.gettext(s) return s end
+aegisub.gettext_noop = aegisub.gettext
+function aegisub.text_extents(style, text) return host.text_extents(style, text) end
+function aegisub.frame_from_ms(ms) return host.frame_from_ms(ms) end
+function aegisub.ms_from_frame(f) return host.ms_from_frame(f) end
+function aegisub.video_size() return host.video_size() end
+function aegisub.keyframes() return host.keyframes() end
+function aegisub.decode_path(p) return host.decode_path(p) end
+function aegisub.project_properties() return host.project_properties() end
+function aegisub.get_audio_selection() return nil end
+function aegisub.get_cursor() return nil end
+function aegisub.dialog.display(config, buttons, ids) return host.dialog_display(config, buttons, ids) end
+function aegisub.dialog.open(...) return host.dialog_open(...) end
+function aegisub.dialog.save(...) return host.dialog_save(...) end
+
+function aegisub.register_macro(name, description, process, validate, is_active)
+  table.insert(M.macros, { name = name, description = description, process = process, validate = validate, is_active = is_active })
+end
+function aegisub.register_filter(name, description, priority, process, config)
+  table.insert(M.filters, { name = name, description = description, priority = priority, process = process, config = config })
+end
+
+-- Subtitle file proxy ---------------------------------------------------
+local function copy_line(l)
+  local c = {}
+  for k, v in pairs(l) do c[k] = v end
+  if l.extra then
+    c.extra = {}
+    for k, v in pairs(l.extra) do c.extra[k] = v end
+  end
+  return c
+end
+
+local function check_line(l)
+  if type(l) ~= "table" then error("Attempt to insert a non-table value as a subtitle line", 3) end
+  if not l.class then error("Subtitle line has no 'class' field", 3) end
+end
+
+function M.make_subs(data)
+  local methods = {}
+  local function chk(i)
+    if type(i) ~= "number" or i < 1 or i > #data or i ~= math.floor(i) then
+      error("Attempt to access a subtitle line out of range (index " .. tostring(i) .. ")", 3)
+    end
+  end
+  function methods.insert(i, ...)
+    local lines = { ... }
+    if i < 1 or i > #data + 1 then error("Attempt to insert line out of range", 2) end
+    for j = #lines, 1, -1 do check_line(lines[j]); table.insert(data, i, copy_line(lines[j])) end
+  end
+  function methods.append(...)
+    for _, l in ipairs({ ... }) do check_line(l); data[#data + 1] = copy_line(l) end
+  end
+  function methods.delete(...)
+    local idx = { ... }
+    if #idx == 1 and type(idx[1]) == "table" then idx = idx[1] end
+    table.sort(idx, function(a, b) return a > b end)
+    local last
+    for _, i in ipairs(idx) do
+      if i ~= last then chk(i); table.remove(data, i) end
+      last = i
+    end
+  end
+  function methods.deleterange(a, b)
+    if a > b then a, b = b, a end
+    chk(a); chk(b)
+    for i = b, a, -1 do table.remove(data, i) end
+  end
+  function methods.n() return #data end
+  local function index(k)
+    if type(k) == "number" then chk(k); return copy_line(data[k]) end
+    return methods[k]
+  end
+  local function newindex(k, v)
+    if type(k) ~= "number" then error("Cannot set non-numeric keys on subtitle file", 2) end
+    if v == nil then
+      chk(k); table.remove(data, k)
+    else
+      check_line(v)
+      if k == #data + 1 then data[k] = copy_line(v) else chk(k); data[k] = copy_line(v) end
+    end
+  end
+  return index, newindex, function() return #data end
+end
+
+-- ipairs/pairs that understand the subtitle proxy
+local raw_ipairs = ipairs
+function ipairs(t)
+  if type(t) == "userdata" then
+    local i = 0
+    return function() i = i + 1; if i <= #t then return i, t[i] end end, t, 0
+  end
+  return raw_ipairs(t)
+end
+
+-- include / require support ---------------------------------------------
+local loaded_includes = {}
+function include(name)
+  local src, chunkname = host.find_include(name)
+  if not src then error("Lua include not found: " .. tostring(name), 2) end
+  local f, err = loadstring(src, "@" .. chunkname)
+  if not f then error(err, 2) end
+  return f()
+end
+
+==================================================================
+DOSYA: anisub/core/lua/re.lua
+==================================================================
+-- AniSub re.lua : Aegisub `aegisub.re` compatible regex module (backed by Rust regex).
+local host = __host
+local re = { ICASE = 1, NOSUB = 2, NO_MOD_M = 4, MOD_S = 8, NO_MOD_S = 16, EXTENDED = 32 }
+
+local function match_tables(str, list)
+  if #list == 0 then return nil end
+  local out = {}
+  for i, m in ipairs(list) do
+    local g = {}
+    for j, c in ipairs(m) do g[j] = { str = c[1], first = c[2], last = c[3] } end
+    out[i] = g
+  end
+  return out
+end
+
+function re.find(str, pat, flags)
+  local r = host.re_find(str, pat, flags or 0)
+  if not r then return nil end
+  -- returns list of {str, first, last} for the first match then captures (flattened per match)
+  local out = {}
+  for _, m in ipairs(r) do
+    for _, c in ipairs(m) do out[#out + 1] = { str = c[1], first = c[2], last = c[3] } end
+  end
+  return #out > 0 and out or nil
+end
+
+function re.match(str, pat, flags)
+  local r = host.re_find(str, pat, flags or 0)
+  if not r or not r[1] then return nil end
+  local out = {}
+  for j, c in ipairs(r[1]) do out[j] = { str = c[1], first = c[2], last = c[3] } end
+  return out
+end
+
+function re.gfind(str, pat, flags)
+  local r = host.re_find(str, pat, flags or 0) or {}
+  local i = 0
+  return function()
+    i = i + 1
+    local m = r[i]
+    if not m then return nil end
+    local c = m[1]
+    return c[1], c[2], c[3]
+  end
+end
+
+function re.sub(str, pat, repl, count, flags)
+  return host.re_sub(str, pat, repl, count or 0, flags or 0)
+end
+re.gsub = re.sub
+
+function re.split(str, pat, flags)
+  return host.re_split(str, pat, flags or 0)
+end
+
+function re.compile(pat, flags)
+  local o = {}
+  function o:find(s) return re.find(s, pat, flags) end
+  function o:match(s) return re.match(s, pat, flags) end
+  function o:gfind(s) return re.gfind(s, pat, flags) end
+  function o:sub(s, repl, count) return re.sub(s, pat, repl, count, flags) end
+  o.gsub = o.sub
+  return o
+end
+
+return re
+
+==================================================================
+DOSYA: anisub/core/lua/unicode.lua
+==================================================================
+-- AniSub unicode.lua : UTF-8 helpers (Aegisub compatible subset)
+unicode = unicode or {}
+
+function unicode.codepoint(ch)
+  local b = ch:byte(1)
+  if not b then return nil end
+  if b < 0x80 then return b end
+  local n, cp
+  if b >= 0xF0 then n, cp = 3, b % 8 elseif b >= 0xE0 then n, cp = 2, b % 16 else n, cp = 1, b % 32 end
+  for i = 2, n + 1 do cp = cp * 64 + ((ch:byte(i) or 0) % 64) end
+  return cp
+end
+
+function unicode.chars(s)
+  local i = 1
+  return function()
+    if i > #s then return nil end
+    local b = s:byte(i)
+    local n = b < 0x80 and 1 or b >= 0xF0 and 4 or b >= 0xE0 and 3 or b >= 0xC0 and 2 or 1
+    local c = s:sub(i, i + n - 1)
+    i = i + n
+    return c
+  end
+end
+
+function unicode.len(s)
+  local _, n = s:gsub("[^\128-\191]", "")
+  return n
+end
+
+function unicode.charwidth(ch)
+  return host_charwidth and host_charwidth(ch) or 1
+end
+
+==================================================================
+DOSYA: anisub/core/lua/utils.lua
+==================================================================
+-- AniSub utils.lua : compatible with Aegisub's utils.lua API.
+util = util or {}
+
+function math.round(n) return math.floor(n + 0.5) end
+if not math.clamp then function math.clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end end
+
+function table.copy(t)
+  local r = {}
+  for k, v in pairs(t) do r[k] = v end
+  return r
+end
+function table.copy_deep(t)
+  if type(t) ~= "table" then return t end
+  local r = {}
+  for k, v in pairs(t) do r[k] = table.copy_deep(v) end
+  return setmetatable(r, getmetatable(t))
+end
+function table.values(t)
+  local r = {}
+  for _, v in pairs(t) do r[#r + 1] = v end
+  return r
+end
+function table.keys(t)
+  local r = {}
+  for k in pairs(t) do r[#r + 1] = k end
+  return r
+end
+
+function string.headtail(s)
+  local a, b = s:find("%s+")
+  if a then return s:sub(1, a - 1), s:sub(b + 1) end
+  return s, ""
+end
+function string.words(s)
+  return function()
+    local h, t = string.headtail(s)
+    if h == "" then return nil end
+    s = t
+    return h
+  end
+end
+function string.trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+function string.ltrim(s) return (s:gsub("^%s+", "")) end
+function string.rtrim(s) return (s:gsub("%s+$", "")) end
+function string.split(s, sep)
+  local r, i = {}, 1
+  while true do
+    local a, b = s:find(sep, i, true)
+    if not a then r[#r + 1] = s:sub(i); break end
+    r[#r + 1] = s:sub(i, a - 1)
+    i = b + 1
+  end
+  return r
+end
+
+function util.copy(t) return table.copy(t) end
+util.deep_copy = table.copy_deep
+function util.clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+function util.interpolate(t, a, b) return a + (b - a) * t end
+
+function util.ass_color(r, g, b)
+  return string.format("&H%02X%02X%02X&", util.clamp(math.floor(b + 0.5), 0, 255), util.clamp(math.floor(g + 0.5), 0, 255), util.clamp(math.floor(r + 0.5), 0, 255))
+end
+function util.ass_alpha(a) return string.format("&H%02X&", util.clamp(math.floor(a + 0.5), 0, 255)) end
+function util.ass_style_color(r, g, b, a)
+  return string.format("&H%02X%02X%02X%02X", util.clamp(math.floor((a or 0) + 0.5), 0, 255), util.clamp(math.floor(b + 0.5), 0, 255), util.clamp(math.floor(g + 0.5), 0, 255), util.clamp(math.floor(r + 0.5), 0, 255))
+end
+
+function util.extract_color(s)
+  local a, b, g, r
+  s = tostring(s)
+  local m = s:match("^&?[Hh]?(%x+)&?$")
+  if m then
+    local v = tonumber(m, 16)
+    if #m > 6 then
+      a = math.floor(v / 16777216) % 256
+    else
+      a = 0
+    end
+    b = math.floor(v / 65536) % 256
+    g = math.floor(v / 256) % 256
+    r = v % 256
+    return r, g, b, a
+  end
+  local n = tonumber(s)
+  if n then
+    return n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256
+  end
+  return 0, 0, 0, 0
+end
+function util.alpha_from_style(s)
+  local _, _, _, a = util.extract_color(s)
+  return util.ass_alpha(a)
+end
+function util.color_from_style(s)
+  local r, g, b = util.extract_color(s)
+  return util.ass_color(r, g, b)
+end
+
+function util.interpolate_color(t, c1, c2)
+  local r1, g1, b1 = util.extract_color(c1)
+  local r2, g2, b2 = util.extract_color(c2)
+  return util.ass_color(util.interpolate(t, r1, r2), util.interpolate(t, g1, g2), util.interpolate(t, b1, b2))
+end
+function util.interpolate_alpha(t, a1, a2)
+  local _, _, _, x = util.extract_color(a1)
+  local _, _, _, y = util.extract_color(a2)
+  return util.ass_alpha(util.interpolate(t, x, y))
+end
+
+function util.rgb_to_hsl(r, g, b)
+  r, g, b = r / 255, g / 255, b / 255
+  local mx, mn = math.max(r, g, b), math.min(r, g, b)
+  local h, s, l = 0, 0, (mx + mn) / 2
+  if mx ~= mn then
+    local d = mx - mn
+    s = l > 0.5 and d / (2 - mx - mn) or d / (mx + mn)
+    if mx == r then h = (g - b) / d + (g < b and 6 or 0)
+    elseif mx == g then h = (b - r) / d + 2
+    else h = (r - g) / d + 4 end
+    h = h / 6
+  end
+  return h * 255, s * 255, l * 255
+end
+function util.hsl_to_rgb(h, s, l)
+  h, s, l = h / 255, s / 255, l / 255
+  if s == 0 then local v = l * 255; return v, v, v end
+  local function hue(p, q, t)
+    if t < 0 then t = t + 1 end
+    if t > 1 then t = t - 1 end
+    if t < 1 / 6 then return p + (q - p) * 6 * t end
+    if t < 1 / 2 then return q end
+    if t < 2 / 3 then return p + (q - p) * (2 / 3 - t) * 6 end
+    return p
+  end
+  local q = l < 0.5 and l * (1 + s) or l + s - l * s
+  local p = 2 * l - q
+  return hue(p, q, h + 1 / 3) * 255, hue(p, q, h) * 255, hue(p, q, h - 1 / 3) * 255
+end
+function util.HSV_to_RGB(h, s, v)
+  h, s, v = h / 255 * 6, s / 255, v / 255
+  local i = math.floor(h)
+  local f = h - i
+  local p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
+  local r, g, b
+  i = i % 6
+  if i == 0 then r, g, b = v, t, p elseif i == 1 then r, g, b = q, v, p elseif i == 2 then r, g, b = p, v, t
+  elseif i == 3 then r, g, b = p, q, v elseif i == 4 then r, g, b = t, p, v else r, g, b = v, p, q end
+  return r * 255, g * 255, b * 255
+end
+util.HSL_to_RGB = util.hsl_to_rgb
+util.RGB_to_HSL = util.rgb_to_hsl
+function util.RGB_to_HSV(r, g, b)
+  r, g, b = r / 255, g / 255, b / 255
+  local mx, mn = math.max(r, g, b), math.min(r, g, b)
+  local d = mx - mn
+  local h = 0
+  if d ~= 0 then
+    if mx == r then h = ((g - b) / d) % 6 elseif mx == g then h = (b - r) / d + 2 else h = (r - g) / d + 4 end
+    h = h / 6
+  end
+  return h * 255, (mx == 0 and 0 or d / mx) * 255, mx * 255
+end
+
+function util.uuid()
+  local t = {}
+  for i = 1, 16 do t[i] = string.format("%02x", math.random(0, 255)) end
+  return table.concat(t)
+end
+
+function util.trim(s) return string.trim(s) end
+function util.split(s, sep) return string.split(s, sep) end
+
+==================================================================
+DOSYA: anisub/core/src/ass.rs
+==================================================================
+//! ASS/SSA data model, parser and writer.
+//!
+//! The script is stored as a flat, ordered list of lines (exactly how Aegisub's
+//! Lua automation API sees it) so that scripts using `subs[i]`, `subs.insert`
+//! etc. behave identically.
+
+use crate::time;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    /// ASS alpha: 0 = opaque, 255 = transparent.
+    pub a: u8,
+}
+
+impl Color {
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+    /// Tolerant parser: `&H00BBGGRR&`, `&HBBGGRR`, `H..`, or a decimal integer.
+    pub fn parse(s: &str) -> Option<Color> {
+        let t = s.trim().trim_end_matches('&');
+        let v: u32 = if let Some(h) = t.strip_prefix("&H").or_else(|| t.strip_prefix("&h")).or_else(|| t.strip_prefix('H')).or_else(|| t.strip_prefix('h')) {
+            u32::from_str_radix(h, 16).ok()?
+        } else if let Some(h) = t.strip_prefix('#') {
+            let rgb = u32::from_str_radix(h, 16).ok()?;
+            return Some(Color::new((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 0));
+        } else if let Ok(n) = t.parse::<i64>() {
+            n as u32
+        } else {
+            u32::from_str_radix(t, 16).ok()?
+        };
+        Some(Color { a: (v >> 24) as u8, b: (v >> 16) as u8, g: (v >> 8) as u8, r: v as u8 })
+    }
+    pub fn to_style_string(&self) -> String {
+        format!("&H{:02X}{:02X}{:02X}{:02X}", self.a, self.b, self.g, self.r)
+    }
+    pub fn to_color_tag(&self) -> String {
+        format!("&H{:02X}{:02X}{:02X}&", self.b, self.g, self.r)
+    }
+    pub fn to_alpha_tag(&self) -> String {
+        format!("&H{:02X}&", self.a)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Style {
+    pub name: String,
+    pub fontname: String,
+    pub fontsize: f64,
+    pub color1: Color,
+    pub color2: Color,
+    pub color3: Color,
+    pub color4: Color,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strikeout: bool,
+    pub scale_x: f64,
+    pub scale_y: f64,
+    pub spacing: f64,
+    pub angle: f64,
+    pub borderstyle: i32,
+    pub outline: f64,
+    pub shadow: f64,
+    pub align: i32,
+    pub margin_l: i32,
+    pub margin_r: i32,
+    pub margin_t: i32,
+    pub margin_b: i32,
+    pub encoding: i32,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Style {
+            name: "Default".into(),
+            fontname: "Arial".into(),
+            fontsize: 20.0,
+            color1: Color::new(255, 255, 255, 0),
+            color2: Color::new(255, 0, 0, 0),
+            color3: Color::new(0, 0, 0, 0),
+            color4: Color::new(0, 0, 0, 0),
+            bold: false,
+            italic: false,
+            underline: false,
+            strikeout: false,
+            scale_x: 100.0,
+            scale_y: 100.0,
+            spacing: 0.0,
+            angle: 0.0,
+            borderstyle: 1,
+            outline: 2.0,
+            shadow: 2.0,
+            align: 2,
+            margin_l: 10,
+            margin_r: 10,
+            margin_t: 10,
+            margin_b: 10,
+            encoding: 1,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Event {
+    pub comment: bool,
+    pub layer: i32,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub style: String,
+    pub actor: String,
+    pub margin_l: i32,
+    pub margin_r: i32,
+    pub margin_t: i32,
+    pub margin_b: i32,
+    pub effect: String,
+    pub text: String,
+}
+
+impl Default for Event {
+    fn default() -> Self {
+        Event {
+            comment: false,
+            layer: 0,
+            start_time: 0,
+            end_time: 5000,
+            style: "Default".into(),
+            actor: String::new(),
+            margin_l: 0,
+            margin_r: 0,
+            margin_t: 0,
+            margin_b: 0,
+            effect: String::new(),
+            text: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LineKind {
+    /// `Key: Value` inside [Script Info] (also Aegisub Project Garbage).
+    Info { key: String, value: String },
+    Style(Style),
+    Dialogue(Event),
+    /// Anything else (comments, fonts, graphics, extradata, blank lines ...), kept verbatim.
+    Raw(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Line {
+    pub section: String,
+    pub kind: LineKind,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Script {
+    pub lines: Vec<Line>,
+}
+
+pub fn fmt_num(v: f64) -> String {
+    if v == v.trunc() && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        let s = format!("{:.6}", v);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+impl Script {
+    pub fn new_default() -> Script {
+        let mut s = Script::default();
+        let info = |k: &str, v: &str| Line { section: "[Script Info]".into(), kind: LineKind::Info { key: k.into(), value: v.into() } };
+        s.lines.push(info("ScriptType", "v4.00+"));
+        s.lines.push(info("PlayResX", "1920"));
+        s.lines.push(info("PlayResY", "1080"));
+        s.lines.push(info("WrapStyle", "0"));
+        s.lines.push(info("ScaledBorderAndShadow", "yes"));
+        s.lines.push(Line { section: "[V4+ Styles]".into(), kind: LineKind::Style(Style::default()) });
+        s
+    }
+
+    pub fn parse(text: &str) -> Script {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let mut script = Script::default();
+        let mut section = String::new();
+        let mut style_fmt: Vec<String> = default_style_format();
+        let mut event_fmt: Vec<String> = default_event_format();
+        let mut ssa = false;
+        for raw in text.lines() {
+            let line = raw.trim_end_matches('\r');
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                section = trimmed.to_string();
+                let l = section.to_ascii_lowercase();
+                if l == "[v4 styles]" {
+                    ssa = true;
+                    section = "[V4 Styles]".into();
+                }
+                continue;
+            }
+            let sl = section.to_ascii_lowercase();
+            let kind = if sl == "[script info]" || sl == "[aegisub project garbage]" {
+                match line.split_once(':') {
+                    Some((k, v)) if !line.starts_with(';') && !line.starts_with('!') => LineKind::Info { key: k.trim().to_string(), value: v.trim().to_string() },
+                    _ => {
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        LineKind::Raw(line.to_string())
+                    }
+                }
+            } else if sl == "[v4+ styles]" || sl == "[v4 styles]" {
+                if let Some(rest) = strip_key(line, "Format") {
+                    style_fmt = split_format(rest);
+                    continue;
+                }
+                match strip_key(line, "Style") {
+                    Some(rest) => LineKind::Style(parse_style(rest, &style_fmt)),
+                    None => {
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        LineKind::Raw(line.to_string())
+                    }
+                }
+            } else if sl == "[events]" {
+                if let Some(rest) = strip_key(line, "Format") {
+                    event_fmt = split_format(rest);
+                    continue;
+                }
+                let (comment, rest) = if let Some(r) = strip_key(line, "Dialogue") {
+                    (false, Some(r))
+                } else if let Some(r) = strip_key(line, "Comment") {
+                    (true, Some(r))
+                } else {
+                    (false, None)
+                };
+                match rest {
+                    Some(r) => LineKind::Dialogue(parse_event(r, comment, &event_fmt, ssa)),
+                    None => {
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        LineKind::Raw(line.to_string())
+                    }
+                }
+            } else {
+                // Unknown section or content before any section header: keep as is.
+                if trimmed.is_empty() && !sl.contains("fonts") && !sl.contains("graphics") {
+                    continue;
+                }
+                LineKind::Raw(line.to_string())
+            };
+            script.lines.push(Line { section: section.clone(), kind });
+        }
+        script
+    }
+
+    pub fn to_ass_string(&self) -> String {
+        let mut out = String::new();
+        let mut cur = String::new();
+        let mut first = true;
+        let mut wrote_format = false;
+        for l in &self.lines {
+            if l.section != cur || first {
+                if !first {
+                    out.push('\n');
+                }
+                first = false;
+                cur = l.section.clone();
+                wrote_format = false;
+                if !cur.is_empty() {
+                    out.push_str(&cur);
+                    out.push('\n');
+                }
+            }
+            match &l.kind {
+                LineKind::Info { key, value } => {
+                    out.push_str(&format!("{key}: {value}\n"));
+                }
+                LineKind::Style(s) => {
+                    if !wrote_format {
+                        out.push_str("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n");
+                        wrote_format = true;
+                    }
+                    out.push_str(&style_to_string(s));
+                    out.push('\n');
+                }
+                LineKind::Dialogue(e) => {
+                    if !wrote_format {
+                        out.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+                        wrote_format = true;
+                    }
+                    out.push_str(&event_to_string(e));
+                    out.push('\n');
+                }
+                LineKind::Raw(r) => {
+                    out.push_str(r);
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    }
+
+    pub fn info(&self, key: &str) -> Option<&str> {
+        self.lines.iter().find_map(|l| match &l.kind {
+            LineKind::Info { key: k, value } if l.section == "[Script Info]" && k.eq_ignore_ascii_case(key) => Some(value.as_str()),
+            _ => None,
+        })
+    }
+
+    pub fn set_info(&mut self, key: &str, value: &str) {
+        for l in self.lines.iter_mut() {
+            if let LineKind::Info { key: k, value: v } = &mut l.kind {
+                if l.section == "[Script Info]" && k.eq_ignore_ascii_case(key) {
+                    *v = value.to_string();
+                    return;
+                }
+            }
+        }
+        let pos = self.lines.iter().rposition(|l| l.section == "[Script Info]").map(|p| p + 1).unwrap_or(0);
+        self.lines.insert(pos, Line { section: "[Script Info]".into(), kind: LineKind::Info { key: key.into(), value: value.into() } });
+    }
+
+    pub fn play_res(&self) -> (i32, i32) {
+        let x = self.info("PlayResX").and_then(|v| v.parse().ok());
+        let y = self.info("PlayResY").and_then(|v| v.parse().ok());
+        match (x, y) {
+            (Some(x), Some(y)) => (x, y),
+            (Some(x), None) => (x, if x == 1280 { 1024 } else { x * 3 / 4 }),
+            (None, Some(y)) => (if y == 1024 { 1280 } else { y * 4 / 3 }, y),
+            _ => (384, 288),
+        }
+    }
+
+    pub fn styles(&self) -> impl Iterator<Item = &Style> {
+        self.lines.iter().filter_map(|l| if let LineKind::Style(s) = &l.kind { Some(s) } else { None })
+    }
+    pub fn events(&self) -> impl Iterator<Item = &Event> {
+        self.lines.iter().filter_map(|l| if let LineKind::Dialogue(e) = &l.kind { Some(e) } else { None })
+    }
+    pub fn events_mut(&mut self) -> impl Iterator<Item = &mut Event> {
+        self.lines.iter_mut().filter_map(|l| if let LineKind::Dialogue(e) = &mut l.kind { Some(e) } else { None })
+    }
+    pub fn style(&self, name: &str) -> Option<&Style> {
+        self.styles().find(|s| s.name == name)
+    }
+
+    pub fn push_event(&mut self, e: Event) {
+        self.lines.push(Line { section: "[Events]".into(), kind: LineKind::Dialogue(e) });
+    }
+}
+
+fn default_style_format() -> Vec<String> {
+    "Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding".split(',').map(|s| s.to_string()).collect()
+}
+fn default_event_format() -> Vec<String> {
+    "Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text".split(',').map(|s| s.to_string()).collect()
+}
+fn split_format(s: &str) -> Vec<String> {
+    s.split(',').map(|x| x.trim().to_string()).collect()
+}
+
+fn strip_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let t = line.trim_start();
+    if t.len() > key.len() && t[..key.len()].eq_ignore_ascii_case(key) && t[key.len()..].starts_with(':') {
+        Some(t[key.len() + 1..].trim_start())
+    } else {
+        None
+    }
+}
+
+fn parse_bool(s: &str) -> bool {
+    s.trim().parse::<i32>().map(|v| v != 0).unwrap_or(false)
+}
+fn pf(s: &str, d: f64) -> f64 {
+    s.trim().parse().unwrap_or(d)
+}
+fn pi(s: &str, d: i32) -> i32 {
+    let t = s.trim();
+    t.parse::<i32>().or_else(|_| t.parse::<f64>().map(|f| f as i32)).unwrap_or(d)
+}
+
+fn parse_style(rest: &str, fmt: &[String]) -> Style {
+    let fields: Vec<&str> = rest.splitn(fmt.len().max(1), ',').collect();
+    let mut st = Style::default();
+    let mut margin_v: Option<i32> = None;
+    for (i, name) in fmt.iter().enumerate() {
+        let v = fields.get(i).copied().unwrap_or("");
+        match name.to_ascii_lowercase().as_str() {
+            "name" => st.name = v.trim().to_string(),
+            "fontname" => st.fontname = v.trim().to_string(),
+            "fontsize" => st.fontsize = pf(v, 20.0),
+            "primarycolour" => st.color1 = Color::parse(v).unwrap_or(st.color1),
+            "secondarycolour" => st.color2 = Color::parse(v).unwrap_or(st.color2),
+            "outlinecolour" | "tertiarycolour" => st.color3 = Color::parse(v).unwrap_or(st.color3),
+            "backcolour" => st.color4 = Color::parse(v).unwrap_or(st.color4),
+            "bold" => st.bold = parse_bool(v),
+            "italic" => st.italic = parse_bool(v),
+            "underline" => st.underline = parse_bool(v),
+            "strikeout" => st.strikeout = parse_bool(v),
+            "scalex" => st.scale_x = pf(v, 100.0),
+            "scaley" => st.scale_y = pf(v, 100.0),
+            "spacing" => st.spacing = pf(v, 0.0),
+            "angle" => st.angle = pf(v, 0.0),
+            "borderstyle" => st.borderstyle = pi(v, 1),
+            "outline" => st.outline = pf(v, 0.0),
+            "shadow" => st.shadow = pf(v, 0.0),
+            "alignment" => st.align = pi(v, 2),
+            "marginl" => st.margin_l = pi(v, 0),
+            "marginr" => st.margin_r = pi(v, 0),
+            "marginv" => margin_v = Some(pi(v, 0)),
+            "margint" => st.margin_t = pi(v, 0),
+            "marginb" => st.margin_b = pi(v, 0),
+            "encoding" => st.encoding = pi(v, 1),
+            _ => {}
+        }
+    }
+    if let Some(mv) = margin_v {
+        st.margin_t = mv;
+        st.margin_b = mv;
+    }
+    st
+}
+
+fn style_to_string(s: &Style) -> String {
+    format!(
+        "Style: {},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        s.name,
+        s.fontname,
+        fmt_num(s.fontsize),
+        s.color1.to_style_string(),
+        s.color2.to_style_string(),
+        s.color3.to_style_string(),
+        s.color4.to_style_string(),
+        if s.bold { -1 } else { 0 },
+        if s.italic { -1 } else { 0 },
+        if s.underline { -1 } else { 0 },
+        if s.strikeout { -1 } else { 0 },
+        fmt_num(s.scale_x),
+        fmt_num(s.scale_y),
+        fmt_num(s.spacing),
+        fmt_num(s.angle),
+        s.borderstyle,
+        fmt_num(s.outline),
+        fmt_num(s.shadow),
+        s.align,
+        s.margin_l,
+        s.margin_r,
+        s.margin_t,
+        s.encoding
+    )
+}
+
+fn parse_event(rest: &str, comment: bool, fmt: &[String], ssa: bool) -> Event {
+    let fields: Vec<&str> = rest.splitn(fmt.len().max(1), ',').collect();
+    let mut e = Event { comment, ..Default::default() };
+    for (i, name) in fmt.iter().enumerate() {
+        let v = fields.get(i).copied().unwrap_or("");
+        match name.to_ascii_lowercase().as_str() {
+            "layer" => e.layer = pi(v, 0),
+            "marked" => e.layer = if ssa { 0 } else { pi(v.trim_start_matches("Marked="), 0) },
+            "start" => e.start_time = time::parse_ass(v).unwrap_or(0),
+            "end" => e.end_time = time::parse_ass(v).unwrap_or(0),
+            "style" => e.style = v.trim().trim_start_matches('*').to_string(),
+            "name" | "actor" => e.actor = v.trim().to_string(),
+            "marginl" => e.margin_l = pi(v, 0),
+            "marginr" => e.margin_r = pi(v, 0),
+            "marginv" | "margint" => {
+                e.margin_t = pi(v, 0);
+                e.margin_b = e.margin_t;
+            }
+            "marginb" => e.margin_b = pi(v, 0),
+            "effect" => e.effect = v.trim().to_string(),
+            "text" => e.text = v.to_string(),
+            _ => {}
+        }
+    }
+    e
+}
+
+fn event_to_string(e: &Event) -> String {
+    format!(
+        "{}: {},{},{},{},{},{:04},{:04},{:04},{},{}",
+        if e.comment { "Comment" } else { "Dialogue" },
+        e.layer,
+        time::format_ass(e.start_time),
+        time::format_ass(e.end_time),
+        e.style,
+        e.actor,
+        e.margin_l,
+        e.margin_r,
+        e.margin_t,
+        e.effect,
+        e.text
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SAMPLE: &str = "[Script Info]\nTitle: x\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.50,Default,,0000,0000,0000,,Hello, {\\i1}world{\\i0}\nComment: 1,0:00:04.00,0:00:05.00,Default,x,0,0,0,fx,note\n";
+    #[test]
+    fn parse_write_roundtrip() {
+        let s = Script::parse(SAMPLE);
+        assert_eq!(s.play_res(), (1280, 720));
+        assert_eq!(s.events().count(), 2);
+        assert_eq!(s.events().next().unwrap().text, "Hello, {\\i1}world{\\i0}");
+        assert!(s.style("Default").unwrap().bold);
+        let out = s.to_ass_string();
+        let s2 = Script::parse(&out);
+        assert_eq!(s.lines, s2.lines);
+    }
+    #[test]
+    fn colors() {
+        let c = Color::parse("&H00FF8040&").unwrap();
+        assert_eq!((c.r, c.g, c.b), (0x40, 0x80, 0xFF));
+        assert_eq!(c.to_style_string(), "&H00FF8040");
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/lib.rs
+==================================================================
+pub mod ass;
+pub mod lua;
+pub mod qc;
+pub mod srt;
+pub mod tags;
+pub mod time;
+pub mod timing;
+
+==================================================================
+DOSYA: anisub/core/src/lua.rs
+==================================================================
+//! Aegisub-compatible Lua automation host (LuaJIT).
+use crate::ass::{Color, Event, Line, LineKind, Script, Style};
+use mlua::{Function, Lua, MultiValue, Table, Value};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use unicode_width::UnicodeWidthChar;
+
+const PRELUDE: &str = include_str!("../lua/prelude.lua");
+const UTILS: &str = include_str!("../lua/utils.lua");
+const UNICODE: &str = include_str!("../lua/unicode.lua");
+const RE: &str = include_str!("../lua/re.lua");
+const KARASKEL: &str = include_str!("../lua/karaskel.lua");
+
+#[derive(Default, Clone)]
+pub struct HostConfig {
+    pub fps: Option<f64>,
+    pub video_size: Option<(i32, i32)>,
+    pub include_dirs: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MacroInfo {
+    pub name: String,
+    pub description: String,
+    pub is_filter: bool,
+}
+
+struct SubsProxy {
+    index: Function,
+    newindex: Function,
+    len: Function,
+}
+
+impl mlua::UserData for SubsProxy {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(m: &mut M) {
+        m.add_meta_method(mlua::MetaMethod::Index, |_, this, k: Value| this.index.call::<Value>(k));
+        m.add_meta_method(mlua::MetaMethod::NewIndex, |_, this, (k, v): (Value, Value)| this.newindex.call::<()>((k, v)));
+        m.add_meta_method(mlua::MetaMethod::Len, |_, this, ()| this.len.call::<Value>(()));
+    }
+}
+
+pub struct LuaScript {
+    lua: Lua,
+    pub path: PathBuf,
+    pub name: String,
+    pub description: String,
+    pub author: String,
+    pub version: String,
+    pub log: Rc<RefCell<String>>,
+}
+
+pub struct RunResult {
+    pub selection: Option<Vec<usize>>,
+    pub log: String,
+}
+
+fn style_from_table(t: &Table) -> mlua::Result<Style> {
+    let mut s = Style::default();
+    let get_f = |k: &str, d: f64| -> f64 { t.get::<Option<f64>>(k).ok().flatten().unwrap_or(d) };
+    let get_s = |k: &str| -> Option<String> { t.get::<Option<String>>(k).ok().flatten() };
+    let get_b = |k: &str| -> bool { match t.get::<Value>(k) { Ok(Value::Boolean(b)) => b, Ok(Value::Number(n)) => n != 0.0, Ok(Value::Integer(n)) => n != 0, _ => false } };
+    if let Some(v) = get_s("name") { s.name = v; }
+    if let Some(v) = get_s("fontname") { s.fontname = v; }
+    s.fontsize = get_f("fontsize", 20.0);
+    for (k, slot) in [("color1", &mut s.color1), ("color2", &mut s.color2), ("color3", &mut s.color3), ("color4", &mut s.color4)] {
+        if let Some(c) = get_s(k).and_then(|v| Color::parse(&v)) { *slot = c; }
+    }
+    s.bold = get_b("bold");
+    s.italic = get_b("italic");
+    s.underline = get_b("underline");
+    s.strikeout = get_b("strikeout");
+    s.scale_x = get_f("scale_x", 100.0);
+    s.scale_y = get_f("scale_y", 100.0);
+    s.spacing = get_f("spacing", 0.0);
+    s.angle = get_f("angle", 0.0);
+    s.borderstyle = get_f("borderstyle", 1.0) as i32;
+    s.outline = get_f("outline", 0.0);
+    s.shadow = get_f("shadow", 0.0);
+    s.align = get_f("align", 2.0) as i32;
+    s.margin_l = get_f("margin_l", 0.0) as i32;
+    s.margin_r = get_f("margin_r", 0.0) as i32;
+    s.margin_t = get_f("margin_t", get_f("margin_v", 0.0)) as i32;
+    s.margin_b = get_f("margin_b", s.margin_t as f64) as i32;
+    s.encoding = get_f("encoding", 1.0) as i32;
+    Ok(s)
+}
+
+pub fn script_to_lua(lua: &Lua, script: &Script) -> mlua::Result<Table> {
+    let data = lua.create_table()?;
+    for (i, l) in script.lines.iter().enumerate() {
+        let t = lua.create_table()?;
+        t.set("section", l.section.as_str())?;
+        t.set("extra", lua.create_table()?)?;
+        match &l.kind {
+            LineKind::Info { key, value } => {
+                t.set("class", "info")?;
+                t.set("key", key.as_str())?;
+                t.set("value", value.as_str())?;
+                t.set("raw", format!("{key}: {value}"))?;
+            }
+            LineKind::Style(s) => {
+                t.set("class", "style")?;
+                t.set("name", s.name.as_str())?;
+                t.set("fontname", s.fontname.as_str())?;
+                t.set("fontsize", s.fontsize)?;
+                t.set("color1", s.color1.to_style_string())?;
+                t.set("color2", s.color2.to_style_string())?;
+                t.set("color3", s.color3.to_style_string())?;
+                t.set("color4", s.color4.to_style_string())?;
+                t.set("bold", s.bold)?;
+                t.set("italic", s.italic)?;
+                t.set("underline", s.underline)?;
+                t.set("strikeout", s.strikeout)?;
+                t.set("scale_x", s.scale_x)?;
+                t.set("scale_y", s.scale_y)?;
+                t.set("spacing", s.spacing)?;
+                t.set("angle", s.angle)?;
+                t.set("borderstyle", s.borderstyle)?;
+                t.set("outline", s.outline)?;
+                t.set("shadow", s.shadow)?;
+                t.set("align", s.align)?;
+                t.set("margin_l", s.margin_l)?;
+                t.set("margin_r", s.margin_r)?;
+                t.set("margin_t", s.margin_t)?;
+                t.set("margin_b", s.margin_b)?;
+                t.set("margin_v", s.margin_t)?;
+                t.set("encoding", s.encoding)?;
+                t.set("relative_to", 2)?;
+                t.set("raw", format!("Style: {}", s.name))?;
+            }
+            LineKind::Dialogue(e) => {
+                t.set("class", "dialogue")?;
+                t.set("comment", e.comment)?;
+                t.set("layer", e.layer)?;
+                t.set("start_time", e.start_time)?;
+                t.set("end_time", e.end_time)?;
+                t.set("style", e.style.as_str())?;
+                t.set("actor", e.actor.as_str())?;
+                t.set("margin_l", e.margin_l)?;
+                t.set("margin_r", e.margin_r)?;
+                t.set("margin_t", e.margin_t)?;
+                t.set("margin_b", e.margin_b)?;
+                t.set("margin_v", e.margin_t)?;
+                t.set("effect", e.effect.as_str())?;
+                t.set("text", e.text.as_str())?;
+                t.set("raw", "")?;
+            }
+            LineKind::Raw(r) => {
+                t.set("class", "unknown")?;
+                t.set("raw", r.as_str())?;
+            }
+        }
+        data.set(i + 1, t)?;
+    }
+    Ok(data)
+}
+
+pub fn lua_to_script(data: &Table) -> mlua::Result<Script> {
+    let mut script = Script::default();
+    for pair in data.sequence_values::<Table>() {
+        let t = pair?;
+        let class: String = t.get("class")?;
+        let section: Option<String> = t.get("section")?;
+        let gs = |k: &str| -> String { t.get::<Option<String>>(k).ok().flatten().unwrap_or_default() };
+        let gn = |k: &str| -> f64 { t.get::<Option<f64>>(k).ok().flatten().unwrap_or(0.0) };
+        let (sec, kind) = match class.as_str() {
+            "info" => (section.unwrap_or("[Script Info]".into()), LineKind::Info { key: gs("key"), value: match t.get::<Value>("value")? { Value::Number(n) => crate::ass::fmt_num(n), Value::Integer(i) => i.to_string(), Value::String(s) => s.to_string_lossy().to_string(), _ => String::new() } }),
+            "style" => (section.unwrap_or("[V4+ Styles]".into()), LineKind::Style(style_from_table(&t)?)),
+            "dialogue" => {
+                let comment = matches!(t.get::<Value>("comment")?, Value::Boolean(true));
+                let mt = t.get::<Option<f64>>("margin_t")?.or(t.get::<Option<f64>>("margin_v")?).unwrap_or(0.0);
+                let mb = t.get::<Option<f64>>("margin_b")?.unwrap_or(mt);
+                (
+                    section.unwrap_or("[Events]".into()),
+                    LineKind::Dialogue(Event {
+                        comment,
+                        layer: gn("layer") as i32,
+                        start_time: gn("start_time").round() as i64,
+                        end_time: gn("end_time").round() as i64,
+                        style: gs("style"),
+                        actor: gs("actor"),
+                        margin_l: gn("margin_l") as i32,
+                        margin_r: gn("margin_r") as i32,
+                        margin_t: mt as i32,
+                        margin_b: mb as i32,
+                        effect: gs("effect"),
+                        text: gs("text"),
+                    }),
+                )
+            }
+            _ => (section.unwrap_or_default(), LineKind::Raw(gs("raw"))),
+        };
+        script.lines.push(Line { section: sec, kind });
+    }
+    Ok(script)
+}
+
+fn char_width(c: char, em: f64, bold: bool) -> f64 {
+    let w = match c {
+        ' ' => 0.28,
+        'i' | 'l' | 'j' | '.' | ',' | ':' | ';' | '\'' | '|' | '!' => 0.26,
+        'm' | 'w' | 'M' | 'W' => 0.85,
+        c if c.is_ascii_uppercase() => 0.68,
+        c if c.is_ascii() => 0.52,
+        c => match c.width() { Some(2) => 1.0, Some(0) | None => 0.0, _ => 0.6 },
+    };
+    em * w * if bold { 1.07 } else { 1.0 }
+}
+
+/// Approximate text extents (real font metrics are planned; this keeps layouts stable meanwhile).
+pub fn approx_text_extents(style: &Style, text: &str) -> (f64, f64, f64, f64) {
+    let sx = style.scale_x / 100.0;
+    let sy = style.scale_y / 100.0;
+    let mut width = 0.0;
+    let mut n = 0;
+    for c in text.chars() {
+        width += (char_width(c, style.fontsize, style.bold) + style.spacing) * sx;
+        n += 1;
+    }
+    let _ = n;
+    (width, style.fontsize * 1.117 * sy, style.fontsize * 0.212 * sy, 0.0)
+}
+
+impl LuaScript {
+    pub fn load(path: &Path, cfg: &HostConfig) -> Result<LuaScript, String> {
+        let lua = unsafe { Lua::unsafe_new() };
+        let log = Rc::new(RefCell::new(String::new()));
+        let script_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let setup = || -> mlua::Result<()> {
+            let host = lua.create_table()?;
+            let l2 = log.clone();
+            host.set("log", lua.create_function(move |_, (lvl, msg): (i64, String)| {
+                let _ = lvl;
+                l2.borrow_mut().push_str(&msg);
+                Ok(())
+            })?)?;
+            host.set("text_extents", lua.create_function(|_, (st, text): (Table, String)| {
+                let s = style_from_table(&st)?;
+                Ok(approx_text_extents(&s, &text))
+            })?)?;
+            let fps = cfg.fps;
+            host.set("frame_from_ms", lua.create_function(move |_, ms: f64| Ok(fps.map(|f| (ms * f / 1000.0).floor() as i64)))?)?;
+            host.set("ms_from_frame", lua.create_function(move |_, fr: f64| Ok(fps.map(|f| (fr * 1000.0 / f).round() as i64)))?)?;
+            let vs = cfg.video_size;
+            host.set("video_size", lua.create_function(move |_, ()| Ok(match vs { Some((w, h)) => MultiValue::from_vec(vec![Value::Integer(w as _), Value::Integer(h as _), Value::Number(1.0), Value::Integer(0)]), None => MultiValue::new() }))?)?;
+            host.set("keyframes", lua.create_function(|lua, ()| lua.create_table())?)?;
+            let sd = script_dir.clone();
+            host.set("decode_path", lua.create_function(move |_, p: String| {
+                let r = if let Some(rest) = p.strip_prefix("?script") { format!("{}{}", sd.display(), rest) } else if let Some(rest) = p.strip_prefix("?temp") { format!("{}{}", std::env::temp_dir().display(), rest) } else if let Some(rest) = p.strip_prefix("?user").or(p.strip_prefix("?data")) { format!("{}{}", sd.display(), rest) } else { p };
+                Ok(r)
+            })?)?;
+            host.set("project_properties", lua.create_function(|lua, ()| lua.create_table())?)?;
+            host.set("dialog_open", lua.create_function(|_, _a: MultiValue| Ok(Value::Nil))?)?;
+            host.set("dialog_save", lua.create_function(|_, _a: MultiValue| Ok(Value::Nil))?)?;
+            host.set("dialog_display", lua.create_function(|lua, (cfg, buttons, ids): (Table, Option<Table>, Option<Table>)| {
+                // Headless: accept defaults, press the first (OK-like) button.
+                let res = lua.create_table()?;
+                for pair in cfg.sequence_values::<Table>() {
+                    let c = pair?;
+                    let Some(name) = c.get::<Option<String>>("name")? else { continue };
+                    let class: String = c.get::<Option<String>>("class")?.unwrap_or_default();
+                    let v: Value = c.get("value")?;
+                    let val = match (class.as_str(), v) {
+                        ("checkbox", Value::Boolean(b)) => Value::Boolean(b),
+                        ("checkbox", _) => Value::Boolean(false),
+                        ("dropdown", Value::Nil) => {
+                            match c.get::<Option<Table>>("items")? { Some(items) => items.get::<Value>(1)?, None => Value::Nil }
+                        }
+                        (_, Value::Nil) => match class.as_str() { "intedit" | "floatedit" | "scrollfloat" | "scrollint" => Value::Integer(0), "edit" | "textbox" | "label" => Value::String(lua.create_string("")?), _ => Value::Nil },
+                        (_, v) => v,
+                    };
+                    res.set(name, val)?;
+                }
+                let btn: Value = match &buttons { Some(b) => b.get(1)?, None => Value::Boolean(true) };
+                let _ = ids;
+                Ok((btn, res))
+            })?)?;
+            let build = |pat: &str, flags: i64| -> mlua::Result<regex::Regex> {
+                regex::RegexBuilder::new(&pat.replace("(?<", "(?P<").replace("(?P<=", "(?<=").replace("(?P<!", "(?<!"))
+                    .case_insensitive(flags & 1 != 0)
+                    .ignore_whitespace(flags & 32 != 0)
+                    .build()
+                    .map_err(|e| mlua::Error::runtime(format!("regex error: {e}")))
+            };
+            host.set("re_find", lua.create_function(move |lua, (s, pat, flags): (mlua::String, String, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                let out = lua.create_table()?;
+                for (mi, caps) in re.captures_iter(&text).enumerate() {
+                    let m = lua.create_table()?;
+                    for (gi, g) in caps.iter().enumerate() {
+                        let (txt, a, b) = match g { Some(g) => (g.as_str().to_string(), g.start() as i64 + 1, g.end() as i64), None => (String::new(), 0, -1) };
+                        let c = lua.create_table()?;
+                        c.set(1, txt)?; c.set(2, a)?; c.set(3, b)?;
+                        m.set(gi + 1, c)?;
+                    }
+                    out.set(mi + 1, m)?;
+                }
+                if out.raw_len() == 0 { return Ok(Value::Nil); }
+                Ok(Value::Table(out))
+            })?)?;
+            host.set("re_sub", lua.create_function(move |_, (s, pat, repl, count, flags): (mlua::String, String, String, i64, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                // Aegisub uses  for groups; Rust uses ${1}.
+                let rep = regex::Regex::new(r"\\(\d)").unwrap().replace_all(&repl.replace('$', "$$"), "$${$1}").into_owned();
+                let (out, n) = if count > 0 {
+                    let mut n = 0;
+                    let o = re.replacen(&text, count as usize, rep.as_str()).into_owned();
+                    for _ in re.find_iter(&text).take(count as usize) { n += 1; }
+                    (o, n)
+                } else {
+                    (re.replace_all(&text, rep.as_str()).into_owned(), re.find_iter(&text).count())
+                };
+                Ok((out, n as i64))
+            })?)?;
+            host.set("re_split", lua.create_function(move |lua, (s, pat, flags): (mlua::String, String, i64)| {
+                let re = build(&pat, flags)?;
+                let text = s.to_string_lossy();
+                let t = lua.create_table()?;
+                for (i, part) in re.split(&text).enumerate() { t.set(i + 1, part)?; }
+                Ok(t)
+            })?)?;
+            let dirs = cfg.include_dirs.clone();
+            let sd2 = script_dir.clone();
+            host.set("find_include", lua.create_function(move |_, name: String| {
+                match name.as_str() {
+                    "utils.lua" => return Ok((Some(UTILS.to_string()), "utils.lua".to_string())),
+                    "karaskel.lua" => return Ok((Some(KARASKEL.to_string()), "karaskel.lua".to_string())),
+                    "unicode.lua" => return Ok((Some(UNICODE.to_string()), "unicode.lua".to_string())),
+                    _ => {}
+                }
+                let mut cands = vec![sd2.join(&name)];
+                for d in &dirs { cands.push(d.join(&name)); }
+                for c in cands {
+                    if let Ok(s) = std::fs::read_to_string(&c) { return Ok((Some(s), c.display().to_string())); }
+                }
+                Ok((None, String::new()))
+            })?)?;
+            lua.globals().set("__host", host)?;
+            // package.path for require()
+            let pkg: Table = lua.globals().get("package")?;
+            let old: String = pkg.get("path")?;
+            let mut np = format!("{}/?.lua;{}", script_dir.display(), old);
+            for d in &cfg.include_dirs { np = format!("{}/?.lua;{}", d.display(), np); }
+            pkg.set("path", np)?;
+            lua.load(PRELUDE).set_name("=prelude").exec()?;
+            // `require "utils"`-style access to the bundled libs
+            let loaded: Table = pkg.get::<Table>("loaded")?;
+            let _ = loaded;
+            let preload: Table = pkg.get("preload")?;
+            for (n, src) in [("re", RE), ("aegisub.re", RE), ("utils", UTILS), ("unicode", UNICODE), ("karaskel", KARASKEL)] {
+                let f = lua.create_function(move |lua, ()| lua.load(src).set_name(n).eval::<Value>())?;
+                preload.set(n, f)?;
+            }
+            Ok(())
+        };
+        setup().map_err(|e| format!("lua init: {e}"))?;
+        let src = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let src = String::from_utf8_lossy(&src).to_string();
+        let src = src.strip_prefix('\u{feff}').unwrap_or(&src).to_string();
+        lua.load(&src).set_name(format!("@{}", path.display())).exec().map_err(|e| format!("{e}"))?;
+        let g = lua.globals();
+        let gs = |k: &str| g.get::<Option<String>>(k).ok().flatten().unwrap_or_default();
+        let (name, description, author, version) = (gs("script_name"), gs("script_description"), gs("script_author"), gs("script_version"));
+        let ver_ok = true;
+        let _ = ver_ok;
+        Ok(LuaScript { lua, path: path.to_path_buf(), name, description, author, version, log })
+    }
+
+    pub fn macros(&self) -> Vec<MacroInfo> {
+        let mut out = vec![];
+        if let Ok(m) = self.lua.globals().get::<Table>("__anisub") {
+            for (key, is_filter) in [("macros", false), ("filters", true)] {
+                if let Ok(t) = m.get::<Table>(key) {
+                    for e in t.sequence_values::<Table>().flatten() {
+                        out.push(MacroInfo { name: e.get("name").unwrap_or_default(), description: e.get("description").unwrap_or_default(), is_filter });
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Run macro (or filter, after macros in listing order) number `idx` from `macros()`.
+    pub fn run(&self, idx: usize, script: &mut Script, selection: &[usize], active: usize) -> Result<RunResult, String> {
+        let infos = self.macros();
+        let info = infos.get(idx).ok_or("no such macro")?.clone();
+        let m: Table = self.lua.globals().get("__anisub").map_err(|e| e.to_string())?;
+        let list: Table = m.get(if info.is_filter { "filters" } else { "macros" }).map_err(|e| e.to_string())?;
+        let local_idx = if info.is_filter { idx - infos.iter().filter(|i| !i.is_filter).count() } else { idx };
+        let entry: Table = list.get(local_idx + 1).map_err(|e| e.to_string())?;
+        let func: Function = entry.get("process").map_err(|e| e.to_string())?;
+        self.log.borrow_mut().clear();
+        let data = script_to_lua(&self.lua, script).map_err(|e| e.to_string())?;
+        let make: Function = m.get("make_subs").map_err(|e| e.to_string())?;
+        let (index, newindex, len): (Function, Function, Function) = make.call(data.clone()).map_err(|e| e.to_string())?;
+        let subs = self.lua.create_userdata(SubsProxy { index, newindex, len }).map_err(|e| e.to_string())?;
+        let sel = self.lua.create_table().map_err(|e| e.to_string())?;
+        for (i, s) in selection.iter().enumerate() {
+            sel.set(i + 1, *s as i64 + 1).map_err(|e| e.to_string())?;
+        }
+        let ret: mlua::Result<MultiValue> = if info.is_filter {
+            let cfg = self.lua.create_table().map_err(|e| e.to_string())?;
+            func.call((subs, cfg))
+        } else {
+            func.call((subs, sel, active as i64 + 1))
+        };
+        let ret = match ret {
+            Ok(r) => r,
+            Err(e) => {
+                let s = e.to_string();
+                if s.contains("__anisub_cancel__") {
+                    return Ok(RunResult { selection: None, log: self.log.borrow().clone() });
+                }
+                return Err(format!("{s}\n{}", self.log.borrow()));
+            }
+        };
+        *script = lua_to_script(&data).map_err(|e| e.to_string())?;
+        let selection = match ret.into_iter().next() {
+            Some(Value::Table(t)) => Some(t.sequence_values::<i64>().flatten().map(|v| (v.max(1) - 1) as usize).collect()),
+            _ => None,
+        };
+        Ok(RunResult { selection, log: self.log.borrow().clone() })
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/qc.rs
+==================================================================
+//! Quality-control checks (CPS, overlaps, durations, line length, undefined styles ...).
+use crate::ass::Script;
+use crate::tags;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Severity { Error, Warning }
+
+#[derive(Debug, Clone)]
+pub struct Issue {
+    /// Index into `Script::lines`.
+    pub line: usize,
+    pub severity: Severity,
+    pub code: &'static str,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct QcConfig {
+    pub max_cps: f64,
+    pub min_duration_ms: i64,
+    pub max_duration_ms: i64,
+    pub max_line_chars: usize,
+    pub max_lines: usize,
+}
+
+impl Default for QcConfig {
+    fn default() -> Self {
+        Self { max_cps: 20.0, min_duration_ms: 500, max_duration_ms: 7000, max_line_chars: 42, max_lines: 2 }
+    }
+}
+
+pub fn check(script: &Script, cfg: &QcConfig) -> Vec<Issue> {
+    use crate::ass::LineKind;
+    let mut issues = Vec::new();
+    let mut spans: Vec<(usize, i64, i64, i32, &str)> = Vec::new();
+    for (i, l) in script.lines.iter().enumerate() {
+        let LineKind::Dialogue(e) = &l.kind else { continue };
+        if e.comment { continue; }
+        let dur = e.end_time - e.start_time;
+        let mut push = |sev, code, msg: String| issues.push(Issue { line: i, severity: sev, code, message: msg });
+        if dur <= 0 { push(Severity::Error, "negative-duration", format!("duration {dur} ms")); }
+        else {
+            if dur < cfg.min_duration_ms { push(Severity::Warning, "short", format!("only {dur} ms")); }
+            if dur > cfg.max_duration_ms { push(Severity::Warning, "long", format!("{dur} ms")); }
+            let chars = tags::visible_chars(&e.text);
+            let cps = chars as f64 / (dur as f64 / 1000.0);
+            if cps > cfg.max_cps { push(Severity::Warning, "cps", format!("{cps:.1} chars/s")); }
+        }
+        let plain = tags::plain_text(&e.text);
+        let rows: Vec<&str> = plain.split('\n').collect();
+        if rows.len() > cfg.max_lines { push(Severity::Warning, "too-many-lines", format!("{} lines", rows.len())); }
+        if let Some(r) = rows.iter().find(|r| r.chars().count() > cfg.max_line_chars) { push(Severity::Warning, "line-length", format!("{} chars", r.chars().count())); }
+        if script.style(&e.style).is_none() { push(Severity::Error, "unknown-style", format!("style '{}' is not defined", e.style)); }
+        if e.text.matches('{').count() != e.text.matches('}').count() { push(Severity::Error, "unbalanced-braces", "unbalanced { }".into()); }
+        if plain.trim().is_empty() && e.effect.is_empty() && !e.text.contains("\\p1") { push(Severity::Warning, "empty", "empty line".into()); }
+        if e.text.contains("  ") { push(Severity::Warning, "double-space", "double space".into()); }
+        spans.push((i, e.start_time, e.end_time, e.layer, &e.style));
+    }
+    // overlaps on the same layer
+    spans.sort_by_key(|s| (s.3, s.1));
+    for w in spans.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if a.3 == b.3 && b.1 < a.2 && b.4 == a.4 {
+            issues.push(Issue { line: b.0, severity: Severity::Warning, code: "overlap", message: format!("overlaps line {} by {} ms", a.0 + 1, a.2 - b.1) });
+        }
+    }
+    issues.sort_by_key(|i| i.line);
+    issues
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn flags_problems() {
+        let s = Script::parse("[Script Info]\nPlayResX: 1\n\n[V4+ Styles]\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nDialogue: 0,0:00:00.00,0:00:00.20,Default,,0,0,0,,This is far too much text for this\nDialogue: 0,0:00:00.10,0:00:03.00,Nope,,0,0,0,,ok\n");
+        let codes: Vec<_> = check(&s, &QcConfig::default()).iter().map(|i| i.code).collect();
+        assert!(codes.contains(&"cps") && codes.contains(&"short") && codes.contains(&"unknown-style") && codes.contains(&"overlap") == false);
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/srt.rs
+==================================================================
+//! SubRip import/export.
+use crate::ass::{Event, Script};
+use crate::time;
+
+pub fn parse(text: &str) -> Script {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n");
+    let mut script = Script::new_default();
+    for block in text.split("\n\n") {
+        let mut lines = block.trim().lines().peekable();
+        let Some(first) = lines.next() else { continue };
+        let timing = if first.contains("-->") { first } else { match lines.next() { Some(l) => l, None => continue } };
+        let Some((a, b)) = timing.split_once("-->") else { continue };
+        let (Some(start), Some(end)) = (time::parse_srt(a), time::parse_srt(b.split_whitespace().next().unwrap_or(""))) else { continue };
+        let body: Vec<&str> = lines.collect();
+        let text = srt_to_ass_text(&body.join("\n"));
+        script.push_event(Event { start_time: start, end_time: end, text, ..Default::default() });
+    }
+    script
+}
+
+fn srt_to_ass_text(s: &str) -> String {
+    let mut out = s.replace('\n', "\\N");
+    for (from, to) in [("<i>", "{\\i1}"), ("</i>", "{\\i0}"), ("<b>", "{\\b1}"), ("</b>", "{\\b0}"), ("<u>", "{\\u1}"), ("</u>", "{\\u0}"), ("<I>", "{\\i1}"), ("</I>", "{\\i0}"), ("<B>", "{\\b1}"), ("</B>", "{\\b0}")] {
+        out = out.replace(from, to);
+    }
+    // drop remaining html-ish tags such as <font ...>
+    let re = regex::Regex::new(r"</?font[^>]*>").unwrap();
+    re.replace_all(&out, "").into_owned()
+}
+
+fn ass_to_srt_text(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(p) = rest.find('{') {
+        out.push_str(&rest[..p]);
+        let Some(q) = rest[p..].find('}') else { rest = &rest[p..]; break };
+        let block = &rest[p + 1..p + q];
+        for t in block.split('\\') {
+            match t {
+                "i1" => out.push_str("<i>"),
+                "i0" => out.push_str("</i>"),
+                "b1" => out.push_str("<b>"),
+                "b0" => out.push_str("</b>"),
+                "u1" => out.push_str("<u>"),
+                "u0" => out.push_str("</u>"),
+                _ => {}
+            }
+        }
+        rest = &rest[p + q + 1..];
+    }
+    out.push_str(rest);
+    out.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ")
+}
+
+pub fn write(script: &Script) -> String {
+    let mut evs: Vec<&Event> = script.events().filter(|e| !e.comment).collect();
+    evs.sort_by_key(|e| e.start_time);
+    let mut out = String::new();
+    for (i, e) in evs.iter().enumerate() {
+        out.push_str(&format!("{}\n{} --> {}\n{}\n\n", i + 1, time::format_srt(e.start_time), time::format_srt(e.end_time), ass_to_srt_text(&e.text)));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn srt_roundtrip() {
+        let s = parse("1\n00:00:01,000 --> 00:00:02,500\n<i>Hi</i>\nthere\n\n2\n00:00:03,000 --> 00:00:04,000\nBye\n");
+        assert_eq!(s.events().count(), 2);
+        assert_eq!(s.events().next().unwrap().text, "{\\i1}Hi{\\i0}\\Nthere");
+        let out = write(&s);
+        assert!(out.contains("<i>Hi</i>\nthere"));
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/tags.rs
+==================================================================
+//! Override-tag aware text helpers.
+
+/// Split ASS text into alternating (is_tag_block, content) pieces.
+/// Tag blocks include the braces.
+pub fn split_blocks(text: &str) -> Vec<(bool, &str)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        if rest.starts_with('{') {
+            match rest.find('}') {
+                Some(e) => {
+                    out.push((true, &rest[..=e]));
+                    rest = &rest[e + 1..];
+                }
+                None => {
+                    out.push((false, rest));
+                    break;
+                }
+            }
+        } else {
+            let e = rest.find('{').unwrap_or(rest.len());
+            out.push((false, &rest[..e]));
+            rest = &rest[e..];
+        }
+    }
+    out
+}
+
+/// Remove all `{...}` blocks.
+pub fn strip_tags(text: &str) -> String {
+    split_blocks(text).into_iter().filter(|(t, _)| !*t).map(|(_, s)| s).collect()
+}
+
+/// Visible text: tags removed and `\N`, `\n`, `\h` resolved.
+pub fn plain_text(text: &str) -> String {
+    strip_tags(text).replace("\\N", "\n").replace("\\n", " ").replace("\\h", "\u{a0}")
+}
+
+/// Count of visible characters excluding line breaks and whitespace (used for CPS).
+pub fn visible_chars(text: &str) -> usize {
+    plain_text(text).chars().filter(|c| !c.is_whitespace()).count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn strip() {
+        assert_eq!(strip_tags("a{\\b1}b{\\b0}c"), "abc");
+        assert_eq!(plain_text("a\\Nb{\\i1}"), "a\nb");
+        assert_eq!(visible_chars("ab {\\i1}c\\Nd"), 4);
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/time.rs
+==================================================================
+//! Timecode helpers (milliseconds based).
+
+/// Format milliseconds as ASS time `H:MM:SS.cc` (centisecond precision, rounded down like Aegisub).
+pub fn format_ass(ms: i64) -> String {
+    let ms = ms.max(0);
+    let cs = ms / 10;
+    let (h, m, s, c) = (cs / 360000, (cs / 6000) % 60, (cs / 100) % 60, cs % 100);
+    format!("{h}:{m:02}:{s:02}.{c:02}")
+}
+
+/// Parse `H:MM:SS.cc` (also tolerates `.mmm`, missing hours, and `,` as separator).
+pub fn parse_ass(s: &str) -> Option<i64> {
+    parse_generic(s)
+}
+
+pub fn format_srt(ms: i64) -> String {
+    let ms = ms.max(0);
+    format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60, ms % 1000)
+}
+
+pub fn parse_srt(s: &str) -> Option<i64> {
+    parse_generic(s)
+}
+
+fn parse_generic(s: &str) -> Option<i64> {
+    let s = s.trim().replace(',', ".");
+    let (hms, frac) = match s.split_once('.') {
+        Some((a, b)) => (a, b),
+        None => (s.as_str(), ""),
+    };
+    let parts: Vec<&str> = hms.split(':').collect();
+    let nums: Option<Vec<i64>> = parts.iter().map(|p| p.trim().parse::<i64>().ok()).collect();
+    let nums = nums?;
+    let secs = match nums.as_slice() {
+        [h, m, s] => h * 3600 + m * 60 + s,
+        [m, s] => m * 60 + s,
+        [s] => *s,
+        _ => return None,
+    };
+    let frac_ms = if frac.is_empty() {
+        0
+    } else {
+        if !frac.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        // scale the fraction to milliseconds: "5" -> 500? ASS uses centiseconds, ".5" is 0.5s.
+        let mut f = frac.to_string();
+        f.truncate(3);
+        while f.len() < 3 {
+            f.push('0');
+        }
+        f.parse::<i64>().ok()?
+    };
+    Some(secs * 1000 + frac_ms)
+}
+
+/// Frame <-> ms conversion for a constant frame rate.
+#[derive(Clone, Copy, Debug)]
+pub struct Fps(pub f64);
+
+impl Fps {
+    pub fn frame_from_ms(&self, ms: i64) -> i64 {
+        ((ms as f64) * self.0 / 1000.0).floor() as i64
+    }
+    /// Aegisub style: time in the middle of the frame's display window.
+    pub fn ms_from_frame(&self, frame: i64) -> i64 {
+        ((frame as f64) * 1000.0 / self.0).round() as i64
+    }
+    pub fn snap_start(&self, ms: i64) -> i64 {
+        // start time of a line: first ms in which frame is displayed
+        let f = (ms as f64 * self.0 / 1000.0).ceil() as i64;
+        ((f as f64) * 1000.0 / self.0).ceil() as i64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn roundtrip() {
+        assert_eq!(format_ass(3_723_450), "1:02:03.45");
+        assert_eq!(parse_ass("1:02:03.45"), Some(3_723_450));
+        assert_eq!(parse_srt("00:00:01,500"), Some(1500));
+        assert_eq!(format_srt(3_723_456), "01:02:03,456");
+        assert_eq!(parse_ass("0:00:00.5"), Some(500));
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/src/timing.rs
+==================================================================
+//! Timing operations on dialogue events.
+use crate::ass::{LineKind, Script};
+use crate::time::Fps;
+
+/// Shift the given line indices (or all dialogue when `only` is empty) by `delta_ms`.
+pub fn shift(script: &mut Script, only: &[usize], delta_ms: i64) {
+    for (i, l) in script.lines.iter_mut().enumerate() {
+        if let LineKind::Dialogue(e) = &mut l.kind {
+            if only.is_empty() || only.contains(&i) {
+                e.start_time = (e.start_time + delta_ms).max(0);
+                e.end_time = (e.end_time + delta_ms).max(0);
+            }
+        }
+    }
+}
+
+/// Snap start/end of all dialogue to frame boundaries.
+pub fn snap_to_frames(script: &mut Script, fps: Fps) {
+    for e in script.events_mut() {
+        e.start_time = fps.snap_start(e.start_time);
+        e.end_time = fps.snap_start(e.end_time);
+    }
+}
+
+/// Make consecutive lines (sorted by start) chain when the gap is below `max_gap_ms`.
+pub fn chain(script: &mut Script, max_gap_ms: i64) {
+    let mut idx: Vec<usize> = script.lines.iter().enumerate().filter(|(_, l)| matches!(&l.kind, LineKind::Dialogue(e) if !e.comment)).map(|(i, _)| i).collect();
+    idx.sort_by_key(|&i| if let LineKind::Dialogue(e) = &script.lines[i].kind { e.start_time } else { 0 });
+    for w in idx.windows(2) {
+        let next_start = if let LineKind::Dialogue(e) = &script.lines[w[1]].kind { e.start_time } else { continue };
+        if let LineKind::Dialogue(e) = &mut script.lines[w[0]].kind {
+            let gap = next_start - e.end_time;
+            if gap > 0 && gap <= max_gap_ms { e.end_time = next_start; }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shift_works() {
+        let mut s = Script::parse("[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,a\nDialogue: 0,0:00:02.10,0:00:03.00,Default,,0,0,0,,b\n");
+        chain(&mut s, 200);
+        assert_eq!(s.events().next().unwrap().end_time, 2100);
+        shift(&mut s, &[], 500);
+        assert_eq!(s.events().next().unwrap().start_time, 1500);
+    }
+}
+
+==================================================================
+DOSYA: anisub/core/tests/lua_api.rs
+==================================================================
+use anisub_core::ass::Script;
+use anisub_core::lua::{HostConfig, LuaScript};
+
+fn run(src: &str, subs: &str) -> (Script, String) {
+    let dir = std::env::temp_dir().join(format!("anisub-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join(format!("t{}.lua", src.len()));
+    std::fs::write(&p, src).unwrap();
+    let s = LuaScript::load(&p, &HostConfig::default()).unwrap();
+    let mut script = Script::parse(subs);
+    let r = s.run(0, &mut script, &[], 0).unwrap();
+    (script, r.log)
+}
+
+const SUBS: &str = "[Script Info]\nPlayResX: 640\n\n[V4+ Styles]\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello\n";
+
+#[test]
+fn insert_delete_and_len() {
+    let (s, log) = run(r#"
+        aegisub.register_macro("m", "", function(subs)
+            local n = #subs
+            local l = subs[n]
+            l.text = "changed"
+            subs.insert(n + 1, l)
+            subs.delete(n)
+            aegisub.log("n=%d", n)
+        end)"#, SUBS);
+    assert_eq!(log, "n=3");
+    assert_eq!(s.events().count(), 1);
+    assert_eq!(s.events().next().unwrap().text, "changed");
+}
+
+#[test]
+fn bit_and_ffi_available() {
+    let (_, log) = run(r#"aegisub.register_macro("m","",function() aegisub.log("%d", bit.band(7, 3)) end)"#, SUBS);
+    assert_eq!(log, "3");
+}
+
+#[test]
+fn cancel_is_not_an_error() {
+    let (_, _) = run(r#"aegisub.register_macro("m","",function() aegisub.cancel() end)"#, SUBS);
+}
+
+#[test]
+fn re_module() {
+    let (_, log) = run(r#"
+        local re = require("aegisub.re")
+        aegisub.register_macro("x","",function()
+            local r = re.sub("abc 123", "(\\d+)", "<\\1>")
+            local m = re.find("foo bar", "(b)(a)")
+            aegisub.log("%s|%d|%s", r, #m, m[2].str)
+        end)
+    "#, SUBS);
+    assert_eq!(log, "abc <123>|3|b");
+}
+
+==================================================================
+DOSYA: anisub/examples/sample.ass
+==================================================================
+[Script Info]
+Title: Sample
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,30,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\k50}Hel{\k50}lo {\k100}world
+Dialogue: 0,0:00:05.00,0:00:07.00,Default,,0,0,0,,Second line
+
+==================================================================
+DOSYA: anisub/examples/test_macro.lua
+==================================================================
+script_name = "Test macro"
+script_description = "Exercises the Aegisub API shim"
+script_author = "anisub"
+script_version = "1"
+include("karaskel.lua")
+
+function run(subs, sel, active)
+  local meta, styles = karaskel.collect_head(subs)
+  local n = 0
+  for i = 1, #subs do
+    local l = subs[i]
+    if l.class == "dialogue" then
+      karaskel.preproc_line(subs, meta, styles, l)
+      aegisub.log("line %d: %d syls, x=%.1f y=%.1f w=%.1f\n", i, l.kara.n, l.x, l.y, l.width)
+      l.text = l.text .. "{\\fscx" .. math.round(l.width) .. "}"
+      l.effect = "karaoke"
+      subs[i] = l
+      n = n + 1
+    end
+  end
+  subs.append({ class = "dialogue", comment = true, layer = 0, start_time = 0, end_time = 1000, style = "Default", actor = "", margin_l = 0, margin_r = 0, margin_t = 0, margin_b = 0, effect = "", text = "added " .. n, section = "[Events]" })
+  for i, l in ipairs(subs) do if l.class == "style" then aegisub.log("style %s\n", l.name) end end
+  return sel
+end
+aegisub.register_macro("Test", "desc", run)
