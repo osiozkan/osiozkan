@@ -1,0 +1,15 @@
+[package]
+name = "anisub"
+version = "0.1.0"
+edition = "2021"
+description = "Anime subtitle editor core: ASS model, Aegisub-compatible Lua automation host, format converters"
+license = "MIT"
+
+[dependencies]
+mlua = { version = "0.10", features = ["lua51", "vendored"] }
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
