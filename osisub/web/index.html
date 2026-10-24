@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OsiSub</title>
+<style>
+:root{--bg:#14161a;--panel:#1c1f26;--line:#2a2e38;--fg:#e6e8ee;--dim:#8b92a3;--acc:#ff6b9d;--sel:#2b3350;--err:#ff5d5d;--warn:#f2b84b}
+@media(prefers-color-scheme:light){:root{--bg:#f6f7fa;--panel:#fff;--line:#d9dde5;--fg:#1b1e25;--dim:#69708a;--sel:#dfe6ff}}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif}
+#app{display:grid;grid-template-rows:auto 1fr auto;height:100%}
+#bar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px;background:var(--panel);border-bottom:1px solid var(--line);align-items:center}
+button,select,input,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 8px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--acc)}button:disabled{opacity:.4}
+#main{display:grid;grid-template-columns:1fr 340px;min-height:0}
+#left{display:grid;grid-template-rows:minmax(120px,40%) 1fr;min-height:0;min-width:0}
+#vid{display:grid;grid-template-columns:1fr;background:#000;position:relative;min-height:0}
+#vid video{width:100%;height:100%;object-fit:contain;min-height:0}#ov{position:absolute;left:0;right:0;bottom:6%;text-align:center;color:#fff;font-size:20px;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;white-space:pre-line;pointer-events:none}
+#gridwrap{overflow:auto;position:relative;min-height:0;border-top:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;table-layout:fixed}
+th{position:sticky;top:0;background:var(--panel);text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);z-index:1}
+td{padding:0 6px;height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
+tr.sel td{background:var(--sel)}tr.cm td{color:var(--dim);font-style:italic}tr.bad td:first-child{box-shadow:inset 3px 0 var(--warn)}tr.err td:first-child{box-shadow:inset 3px 0 var(--err)}
+tr.act td{outline:1px solid var(--acc);outline-offset:-1px}
+#side{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+#tabs{display:flex;border-bottom:1px solid var(--line)}#tabs button{flex:1;border:0;border-radius:0}#tabs button.on{background:var(--sel)}
+#panel{overflow:auto;padding:8px;flex:1;min-height:0}
+#edit{display:grid;grid-template-columns:auto auto auto auto auto 1fr;gap:6px;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line);align-items:center}
+#edit textarea{grid-column:1/-1;height:64px;resize:vertical;font:15px/1.4 system-ui}
+#status{color:var(--dim);padding:2px 8px;background:var(--panel);border-top:1px solid var(--line)}
+.row{display:flex;gap:6px;margin:5px 0;align-items:center;flex-wrap:wrap}.row label{color:var(--dim)}
+.iss{padding:4px;border-bottom:1px solid var(--line);cursor:pointer}.iss b.error{color:var(--err)}.iss b.warn{color:var(--warn)}
+h4{margin:10px 0 4px;color:var(--acc)}small{color:var(--dim)}pre{white-space:pre-wrap;color:var(--dim)}
+input[type=number]{width:80px}
+</style></head><body><div id="app">
+<div id="bar">
+ <b style="color:var(--acc)">OsiSub</b>
+ <button id="bOpen">Aç</button><button id="bSave">Kaydet</button>
+ <select id="dl"><option value="">İndir…</option><option>ass</option><option>srt</option><option>vtt</option></select>
+ <button id="bUndo">Geri al</button><button id="bRedo">Yinele</button>
+ <button id="bAdd">+ Satır</button><button id="bDel">Sil</button><button id="bDup">Çoğalt</button><button id="bMerge">Birleştir</button><button id="bCm">Yorum aç/kapa</button>
+ <button id="bVid">Video…</button>
+ <span id="fname" style="color:var(--dim)"></span>
+ <input type="file" id="file" hidden><input type="file" id="vfile" accept="video/*,audio/*" hidden>
+</div>
+<div id="main">
+ <div id="left"><div id="vid"><video id="v" controls></video><div id="ov"></div></div>
+ <div id="gridwrap"><table><colgroup><col style="width:48px"><col style="width:44px"><col style="width:92px"><col style="width:92px"><col style="width:50px"><col style="width:110px"><col style="width:90px"><col></colgroup>
+ <thead><tr><th>#</th><th>K</th><th>Başlangıç</th><th>Bitiş</th><th>CPS</th><th>Stil</th><th>Aktör</th><th>Metin</th></tr></thead><tbody id="tb"></tbody></table></div></div>
+ <div id="side"><div id="tabs"></div><div id="panel"></div></div>
+</div>
+<div><div id="edit">
+ <label>Başl.<input id="eS" size="10"></label><label>Bitiş<input id="eE" size="10"></label>
+ <label>Stil<select id="eSt"></select></label><label>Katman<input id="eL" type="number" style="width:60px"></label>
+ <button id="bNow1" title="Başlangıcı videodan al">[ şimdi</button><button id="bNow2" title="Bitişi videodan al">şimdi ]</button>
+ <textarea id="eT" placeholder="Metin…  (Ctrl+Enter: uygula ve sonrakine geç)"></textarea>
+</div><div id="status"></div></div></div>
+<script>
+const $=s=>document.querySelector(s);let ST=null,sel=new Set(),act=0,anchor=0,issues={},tab='qc',ROW=24;
+const api=async(p,b)=>{const r=await fetch(p,b===undefined?{}:{method:'POST',body:JSON.stringify(b)});const j=await r.json();if(j.error){status(j.error,1);throw new Error(j.error)}return j};
+const status=(m,e)=>{$('#status').textContent=m;$('#status').style.color=e?'var(--err)':'var(--dim)'};
+const fmt=ms=>{let c=Math.max(0,Math.round(ms/10)),h=Math.floor(c/360000);c%=360000;let m=Math.floor(c/6000);c%=6000;return h+':'+String(m).padStart(2,'0')+':'+String(Math.floor(c/100)).padStart(2,'0')+'.'+String(c%100).padStart(2,'0')};
+const parse=s=>{const m=/^(\d+):(\d+):(\d+)[.,](\d+)$/.exec(s.trim());if(!m)return null;return((+m[1]*60+ +m[2])*60+ +m[3])*1000+Math.round(+('0.'+m[4])*1000)};
+const plain=t=>t.replace(/\{[^}]*\}/g,'').replace(/\\[Nn]/g,'\n').replace(/\\h/g,' ');
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function set(s){ST=s;if(act>=s.events.length)act=Math.max(0,s.events.length-1);sel=new Set([...sel].filter(i=>i<s.events.length));$('#fname').textContent=(s.path||'(adsız)')+(s.dirty?' •':'');$('#bUndo').disabled=!s.can_undo;$('#bRedo').disabled=!s.can_redo;
+ $('#eSt').innerHTML=s.styles.map(x=>`<option>${esc(x.name)}</option>`).join('');render();loadEdit();if(tab==='qc')runQC();else if(tab==='styles')panel()}
+let rowsDirty=true;
+function render(){const w=$('#gridwrap'),n=ST.events.length,top=Math.max(0,Math.floor((w.scrollTop-30)/ROW)-10),vis=Math.ceil(w.clientHeight/ROW)+20,end=Math.min(n,top+vis);let h=`<tr style="height:${top*ROW}px"><td colspan=8 style="padding:0;border:0"></td></tr>`;
+ for(let i=top;i<end;i++){const e=ST.events[i],d=e[3]-e[2],cps=d>0?(plain(e[10]).replace(/\n/g,'').length/(d/1000)):0,is=issues[i];
+  h+=`<tr data-i="${i}" class="${sel.has(i)?'sel':''} ${e[0]?'cm':''} ${i===act?'act':''} ${is?(is.some(x=>x.severity=='error')?'err':'bad'):''}"><td>${i+1}</td><td>${e[1]}</td><td>${fmt(e[2])}</td><td>${fmt(e[3])}</td><td style="${cps>20?'color:var(--err)':''}">${cps.toFixed(0)}</td><td>${esc(e[4])}</td><td>${esc(e[5])}</td><td>${esc(e[10])}</td></tr>`}
+ h+=`<tr style="height:${(n-end)*ROW}px"><td colspan=8 style="padding:0;border:0"></td></tr>`;$('#tb').innerHTML=h;status(`${n} satır · ${sel.size||1} seçili`)}
+$('#gridwrap').addEventListener('scroll',()=>render());
+$('#tb').addEventListener('mousedown',ev=>{const tr=ev.target.closest('tr[data-i]');if(!tr)return;const i=+tr.dataset.i;commitEdit();
+ if(ev.shiftKey){sel=new Set();for(let k=Math.min(anchor,i);k<=Math.max(anchor,i);k++)sel.add(k)}else if(ev.ctrlKey||ev.metaKey){sel.has(i)?sel.delete(i):sel.add(i);anchor=i}else{sel=new Set([i]);anchor=i}
+ act=i;render();loadEdit();seekTo(i)});
+function selection(){return sel.size?[...sel].sort((a,b)=>a-b):[act]}
+function loadEdit(){const e=ST.events[act];const dis=!e;for(const id of['eS','eE','eSt','eL','eT'])$('#'+id).disabled=dis;if(!e){$('#eT').value='';return}
+ $('#eS').value=fmt(e[2]);$('#eE').value=fmt(e[3]);$('#eSt').value=e[4];$('#eL').value=e[1];$('#eT').value=e[10]}
+async function commitEdit(){if(!ST.events[act])return;const e=ST.events[act],ch={},s=parse($('#eS').value),en=parse($('#eE').value);
+ if(s!=null&&s!==e[2])ch.start=s;if(en!=null&&en!==e[3])ch.end=en;if($('#eSt').value!==e[4])ch.style=$('#eSt').value;if(+$('#eL').value!==e[1])ch.layer=+$('#eL').value;if($('#eT').value!==e[10])ch.text=$('#eT').value;
+ if(Object.keys(ch).length){const i=act;set(await api('/api/event',{op:'update',changes:[[i,ch]]}))}}
+for(const id of['eS','eE','eSt','eL'])$('#'+id).addEventListener('change',commitEdit);
+$('#eT').addEventListener('blur',commitEdit);
+$('#eT').addEventListener('keydown',async ev=>{if(ev.key==='Enter'&&(ev.ctrlKey||ev.metaKey)){ev.preventDefault();await commitEdit();go(1)}});
+function go(d){const n=Math.max(0,Math.min(ST.events.length-1,act+d));act=n;sel=new Set([n]);anchor=n;ensureVisible();render();loadEdit();seekTo(n)}
+function ensureVisible(){const w=$('#gridwrap'),y=act*ROW;if(y<w.scrollTop)w.scrollTop=y;else if(y+ROW+30>w.scrollTop+w.clientHeight)w.scrollTop=y+ROW+30-w.clientHeight}
+document.addEventListener('keydown',async ev=>{const inEd=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName),c=ev.ctrlKey||ev.metaKey;
+ if(c&&ev.key==='s'){ev.preventDefault();save()}else if(c&&ev.key==='z'&&!inEd){ev.preventDefault();set(await api('/api/undo',{}))}else if(c&&(ev.key==='y'||(ev.shiftKey&&ev.key==='Z'))&&!inEd){ev.preventDefault();set(await api('/api/redo',{}))}
+ else if(!inEd&&ev.key==='ArrowDown'){ev.preventDefault();go(1)}else if(!inEd&&ev.key==='ArrowUp'){ev.preventDefault();go(-1)}
+ else if(!inEd&&ev.key==='Delete')del();else if(c&&ev.key==='d'&&!inEd){ev.preventDefault();ev2('duplicate')}else if(c&&ev.key==='a'&&!inEd){ev.preventDefault();sel=new Set(ST.events.keys());render()}});
+const ev2=async(op,extra={})=>{await commitEdit();set(await api('/api/event',{op,indices:selection(),index:act,...extra}))};
+const del=()=>ev2('delete');
+$('#bDel').onclick=del;$('#bDup').onclick=()=>ev2('duplicate');$('#bMerge').onclick=()=>ev2('merge');$('#bCm').onclick=()=>ev2('comment');
+$('#bAdd').onclick=async()=>{await commitEdit();set(await api('/api/event',{op:'insert',index:act}));if(ST.events.length>1)go(1)};
+$('#bUndo').onclick=async()=>set(await api('/api/undo',{}));$('#bRedo').onclick=async()=>set(await api('/api/redo',{}));
+$('#bOpen').onclick=()=>$('#file').click();
+$('#file').onchange=async ev=>{const f=ev.target.files[0];if(!f)return;const b=new Uint8Array(await f.arrayBuffer());let s='';for(let i=0;i<b.length;i+=32768)s+=String.fromCharCode.apply(null,b.subarray(i,i+32768));act=0;sel=new Set();set(await api('/api/open',{data:btoa(s)}));ev.target.value=''};
+async function save(){await commitEdit();let p=ST.path;if(!p){p=prompt('Kaydet (yol, örn. ~/alt.ass):','~/subtitles.ass');if(!p)return}set(await api('/api/save',{path:p}));status('Kaydedildi: '+ST.path)}
+$('#bSave').onclick=save;$('#dl').onchange=e=>{if(e.target.value)location='/api/download?fmt='+e.target.value;e.target.value=''};
+// video
+const V=$('#v');$('#bVid').onclick=()=>$('#vfile').click();$('#vfile').onchange=e=>{const f=e.target.files[0];if(f)V.src=URL.createObjectURL(f)};
+function seekTo(i){const e=ST.events[i];if(e&&V.src&&V.paused)V.currentTime=e[2]/1000+0.001}
+V.addEventListener('timeupdate',()=>{const t=V.currentTime*1000,l=ST.events.filter(e=>!e[0]&&e[2]<=t&&t<e[3]);$('#ov').textContent=l.map(e=>plain(e[10])).join('\n')});
+$('#bNow1').onclick=()=>{if(V.src){$('#eS').value=fmt(V.currentTime*1000);commitEdit()}};$('#bNow2').onclick=()=>{if(V.src){$('#eE').value=fmt(V.currentTime*1000);commitEdit()}};
+// panels
+const TABS={qc:'Kontrol',tools:'Araçlar',styles:'Stiller',auto:'Otomasyon',info:'Bilgi'};
+$('#tabs').innerHTML=Object.entries(TABS).map(([k,v])=>`<button data-t="${k}">${v}</button>`).join('');
+$('#tabs').onclick=e=>{if(e.target.dataset.t){tab=e.target.dataset.t;panel()}};
+async function runQC(){const o=Object.fromEntries(['max_cps','max_line_chars','max_lines','min_duration','max_duration','min_gap'].map(k=>[k,($('#q_'+k)||{}).value]).filter(x=>x[1]));
+ const r=await api('/api/qc?'+new URLSearchParams(o));issues={};r.issues.forEach(x=>(issues[x.index]=issues[x.index]||[]).push(x));if(tab==='qc'){$('#qres').innerHTML=r.issues.map(x=>`<div class=iss data-i=${x.index}><b class=${x.severity}>#${x.index+1}</b> ${esc(x.message)}</div>`).join('')||'<small>Sorun yok ✓</small>'}render()}
+async function panel(){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));const p=$('#panel');
+ if(tab==='qc'){p.innerHTML=`<div class=row><label>Maks CPS</label><input id=q_max_cps type=number value=20 step=0.5><label>Maks krktr</label><input id=q_max_line_chars type=number value=42></div><div class=row><label>Min süre</label><input id=q_min_duration type=number value=500><label>Min boşluk</label><input id=q_min_gap type=number value=0></div><button id=qgo>Kontrol et</button><div id=qres></div>`;$('#qgo').onclick=runQC;$('#qres').onclick=e=>{const d=e.target.closest('.iss');if(d){act=+d.dataset.i;sel=new Set([act]);ensureVisible();render();loadEdit();seekTo(act)}};runQC()}
+ else if(tab==='tools'){p.innerHTML=`<h4>Zaman kaydır</h4><div class=row><input id=t_ms type=number value=500> ms <button data-tool=shift>Seçiliye uygula</button><button data-tool=shiftall>Hepsine</button></div>
+ <h4>Zaman ölçekle</h4><div class=row><input id=t_f type=number step=0.0001 value=1.0427> <button data-tool=stretch>Uygula</button></div><small>25→23.976: 1.0427</small>
+ <h4>Düzeltmeler</h4><div class=row><button data-tool=fix_overlaps>Çakışmaları düzelt</button><button data-tool=snap_gaps>Küçük boşlukları kapat</button><button data-tool=sort>Zamana göre sırala</button></div>
+ <h4>Bul / Değiştir</h4><div class=row><input id=t_find placeholder=Bul style=width:100%></div><div class=row><input id=t_repl placeholder=Değiştir style=width:100%></div><div class=row><label><input type=checkbox id=t_re>regex</label><label><input type=checkbox id=t_case>büyük/küçük</label><button data-tool=fr>Değiştir</button></div>
+ <h4>Çözünürlük</h4><div class=row><input id=t_rx type=number value=${ST.play_res[0]}>×<input id=t_ry type=number value=${ST.play_res[1]}><button data-tool=resample>Yeniden ölçekle</button></div>`;
+  p.onclick=async e=>{const t=e.target.dataset.tool;if(!t)return;await commitEdit();const s=selection();let body;
+   if(t==='shift')body={name:'shift',args:{ms:+$('#t_ms').value},selection:s};else if(t==='shiftall')body={name:'shift',args:{ms:+$('#t_ms').value}};else if(t==='stretch')body={name:'stretch',args:{factor:+$('#t_f').value}};
+   else if(t==='fr')body={name:'find_replace',args:{find:$('#t_find').value,repl:$('#t_repl').value,regex:$('#t_re').checked,case:$('#t_case').checked}};
+   else if(t==='resample')body={name:'resample',args:{x:$('#t_rx').value,y:$('#t_ry').value}};else body={name:t,args:{}};
+   const r=await api('/api/tool',body);set(r);if(r.result!=null)status('Sonuç: '+r.result+' değişiklik')}}
+ else if(tab==='styles'){p.innerHTML=ST.styles.map((s,i)=>`<div class=row style="border-bottom:1px solid var(--line);padding-bottom:6px"><b style=width:100%>${esc(s.name)}</b>
+  <input data-s=${i} data-k=fontname value="${esc(s.fontname)}" style=width:120px><input data-s=${i} data-k=fontsize type=number value=${s.fontsize} style=width:60px>
+  ${['color1','color3'].map(k=>`<input type=color data-s=${i} data-k=${k} value="#${s[k].slice(8,10)+s[k].slice(6,8)+s[k].slice(4,6)}" title=${k}>`).join('')}
+  <label><input type=checkbox data-s=${i} data-k=bold ${s.bold?'checked':''}>K</label><label><input type=checkbox data-s=${i} data-k=italic ${s.italic?'checked':''}>İ</label>
+  <input data-s=${i} data-k=outline type=number step=.5 value=${s.outline} style=width:55px title=kontur><input data-s=${i} data-k=shadow type=number step=.5 value=${s.shadow} style=width:55px title=gölge>
+  <input data-s=${i} data-k=align type=number min=1 max=9 value=${s.align} style=width:50px title="hizalama"><input data-s=${i} data-k=margin_t type=number value=${s.margin_t} style=width:60px title="dikey kenar"></div>`).join('')+`<button id=sadd>+ Stil</button>`;
+  p.onchange=async e=>{const d=e.target.dataset;if(d.s==null)return;const st=JSON.parse(JSON.stringify(ST.styles));let v=e.target.type==='checkbox'?e.target.checked:e.target.type==='number'?+e.target.value:e.target.value;
+   if(e.target.type==='color'){const h=v.slice(1);v='&H00'+h.slice(4,6)+h.slice(2,4)+h.slice(0,2)+'&'}st[d.s][d.k]=v;set(await api('/api/styles',{styles:st}))};
+  $('#sadd').onclick=async()=>{const n=prompt('Stil adı?');if(!n)return;const st=JSON.parse(JSON.stringify(ST.styles));st.push({...st[0],name:n});set(await api('/api/styles',{styles:st}));}}
+ else if(tab==='auto'){p.innerHTML='<small>Yükleniyor…</small>';const r=await api('/api/automation');
+  p.innerHTML=`<small>Lua scriptleri: <code>automation/</code> ve <code>~/.osisub/automation/</code> klasörlerinden. Aegisub Lua API v4 uyumlu.</small><pre id=alog></pre>`+r.scripts.map(s=>`<h4>${esc(s.name)}</h4><small>${esc(s.file)}</small>${s.error?`<pre style="color:var(--err)">${esc(s.error)}</pre>`:''}`+s.macros.map(m=>`<div class=row><button data-sp="${esc(s.path)}" data-mi=${m.idx}>${esc(m.name)}</button><small>${esc(m.description||'')}</small></div>`).join('')).join('');
+  p.onclick=async e=>{const d=e.target.dataset;if(!d.sp)return;await commitEdit();try{const r=await api('/api/automation/run',{script:d.sp,idx:d.mi,selection:selection(),active:act});sel=new Set(r.selection);set(r);$('#alog').textContent=r.log.join('\n')}catch(x){$('#alog').textContent='Hata: '+x.message}}}
+ else if(tab==='info'){p.innerHTML=ST.info.map(([k,v])=>`<div class=row><label style=width:140px>${esc(k)}</label><input data-ik="${esc(k)}" value="${esc(v)}" style=flex:1></div>`).join('');
+  p.onchange=async e=>{if(e.target.dataset.ik)set(await api('/api/info',{key:e.target.dataset.ik,value:e.target.value}))}}}
+(async()=>{set(await api('/api/state'));panel()})();
+</script></body></html>
