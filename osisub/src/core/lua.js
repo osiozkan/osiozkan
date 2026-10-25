@@ -3,22 +3,20 @@ import fengari from 'fengari';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fontManager } from './fonts.js';
 
 const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lua');
 export const LIB_SOURCES = {};
 for (const f of fs.readdirSync(dir)) if (f.endsWith('.lua')) LIB_SOURCES[f.slice(0, -4)] = fs.readFileSync(path.join(dir, f), 'utf8');
-export const LIB_ALIASES = { util: 'utils', 'aegisub.util': 'utils', 'aegisub.re': 're', 'aegisub.clipboard': 'clipboard' };
+export const LIB_ALIASES = {};
+const stripBom = s => s.replace(/^\uFEFF/, '');
 
 /** Default host: approximate text metrics, no video. Override fields for real hosts. */
 export function defaultHost(extra = {}) {
   return {
     log: () => {}, progress: () => {}, fps: 23.976, videoSize: null, fileName: '', readFile: () => '', keyframes: [],
-    textExtents(style, text) { // rough estimate: ~0.5em per latin char, 1em per CJK
-      const fs_ = (style.fontsize || 48) * ((style.scale_y ?? 100) / 100); let w = 0;
-      for (const ch of text) w += (ch.codePointAt(0) > 0x2E80 ? 1 : 0.5) * fs_ * ((style.scale_x ?? 100) / 100) + (style.spacing || 0);
-      return [w, fs_, fs_ * 0.2, 0];
-    },
+    textExtents(style, text) { return fontManager().extents(style, text); },
     ...extra,
   };
 }
@@ -57,7 +55,7 @@ export class LuaScript {
   }
   _exec(src, name) {
     const L = this.L;
-    const buf = to_luastring(src);
+    const buf = to_luastring(stripBom(src));
     if (lauxlib.luaL_loadbuffer(L, buf, buf.length, to_luastring('=' + name)) !== lua.LUA_OK ||
         lua.lua_pcall(L, 0, 0, 0) !== lua.LUA_OK) {
       const msg = to_jsstring(lua.lua_tostring(L, -1)); lua.lua_pop(L, 1); throw new Error(msg);
@@ -85,12 +83,13 @@ export class LuaScript {
   _dispatch(name, raw) {
     const h = this.host;
     if (name === 'lib') { const k = LIB_ALIASES[raw] ?? raw; return LIB_SOURCES[k] ?? ''; }
-    if (name === 'readfile') return h.readFile(raw) ?? '';
+    if (name === 'readfile') return stripBom(h.readFile(raw) ?? '');
     const a = raw ? JSON.parse(raw) : [];
     switch (name) {
       case 'log': this.logs.push(a[0]); h.log(a[0]); return '';
       case 'progress': h.progress(a[0]); return '';
-      case 'task': case 'title': return '';
+      case 'task': case 'title': case 'undo_point': return '';
+      case 'case': return JSON.stringify(a[0] === 'upper' ? a[1].toUpperCase() : a[1].toLowerCase());
       case 'text_extents': return JSON.stringify(h.textExtents(a[0], a[1]));
       case 'frame_from_ms': return h.fps ? JSON.stringify(Math.floor((a[0] * h.fps) / 1000 + 1e-6)) : '';
       case 'ms_from_frame': return h.fps ? JSON.stringify(Math.round((a[0] * 1000) / h.fps)) : '';
@@ -117,17 +116,30 @@ export class LuaScript {
   }
   /** Run macro/filter. onDialog(request) -> Promise<{button, values}|{cancelled:true}>. */
   async run(kind, index, lines, selection = [], active = 0, onDialog = async () => ({ cancelled: true })) {
-    const toLua = kind === 'filter' ? index + 1 : index + 1;
-    let out = JSON.parse(this._call('__start', kind, toLua, JSON.stringify(lines), JSON.stringify(selection.map(i => i + 1)), active + 1));
+    // raw (unparsed/other-section) lines are invisible to scripts, as in Aegisub; they are re-appended afterwards
+    const toCore = new Map(); const core = []; const raws = [];
+    lines.forEach((l, i) => (l.class === 'raw' ? raws.push(l) : (toCore.set(i, core.length), core.push(l))));
+    selection = selection.filter(i => toCore.has(i)).map(i => toCore.get(i)); active = toCore.get(active) ?? 0;
+    let out = JSON.parse(this._call('__start', kind, index + 1, JSON.stringify(core), JSON.stringify(selection.map(i => i + 1)), active + 1));
     while (out.status === 'dialog') {
       const resp = await onDialog(out.request);
       out = JSON.parse(this._call('__resume', JSON.stringify(resp ?? { cancelled: true })));
     }
     if (out.status === 'error') { const e = new Error(out.message); e.logs = this.logs; throw e; }
     if (out.status === 'cancelled') return { cancelled: true, lines, selection };
-    return { lines: out.lines, selection: out.selection?.map(i => i - 1) ?? selection, active: out.active != null ? out.active - 1 : active, logs: this.logs };
+    legacyNumbers(out.lines, core);
+    return { lines: [...out.lines, ...raws], selection: out.selection?.map(i => i - 1) ?? selection, active: out.active != null ? out.active - 1 : active, logs: this.logs };
   }
   async validate(index, lines, selection = [], active = 0) {
     return JSON.parse(this._call('__validate', index + 1, JSON.stringify(lines), JSON.stringify(selection.map(i => i + 1)), active + 1));
+  }
+}
+
+// Aegisub runs LuaJIT where 100.0 prints as "100"; Lua 5.3 prints "100.0". Normalise inside override blocks of lines the script changed.
+function legacyNumbers(outLines, inLines) {
+  const before = new Set(inLines.filter(l => l.class === 'dialogue').map(l => l.text));
+  for (const l of outLines) {
+    if (l.class !== 'dialogue' || before.has(l.text) || typeof l.text !== 'string') continue;
+    l.text = l.text.replace(/\{[^}]*\}/g, b => b.replace(/(\d)\.0(?=[,)\\}&\s]|$)/g, '$1'));
   }
 }

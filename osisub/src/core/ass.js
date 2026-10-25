@@ -32,24 +32,24 @@ export function parseAss(text) {
     const line = raw.trimEnd();
     if (!line.trim()) continue;
     const sec = /^\[(.+)\]$/.exec(line.trim());
-    if (sec) { section = sec[1]; lines.push({ class: 'raw_section', raw: line.trim(), section }); continue; }
-    if (line.startsWith(';')) { lines.push({ class: 'comment_line', raw: line, section }); continue; }
+    if (sec) { section = sec[1]; continue; }
+    if (line.startsWith(';')) { lines.push(section.toLowerCase() === 'script info' ? { class: 'info', key: line, value: '', section } : { class: 'raw', raw: line, section }); continue; }
     const kv = /^([^:]+):\s?(.*)$/.exec(line);
-    if (!kv) { lines.push({ class: 'unknown', raw: line, section }); continue; }
+    if (!kv) { lines.push({ class: 'raw', raw: line, section }); continue; }
     const key = kv[1].trim(), val = kv[2];
     const lsec = section.toLowerCase();
     if (lsec === 'script info') {
       lines.push({ class: 'info', key, value: val.trim(), section });
     } else if (lsec.startsWith('v4')) {
-      if (key.toLowerCase() === 'format') { styleFmt = val.split(',').map(s => s.trim().toLowerCase()); lines.push({ class: 'format', section, raw: line }); }
+      if (key.toLowerCase() === 'format') styleFmt = val.split(',').map(s => s.trim().toLowerCase());
       else if (key.toLowerCase() === 'style') lines.push(parseStyle(val, styleFmt || DEFAULT_STYLE_FORMAT.toLowerCase().split(', '), section));
-      else lines.push({ class: 'unknown', raw: line, section });
+      else lines.push({ class: 'raw', raw: line, section });
     } else if (lsec === 'events') {
       const k = key.toLowerCase();
-      if (k === 'format') { evFmt = val.split(',').map(s => s.trim().toLowerCase()); lines.push({ class: 'format', section, raw: line }); }
+      if (k === 'format') evFmt = val.split(',').map(s => s.trim().toLowerCase());
       else if (k === 'dialogue' || k === 'comment') lines.push(parseEvent(val, evFmt || EVENT_FORMAT.toLowerCase().split(', '), k === 'comment', section));
-      else lines.push({ class: 'unknown', raw: line, section });
-    } else lines.push({ class: 'unknown', raw: line, section });
+      else lines.push({ class: 'raw', raw: line, section });
+    } else lines.push({ class: 'raw', raw: line, section });
   }
   return lines;
 }
@@ -105,25 +105,24 @@ export function eventToString(e) {
   return `${e.comment ? 'Comment' : 'Dialogue'}: ${e.layer},${formatAssTime(e.start_time)},${formatAssTime(e.end_time)},${e.style},${e.actor},${e.margin_l},${e.margin_r},${e.margin_t},${e.effect},${e.text}`;
 }
 
-/** Serialize lines back to ASS; Format lines are always regenerated canonically. */
+/** Serialize lines back to ASS. Sections follow line classes; Format lines are always regenerated canonically. */
 export function writeAss(lines) {
-  const out = []; let cur = null; const fmtDone = new Set();
+  const out = []; let cur = null;
   const header = name => { if (out.length) out.push(''); out.push(`[${name}]`); cur = name; };
-  const fmtFor = sec => (/^events$/i.test(sec) ? 'Format: ' + EVENT_FORMAT : /^v4/i.test(sec) ? 'Format: ' + DEFAULT_STYLE_FORMAT : null);
-  const ensure = (sec, fallback) => {
-    if (cur !== sec) { header(sec); }
-    if (!fmtDone.has(sec) && fmtFor(sec)) { out.push(fmtFor(sec)); fmtDone.add(sec); }
-  };
   for (const l of lines) {
-    switch (l.class) {
-      case 'raw_section': header(l.raw.slice(1, -1)); break;
-      case 'format': ensure(l.section); break;
-      case 'info': ensure('Script Info'); out.push(`${l.key}: ${l.value}`); break;
-      case 'style': ensure(l.section || 'V4+ Styles'); out.push(styleToString(l)); break;
-      case 'dialogue': ensure('Events'); out.push(eventToString(l)); break;
-      default: out.push(l.raw ?? ''); break;
+    const sec = l.class === 'info' ? 'Script Info' : l.class === 'style' ? (l.section || 'V4+ Styles') : l.class === 'dialogue' ? 'Events' : l.section;
+    if (sec !== cur) {
+      header(sec);
+      if (l.class === 'style') out.push('Format: ' + DEFAULT_STYLE_FORMAT);
+      if (l.class === 'dialogue') out.push('Format: ' + EVENT_FORMAT);
     }
+    if (l.class === 'info') out.push(l.key.startsWith(';') ? l.key : `${l.key}: ${l.value}`);
+    else if (l.class === 'style') out.push(styleToString(l));
+    else if (l.class === 'dialogue') out.push(eventToString(l));
+    else out.push(l.raw ?? '');
   }
+  // an empty Events section still needs its Format line (new/empty scripts)
+  if (!lines.some(l => l.class === 'dialogue')) { header('Events'); out.push('Format: ' + EVENT_FORMAT); }
   return out.join('\r\n') + '\r\n';
 }
 

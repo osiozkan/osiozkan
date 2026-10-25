@@ -93,6 +93,78 @@ local function H(name, ...) -- call host with JSON args, JSON result
   return json.decode(r)
 end
 
+
+------------------------------------------------------------------ Lua 5.1 / LuaJIT compatibility (Aegisub runs LuaJIT)
+loadstring = loadstring or load
+unpack = unpack or table.unpack
+table.getn = table.getn or function(t) return #t end
+table.maxn = table.maxn or function(t) local n = 0; for k in pairs(t) do if type(k) == 'number' and k > n then n = k end end; return n end
+math.pow = math.pow or function(a, b) return a ^ b end
+math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+math.log10 = math.log10 or function(x) return math.log(x, 10) end
+math.cosh = math.cosh or function(x) return (math.exp(x) + math.exp(-x)) / 2 end
+math.sinh = math.sinh or function(x) return (math.exp(x) - math.exp(-x)) / 2 end
+math.tanh = math.tanh or function(x) local a, b = math.exp(x), math.exp(-x); return (a - b) / (a + b) end
+math.ldexp = math.ldexp or function(m, e) return m * 2.0 ^ e end
+string.gfind = string.gfind or string.gmatch
+local function env_upvalue(f)
+  local i = 1
+  while true do
+    local n = debug.getupvalue(f, i)
+    if n == '_ENV' then return i end
+    if not n then return nil end
+    i = i + 1
+  end
+end
+function setfenv(f, env)
+  if type(f) == 'number' then f = debug.getinfo(f + 1, 'f').func end
+  local i = env_upvalue(f)
+  if i then debug.upvaluejoin(f, i, function() return env end, 1) end
+  return f
+end
+function getfenv(f)
+  if f == nil or f == 0 then return _ENV end
+  if type(f) == 'number' then f = debug.getinfo(f + 1, 'f').func end
+  local i = env_upvalue(f)
+  if i then local _, v = debug.getupvalue(f, i); return v end
+  return _G
+end
+-- LuaJIT truncates floats for %d etc.; Lua 5.3 raises "no integer representation"
+do
+  local fmt = string.format
+  function string.format(f, ...)
+    local args, n, k = { ... }, select('#', ...), 0
+    for spec in f:gmatch('%%[-+ #0]*%d*%.?%d*([%a%%])') do
+      if spec ~= '%' then
+        k = k + 1
+        local v = args[k]
+        if (spec == 'd' or spec == 'i' or spec == 'x' or spec == 'X' or spec == 'o' or spec == 'c' or spec == 'u') then
+          if type(v) == 'string' then v = tonumber(v) end
+          if math.type(v) == 'float' then v = (v >= 0) and math.floor(v) or math.ceil(v) end
+          args[k] = v
+          if spec == 'u' then f = f:gsub('%%([-+ #0]*%d*%.?%d*)u', '%%%1d') end
+        end
+      end
+    end
+    return fmt(f, table.unpack(args, 1, n))
+  end
+end
+-- LuaJIT `bit` library
+bit = {
+  tobit = function(x) x = math.tointeger(x // 1) & 0xFFFFFFFF; if x >= 0x80000000 then x = x - 0x100000000 end; return x end,
+}
+local tobit = bit.tobit
+bit.band = function(a, ...) for _, v in ipairs({ ... }) do a = a & v end; return tobit(a) end
+bit.bor = function(a, ...) for _, v in ipairs({ ... }) do a = a | v end; return tobit(a) end
+bit.bxor = function(a, ...) for _, v in ipairs({ ... }) do a = a ~ v end; return tobit(a) end
+bit.bnot = function(a) return tobit(~a) end
+bit.lshift = function(a, n) return tobit((a & 0xFFFFFFFF) << (n & 31)) end
+bit.rshift = function(a, n) return tobit((a & 0xFFFFFFFF) >> (n & 31)) end
+bit.arshift = function(a, n) a = tobit(a); n = n & 31; if a < 0 then return tobit((a >> n) | ~(0xFFFFFFFF >> n)) end; return tobit(a >> n) end
+bit.tohex = function(a, n) n = n or 8; return string.format('%0' .. n .. 'x', a & 0xFFFFFFFF):sub(-n) end
+bit.rol = function(a, n) a = a & 0xFFFFFFFF; n = n & 31; return tobit((a << n) | (a >> (32 - n))) end
+bit.ror = function(a, n) return bit.rol(a, 32 - (n & 31)) end
+
 ------------------------------------------------------------------ module loader
 local libs = {}
 local function load_virtual(name)
@@ -151,7 +223,9 @@ local function fmtmsg(...)
 end
 aegisub.debug = {
   out = function(a, ...)
-    if type(a) == 'number' then H('log', fmtmsg(...)) else H('log', fmtmsg(a, ...)) end
+    if type(a) == 'number' then
+      if a <= (aegisub.__debug_level or 3) then H('log', fmtmsg(...)) end -- Aegisub shows levels <= 3 by default
+    else H('log', fmtmsg(a, ...)) end
   end,
 }
 aegisub.log = function(a, ...) if type(a) == 'number' then H('log', fmtmsg(...)) else H('log', fmtmsg(a, ...)) end end
@@ -173,6 +247,60 @@ function aegisub.get_frame() return nil end
 function aegisub.keyframes() return H('keyframes') or {} end
 function aegisub.clipboard_get() return H('clipboard_get') end
 aegisub.clipboard = { get = aegisub.clipboard_get, set = function(s) H('clipboard_set', s); return true end }
+
+function aegisub.set_undo_point(name) H('undo_point', name) end
+
+-- Native AssKaraoke parser. Returns 0-indexed syllables like Aegisub:
+-- {start_time, end_time, duration (ms), tag ("k"/"kf"/"ko"), text (with inline override blocks, \k removed), text_stripped}
+function aegisub.parse_karaoke_data(line)
+  local text = line.text
+  local syls = {}
+  local cur = { start_time = 0, duration = 0, tag = 'k', text = '', ovr = false }
+  local function push()
+    if cur.text ~= '' or cur.duration > 0 or cur.ovr or #syls > 0 then
+      cur.end_time = cur.start_time + cur.duration
+      cur.text_stripped = cur.text:gsub('{[^}]*}', '')
+      syls[#syls + 1] = cur
+    end
+  end
+  local pos = 1
+  while pos <= #text do
+    local a, b = text:find('{[^}]*}', pos)
+    local plain_end = (a or #text + 1) - 1
+    if plain_end >= pos then cur.text = cur.text .. text:sub(pos, plain_end); cur.ovr = cur.ovr end
+    if not a then break end
+    local block = text:sub(a + 1, b - 1)
+    local rest, i, n = {}, 1, #block
+    local had_k = false
+    while i <= n do
+      local c = block:sub(i, i)
+      if c == '\\' then
+        local j = i + 1; local depth = 0
+        while j <= n do
+          local d = block:sub(j, j)
+          if d == '(' then depth = depth + 1 elseif d == ')' then depth = depth - 1
+          elseif d == '\\' and depth <= 0 then break end
+          j = j + 1
+        end
+        local tag = block:sub(i, j - 1)
+        local ktag, kdur = tag:match('^\\([kK][fo]?)(%-?%d+)')
+        if ktag then
+          push()
+          cur = { start_time = (cur.end_time or (cur.start_time + cur.duration)), duration = tonumber(kdur) * 10, tag = ktag, text = '', ovr = false }
+          if #syls > 0 and syls[#syls].end_time then cur.start_time = syls[#syls].end_time end
+          had_k = true
+        else rest[#rest + 1] = tag end
+        i = j
+      else i = i + 1 end
+    end
+    if #rest > 0 then cur.text = cur.text .. '{' .. table.concat(rest) .. '}'; cur.ovr = true end
+    pos = b + 1
+  end
+  push()
+  local out = {}
+  for i, s in ipairs(syls) do out[i - 1] = s end
+  return out
+end
 aegisub.dialog = {}
 function aegisub.dialog.display(dialog, buttons, ids)
   local default_btns = buttons == nil
@@ -195,7 +323,6 @@ aegisub.dialog.save = function(...) return H('dialog_save', ...) end
 aegisub.io = {}
 
 -- Unicode / regex libs injected as modules
-package.preload['aegisub.util'] = function() return require 'utils' end
 
 ------------------------------------------------------------------ subs object
 local STYLE_BASE = { class = 'style', section = 'V4+ Styles' }
@@ -222,20 +349,33 @@ local function new_subs(lines)
   end
   function api.deleterange(a, b) for i = b, a, -1 do table.remove(data, i) end end
   function api.get_script_info() return {} end
+  function api.script_resolution()
+    local x, y = 0, 0
+    for _, l in ipairs(data) do
+      if l.class == 'info' then
+        local k = l.key:lower()
+        if k == 'playresx' then x = math.floor(tonumber(l.value) or 0) elseif k == 'playresy' then y = math.floor(tonumber(l.value) or 0) end
+      elseif l.class ~= 'info' then break end
+    end
+    if x == 0 and y == 0 then return 384, 288 elseif x == 0 then return math.floor(y / 3 * 4), y elseif y == 0 then return x, math.floor(x * 3 / 4) end
+    return x, y
+  end
   local s = {}
   return setmetatable(s, {
     __index = function(_, k)
       if type(k) == 'number' then
-        local v = data[k]
-        if v == nil then error('Requested out-of-range line from subtitle file: ' .. tostring(k), 2) end
-        return v
+        return data[k]
       end
       if k == 'n' then return #data end
       return api[k]
     end,
     __newindex = function(_, k, v)
-      if type(k) ~= 'number' or k < 1 or k > #data + 1 then error('Attempt to set out-of-range line', 2) end
-      data[k] = v
+      if type(k) ~= 'number' then error('Attempt to set non-numeric subtitle index', 2) end
+      if k == 0 then data[#data + 1] = v                       -- subs[0] = line appends
+      elseif k < 0 then table.insert(data, math.min(-k, #data + 1), v) -- subs[-n] = line inserts before n
+      elseif k > #data + 1 then error('Attempt to set out-of-range line', 2)
+      elseif v == nil then table.remove(data, k)
+      else data[k] = v end
     end,
     __len = function() return #data end,
     __pairs = function() return ipairs(data) end,
@@ -248,12 +388,25 @@ local function subs_data(s) return getmetatable(s).__data end
 local running, current
 local ASS_STYLE_NUMS = {}
 
+local FIELDS = {
+  dialogue = { 'class', 'comment', 'layer', 'start_time', 'end_time', 'style', 'actor', 'margin_l', 'margin_r', 'margin_t', 'effect', 'text' },
+  style = { 'class', 'name', 'fontname', 'fontsize', 'color1', 'color2', 'color3', 'color4', 'bold', 'italic', 'underline', 'strikeout',
+    'scale_x', 'scale_y', 'spacing', 'angle', 'borderstyle', 'outline', 'shadow', 'align', 'margin_l', 'margin_r', 'margin_t', 'encoding', 'section' },
+  info = { 'class', 'key', 'value', 'section' },
+}
+-- Only known fields are persisted (scripts attach derived data like styleref/kara to lines; Aegisub ignores those too)
 local function lines_out(subs)
   local d = subs_data(subs); local out = {}
   for i, l in ipairs(d) do
     local c = {}
-    for k, v in pairs(l) do if k ~= 'extra' and k ~= 'margin_b' and k ~= 'relative_to' then c[k] = v end end
-    if l.class == 'style' and l.margin_b and l.margin_b ~= l.margin_t and l.margin_t == nil then c.margin_t = l.margin_b end
+    local fields = FIELDS[l.class]
+    if fields then
+      for _, k in ipairs(fields) do c[k] = l[k] end
+      if l.class == 'style' then c.margin_t = l.margin_t or l.margin_b or l.margin_v end
+      if l.class == 'dialogue' and c.margin_t == nil then c.margin_t = l.margin_b or l.margin_v or 0 end
+    else
+      c.class = l.class; c.raw = l.raw; c.section = l.section
+    end
     out[i] = c
   end
   return out
@@ -304,4 +457,3 @@ function __info()
   for i, m in ipairs(filters) do fs[i] = { name = m.name, description = m.description } end
   return json.encode({ name = script_name, description = script_description, author = script_author, version = script_version, macros = ms, filters = fs })
 end
-require 'utils'

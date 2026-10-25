@@ -25,6 +25,7 @@ aegisub.register_macro("Upper", "x", go)`);
 
 test('insert/delete/append and dialogs via coroutine', async () => {
   const s = new LuaScript(`
+include("utils.lua")
 aegisub.register_macro("T", "", function(subs, sel)
   local btn, res = aegisub.dialog.display({{class="label", label="x", x=0,y=0}, {class="intedit", name="n", value=2, x=0,y=1}}, {"Go","Stop"})
   if btn ~= "Go" then aegisub.cancel() end
@@ -45,7 +46,7 @@ test('karaskel + utils + re + unicode', async () => {
   const s = new LuaScript(`
 include("karaskel.lua")
 local re = require "aegisub.re"
-local unicode = require "unicode"
+include("unicode.lua")
 aegisub.register_macro("K", "", function(subs, sel)
   local meta, styles = karaskel.collect_head(subs)
   local i = 0
@@ -60,10 +61,38 @@ aegisub.register_macro("K", "", function(subs, sel)
 end)`);
   const lines = newScript(); lines.push(defaultDialogue({ text: '{\\k50}ka{\\k30}ra{\\k20}oke', end_time: 1000 }));
   const r = await s.run('macro', 0, lines);
-  assert.equal(r.lines.find(l => l.class === 'dialogue').effect, '3/1920/2/heLo/&H0000FF&');
+  assert.equal(r.lines.find(l => l.class === 'dialogue').effect, '2/1920/2/heLo/&H0000FF&');
 });
 
 test('error reporting', async () => {
   const s = new LuaScript(`aegisub.register_macro("E","",function() error("boom") end)`);
   await assert.rejects(() => s.run('macro', 0, base()), /boom/);
+});
+
+import fs from 'node:fs';
+test('Aegisub kara-templater.lua (original) runs against real template lines', async () => {
+  const src = fs.readFileSync(new URL('../third_party/aegisub-lua/kara-templater.lua', import.meta.url), 'utf8');
+  const s = new LuaScript(src, 'kara-templater.lua');
+  assert.ok(s.macros.length >= 1, 'templater macro registered');
+  const lines = newScript();
+  lines.push(defaultDialogue({ comment: true, effect: 'template syl', text: '!retime("line",-100,100)!{\\pos($x,$y)\\fad(100,0)}', style: 'Default', start_time: 0, end_time: 3000 }));
+  lines.push(defaultDialogue({ comment: false, effect: 'karaoke', style: 'Default', start_time: 1000, end_time: 3000, text: '{\\k50}ka{\\k30}ra{\\k20}oke' }));
+  const r = await s.run('macro', 0, lines, [], 0);
+  const out = r.lines.filter(l => l.class === 'dialogue' && !l.comment);
+  assert.ok(out.length >= 3, `expected fx lines, got ${out.length}: ${r.logs.join('')}`);
+  assert.ok(out.every(l => /\\pos\(/.test(l.text)), out.map(l => l.text).join('|'));
+});
+
+test('text_extents uses real font metrics and 5.1 compat shims work', async () => {
+  const s = new LuaScript(`
+aegisub.register_macro("M", "", function(subs)
+  local st = subs[2]
+  local w, h, d = aegisub.text_extents(st, "Hello")
+  local f = loadstring("return 40 + 2")
+  local out = string.format("%d|%s|%d|%d", 7.9, tostring(unpack({1, 2})), f(), bit.band(0xFF, 0x0F))
+  subs[1] = {class = "info", key = "T", value = out .. "|" .. tostring(w > 50 and w < 400) .. "|" .. tostring(h)}
+end)`);
+  const r = await s.run('macro', 0, newScript());
+  const t = r.lines.find(l => l.class === 'info' && l.key === 'T');
+  assert.match(t.value, /^7\|1\|42\|15\|true\|/);
 });

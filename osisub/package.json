@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "OsiSub - anime subtitle editor (Aegisub-compatible, Lua automation, Subtitle Edit-style tools)",
   "type": "module",
-  "scripts": { "test": "node --test "test/*.test.js"", "start": "node server.js" },
-  "dependencies": { "fengari": "^0.1.4" }
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "fengari": "^0.1.4",
+    "opentype.js": "^1.3.4"
+  }
 }
