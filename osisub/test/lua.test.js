@@ -96,3 +96,46 @@ end)`);
   const t = r.lines.find(l => l.class === 'info' && l.key === 'T');
   assert.match(t.value, /^7\|1\|42\|15\|true\|/);
 });
+
+test('typical community macro patterns', async () => {
+  const s = new LuaScript(`
+script_name = "Typical"
+script_description = "patterns"
+script_author = "me"
+script_version = "1.0"
+include("utils.lua")
+local function validate(subs, sel) return #sel > 0, "need selection" end
+local function typical(subs, sel, active)
+  aegisub.progress.task("working")
+  local count = 0
+  for i, line in ipairs(subs) do
+    aegisub.progress.set(i / #subs * 100)
+    if line.class == "dialogue" and not line.comment then
+      local stripped = line.text:gsub("{[^}]*}", "")
+      count = count + #stripped
+    end
+  end
+  local btn, res = aegisub.dialog.display({
+    {class="dropdown", name="mode", items={"a","b"}, value="b", x=0, y=0},
+    {class="coloralpha", name="col", value="&H00FF8040", x=0, y=1},
+    {class="checkbox", name="chk", label="c", value=true, x=0, y=2},
+  }, {"Run", "Close"}, {ok="Run", cancel="Close"})
+  if not btn then aegisub.cancel() end
+  for _, i in ipairs(sel) do
+    local l = subs[i]
+    l.text = string.format("{\\\\fs%d\\\\c%s}", 40.7, "&H0000FF&") .. l.text .. "|" .. res.mode .. tostring(res.chk) .. res.col .. "|" .. count
+    l.text = l.text:gsub("fs40", "fs%0")
+    subs[i] = l
+  end
+  subs.delete(1000 > #subs and #subs or 1)
+  aegisub.log("count=%d\\n", count)
+  return sel, sel[1]
+end
+aegisub.register_macro(script_name, script_description, typical, validate)`);
+  assert.equal(s.info.author, 'me'); assert.deepEqual(await s.validate(0, base(), []), { ok: false, message: 'need selection' });
+  const lines = base(); const firstDlg = lines.findIndex(l => l.class === 'dialogue');
+  const r = await s.run('macro', 0, lines, [firstDlg], firstDlg, async req => ({ button: 'Run', values: { mode: 'b', chk: true, col: '&H00FF8040' } }));
+  const t = r.lines.find(l => l.class === 'dialogue').text;
+  assert.equal(t, '{\\fsfs40\\c&H0000FF&}Hello|btrue&H00FF8040|10');
+  assert.deepEqual(r.selection, [firstDlg]); assert.match(r.logs.join(''), /count=10/);
+});

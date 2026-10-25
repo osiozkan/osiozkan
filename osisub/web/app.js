@@ -306,17 +306,20 @@ const actions = {
   'play-line'() { const l = S.lines[S.active]; if (l && isEv(l)) playRange(l); },
   'set-start'() { const l = S.lines[S.active]; if (l && isEv(l)) mutate(() => { l.start_time = Math.round(vd.currentTime * 1000); }); },
   'set-end'() { const l = S.lines[S.active]; if (l && isEv(l)) mutate(() => { l.end_time = Math.round(vd.currentTime * 1000); }); },
-  async 'load-lua'() { for (const f of await pickFile($('#fileLua'))) await loadLua(await f.text(), f.name); },
-  async 'reload-lua'() { const old = S.scripts; S.scripts = []; for (const s of old) await loadLua(s.source, s.filename); },
+  async 'load-lua'() { const fs_ = await pickFile($('#fileLua')); const files = Object.fromEntries(await Promise.all(fs_.map(async f => [f.name, await f.text()]))); for (const f of fs_) await loadLua(files[f.name], f.name, files); },
+  async 'reload-lua'() { const old = S.scripts.filter(s => !s.auto); S.scripts = []; await loadAutoload(); for (const s of old) await loadLua(s.source, s.filename, s.files); },
 };
 const act = n => { const a = actions[n]; if (a) return a(); };
 
 /* ------------------------------------------------------------ Lua automation */
 async function post(url, body) { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return r.json(); }
-async function loadLua(source, filename) {
-  const r = await post('/api/lua/load', { source, filename, fps: S.fps, fileName: S.fileName, files: {} });
+async function loadAutoload() {
+  try { const list = await (await fetch('/api/autoload', { method: 'POST', body: '{}' })).json(); for (const f of list) await loadLua(f.source, f.name, {}, true); } catch (e) { console.warn('autoload failed', e); }
+}
+async function loadLua(source, filename, files = {}, auto = false) {
+  const r = await post('/api/lua/load', { source, filename, fps: S.fps, fileName: S.fileName, files });
   if (r.status === 'error' || r.error) { await modal('Lua error: ' + filename, `<pre class="log">${esc(r.error)}</pre>`, ['Close']); return; }
-  S.scripts.push({ id: r.id, info: r.info, source, filename }); renderMacros();
+  S.scripts.push({ id: r.id, info: r.info, source, filename, files, auto }); renderMacros();
 }
 function renderMacros() {
   const el = $('#macroList'); const items = [];
@@ -334,16 +337,21 @@ function dialogHtml(fields) {
       case 'dropdown': inner = `<select name="${nm}">${(f.items ?? []).map(it => `<option ${it === f.value ? 'selected' : ''}>${esc(it)}</option>`).join('')}</select>`; break;
       case 'textbox': inner = `<textarea name="${nm}" rows="${Math.max(2, f.height ?? 3)}" style="width:100%">${esc(f.text ?? f.value ?? '')}</textarea>`; break;
       case 'intedit': case 'floatedit': inner = `<input type="number" step="${f.class === 'intedit' ? 1 : 'any'}" ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''} name="${nm}" value="${esc(f.value ?? 0)}">`; break;
-      case 'color': case 'coloralpha': case 'alpha': inner = `<input name="${nm}" value="${esc(f.value ?? '')}">`; break;
+      case 'color': case 'coloralpha': inner = `<input type="color" name="${nm}" value="${assToHex(f.value)}">${f.class === 'coloralpha' ? `<input type="number" min="0" max="255" name="${nm}__a" value="${assAlpha(f.value)}" title="alpha (0 opaque - 255 transparent)" style="width:58px">` : ''}`; break;
+      case 'alpha': inner = `<input name="${nm}" value="${esc(f.value ?? '&H00&')}">`; break;
       default: inner = `<input name="${nm}" value="${esc(f.text ?? f.value ?? '')}" style="width:100%">`;
     }
     return `<div style="${st}">${inner}</div>`;
   });
   return `<div style="display:grid;gap:6px 8px;grid-auto-columns:minmax(80px,auto)">${cells.join('')}</div>`;
 }
+const assToHex = v => { const m = /&H(?:[0-9A-Fa-f]{2})?([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})/.exec(v ?? ''); return m ? `#${m[3]}${m[2]}${m[1]}`.toLowerCase() : '#ffffff'; };
+const assAlpha = v => { const m = /^&H([0-9A-Fa-f]{2})[0-9A-Fa-f]{6}/.exec(v ?? ''); return m ? parseInt(m[1], 16) : 0; };
+const hexToAss = (h, a, withAlpha) => { const [r, g, b] = [1, 3, 5].map(i => h.slice(i, i + 2).toUpperCase()); return withAlpha ? `&H${(a | 0).toString(16).toUpperCase().padStart(2, '0')}${b}${g}${r}` : `&H${b}${g}${r}&`; };
 function collectDialog(box, fields) {
   const v = {};
   fields.forEach((f, n) => { if (!f.name || f.class === 'label') return; const el = val(box, f.name); if (!el) return;
+    if (f.class === 'color' || f.class === 'coloralpha') { v[f.name] = hexToAss(el.value, +val(box, f.name + '__a')?.value, f.class === 'coloralpha'); return; }
     v[f.name] = f.class === 'checkbox' ? el.checked : f.class === 'intedit' ? Math.round(+el.value) : f.class === 'floatedit' ? +el.value : el.value; });
   return v;
 }
@@ -390,3 +398,4 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', async e => { e.preventDefault(); for (const f of e.dataTransfer.files) { if (/\.(ass|ssa|srt|vtt)$/i.test(f.name)) loadSubtitleText(await decodeText(f), f.name); else if (/\.lua$/i.test(f.name)) await loadLua(await f.text(), f.name); else openMedia(f); } });
 window.OsiSub = { jassub: () => jassub, S, actions, loadSubtitleText, view, loadLua, runMacro }; // for automation/tests
 refresh();
+loadAutoload();

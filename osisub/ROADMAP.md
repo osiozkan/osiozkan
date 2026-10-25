@@ -21,6 +21,8 @@ UI smoke test (needs Playwright + running server): `node scripts/smoke.cjs`.
 
 - [x] Subtitle Edit-style fixes (`src/core/fixes.js`): balance line breaks, split long lines, merge short lines, remove HI text, punctuation, dedupe, min gap, keyframe snap (core only; keyframes UI TODO); waveform edge dragging (drag edges, Shift+click = set start, right-click = set end); autosave/recovery
 
+- [x] Automation folder (`automation/autoload`, `automation/include`, `OSISUB_SCRIPTS`) auto-loaded at startup; color/coloralpha dialog controls
+
 ## Known gaps / TODO (priority order)
 1. **Fonts UI**: text metrics now come from real fonts (opentype.js; `fonts/` dir, `OSISUB_FONTS`, system dirs; index cached in ~/.cache/osisub). Add font upload/manager in the UI, .ttc support, GDI-exact metric parity checks vs Aegisub on Windows.
 2. **More real-world script testing**: original Aegisub `karaskel`/`utils`/`kara-templater` pass. Need the owner's own scripts as fixtures (ask owner to drop them into `examples/user-scripts/`), plus `lfs`, `ffi`, `aegisub.io`, `aegisub.dialog.open/save`, `aegisub.get_audio_selection`, `aegisub.frame_from_ms` accuracy with loaded video fps, and dialog classes (color picker, coloralpha, `hotkey`...).
@@ -35,3 +37,4 @@ UI smoke test (needs Playwright + running server): `node scripts/smoke.cjs`.
 - **2026-10-25 (night 1)**: Project bootstrapped from empty repo (no earlier work existed in this repo). Core, UI, Lua runtime, tests. 
 - **night 1 (cont.)**: vendored original Aegisub karaskel/utils/cleantags; original `kara-templater.lua` runs end-to-end in tests (retime, \pos, $x/$y); real font metrics; LuaJIT compat; ASS model aligned with Aegisub (only info/style/dialogue visible to Lua, `raw` for other sections).
 - **night 1 (cont. 2)**: libass-wasm (JASSUB) live preview with installed fonts, auto-refresh on edit; `scripts/video-check.cjs`, `scripts/devserver.sh`.
+- **night 1 (cont. 3)**: autoload folder, include resolution, color dialogs, typical-macro regression test. **Owner action wanted**: drop your own Lua scripts into `automation/autoload/` (or `examples/user-scripts/`) so they become regression fixtures.

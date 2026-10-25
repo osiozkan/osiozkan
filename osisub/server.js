@@ -9,6 +9,14 @@ import { fontManager } from './src/core/fonts.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.woff2': 'font/woff2', '.map': 'application/json' };
+const scriptDirs = () => [...(process.env.OSISUB_SCRIPTS ? process.env.OSISUB_SCRIPTS.split(path.delimiter) : []), path.join(root, 'automation', 'autoload'), path.join(root, 'automation', 'include')].filter(d => fs.existsSync(d));
+// include()/require() resolution for scripts: script dirs only, no escaping them
+function readScriptFile(name) {
+  const rel = path.normalize(String(name)).replace(/^([/\\])+/, '');
+  if (rel.startsWith('..')) return '';
+  for (const d of scriptDirs()) { const p = path.join(d, rel); if (p.startsWith(d) && fs.existsSync(p) && fs.statSync(p).isFile()) return fs.readFileSync(p, 'utf8'); }
+  return '';
+}
 const scripts = new Map(); // id -> { script, pending }
 
 // one outstanding wait per script: resolved by the next dialog request or the final result
@@ -18,11 +26,17 @@ const readBody = req => new Promise((res, rej) => { let b = ''; req.on('data', c
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
 
 async function api(req, res, url) {
+  if (url === '/api/autoload') {
+    const out = [];
+    for (const d of scriptDirs().filter(d => d.endsWith('autoload') || process.env.OSISUB_SCRIPTS?.split(path.delimiter).includes(d)))
+      for (const f of fs.readdirSync(d).filter(f => /\.lua$/i.test(f)).sort()) out.push({ name: f, source: fs.readFileSync(path.join(d, f), 'utf8') });
+    return send(res, 200, out);
+  }
   const body = await readBody(req);
   try {
     if (url === '/api/lua/load') {
       const host = { fps: body.fps || 23.976, videoSize: body.videoSize, fileName: body.fileName || '', properties: body.properties || {},
-        readFile: name => body.files?.[name] ?? '' };
+        readFile: name => body.files?.[name] ?? body.files?.[path.basename(name)] ?? readScriptFile(name) };
       const script = new LuaScript(body.source, body.filename || 'script.lua', host);
       const id = randomUUID(); scripts.set(id, { script });
       return send(res, 200, { id, info: script.info });
