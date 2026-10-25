@@ -13,5 +13,8 @@ console.log('row1:', await p.locator('.grow .txt').first().textContent());
 p.evaluate(() => window.OsiSub.actions.qc()); await p.waitForSelector('.issue'); console.log('issues:', await p.locator('.issue').count());
 await p.screenshot({ path: '/tmp/qc.png' }); await p.keyboard.press('Escape');
 await p.screenshot({ path: '/tmp/main.png' });
+await p.evaluate(() => { const o = window.OsiSub; o.S.sel = new Set(); o.S.lines.find(l => l.class === 'dialogue').text = 'Hello , world ...'; o.actions.punct(); });
+console.log('punct:', await p.locator('.grow .txt').first().textContent());
+await p.keyboard.press('Control+z'); console.log('undo:', await p.locator('.grow .txt').first().textContent());
 console.log('errors:', errs); await b.close();
 })();

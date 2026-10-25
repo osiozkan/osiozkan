@@ -19,6 +19,8 @@ UI smoke test (needs Playwright + running server): `node scripts/smoke.cjs`.
       `aegisub.dialog.display` (coroutine-based, rendered as HTML modal), progress/log/debug.out, text_extents (estimated),
       `include("utils.lua"|"karaskel.lua"|"unicode.lua")`, `require 'aegisub.re'`, `aegisub.re`, unicode, clipboard
 
+- [x] Subtitle Edit-style fixes (`src/core/fixes.js`): balance line breaks, split long lines, merge short lines, remove HI text, punctuation, dedupe, min gap, keyframe snap (core only; keyframes UI TODO); waveform edge dragging (drag edges, Shift+click = set start, right-click = set end); autosave/recovery
+
 ## Known gaps / TODO (priority order)
 1. **Fonts UI**: text metrics now come from real fonts (opentype.js; `fonts/` dir, `OSISUB_FONTS`, system dirs; index cached in ~/.cache/osisub). Add font upload/manager in the UI, .ttc support, GDI-exact metric parity checks vs Aegisub on Windows.
 2. **More real-world script testing**: original Aegisub `karaskel`/`utils`/`kara-templater` pass. Need the owner's own scripts as fixtures (ask owner to drop them into `examples/user-scripts/`), plus `lfs`, `ffi`, `aegisub.io`, `aegisub.dialog.open/save`, `aegisub.get_audio_selection`, `aegisub.frame_from_ms` accuracy with loaded video fps, and dialog classes (color picker, coloralpha, `hotkey`...).

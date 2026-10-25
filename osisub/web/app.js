@@ -3,6 +3,7 @@ import { parseSrt, writeSrt, writeVtt, writePlain } from '/src/core/srt.js';
 import { parseAssTime, formatAssTime, msToFrame, frameToMs } from '/src/core/time.js';
 import { stripTags, cps as calcCps } from '/src/core/tags.js';
 import { runQC } from '/src/core/qc.js';
+import { balanceText, splitLongLines, mergeShortLines, removeHI, fixPunctuation, removeDuplicates, enforceGap } from '/src/core/fixes.js';
 import JASSUB from '/web/vendor/jassub.js';
 
 const $ = s => document.querySelector(s);
@@ -186,7 +187,19 @@ function drawWave() {
   for (const l of S.lines) if (isEv(l) && l.end_time / 1000 > t0 && l.start_time / 1000 < t0 + len) { g.fillStyle = S.lines[S.active] === l ? '#ff6b9d44' : '#6bc5ff22'; g.fillRect(X(l.start_time), 0, X(l.end_time) - X(l.start_time), h); }
   g.fillStyle = '#ff6b9d'; g.fillRect(X(cur * 1000), 0, 1, h);
 }
-wave.addEventListener('click', e => { const r = wave.getBoundingClientRect(); vd.currentTime = zoomStart + ((e.clientX - r.left) / r.width) * zoomLen; });
+const waveTime = e => { const r = wave.getBoundingClientRect(); return zoomStart + ((e.clientX - r.left) / r.width) * zoomLen; };
+let drag = null;
+wave.addEventListener('mousedown', e => {
+  if (e.button !== 0) return; const t = waveTime(e) * 1000, px = zoomLen * 1000 / wave.clientWidth, l = S.lines[S.active];
+  if (e.shiftKey && l && isEv(l)) { snapshot(); l.start_time = Math.round(t); S.dirty = true; refresh(); return; }
+  if (l && isEv(l)) { const edge = [['start_time', Math.abs(t - l.start_time)], ['end_time', Math.abs(t - l.end_time)]].sort((a, b) => a[1] - b[1])[0];
+    if (edge[1] <= 5 * px) { snapshot(); drag = edge[0]; return; } }
+  vd.currentTime = t / 1000;
+});
+window.addEventListener('mousemove', e => { if (!drag) return; const l = S.lines[S.active]; if (!l) return; const t = Math.max(0, Math.round(waveTime(e) * 1000)); l[drag] = t; S.dirty = true; renderGrid(); drawWave(); fillEdit(); });
+window.addEventListener('mouseup', () => { if (drag) { drag = null; S.redo = []; refresh(); } });
+wave.addEventListener('contextmenu', e => { e.preventDefault(); const l = S.lines[S.active]; if (l && isEv(l)) { snapshot(); l.end_time = Math.round(waveTime(e) * 1000); S.dirty = true; refresh(); } });
+wave.addEventListener('mousemove', e => { const l = S.lines[S.active]; if (!l || !isEv(l) || drag) return; const t = waveTime(e) * 1000, px = zoomLen * 1000 / wave.clientWidth; wave.style.cursor = Math.min(Math.abs(t - l.start_time), Math.abs(t - l.end_time)) <= 5 * px ? 'ew-resize' : 'crosshair'; });
 wave.addEventListener('wheel', e => { e.preventDefault(); if (e.ctrlKey) zoomLen = Math.max(2, Math.min(300, zoomLen * (e.deltaY > 0 ? 1.2 : 0.83))); else zoomStart = Math.max(0, zoomStart + (e.deltaY / 100) * zoomLen * 0.1); drawWave(); }, { passive: false });
 window.addEventListener('resize', () => { renderGrid(); drawWave(); });
 
@@ -195,7 +208,7 @@ const blankLine = (after) => defaultDialogue({ start_time: after ? after.end_tim
 const actions = {
   new() { snapshot(); S.lines = newScript(); S.fileName = 'untitled.ass'; S.sel = new Set(); S.active = -1; S.dirty = false; refresh(); },
   async open() { const [f] = await pickFile($('#fileOpen')); if (f) loadSubtitleText(await decodeText(f), f.name); },
-  save() { download(S.fileName, writeAss(S.lines)); S.dirty = false; refresh(); },
+  save() { download(S.fileName, writeAss(S.lines)); S.dirty = false; try { localStorage.removeItem('osisub.autosave'); } catch { /* ignore */ } refresh(); },
   'export-srt'() { download(S.fileName.replace(/\.\w+$/, '.srt'), writeSrt(S.lines)); },
   'export-vtt'() { download(S.fileName.replace(/\.\w+$/, '.vtt'), writeVtt(S.lines), 'text/vtt'); },
   'export-txt'() { download(S.fileName.replace(/\.\w+$/, '.txt'), writePlain(S.lines)); },
@@ -269,6 +282,25 @@ const actions = {
     const m = val(r.box, 'm').value; const f = { up: s => s.toUpperCase(), low: s => s.toLowerCase(), sent: s => s.toLowerCase().replace(/(^\s*|[.!?]\s+)(\p{L})/gu, (_, a, b) => a + b.toUpperCase()), title: s => s.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, a, b) => a + b.toUpperCase()) }[m];
     // only touch text outside {tags} and outside \N escapes
     mutate(() => selOrAll().forEach(i => { const l = S.lines[i]; l.text = l.text.split(/(\{[^}]*\}|\\[Nnh])/).map((p, k) => (k % 2 ? p : f(p))).join(''); }));
+  },
+  async balance() {
+    const r = await modal('Balance line breaks', `<div class="f"><label>Max chars/line</label><input name="n" value="42"><label>Max lines</label><input name="m" value="2"></div>`); if (r.button !== 'OK') return;
+    const n = +val(r.box, 'n').value || 42, m = +val(r.box, 'm').value || 2; mutate(() => selOrAll().forEach(i => { const l = S.lines[i]; if (!/\\p\d|\\k/.test(l.text)) l.text = balanceText(l.text, n, m); }));
+  },
+  async 'split-long'() {
+    const r = await modal('Split long lines', `<div class="f"><label>Max chars per line</label><input name="n" value="84"></div>`); if (r.button !== 'OK') return;
+    mutate(() => { S.lines = splitLongLines(S.lines, { maxChars: +val(r.box, 'n').value || 84 }); S.sel = new Set(); });
+  },
+  async 'merge-short'() {
+    const r = await modal('Merge short lines', `<div class="f"><label>Max gap (ms)</label><input name="g" value="250"><label>Max total chars</label><input name="c" value="60"></div>`); if (r.button !== 'OK') return;
+    mutate(() => { S.lines = mergeShortLines(S.lines, { maxGap: +val(r.box, 'g').value, maxChars: +val(r.box, 'c').value }); S.sel = new Set(); S.active = -1; });
+  },
+  'remove-hi'() { mutate(() => { selOrAll().forEach(i => { S.lines[i].text = removeHI(S.lines[i].text); }); S.lines = S.lines.filter(l => !(isEv(l) && !l.comment && l.text === '')); S.sel = new Set(); S.active = -1; }); },
+  punct() { mutate(() => selOrAll().forEach(i => { S.lines[i].text = fixPunctuation(S.lines[i].text); })); },
+  dedupe() { mutate(() => { const n = S.lines.length; S.lines = removeDuplicates(S.lines); S.sel = new Set(); S.active = -1; status(`${n - S.lines.length} duplicate(s) removed`); }); },
+  async 'min-gap'() {
+    const r = await modal('Enforce minimum gap', `<div class="f"><label>Min gap (ms)</label><input name="g" value="${Math.round(1000 / S.fps)}"></div>`); if (r.button !== 'OK') return;
+    mutate(() => enforceGap(S.lines, +val(r.box, 'g').value || 0));
   },
   play() { vd.paused ? vd.play() : vd.pause(); },
   'play-line'() { const l = S.lines[S.active]; if (l && isEv(l)) playRange(l); },
@@ -347,6 +379,11 @@ document.addEventListener('keydown', e => {
   else if (!inText && e.key === 'Delete') act('delete'); else if (!inText && e.key === 'Enter') { E.text.focus(); }
   else if (e.key === ' ' && e.ctrlKey) { e.preventDefault(); act('play'); }
 });
+// autosave / crash recovery
+setInterval(() => { if (!S.dirty) return; try { localStorage.setItem('osisub.autosave', JSON.stringify({ at: Date.now(), name: S.fileName, ass: writeAss(S.lines) })); } catch { /* storage full/blocked */ } }, 15000);
+(async () => { try { const a = JSON.parse(localStorage.getItem('osisub.autosave') || 'null'); if (!a) return;
+  const r = await modal('Recover session?', `<p>Unsaved work from ${new Date(a.at).toLocaleString()} (<b>${esc(a.name)}</b>) was found.</p>`, ['Restore', 'Discard']);
+  if (r.button === 'Restore') { loadSubtitleText(a.ass, a.name); S.dirty = true; refresh(); } localStorage.removeItem('osisub.autosave'); } catch { /* ignore */ } })();
 window.addEventListener('beforeunload', e => { if (S.dirty) e.preventDefault(); });
 // drag & drop files
 document.addEventListener('dragover', e => e.preventDefault());
