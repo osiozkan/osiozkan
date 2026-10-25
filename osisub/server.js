@@ -5,9 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { LuaScript } from './src/core/lua.js';
+import { fontManager } from './src/core/fonts.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.woff2': 'font/woff2', '.map': 'application/json' };
 const scripts = new Map(); // id -> { script, pending }
 
 // one outstanding wait per script: resolved by the next dialog request or the final result
@@ -49,6 +50,17 @@ async function api(req, res, url) {
 http.createServer(async (req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (req.method === 'POST' && url.startsWith('/api/')) return api(req, res, url);
+  if (url === '/api/fonts') { // family -> URL so the ASS renderer can load installed fonts on demand
+    const fm = fontManager(); fm.resolve('arial'); const out = {};
+    for (const [fam, recs] of fm.index) out[fam] = `/api/font?f=${encodeURIComponent(recs[0].file)}`;
+    return send(res, 200, out);
+  }
+  if (url === '/api/font') {
+    const f = new URL(req.url, 'http://x').searchParams.get('f'); const fm = fontManager(); fm.resolve('arial');
+    const known = [...fm.index.values()].some(rs => rs.some(r => r.file === f));
+    if (!known) return send(res, 404, { error: 'unknown font' });
+    res.writeHead(200, { 'Content-Type': 'font/ttf', 'Cache-Control': 'max-age=3600' }); return fs.createReadStream(f).pipe(res);
+  }
   let file = url === '/' ? '/web/index.html' : url;
   if (!file.startsWith('/web/') && !file.startsWith('/src/core/')) return send(res, 404, { error: 'not found' });
   const p = path.join(root, file);

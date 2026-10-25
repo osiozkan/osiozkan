@@ -5,10 +5,16 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "postinstall": "node scripts/build-vendor.mjs"
   },
   "dependencies": {
     "fengari": "^0.1.4",
+    "jassub": "^2.5.23",
     "opentype.js": "^1.3.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

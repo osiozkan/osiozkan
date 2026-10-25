@@ -3,6 +3,7 @@ import { parseSrt, writeSrt, writeVtt, writePlain } from '/src/core/srt.js';
 import { parseAssTime, formatAssTime, msToFrame, frameToMs } from '/src/core/time.js';
 import { stripTags, cps as calcCps } from '/src/core/tags.js';
 import { runQC } from '/src/core/qc.js';
+import JASSUB from '/web/vendor/jassub.js';
 
 const $ = s => document.querySelector(s);
 const S = { lines: newScript(), sel: new Set(), active: -1, fileName: 'untitled.ass', dirty: false, undo: [], redo: [], fps: 23.976, scripts: [], issues: new Map(), videoName: '' };
@@ -104,7 +105,7 @@ function refresh(full = true, from) {
   renderGrid(); if (from !== E.text) fillEdit(); else { const l = S.lines[S.active]; if (l) $('#eInfo').textContent = `${stripTags(l.text).length} chars`; }
   const n = view().length; document.title = `${S.dirty ? '• ' : ''}${S.fileName} – OsiSub`;
   status(`${n} lines · ${S.sel.size} selected · ${S.fps} fps${S.videoName ? ' · ' + S.videoName : ''}`);
-  updateOverlay();
+  updateOverlay(); pushToRenderer();
 }
 function groupIssues(list) { const m = new Map(); for (const i of list) (m.get(i.index) ?? m.set(i.index, []).get(i.index)).push(i); return m; }
 
@@ -146,10 +147,31 @@ function updateOverlay() {
   $('#clock').textContent = formatAssTime(t).replace(/(\.\d\d)$/, '$1') + ` · f${msToFrame(t, S.fps)}`;
   drawWave();
 }
-vd.addEventListener('timeupdate', updateOverlay); vd.addEventListener('seeked', updateOverlay);
+vd.addEventListener('timeupdate', updateOverlay);
+let renderBusy = false;
+async function renderNow() { // explicit repaint: paused video / seeks don't always trigger requestVideoFrameCallback
+  if (!jassub || renderBusy || !vd.videoWidth) return; renderBusy = true;
+  try { await jassub.ready; await jassub.resize(true); await jassub.manualRender({ mediaTime: vd.currentTime, width: vd.videoWidth, height: vd.videoHeight, expectedDisplayTime: performance.now() }, true); }
+  catch (e) { console.warn(e); } finally { renderBusy = false; }
+}
+vd.addEventListener('seeked', () => { updateOverlay(); renderNow(); }); vd.addEventListener('loadeddata', renderNow);
 function playRange(l) { vd.currentTime = l.start_time / 1000; vd.play(); const stop = () => { if (vd.currentTime * 1000 >= l.end_time) { vd.pause(); vd.removeEventListener('timeupdate', stop); } }; vd.addEventListener('timeupdate', stop); }
+let jassub = null, jassubTimer = null, fontMap = null;
+async function startRenderer() {
+  try {
+    fontMap ??= await (await fetch('/api/fonts')).json();
+    if (jassub) await jassub.destroy();
+    $('#overlay').hidden = true;
+    jassub = new JASSUB({ video: vd, subContent: writeAss(S.lines), availableFonts: fontMap, workerUrl: '/web/vendor/jassub-worker.js',
+      wasmUrl: '/web/vendor/jassub-worker.wasm', modernWasmUrl: '/web/vendor/jassub-worker-modern.wasm', queryFonts: false });
+  } catch (e) { console.warn('ASS renderer unavailable, using text overlay', e); jassub = null; $('#overlay').hidden = false; }
+}
+function pushToRenderer() {
+  if (!jassub) return; clearTimeout(jassubTimer);
+  jassubTimer = setTimeout(async () => { try { await jassub.ready; await jassub.renderer.setTrack(writeAss(S.lines)); await renderNow(); } catch (e) { console.warn(e); } }, 120);
+}
 async function openMedia(file) {
-  vd.src = URL.createObjectURL(file); S.videoName = file.name; setTimeout(refresh, 300);
+  vd.src = URL.createObjectURL(file); S.videoName = file.name; setTimeout(refresh, 300); startRenderer();
   try { const ac = new (window.OfflineAudioContext || window.AudioContext)(1, 1, 44100); const ab = await ac.decodeAudioData(await file.arrayBuffer());
     const data = ab.getChannelData(0), N = 4000, step = Math.max(1, Math.floor(data.length / N)); peaks = new Float32Array(N);
     for (let i = 0; i < N; i++) { let m = 0; for (let j = 0; j < step; j++) m = Math.max(m, Math.abs(data[i * step + j] || 0)); peaks[i] = m; }
@@ -329,5 +351,5 @@ window.addEventListener('beforeunload', e => { if (S.dirty) e.preventDefault(); 
 // drag & drop files
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', async e => { e.preventDefault(); for (const f of e.dataTransfer.files) { if (/\.(ass|ssa|srt|vtt)$/i.test(f.name)) loadSubtitleText(await decodeText(f), f.name); else if (/\.lua$/i.test(f.name)) await loadLua(await f.text(), f.name); else openMedia(f); } });
-window.OsiSub = { S, actions, loadSubtitleText, view, loadLua, runMacro }; // for automation/tests
+window.OsiSub = { jassub: () => jassub, S, actions, loadSubtitleText, view, loadLua, runMacro }; // for automation/tests
 refresh();

@@ -22,7 +22,7 @@ UI smoke test (needs Playwright + running server): `node scripts/smoke.cjs`.
 ## Known gaps / TODO (priority order)
 1. **Fonts UI**: text metrics now come from real fonts (opentype.js; `fonts/` dir, `OSISUB_FONTS`, system dirs; index cached in ~/.cache/osisub). Add font upload/manager in the UI, .ttc support, GDI-exact metric parity checks vs Aegisub on Windows.
 2. **More real-world script testing**: original Aegisub `karaskel`/`utils`/`kara-templater` pass. Need the owner's own scripts as fixtures (ask owner to drop them into `examples/user-scripts/`), plus `lfs`, `ffi`, `aegisub.io`, `aegisub.dialog.open/save`, `aegisub.get_audio_selection`, `aegisub.frame_from_ms` accuracy with loaded video fps, and dialog classes (color picker, coloralpha, `hotkey`...).
-3. **ASS renderer preview** (libass-wasm / JASSUB) for real styling, \pos, \move, \clip, drawings, karaoke effects.
+3. ~~ASS renderer preview~~ done (JASSUB/libass-wasm bundled by `npm run build:vendor`, installed fonts served via `/api/fonts`). TODO: dummy video (blank canvas at chosen resolution/fps) so styling can be previewed without a video; visual typesetting tools (drag \pos, \clip, rotation) on top of the video; verified only in Playwright `channel:'chromium'` (old headless shell does not capture OffscreenCanvas).
 4. Audio: real waveform+spectrum with draggable start/end markers, keyframe/scene-change snapping, timing hotkeys (Aegisub-style), audio karaoke.
 5. Subtitle Edit features: OCR import (Tesseract), spell check, auto-translate/merge short lines, "fix common errors", batch convert, compare, bluray sup import, speech-to-text.
 6. Aegisub features: styling assistant, translation assistant, resolution resampler, timing post-processor, automation `lfs`/`ffi`-less scripts, attachments (fonts/graphics), dummy video, video context menu visual typesetting tools.
@@ -32,3 +32,4 @@ UI smoke test (needs Playwright + running server): `node scripts/smoke.cjs`.
 ## Nightly log
 - **2026-10-25 (night 1)**: Project bootstrapped from empty repo (no earlier work existed in this repo). Core, UI, Lua runtime, tests. 
 - **night 1 (cont.)**: vendored original Aegisub karaskel/utils/cleantags; original `kara-templater.lua` runs end-to-end in tests (retime, \pos, $x/$y); real font metrics; LuaJIT compat; ASS model aligned with Aegisub (only info/style/dialogue visible to Lua, `raw` for other sections).
+- **night 1 (cont. 2)**: libass-wasm (JASSUB) live preview with installed fonts, auto-refresh on edit; `scripts/video-check.cjs`, `scripts/devserver.sh`.

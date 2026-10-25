@@ -24,3 +24,5 @@ textarea{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:14px;r
 #modalBox h3{margin:0 0 10px;color:var(--acc)}#modalBox .f{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-bottom:10px}#modalBox .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
 .issue{padding:3px 6px;border-bottom:1px solid var(--bd);cursor:pointer}.issue:hover{background:var(--sel)}.sev-error{color:var(--bad)}.sev-warn{color:var(--warn)}.sev-info{color:var(--acc2)}
 pre.log{background:#0f1117;padding:8px;max-height:240px;overflow:auto;white-space:pre-wrap}
+
+#assCanvas{position:absolute;pointer-events:none;left:0;top:0}
