@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OsiSub</title><link rel="stylesheet" href="/web/style.css"></head>
+<body>
+<header id="menubar">
+  <div class="brand">OsiSub</div>
+  <div class="menu"><button>File</button><div class="drop">
+    <a data-act="new">New</a><a data-act="open">Open subtitle… <kbd>Ctrl+O</kbd></a><a data-act="save">Save as ASS <kbd>Ctrl+S</kbd></a>
+    <a data-act="export-srt">Export SRT</a><a data-act="export-vtt">Export WebVTT</a><a data-act="export-txt">Export plain text</a><hr>
+    <a data-act="open-video">Open video/audio…</a></div></div>
+  <div class="menu"><button>Edit</button><div class="drop">
+    <a data-act="undo">Undo <kbd>Ctrl+Z</kbd></a><a data-act="redo">Redo <kbd>Ctrl+Y</kbd></a><hr>
+    <a data-act="insert-before">Insert line before</a><a data-act="insert-after">Insert line after <kbd>Ctrl+Enter</kbd></a>
+    <a data-act="delete">Delete lines <kbd>Del</kbd></a><a data-act="duplicate">Duplicate</a><a data-act="comment">Toggle comment</a><hr>
+    <a data-act="join">Join selected</a><a data-act="split">Split at cursor</a><a data-act="select-all">Select all</a></div></div>
+  <div class="menu"><button>Timing</button><div class="drop">
+    <a data-act="shift">Shift times…</a><a data-act="fps-convert">Change frame rate…</a><a data-act="snap">Snap to frames</a>
+    <a data-act="fix-overlaps">Fix overlaps / minimum gap</a><a data-act="min-dur">Enforce min/max duration…</a><a data-act="sort">Sort by start</a></div></div>
+  <div class="menu"><button>Tools</button><div class="drop">
+    <a data-act="find">Find &amp; Replace… <kbd>Ctrl+H</kbd></a><a data-act="qc">Quality check</a><a data-act="styles">Styles manager…</a>
+    <a data-act="props">Script properties…</a><a data-act="cleanup">Clean up text (spaces, tags…)</a><a data-act="case">Change case…</a></div></div>
+  <div class="menu"><button>Automation</button><div class="drop" id="autoMenu">
+    <a data-act="load-lua">Load Lua script…</a><a data-act="reload-lua">Reload all</a><hr><div id="macroList"><em>No macros loaded</em></div></div></div>
+  <span id="status"></span>
+</header>
+<main>
+  <section id="videoPane"><div id="videoWrap"><video id="video" controls></video><div id="overlay"></div></div>
+    <canvas id="wave" height="90"></canvas>
+    <div class="transport"><button data-act="play">▶/❚❚</button><button data-act="set-start" title="Set start to playhead">[ start</button><button data-act="set-end" title="Set end to playhead">end ]</button><button data-act="play-line">Play line</button><span id="clock">0:00:00.000</span></div></section>
+  <section id="gridPane"><div id="gridHead"></div><div id="gridScroll"><div id="gridSpacer"><div id="gridRows"></div></div></div></section>
+</main>
+<section id="editPane">
+  <div class="row"><label>Style <select id="eStyle"></select></label><label>Actor <input id="eActor" size="10"></label>
+  <label>Layer <input id="eLayer" type="number" size="3"></label><label>Start <input id="eStart" size="11"></label><label>End <input id="eEnd" size="11"></label>
+  <label>Dur <input id="eDur" size="7"></label><label>L <input id="eML" type="number"></label><label>R <input id="eMR" type="number"></label><label>V <input id="eMV" type="number"></label>
+  <label>Effect <input id="eEffect" size="8"></label><label><input id="eComment" type="checkbox"> Comment</label><span id="eInfo"></span></div>
+  <textarea id="eText" rows="3" spellcheck="false"></textarea>
+</section>
+<div id="modal" hidden><div id="modalBox"></div></div>
+<input type="file" id="fileOpen" hidden><input type="file" id="fileVideo" hidden accept="video/*,audio/*"><input type="file" id="fileLua" hidden accept=".lua" multiple>
+<script type="module" src="/web/app.js"></script></body></html>
