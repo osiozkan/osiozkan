@@ -347,18 +347,69 @@ const panelFns = {
     p.querySelector("#l-load").onclick = () => $("#f-lua").click();
     p.querySelector("#l-run").onclick = async () => {
       if (!st.luaScript) return;
-      let vals = {}; try { vals = JSON.parse(p.querySelector("#l-vals").value || "{}"); } catch { return status("Diyalog JSON geçersiz"); }
       const only = p.querySelector("#l-sel").checked;
-      const body = { text: serialize(st.doc), script: st.luaScript, scriptPath: st.luaPath, macro: sel.value, selected: only && st.sel.size ? selIdx() : null, active: st.active >= 0 ? st.active : null, dialog: { values: vals }, fps: 23.976 };
       const log = p.querySelector("#l-log"); log.textContent = "çalışıyor…";
+      const responses = [];
+      try { const extra = JSON.parse(p.querySelector("#l-vals").value || "{}"); if (Object.keys(extra).length) responses.push({ values: extra }); } catch { return status("Diyalog JSON geçersiz"); }
+      const preset = responses.length;
       try {
-        const r = await fetch("/api/run", { method: "POST", body: JSON.stringify(body) }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j; });
-        log.textContent = r.logs.map((l) => l.message).join("") || (r.cancelled ? "iptal edildi" : "tamam");
-        if (!r.cancelled) { const { doc } = load(r.text, "x.ass"); st.doc.events = doc.events; st.doc.styles = doc.styles; st.doc.info = doc.info; commit(); }
+        for (let guard = 0; guard < 20; guard++) {
+          const body = { text: serialize(st.doc), script: st.luaScript, scriptPath: st.luaPath, macro: sel.value, selected: only && st.sel.size ? selIdx() : null, active: st.active >= 0 ? st.active : null, dialog: { responses }, fps: 23.976 };
+          const r = await post("/api/run", body);
+          if (r.needsDialog) {
+            if (r.needsDialog.index < preset) { responses.push({}); continue; }
+            const ans = await showDialog(r.needsDialog);
+            responses.push(ans);
+            if (ans.button === "cancel") { log.textContent = "iptal edildi"; return; }
+            continue;
+          }
+          log.textContent = r.logs.map((l) => l.message).join("") || (r.cancelled ? "iptal edildi" : "tamam");
+          if (!r.cancelled) { const { doc } = load(r.text, "x.ass"); st.doc.events = doc.events; st.doc.styles = doc.styles; st.doc.info = doc.info; commit(); }
+          return;
+        }
       } catch (e) { log.textContent = "Hata: " + e.message; }
     };
   },
 };
+async function post(url, body) {
+  const x = await fetch(url, { method: "POST", body: JSON.stringify(body) });
+  const j = await x.json(); if (!x.ok) throw new Error(j.error); return j;
+}
+
+/** Render an Aegisub dialog definition as a form; resolves {values, button}. */
+function showDialog({ controls, buttons, buttonIds }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    const form = document.createElement("form"); form.method = "dialog";
+    const g = document.createElement("div");
+    g.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;min-width:420px;max-width:80vw";
+    const readers = {};
+    for (const c of controls) {
+      const wrap = document.createElement("div");
+      wrap.style.gridColumn = `${(c.x ?? 0) + 1} / span ${c.width ?? 1}`; wrap.style.gridRow = `${(c.y ?? 0) + 1} / span ${c.height ?? 1}`;
+      let el;
+      switch (c.class) {
+        case "label": el = document.createElement("span"); el.textContent = c.label ?? ""; break;
+        case "checkbox": el = document.createElement("label"); const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!c.value; el.append(cb, " " + (c.label ?? "")); readers[c.name] = () => cb.checked; break;
+        case "dropdown": { el = document.createElement("select"); for (const it of c.items ?? []) el.append(new Option(it, it)); el.value = c.value ?? (c.items ?? [])[0]; readers[c.name] = () => el.value; break; }
+        case "textbox": el = document.createElement("textarea"); el.rows = 4; el.value = c.value ?? c.text ?? ""; readers[c.name] = () => el.value; break;
+        case "intedit": case "floatedit": case "slider": el = document.createElement("input"); el.type = c.class === "slider" ? "range" : "number"; if (c.class === "floatedit") el.step = c.step ?? "any"; if (c.min !== undefined) el.min = c.min; if (c.max !== undefined) el.max = c.max; el.value = c.value ?? c.min ?? 0; readers[c.name] = () => Number(el.value); break;
+        case "color": case "coloralpha": case "alpha": default: el = document.createElement("input"); el.value = c.value ?? c.text ?? ""; readers[c.name] = () => el.value;
+      }
+      if (c.hint) el.title = c.hint;
+      if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") el.style.width = "100%";
+      wrap.append(el); g.append(wrap);
+    }
+    const bar = document.createElement("div"); bar.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:10px";
+    const done = (button) => { const values = {}; for (const [k, f] of Object.entries(readers)) if (k !== "undefined") values[k] = f(); dlg.close(); dlg.remove(); resolve({ values, button }); };
+    const list = buttons?.length ? buttons : ["OK", "Cancel"];
+    const okName = buttonIds?.ok ?? list[0], cancelName = buttonIds?.cancel ?? list[list.length - 1];
+    for (const b of list) { const btn = document.createElement("button"); btn.type = "button"; btn.textContent = b; btn.onclick = () => done(b === cancelName && list.length > 1 && b !== okName ? "cancel" : b); bar.append(btn); }
+    dlg.addEventListener("cancel", (e) => { e.preventDefault(); done("cancel"); });
+    form.append(g, bar); dlg.append(form); document.body.append(dlg); dlg.showModal();
+  });
+}
+
 $("#f-lua").onchange = async (ev) => {
   const f = ev.target.files[0]; if (!f) return;
   st.luaScript = await f.text(); st.luaPath = f.name;

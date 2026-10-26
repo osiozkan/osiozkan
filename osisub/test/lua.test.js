@@ -139,3 +139,24 @@ test("io/os: write, append, read back, lines, remove (utf-8 safe)", async () => 
   end)`, { run: { selected: [0] } });
   assert.equal(doc.events[0].text, "satır1|42|ğüş#" + Buffer.byteLength("satır1\n42\nğüş") + "#nil#true");
 });
+
+test("two-pass dialogs: collect controls, then answer by call index", async () => {
+  const { api } = await import("../src/cli/server.js");
+  const { serialize } = await import("../src/core/index.js");
+  const script = `aegisub.register_macro("M","",function(subs, sel)
+    local b1, r1 = aegisub.dialog.display({{class="intedit", name="a", value=1, x=0, y=0, width=2, height=1}}, {"Go","Stop"}, {ok="Go", cancel="Stop"})
+    local b2, r2 = aegisub.dialog.display({{class="edit", name="b", value="x", x=0, y=0, width=2, height=1}})
+    local l = subs[sel[1]]; l.text = tostring(b1) .. r1.a .. tostring(b2) .. r2.b; subs[sel[1]] = l
+  end)`;
+  const text = serialize(base());
+  const first = await api("/api/run", { text, script, selected: [0] });
+  assert.equal(first.needsDialog.index, 0);
+  assert.equal(first.needsDialog.controls[0].name, "a");
+  assert.deepEqual(first.needsDialog.buttons, ["Go", "Stop"]);
+  const second = await api("/api/run", { text, script, selected: [0], dialog: { responses: [{ values: { a: 7 }, button: "Go" }] } });
+  assert.equal(second.needsDialog.index, 1);
+  const done = await api("/api/run", { text, script, selected: [0], dialog: { responses: [{ values: { a: 7 }, button: "Go" }, { values: { b: "q" } }] } });
+  assert.match(done.text, /,Go7trueq$/m);
+  const cancelled = await api("/api/run", { text, script, selected: [0], dialog: { responses: [{ button: "cancel" }, {}] } });
+  assert.match(cancelled.text, /,false1truex$/m);
+});

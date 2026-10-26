@@ -306,7 +306,7 @@ end
 function aegisub.dialog.display(dialog, buttons, button_ids)
   buttons = buttons or { "OK", "Cancel" }
   button_ids = button_ids or {}
-  local ov = host.dialog_overrides()
+  local ov = host.dialog_response(dialog, buttons, button_ids) -- may abort the macro to ask the UI
   local result = {}
   for _, c in ipairs(dialog or {}) do
     if c.name then
@@ -320,12 +320,11 @@ function aegisub.dialog.display(dialog, buttons, button_ids)
     end
   end
   local pick = ov.button
-  local ok, cancel = button_ids.ok or buttons[1], button_ids.cancel or buttons[#buttons]
-  if pick == "cancel" then return false, result end
+  local ok = button_ids.ok or buttons[1]
+  if pick == "cancel" or pick == false then return false, result end
   if type(pick) == "string" and pick ~= "ok" then
     for _, b in ipairs(buttons) do if b == pick then return b, result end end
   end
-  host.dialog_log(dialog, tostring(ok))
   if #buttons == 0 then return true, result end
   if buttons[1] == "OK" or button_ids.ok then return (button_ids.ok and button_ids.ok or true), result end
   return buttons[1], result

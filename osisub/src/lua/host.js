@@ -13,6 +13,9 @@ import { measureText } from "./metrics.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const RUNTIME = readFileSync(join(here, "runtime.lua"), "utf8");
 
+const KEYS = new Map();
+/** luastring for a (repeated) field name, cached */
+const K = (k) => { let v = KEYS.get(k); if (!v) KEYS.set(k, (v = to_luastring(k))); return v; };
 const S = (s) => to_luastring(String(s));
 const STYLE_KEYS = STYLE_FIELDS; // name .. encoding (margin_b mirrors margin_t)
 
@@ -29,6 +32,8 @@ export class AutomationHost {
     this.task = ""; this.title = "";
     this.dialogs = [];
     this.stdout = [];
+    this.dialogCalls = 0;
+    this.pendingDialog = null;
     this.clipboard = "";
     this.scripts = [];
     this.macros = [];
@@ -131,34 +136,18 @@ export class AutomationHost {
       lua.lua_pushnil(L);
       return 1;
     });
-    fn("dialog_overrides", () => {
+    fn("dialog_overrides", () => { self.#pushDialogResponse(self.opt.dialog ?? {}); return 1; });
+    fn("dialog_response", () => {
       const d = self.opt.dialog ?? {};
-      lua.lua_newtable(L);
-      lua.lua_newtable(L);
-      for (const [k, v] of Object.entries(d.values ?? {})) { self.#push(v); lua.lua_setfield(L, -2, S(k)); }
-      lua.lua_setfield(L, -2, S("values"));
-      if (d.button) { lua.lua_pushstring(L, S(d.button)); lua.lua_setfield(L, -2, S("button")); }
-      if (d.open) { lua.lua_pushstring(L, S(d.open)); lua.lua_setfield(L, -2, S("open")); }
-      if (d.save) { lua.lua_pushstring(L, S(d.save)); lua.lua_setfield(L, -2, S("save")); }
-      return 1;
-    });
-    fn("dialog_log", () => {
-      // record the control definitions that the macro requested
-      const controls = [];
-      const n = lua.lua_rawlen(L, 1);
-      for (let i = 1; i <= n; i++) {
-        lua.lua_rawgeti(L, 1, i);
-        const c = {};
-        for (const key of ["class", "name", "label", "hint"]) {
-          lua.lua_getfield(L, -1, S(key));
-          if (lua.lua_isstring(L, -1)) c[key] = to_jsstring(lua.lua_tostring(L, -1));
-          lua.lua_pop(L, 1);
-        }
-        controls.push(c);
-        lua.lua_pop(L, 1);
+      const n = self.dialogCalls++;
+      const resp = d.responses ? d.responses[n] : d.values || d.button ? d : undefined;
+      if (!resp && d.collect) {
+        self.pendingDialog = { index: n, controls: self.#toJS(1, 0), buttons: self.#toJS(2, 0), buttonIds: self.#toJS(3, 0) };
+        return lauxlib.luaL_error(L, S("__aegisub_dialog__"));
       }
-      self.dialogs.push(controls);
-      return 0;
+      self.dialogs.push({ controls: self.#toJS(1, 0), buttons: self.#toJS(2, 0) });
+      self.#pushDialogResponse(resp ?? {});
+      return 1;
     });
     fn("re_upper", () => { lua.lua_pushstring(L, S(str(1).toUpperCase())); return 1; });
     fn("re_lower", () => { lua.lua_pushstring(L, S(str(1).toLowerCase())); return 1; });
@@ -179,6 +168,45 @@ export class AutomationHost {
       return 2;
     });
     lua.lua_setglobal(L, S("__host"));
+  }
+
+  #pushDialogResponse(d) {
+    const L = this.L;
+    lua.lua_newtable(L);
+    lua.lua_newtable(L);
+    for (const [k, v] of Object.entries(d.values ?? {})) { this.#push(v); lua.lua_setfield(L, -2, S(k)); }
+    lua.lua_setfield(L, -2, S("values"));
+    if (d.button !== undefined) { this.#push(d.button); lua.lua_setfield(L, -2, S("button")); }
+    if (d.open) { lua.lua_pushstring(L, S(d.open)); lua.lua_setfield(L, -2, S("open")); }
+    if (d.save) { lua.lua_pushstring(L, S(d.save)); lua.lua_setfield(L, -2, S("save")); }
+  }
+
+  /** Lua value at idx -> plain JS (depth-limited, cycles cut). */
+  #toJS(idx, depth) {
+    const L = this.L;
+    idx = lua.lua_absindex(L, idx);
+    switch (lua.lua_type(L, idx)) {
+      case lua.LUA_TBOOLEAN: return !!lua.lua_toboolean(L, idx);
+      case lua.LUA_TNUMBER: return lua.lua_tonumber(L, idx);
+      case lua.LUA_TSTRING: return to_jsstring(lua.lua_tostring(L, idx));
+      case lua.LUA_TTABLE: {
+        if (depth > 4) return null;
+        const arr = [], obj = {};
+        let isArr = true, count = 0;
+        lua.lua_pushnil(L);
+        while (lua.lua_next(L, idx) !== 0) {
+          const kt = lua.lua_type(L, -2);
+          const v = this.#toJS(-1, depth + 1);
+          if (kt === lua.LUA_TNUMBER) { arr[lua.lua_tointeger(L, -2) - 1] = v; } else { isArr = false; obj[to_jsstring(lua.lua_tostring(L, -2))] = v; }
+          count++;
+          lua.lua_pop(L, 1);
+        }
+        if (isArr) return arr;
+        for (let i = 0; i < arr.length; i++) if (arr[i] !== undefined) obj[i + 1] = arr[i];
+        return obj;
+      }
+      default: return null;
+    }
   }
 
   #reMatch(s, pat, flags, whole) {
@@ -224,7 +252,7 @@ export class AutomationHost {
     else if (Array.isArray(v)) { lua.lua_newtable(L); v.forEach((x, i) => { this.#push(x); lua.lua_rawseti(L, -2, i + 1); }); }
     else { lua.lua_newtable(L); for (const [k, x] of Object.entries(v)) { this.#push(x); lua.lua_setfield(L, -2, S(k)); } }
   }
-  #set(key, v) { this.#push(v); lua.lua_setfield(this.L, -2, S(key)); }
+  #set(key, v) { this.#push(v); lua.lua_setfield(this.L, -2, K(key)); }
 
   /** Push the subtitles table for the current doc. */
   #pushSubs() {
@@ -248,16 +276,20 @@ export class AutomationHost {
         this.#set("margin_b", s.margin_t); this.#set("margin_v", s.margin_t);
       });
     }
+    const extra = []; // shared empty extradata table would alias; create per line (cheap)
     for (const e of doc.events) {
-      add(() => {
-        this.#set("class", "dialogue"); this.#set("section", "[Events]");
-        this.#set("comment", !!e.comment); this.#set("layer", e.layer);
-        this.#set("start_time", e.start); this.#set("end_time", e.end);
-        this.#set("style", e.style); this.#set("actor", e.actor); this.#set("effect", e.effect);
-        this.#set("margin_l", e.margin_l); this.#set("margin_r", e.margin_r); this.#set("margin_t", e.margin_t);
-        this.#set("margin_b", e.margin_t); this.#set("margin_v", e.margin_t);
-        this.#set("text", e.text); this.#set("extradata", {});
-      });
+      lua.lua_createtable(L, 0, 18);
+      const str = (k, v) => { lua.lua_pushstring(L, to_luastring(v)); lua.lua_setfield(L, -2, K(k)); };
+      const int = (k, v) => { lua.lua_pushinteger(L, v); lua.lua_setfield(L, -2, K(k)); };
+      str("class", "dialogue"); str("section", "[Events]");
+      lua.lua_pushboolean(L, !!e.comment); lua.lua_setfield(L, -2, K("comment"));
+      int("layer", e.layer); int("start_time", e.start); int("end_time", e.end);
+      str("style", e.style); str("actor", e.actor); str("effect", e.effect);
+      int("margin_l", e.margin_l); int("margin_r", e.margin_r); int("margin_t", e.margin_t);
+      int("margin_b", e.margin_t); int("margin_v", e.margin_t);
+      str("text", e.text);
+      lua.lua_newtable(L); lua.lua_setfield(L, -2, K("extradata"));
+      lua.lua_rawseti(L, -2, ++n);
     }
     lua.lua_getglobal(L, S("__subs_mt"));
     lua.lua_setmetatable(L, -2);
@@ -270,9 +302,9 @@ export class AutomationHost {
     const doc = this.doc;
     const info = [], styles = [], events = [];
     const n = lua.lua_rawlen(L, idx);
-    const getS = (k, d = "") => { lua.lua_getfield(L, -1, S(k)); const v = lua.lua_isstring(L, -1) ? to_jsstring(lua.lua_tostring(L, -1)) : d; lua.lua_pop(L, 1); return v; };
-    const getN = (k, d = 0) => { lua.lua_getfield(L, -1, S(k)); const v = lua.lua_isnumber(L, -1) ? lua.lua_tonumber(L, -1) : d; lua.lua_pop(L, 1); return v; };
-    const getB = (k) => { lua.lua_getfield(L, -1, S(k)); const v = lua.lua_toboolean(L, -1); lua.lua_pop(L, 1); return v; };
+    const getS = (k, d = "") => { lua.lua_getfield(L, -1, K(k)); const v = lua.lua_isstring(L, -1) ? to_jsstring(lua.lua_tostring(L, -1)) : d; lua.lua_pop(L, 1); return v; };
+    const getN = (k, d = 0) => { lua.lua_getfield(L, -1, K(k)); const v = lua.lua_isnumber(L, -1) ? lua.lua_tonumber(L, -1) : d; lua.lua_pop(L, 1); return v; };
+    const getB = (k) => { lua.lua_getfield(L, -1, K(k)); const v = lua.lua_toboolean(L, -1); lua.lua_pop(L, 1); return v; };
     const rawField = (k) => { lua.lua_getfield(L, -1, S(k)); const t = lua.lua_type(L, -1); lua.lua_pop(L, 1); return t; };
     for (let i = 1; i <= n; i++) {
       lua.lua_rawgeti(L, idx, i);
@@ -395,6 +427,7 @@ export class AutomationHost {
       const msg = this.#err();
       lua.lua_settop(L, top);
       if (msg === "__aegisub_cancel__") return { cancelled: true, logs: this.logs };
+      if (this.pendingDialog && /__aegisub_dialog__/.test(msg)) return { cancelled: false, needsDialog: this.pendingDialog, logs: this.logs };
       throw new Error(`Macro "${name}" failed: ${msg}`);
     }
     this.#pullSubs(subsIdx);

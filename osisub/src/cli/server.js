@@ -23,11 +23,12 @@ export async function api(path, data) {
   }
   if (path === "/api/run") {
     const { doc } = load(data.text, data.name ?? "x.ass");
-    const h = new AutomationHost(doc, { fps: data.fps ?? 23.976, dialog: data.dialog ?? {}, keyframes: data.keyframes ?? [], videoSize: data.videoSize });
+    const h = new AutomationHost(doc, { fps: data.fps ?? 23.976, dialog: { collect: true, ...(data.dialog ?? {}) }, keyframes: data.keyframes ?? [], videoSize: data.videoSize });
     try {
       const info = h.loadScript(data.script, data.scriptPath ?? "script.lua");
       const name = data.macro ?? info.macros[0];
       const res = info.filters.includes(name) ? h.runFilter(name) : h.runMacro(name, { selected: data.selected ?? null, active: data.active ?? null });
+      if (res.needsDialog) return { needsDialog: res.needsDialog, logs: h.logs };
       return { text: serialize(doc), logs: h.logs, cancelled: res.cancelled, selected: res.selected, active: res.active, dialogs: h.dialogs };
     } finally { h.close(); }
   }

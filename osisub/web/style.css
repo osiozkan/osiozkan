@@ -5,6 +5,7 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:13px/1.35 system-ui,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column}
 #bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{color:var(--acc);margin-right:6px}.sep{width:1px;height:18px;background:var(--line);margin:0 4px}
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px}
 button,select,input,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 8px;font:inherit}
 button{cursor:pointer}button:hover{border-color:var(--acc)}
 #status{margin-left:auto;color:var(--dim)}
