@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>osisub</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="bar">
+  <strong class="brand">osisub</strong>
+  <button id="b-open" title="Open subtitle (Ctrl+O)">Aç</button>
+  <button id="b-new">Yeni</button>
+  <select id="b-save" title="Kaydet / dışa aktar"><option value="">Kaydet…</option><option value="ass">.ass</option><option value="srt">.srt</option><option value="vtt">.vtt</option><option value="txt">.txt</option></select>
+  <button id="b-video">Video</button>
+  <span class="sep"></span>
+  <button id="b-undo" title="Ctrl+Z">↶</button><button id="b-redo" title="Ctrl+Y">↷</button>
+  <button id="b-add" title="Satır ekle">＋</button><button id="b-del" title="Delete">Sil</button>
+  <button id="b-split" title="İmleçten böl">Böl</button><button id="b-merge">Birleştir</button>
+  <span class="sep"></span>
+  <button data-panel="qc">Kontrol</button><button data-panel="find">Bul/Değiştir</button>
+  <button data-panel="time">Zamanlama</button><button data-panel="lua">Lua</button><button data-panel="styles">Stiller</button>
+  <span id="status"></span>
+  <input type="file" id="f-open" hidden accept=".ass,.ssa,.srt,.vtt,.txt">
+  <input type="file" id="f-video" hidden accept="video/*,audio/*">
+  <input type="file" id="f-lua" hidden accept=".lua">
+</header>
+<main>
+  <section id="left">
+    <div id="video-wrap">
+      <video id="video" controls preload="metadata"></video>
+      <div id="overlay"></div>
+    </div>
+    <div id="edit">
+      <div class="row">
+        <label>Başlangıç <input id="e-start" size="11"></label>
+        <label>Bitiş <input id="e-end" size="11"></label>
+        <label>Süre <input id="e-dur" size="6" readonly></label>
+        <label>Stil <select id="e-style"></select></label>
+        <label>Kişi <input id="e-actor" size="8"></label>
+        <label>Kat. <input id="e-layer" type="number" size="3" style="width:3.5em"></label>
+        <label><input id="e-comment" type="checkbox"> Yorum</label>
+        <span id="e-info"></span>
+      </div>
+      <textarea id="e-text" rows="3" spellcheck="true" placeholder="Altyazı metni (\N = satır sonu)"></textarea>
+    </div>
+  </section>
+  <section id="right">
+    <div id="panel" hidden></div>
+    <div id="grid-head"><span>#</span><span>Başl.</span><span>Bitiş</span><span>Süre</span><span>CPS</span><span>Stil</span><span>Metin</span></div>
+    <div id="grid"><div id="grid-fill"></div></div>
+  </section>
+</main>
+<footer><canvas id="wave" height="90"></canvas><div id="wave-info"></div></footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>
