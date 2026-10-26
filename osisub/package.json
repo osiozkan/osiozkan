@@ -1,0 +1,14 @@
+{
+  "name": "osisub",
+  "version": "0.1.0",
+  "description": "Anime subtitle editor: Aegisub-compatible ASS core, Lua automation host, Subtitle Edit style QC tools.",
+  "type": "module",
+  "bin": { "osisub": "src/cli/cli.js" },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "serve": "node src/cli/cli.js serve"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": { "fengari": "^0.1.4" },
+  "license": "MIT"
+}
