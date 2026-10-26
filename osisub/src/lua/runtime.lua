@@ -98,6 +98,132 @@ math.round = math.round or function(x, p)
 end
 
 ---------------------------------------------------------------------------
+-- io / os (file access through the host; fengari's own io is not usable)
+---------------------------------------------------------------------------
+do
+  local FH = {}
+  FH.__index = FH
+  FH.__name = "FILE*"
+  local function readfmt(self, fmt)
+    local d = self.data
+    if fmt == "*a" or fmt == "a" then local r = d:sub(self.pos); self.pos = #d + 1; return r end
+    if fmt == "*l" or fmt == "l" or fmt == "*L" or fmt == "L" then
+      if self.pos > #d then return nil end
+      local e = d:find("\n", self.pos, true)
+      local line
+      if e then line = d:sub(self.pos, (fmt:find("L") and e or e - 1)); self.pos = e + 1
+      else line = d:sub(self.pos); self.pos = #d + 1 end
+      if not fmt:find("L") then line = line:gsub("\r$", "") end
+      return line
+    end
+    if fmt == "*n" or fmt == "n" then
+      local a, b = d:find("^%s*[-+]?%d*%.?%d+[eE]?[-+]?%d*", self.pos)
+      if not a then return nil end
+      self.pos = b + 1
+      return tonumber(d:sub(a, b))
+    end
+    if type(fmt) == "number" then
+      if self.pos > #d then return nil end
+      local r = d:sub(self.pos, self.pos + fmt - 1); self.pos = self.pos + #r; return r
+    end
+    error("bad argument to 'read' (invalid format)", 3)
+  end
+  function FH:read(...)
+    if self.closed then error("attempt to use a closed file", 2) end
+    local n = select("#", ...)
+    if n == 0 then return readfmt(self, "*l") end
+    local out = {}
+    for i = 1, n do out[i] = readfmt(self, (select(i, ...))); if out[i] == nil then break end end
+    return table.unpack(out, 1, n)
+  end
+  function FH:lines(...)
+    local fmts = { ... }
+    return function() return self:read(table.unpack(fmts)) end
+  end
+  function FH:write(...)
+    if self.closed then error("attempt to use a closed file", 2) end
+    if not self.writable then return nil, "file not opened for writing", 9 end
+    for i = 1, select("#", ...) do
+      local v = select(i, ...)
+      self.buf[#self.buf + 1] = tostring(v)
+    end
+    self.dirty = true
+    return self
+  end
+  function FH:flush()
+    if self.writable and self.dirty then
+      host.fs_write(self.path, table.concat(self.buf), self.appended)
+      self.buf = {}; self.appended = true; self.dirty = false
+    end
+    return self
+  end
+  function FH:close() if not self.closed then self:flush(); self.closed = true end return true end
+  function FH:seek(whence, off)
+    whence = whence or "cur"; off = off or 0
+    if whence == "set" then self.pos = off + 1 elseif whence == "cur" then self.pos = self.pos + off else self.pos = #self.data + off + 1 end
+    return self.pos - 1
+  end
+  function FH:setvbuf() return true end
+  FH.__gc = function(self) pcall(self.close, self) end
+  FH.__tostring = function(self) return self.closed and "file (closed)" or "file (0x1)" end
+
+  local function open(path, mode)
+    mode = mode or "r"
+    local m = mode:gsub("b", "")
+    local self = setmetatable({ path = path, pos = 1, buf = {}, data = "", writable = false }, FH)
+    if m == "r" or m == "r+" then
+      local d = host.fs_read(path)
+      if d == nil then return nil, path .. ": No such file or directory", 2 end
+      self.data = d; self.writable = (m == "r+")
+    elseif m == "w" or m == "w+" then
+      self.writable = true; self.appended = false; self.dirty = true
+      if not host.fs_write(path, "", false) then return nil, path .. ": Permission denied", 13 end
+      self.appended = true
+    elseif m == "a" or m == "a+" then
+      self.writable = true; self.appended = true
+    else
+      error("bad argument #2 to 'open' (invalid mode)", 2)
+    end
+    return self
+  end
+  io = io or {}
+  io.open = open
+  function io.lines(path, ...)
+    if not path then return function() return nil end end
+    local f, err = open(path, "r")
+    if not f then error(err, 2) end
+    local fmts = { ... }
+    return function()
+      local r = f:read(table.unpack(fmts))
+      if r == nil then f:close() end
+      return r
+    end
+  end
+  function io.close(f) if f then return f:close() end return true end
+  function io.type(f) if getmetatable(f) == FH then return f.closed and "closed file" or "file" end return nil end
+  function io.write(...) for i = 1, select("#", ...) do host.stdout(tostring((select(i, ...)))) end return io.stdout end
+  function io.read() return nil end
+  io.stdout = { write = function(self, ...) io.write(...) return self end, flush = function() end, close = function() end, setvbuf = function() end }
+  io.stderr = { write = function(self, ...) for i = 1, select("#", ...) do host.stderr(tostring((select(i, ...)))) end return self end, flush = function() end, close = function() end, setvbuf = function() end }
+  io.stdin = { read = function() return nil end, lines = function() return function() return nil end end, close = function() end }
+  io.output = function() return io.stdout end
+  io.input = function() return io.stdin end
+
+  os = os or {}
+  os.remove = function(p) if host.fs_remove(p) then return true end return nil, p .. ": No such file or directory", 2 end
+  os.rename = function(a, b) if host.fs_rename(a, b) then return true end return nil, a .. ": No such file or directory", 2 end
+  os.tmpname = function() return host.fs_tmpname() end
+  os.getenv = function(k) return host.getenv(k) end
+  os.execute = function() return nil, "exit", 1 end
+  os.exit = function() error("os.exit is not available inside macros", 2) end
+  print = function(...)
+    local t = {}
+    for i = 1, select("#", ...) do t[i] = tostring((select(i, ...))) end
+    host.stdout(table.concat(t, "\t") .. "\n")
+  end
+end
+
+---------------------------------------------------------------------------
 -- aegisub namespace
 ---------------------------------------------------------------------------
 aegisub = {}

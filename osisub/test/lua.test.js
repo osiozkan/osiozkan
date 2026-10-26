@@ -122,3 +122,20 @@ test("re module and logging", () => {
   assert.equal(doc.events[0].text, "world hello");
   assert.equal(h.logs[0].message, "hi there\n");
 });
+
+test("io/os: write, append, read back, lines, remove (utf-8 safe)", async () => {
+  const { tmpdir } = await import("node:os");
+  const p = tmpdir() + "/osisub-io-test.txt";
+  const { doc } = run(`aegisub.register_macro("M","",function(subs, sel)
+    local f = assert(io.open(${JSON.stringify(p)}, "w")); f:write("satır1\\n", 42, "\\n"); f:close()
+    f = io.open(${JSON.stringify(p)}, "a"); f:write("ğüş"); f:close()
+    local out = {}
+    for l in io.lines(${JSON.stringify(p)}) do out[#out+1] = l end
+    local g = io.open(${JSON.stringify(p)}, "r"); local all = g:read("*a"); g:close()
+    local missing = io.open("/definitely/not/here", "r")
+    local l = subs[sel[1]]
+    l.text = table.concat(out, "|") .. "#" .. #all .. "#" .. tostring(missing) .. "#" .. tostring(os.remove(${JSON.stringify(p)}))
+    subs[sel[1]] = l
+  end)`, { run: { selected: [0] } });
+  assert.equal(doc.events[0].text, "satır1|42|ğüş#" + Buffer.byteLength("satır1\n42\nğüş") + "#nil#true");
+});

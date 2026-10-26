@@ -1,7 +1,8 @@
 // Aegisub Automation 4 host: runs .lua macros/filters against an osisub document.
 process.env.FENGARICONF ??= '{"LUA_COMPAT_FLOATSTRING":true}'; // print 480 not 480.0, like LuaJIT
 const { lua, lauxlib, lualib, to_luastring, to_jsstring } = (await import("fengari")).default;
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, writeFileSync, appendFileSync, unlinkSync, renameSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -27,6 +28,7 @@ export class AutomationHost {
     this.progress = 0;
     this.task = ""; this.title = "";
     this.dialogs = [];
+    this.stdout = [];
     this.clipboard = "";
     this.scripts = [];
     this.macros = [];
@@ -91,6 +93,24 @@ export class AutomationHost {
       catch { lua.lua_pushnil(L); }
       return 1;
     });
+    fn("fs_read", () => {
+      try { lua.lua_pushstring(L, new Uint8Array(readFileSync(self.#fsPath(str(1))))); } catch { lua.lua_pushnil(L); }
+      return 1;
+    });
+    fn("fs_write", () => {
+      try {
+        const p = self.#fsPath(str(1)), data = Buffer.from(lauxlib.luaL_checklstring(L, 2));
+        lua.lua_toboolean(L, 3) ? appendFileSync(p, data) : writeFileSync(p, data);
+        lua.lua_pushboolean(L, true);
+      } catch { lua.lua_pushboolean(L, false); }
+      return 1;
+    });
+    fn("fs_remove", () => { try { unlinkSync(self.#fsPath(str(1))); lua.lua_pushboolean(L, true); } catch { lua.lua_pushboolean(L, false); } return 1; });
+    fn("fs_rename", () => { try { renameSync(self.#fsPath(str(1)), self.#fsPath(str(2))); lua.lua_pushboolean(L, true); } catch { lua.lua_pushboolean(L, false); } return 1; });
+    fn("fs_tmpname", () => { lua.lua_pushstring(L, S(join(tmpdir(), "osisub-" + randomUUID().slice(0, 8)))); return 1; });
+    fn("getenv", () => { const v = process.env[str(1)]; v === undefined ? lua.lua_pushnil(L) : lua.lua_pushstring(L, S(v)); return 1; });
+    fn("stdout", () => { self.stdout.push(str(1)); return 0; });
+    fn("stderr", () => { self.stdout.push(str(1)); return 0; });
     fn("clipboard_get", () => { lua.lua_pushstring(L, S(self.clipboard)); return 1; });
     fn("clipboard_set", () => { self.clipboard = str(1); return 0; });
     fn("text_extents", () => {
@@ -181,6 +201,8 @@ export class AutomationHost {
     }
     return 1;
   }
+
+  #fsPath(p) { return resolve(this.opt.scriptDir ?? process.cwd(), this.#decodePath(p)); }
 
   #decodePath(p) {
     const base = this.opt.scriptDir ?? process.cwd();

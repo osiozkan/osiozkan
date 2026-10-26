@@ -79,3 +79,25 @@ test("shift and stretch", () => {
   stretch(d, 0, 10000, 0, 20000);
   assert.equal(d.events[0].start, 3000);
 });
+
+import { parseBlock, stringifyTags, cleanTags, getTag, removeTags, setLeadingTag, parseColor, toAssColor } from "../src/core/index.js";
+
+test("tag parser handles nested \\t, clips and comments", () => {
+  const t = parseBlock("\\an8\\pos(960,100)\\t(0,500,\\fscx120\\fscy120)\\1c&H00FF00&\\zzz");
+  assert.deepEqual(t.map((x) => x.name), ["an", "pos", "t", "1c", ""]);
+  assert.equal(t[2].value, "(0,500,\\fscx120\\fscy120)");
+  assert.equal(stringifyTags(t), "\\an8\\pos(960,100)\\t(0,500,\\fscx120\\fscy120)\\1c&H00FF00&\\zzz");
+});
+
+test("cleanTags merges blocks and keeps last override", () => {
+  assert.equal(cleanTags("{\\i1}{\\b1\\i0}x{}y{\\bord2\\bord4}"), "{\\b1\\i0}xy{\\bord4}");
+  assert.equal(cleanTags("{\\t(0,1,\\i1)\\t(1,2,\\i0)}a"), "{\\t(0,1,\\i1)\\t(1,2,\\i0)}a");
+});
+
+test("tag get/remove/set", () => {
+  assert.equal(getTag("{\\fs30}a{\\fs40}b", "fs"), "40");
+  assert.equal(removeTags("{\\i1\\b1}x", ["i"]), "{\\b1}x");
+  assert.equal(setLeadingTag("{\\b1}x", "an", "8"), "{\\an8\\b1}x");
+  assert.equal(setLeadingTag("x", "an", "8"), "{\\an8}x");
+  assert.equal(toAssColor(parseColor("&H0000FF&")), "&HFF0000&".replace("FF0000", "0000FF"));
+});
