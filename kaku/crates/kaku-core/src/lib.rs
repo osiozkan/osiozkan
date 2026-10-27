@@ -2,5 +2,10 @@
 pub mod ass;
 pub mod color;
 pub mod formats;
+pub mod history;
+pub mod karaoke;
+pub mod ops;
+pub mod qc;
+pub mod search;
 pub mod tags;
 pub mod time;
