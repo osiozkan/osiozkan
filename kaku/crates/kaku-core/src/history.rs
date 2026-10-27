@@ -6,16 +6,33 @@ pub struct History {
     undo: Vec<(String, Script)>,
     redo: Vec<(String, Script)>,
     limit: usize,
+    /// Approximate memory budget for the undo stack, in bytes.
+    budget: usize,
+}
+
+fn approx_size(s: &Script) -> usize {
+    s.entries
+        .iter()
+        .map(|e| match e {
+            crate::ass::Entry::Line(l) => 120 + l.text.len() + l.style.len() + l.actor.len() + l.effect.len(),
+            crate::ass::Entry::Raw { text, .. } => 48 + text.len(),
+            _ => 160,
+        })
+        .sum()
 }
 
 impl History {
     pub fn new(limit: usize) -> Self {
-        History { undo: vec![], redo: vec![], limit }
+        History { undo: vec![], redo: vec![], limit, budget: 256 << 20 }
     }
     /// Call *before* mutating `current`.
     pub fn record(&mut self, label: &str, current: &Script) {
         self.undo.push((label.to_string(), current.clone()));
         if self.undo.len() > self.limit {
+            self.undo.remove(0);
+        }
+        let per = approx_size(current).max(1);
+        while self.undo.len() > 1 && self.undo.len() * per > self.budget {
             self.undo.remove(0);
         }
         self.redo.clear();

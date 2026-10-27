@@ -287,8 +287,12 @@ impl Script {
                 }
             }
         }
-        // Trim trailing blank raw lines per section.
-        Script { entries }
+        let mut script = Script { entries };
+        if ssa {
+            // We always write the v4+ layout, so the header must say so.
+            script.set_info("ScriptType", "v4.00+");
+        }
+        script
     }
 
     pub fn to_string(&self) -> String {
@@ -496,6 +500,22 @@ mod tests {
         let s2 = Script::parse(&out);
         assert_eq!(s, s2);
         assert!(out.contains("[Fonts]"));
+    }
+
+    #[test]
+    fn ssa_v4_file_converts() {
+        let ssa = "[Script Info]\nScriptType: v4.00\n\n[V4 Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\nStyle: Top,Arial,20,16777215,255,0,0,-1,0,1,2,1,6,5,5,7,0,0\n\n[Events]\nFormat: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: Marked=0,0:00:01.00,0:00:02.00,*Top,,0,0,0,,Hi, there\n";
+        let s = Script::parse(ssa);
+        let st = s.styles().next().unwrap();
+        assert_eq!(st.align, 8);
+        assert!(st.bold);
+        assert_eq!(st.color1, Color::WHITE);
+        assert_eq!(st.margin_t, 7);
+        let l = s.lines().next().unwrap();
+        assert_eq!(l.style, "Top");
+        assert_eq!(l.text, "Hi, there");
+        assert_eq!(s.info("ScriptType"), Some("v4.00+"));
+        assert!(s.to_string().contains("[V4+ Styles]"));
     }
 
     #[test]
