@@ -11,4 +11,5 @@ path = "src/main.rs"
 [dependencies]
 kaku-core = { path = "../kaku-core" }
 kaku-lua = { path = "../kaku-lua" }
+kaku-media = { path = "../kaku-media" }
 clap = { version = "4", features = ["derive"] }

@@ -1,4 +1,5 @@
 use crate::highlight;
+use crate::media_pane::{Event as MEvent, LineSpan, MediaPane};
 use egui::{Color32, Key, Modifiers, RichText};
 use egui_extras::{Column, TableBuilder};
 use kaku_core::ass::{Entry, Kind, Line, Script};
@@ -57,6 +58,12 @@ pub struct KakuApp {
     scroll_to: Option<usize>,
     style_edit: usize,
     time_buf: (usize, String, String),
+    pub media: MediaPane,
+    rev: u64,
+    frame_key: (Option<usize>, u64),
+    frame_key_time: f64,
+    frame_requested: (Option<usize>, u64),
+    last_active: Option<usize>,
 }
 
 impl KakuApp {
@@ -87,6 +94,12 @@ impl KakuApp {
             scroll_to: None,
             style_edit: 0,
             time_buf: (usize::MAX, String::new(), String::new()),
+            media: MediaPane::new(),
+            rev: 0,
+            frame_key: (None, 0),
+            frame_key_time: 0.0,
+            frame_requested: (None, u64::MAX),
+            last_active: None,
         };
         a.reindex();
         a.ensure_runtime();
@@ -568,6 +581,36 @@ impl KakuApp {
                     self.status = format!("Extended {n} line(s)");
                 }
             });
+            ui.menu_button("Media", |ui| {
+                if ui.button("Open video / audio…").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Media", &["mkv", "mp4", "avi", "webm", "mov", "m4v", "flac", "wav", "mp3", "m4a", "aac", "ogg", "opus", "mka"]).pick_file() {
+                        let ctx = ui.ctx().clone();
+                        self.media.load(p, &ctx);
+                    }
+                }
+                let has = self.media.path.is_some();
+                if ui.add_enabled(has, egui::Button::new("▶ Play active line audio")).clicked() {
+                    ui.close();
+                    if let Some(l) = self.active.and_then(|a| self.line(a)).cloned() {
+                        self.media.play(l.start, l.end);
+                    }
+                }
+                if ui.add_enabled(has, egui::Button::new("■ Stop")).clicked() {
+                    ui.close();
+                    self.media.stop();
+                }
+                ui.separator();
+                if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("Snap all lines to keyframes (±250 ms)")).clicked() {
+                    ui.close();
+                    let kf = self.media.keyframes.clone();
+                    let mut n = 0;
+                    self.edit("Snap to keyframes", |s| n = kaku_media::snap_to_keyframes(s, &kf, 250, 250));
+                    self.status = format!("Snapped {n} line(s)");
+                }
+                ui.checkbox(&mut self.media.snap_keyframes, "Snap dragging to keyframes (Alt = off)");
+                ui.checkbox(&mut self.media.follow, "Waveform follows active line");
+            });
             ui.menu_button("Karaoke", |ui| {
                 if ui.button("Auto-split selected by word").clicked() {
                     ui.close();
@@ -745,6 +788,98 @@ impl KakuApp {
         }
     }
 
+    fn current_ass_text(&self) -> String {
+        self.script.to_string()
+    }
+
+    fn frame_logic(&mut self, ctx: &egui::Context) {
+        if self.media.path.is_none() {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        let key = (self.active, self.rev);
+        if key != self.frame_key {
+            self.frame_key = key;
+            self.frame_key_time = now;
+        }
+        if key != self.frame_requested {
+            if now - self.frame_key_time > 0.3 {
+                if let Some(l) = self.active.and_then(|a| self.line(a)) {
+                    let t = (l.start + l.end) / 2;
+                    let text = self.current_ass_text();
+                    self.media.request_frame(t, text);
+                    self.frame_requested = key;
+                    self.media.playhead = t;
+                }
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+        // follow active line in waveform
+        if self.media.follow && self.active != self.last_active {
+            self.last_active = self.active;
+            if let Some(l) = self.active.and_then(|a| self.line(a)) {
+                let span = (self.media.ms_per_px * 900.0) as i64;
+                self.media.view_start = (l.start - span / 4).max(0);
+            }
+        }
+    }
+
+    fn wave_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.small_button(if self.media.playing() { "■" } else { "▶" }).clicked() {
+                if self.media.playing() {
+                    self.media.stop();
+                } else if let Some(l) = self.active.and_then(|a| self.line(a)).cloned() {
+                    self.media.play(l.start, l.end);
+                }
+            }
+            ui.label(RichText::new(format!("{}  ·  Ctrl+scroll: zoom  ·  drag yellow edges to retime", format_ass_time(self.media.playhead))).weak().small());
+        });
+        // spans: only lines near the view for speed
+        let view_a = self.media.view_start - 5000;
+        let view_b = self.media.view_start + (self.media.ms_per_px * 4000.0) as i64;
+        let spans: Vec<LineSpan> = (0..self.ev.len())
+            .filter_map(|i| {
+                let l = self.line(i)?;
+                if l.end < view_a || l.start > view_b || l.is_comment() {
+                    return None;
+                }
+                Some(LineSpan { idx: i, start: l.start, end: l.end, active: self.active == Some(i), selected: self.sel.contains(&i) })
+            })
+            .collect();
+        let events = self.media.waveform_ui(ui, &spans);
+        for e in events {
+            match e {
+                MEvent::DragBegin => self.history.record("Drag timing", &self.script),
+                MEvent::SetStart(i, t) => {
+                    if let Some(l) = self.line_mut(i) {
+                        l.start = t.min(l.end - 10);
+                    }
+                    self.dirty = true;
+                    self.qc_dirty = true;
+                    self.time_buf.0 = usize::MAX;
+                }
+                MEvent::SetEnd(i, t) => {
+                    if let Some(l) = self.line_mut(i) {
+                        l.end = t.max(l.start + 10);
+                    }
+                    self.dirty = true;
+                    self.qc_dirty = true;
+                    self.time_buf.0 = usize::MAX;
+                }
+                MEvent::Select(i) => {
+                    self.select_only(i);
+                    self.scroll_to = Some(i);
+                }
+                MEvent::Seek(t) => {
+                    let text = self.current_ass_text();
+                    self.media.request_frame(t, text);
+                }
+            }
+        }
+    }
+
     fn editor(&mut self, ui: &mut egui::Ui) {
         let Some(a) = self.active else {
             ui.label("No line selected");
@@ -825,6 +960,11 @@ impl KakuApp {
     }
 
     fn side(&mut self, ui: &mut egui::Ui) {
+        if self.media.path.is_some() {
+            self.media.video_ui(ui);
+            ui.label(RichText::new(&self.media.status).weak().small());
+            ui.separator();
+        }
         ui.horizontal(|ui| {
             for (i, t) in ["QC", "Styles", "Info"].iter().enumerate() {
                 ui.selectable_value(&mut self.side_tab, i, *t);
@@ -1095,8 +1235,11 @@ impl eframe::App for KakuApp {
         if self.qc_dirty {
             self.issues = qc::check(&self.script, &self.qc_cfg);
             self.qc_dirty = false;
+            self.rev += 1;
         }
         self.shortcuts(&ctx);
+        self.media.poll(&ctx);
+        self.frame_logic(&ctx);
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1107,6 +1250,9 @@ impl eframe::App for KakuApp {
             });
         });
         egui::Panel::bottom("editor").resizable(true).default_size(170.0).show(ui, |ui| self.editor(ui));
+        if self.media.path.is_some() {
+            egui::Panel::bottom("wave").resizable(true).default_size(150.0).show(ui, |ui| self.wave_panel(ui));
+        }
         egui::Panel::right("side").resizable(true).default_size(320.0).show(ui, |ui| self.side(ui));
         egui::CentralPanel::default().show(ui, |ui| self.grid(ui));
         self.windows(&ctx);

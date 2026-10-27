@@ -39,6 +39,31 @@ enum Cmd {
     Fix { file: PathBuf, #[arg(short, long)] output: Option<PathBuf> },
     /// Change frame rate (e.g. 23.976 -> 25)
     Fps { file: PathBuf, from: f64, to: f64, #[arg(short, long)] output: Option<PathBuf> },
+    /// Show video/audio info of a media file (needs ffprobe)
+    Media { file: PathBuf },
+    /// Snap line starts/ends to video keyframes (needs ffprobe)
+    Snap {
+        file: PathBuf,
+        #[arg(long)]
+        video: PathBuf,
+        #[arg(long, default_value_t = 250)]
+        before: i64,
+        #[arg(long, default_value_t = 250)]
+        after: i64,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Render one video frame (optionally with subtitles burned in) to a PNG (needs ffmpeg)
+    Frame {
+        video: PathBuf,
+        /// Time in ms
+        #[arg(long, default_value_t = 0)]
+        time: i64,
+        #[arg(long)]
+        subs: Option<PathBuf>,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// Apply the karaoke templater (Aegisub-compatible) to a script
     Template { file: PathBuf, #[arg(short, long)] output: Option<PathBuf>, #[arg(short = 'I', long = "include")] include: Vec<PathBuf> },
     /// List macros/filters registered by a Lua automation script
@@ -136,6 +161,27 @@ fn run() -> Result<ExitCode, String> {
             let mut s = load(&file)?;
             ops::change_fps(&mut s, fps_of(from), fps_of(to));
             save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Media { file } => {
+            let i = kaku_media::probe(&file).map_err(|e| e.to_string())?;
+            println!("duration: {}", kaku_core::time::format_ass_time(i.duration_ms));
+            if i.has_video {
+                println!("video: {}x{} @ {}", i.width, i.height, i.fps.map(|(n, d)| format!("{:.3} fps", n as f64 / d as f64)).unwrap_or("?".into()));
+            }
+            for a in &i.audio {
+                println!("audio #{}: {} {} ch {} Hz {}", a.index, a.codec, a.channels, a.sample_rate, a.lang);
+            }
+        }
+        Cmd::Snap { file, video, before, after, output } => {
+            let mut s = load(&file)?;
+            let kf = kaku_media::keyframes(&video).map_err(|e| e.to_string())?;
+            let n = kaku_media::snap_to_keyframes(&mut s, &kf, before, after);
+            println!("{n} line(s) snapped ({} keyframes)", kf.len());
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Frame { video, time, subs, output } => {
+            let png = kaku_media::render_frame(&video, time, subs.as_deref(), None, 0).map_err(|e| e.to_string())?;
+            std::fs::write(&output, png).map_err(|e| e.to_string())?;
         }
         Cmd::Template { file, output, include } => {
             let rt = Runtime::new().map_err(|e| e.to_string())?;

@@ -1,0 +1,9 @@
+[package]
+name = "kaku-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json = "1"
+kaku-core = { path = "../kaku-core" }

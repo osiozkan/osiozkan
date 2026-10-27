@@ -12,11 +12,12 @@
 - [x] GUI (egui): grid, tag-highlighting editor, QC panel, style editor, find/replace, shift, karaoke auto-split, Lua macro menu with real dialogs
 - [x] Karaoke templater (Aegisub-compatible: code once/line/syl/char, template pre-line/line/syl/char, retime, $vars, !code!, loops, fx tags)
 - [x] Real font metrics for `aegisub.text_extents` (fontdb + ttf-parser)
+- [x] Media via ffmpeg/ffprobe (`kaku-media`): probe, waveform envelope, keyframes + snapping, libass-rendered frame preview, ffplay range playback; GUI video preview + draggable waveform timing
 - [x] CI workflow (tests + release builds for Win/Linux/macOS on `kaku-v*` tags)
 
 ## Next (priority order)
 1. GUI polish: Turkish/English UI, shortcuts for timing, multi-window styles manager, drag-reorder, theme.
-2. Video/audio: mpv or ffmpeg based preview, waveform/spectrogram, keyframes, timecodes (VFR).
+2. Media polish: spectrogram, VFR timecodes, scene-change detection, real-time video playback (mpv embedding), audio scrubbing/karaoke k-timing on waveform.
 3. Templater gaps: `mixin`, furigana (`furi`), `fxgroup`, `$`-var coverage vs. Aegisub docs; verify against real Aegisub output.
 4. Renderer (libass binding) for preview, `aegisub.*` remaining APIs (`ffi` helpers, `lfs`, clipboard).
 5. Styles manager: import/export, resample resolution, translation assistant, spellcheck (hunspell), Turkish typography fixes.

@@ -12,6 +12,8 @@ path = "src/main.rs"
 eframe = "0.37.0"
 egui = "0.37"
 egui_extras = "0.37.0"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 kaku-core = { path = "../kaku-core" }
 kaku-lua = { path = "../kaku-lua" }
+kaku-media = { path = "../kaku-media" }
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
