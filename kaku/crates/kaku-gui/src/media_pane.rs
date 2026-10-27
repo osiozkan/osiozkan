@@ -12,6 +12,8 @@ pub enum Event {
     SetEnd(usize, i64),
     DragBegin,
     Select(usize),
+    /// Karaoke syllable boundary `i` (1-based index of the syllable that starts there) moved to `t`.
+    SylBoundary(usize, i64),
 }
 
 pub struct LineSpan {
@@ -44,6 +46,7 @@ pub struct MediaPane {
     pub frame_wanted: Option<(i64, String)>,
     frame_busy: bool,
     drag: Option<(usize, Handle)>,
+    syl_drag: Option<usize>,
     play: Option<std::process::Child>,
     pub follow: bool,
 }
@@ -66,6 +69,7 @@ impl MediaPane {
             frame_wanted: None,
             frame_busy: false,
             drag: None,
+            syl_drag: None,
             play: None,
             follow: true,
         }
@@ -170,18 +174,30 @@ impl MediaPane {
         self.play.is_some()
     }
 
-    pub fn video_ui(&mut self, ui: &mut egui::Ui) {
+    /// Returns a click position as fractions (0..1, 0..1) of the frame when `pick` is true.
+    pub fn video_ui(&mut self, ui: &mut egui::Ui, pick: bool) -> Option<(f32, f32)> {
+        let mut picked = None;
         if let Some(t) = &self.tex {
             let w = ui.available_width();
             let sz = t.size_vec2();
             let h = w * sz.y / sz.x.max(1.0);
-            ui.image((t.id(), Vec2::new(w, h)));
+            let r = ui.add(egui::Image::new((t.id(), Vec2::new(w, h))).sense(if pick { Sense::click() } else { Sense::hover() }));
+            if pick {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                if r.clicked() {
+                    if let Some(p) = r.interact_pointer_pos() {
+                        picked = Some(((p.x - r.rect.left()) / r.rect.width(), (p.y - r.rect.top()) / r.rect.height()));
+                    }
+                }
+            }
         } else if self.info.as_ref().map_or(false, |i| i.has_video) {
             ui.label("Rendering frame…");
         }
+        picked
     }
 
-    pub fn waveform_ui(&mut self, ui: &mut egui::Ui, spans: &[LineSpan]) -> Vec<Event> {
+    /// `marks`: karaoke syllable starts of the active line as (absolute ms, label); index 0 is syllable #1.
+    pub fn waveform_ui(&mut self, ui: &mut egui::Ui, spans: &[LineSpan], marks: &[(i64, String)]) -> Vec<Event> {
         let mut events = Vec::new();
         let Some(wave) = &self.wave else {
             ui.label(if self.load_rx.is_some() { "Decoding audio…" } else { "No audio loaded (Media ▸ Open video/audio…)" });
@@ -245,14 +261,32 @@ impl MediaPane {
                 }
             }
         }
+        // karaoke syllable boundaries
+        let mut hover_syl: Option<usize> = None;
+        for (i, (t, label)) in marks.iter().enumerate() {
+            let x = x_of(*t);
+            if x < rect.left() - 40.0 || x > rect.right() {
+                continue;
+            }
+            let hot = pointer.map_or(false, |p| (p.x - x).abs() <= 4.0);
+            if i > 0 && hot {
+                hover_syl = Some(i);
+            }
+            let col = if i > 0 { Color32::from_rgb(255, 150, 60) } else { Color32::from_rgb(255, 200, 60) };
+            painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(if hot { 2.5 } else { 1.0 }, col));
+            painter.text(Pos2::new(x + 3.0, rect.top() + 2.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(13.0), Color32::from_rgb(255, 220, 160));
+        }
         // playhead
         let ph = x_of(self.playhead);
         painter.line_segment([Pos2::new(ph, rect.top()), Pos2::new(ph, rect.bottom())], Stroke::new(1.5, Color32::from_rgb(255, 80, 80)));
-        if hover_handle.is_some() || self.drag.is_some() {
+        if hover_handle.is_some() || self.drag.is_some() || hover_syl.is_some() || self.syl_drag.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         }
         if resp.drag_started() {
-            if let Some(h) = hover_handle {
+            if let Some(i) = hover_syl {
+                self.syl_drag = Some(i);
+                events.push(Event::DragBegin);
+            } else if let Some(h) = hover_handle {
                 self.drag = Some(h);
                 events.push(Event::DragBegin);
             }
@@ -270,10 +304,16 @@ impl MediaPane {
                 events.push(if h == Handle::Start { Event::SetStart(idx, t) } else { Event::SetEnd(idx, t) });
             }
         }
+        if let (Some(i), true) = (self.syl_drag, resp.dragged()) {
+            if let Some(p) = pointer.or(resp.interact_pointer_pos()) {
+                events.push(Event::SylBoundary(i, t_of(p.x).max(0)));
+            }
+        }
         if resp.drag_stopped() {
             self.drag = None;
+            self.syl_drag = None;
         }
-        if resp.clicked() && self.drag.is_none() && hover_handle.is_none() {
+        if resp.clicked() && self.drag.is_none() && hover_handle.is_none() && hover_syl.is_none() {
             if let Some(p) = resp.interact_pointer_pos() {
                 let t = t_of(p.x).max(0);
                 self.playhead = t;

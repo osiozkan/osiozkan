@@ -1,4 +1,5 @@
 use crate::highlight;
+use crate::i18n::t;
 use crate::media_pane::{Event as MEvent, LineSpan, MediaPane};
 use egui::{Color32, Key, Modifiers, RichText};
 use egui_extras::{Column, TableBuilder};
@@ -56,6 +57,7 @@ pub struct KakuApp {
     balance_max: usize,
     style_rename: String,
     fonts_open: bool,
+    pick_pos: bool,
     fonts_cache: Vec<kaku_core::fonts::FontStatus>,
     turkish: bool,
     side_tab: usize,
@@ -101,6 +103,7 @@ impl KakuApp {
             balance_max: 42,
             style_rename: String::new(),
             fonts_open: false,
+            pick_pos: false,
             fonts_cache: vec![],
             turkish: true,
             side_tab: 0,
@@ -191,6 +194,13 @@ impl KakuApp {
                 self.status = format!("Opened {} — {} lines", p.display(), self.ev.len());
             }
             Err(e) => self.status = format!("Open failed: {e}"),
+        }
+    }
+
+    pub fn goto_line(&mut self, i: usize) {
+        if i < self.ev.len() {
+            self.select_only(i);
+            self.scroll_to = Some(i);
         }
     }
 
@@ -488,20 +498,20 @@ impl KakuApp {
 
     fn menu(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Open…   Ctrl+O").clicked() {
+            ui.menu_button(t("File"), |ui| {
+                if ui.button(t("Open…   Ctrl+O")).clicked() {
                     ui.close();
                     self.do_open();
                 }
-                if ui.button("Save   Ctrl+S").clicked() {
+                if ui.button(t("Save   Ctrl+S")).clicked() {
                     ui.close();
                     self.do_save();
                 }
-                if ui.button("Save as…").clicked() {
+                if ui.button(t("Save as…")).clicked() {
                     ui.close();
                     self.do_save_as();
                 }
-                if ui.button("New").clicked() {
+                if ui.button(t("New")).clicked() {
                     ui.close();
                     self.script = Script::new_default();
                     self.path = None;
@@ -509,71 +519,83 @@ impl KakuApp {
                     self.reindex();
                 }
             });
-            ui.menu_button("Edit", |ui| {
-                if ui.add_enabled(self.history.can_undo(), egui::Button::new("Undo   Ctrl+Z")).clicked() {
+            ui.menu_button("Dil / Language", |ui| {
+                if ui.selectable_label(crate::i18n::is_turkish(), "Türkçe").clicked() {
+                    crate::i18n::set_turkish(true);
+                    crate::i18n::save_pref(true);
+                    ui.close();
+                }
+                if ui.selectable_label(!crate::i18n::is_turkish(), "English").clicked() {
+                    crate::i18n::set_turkish(false);
+                    crate::i18n::save_pref(false);
+                    ui.close();
+                }
+            });
+            ui.menu_button(t("Edit"), |ui| {
+                if ui.add_enabled(self.history.can_undo(), egui::Button::new(t("Undo   Ctrl+Z"))).clicked() {
                     ui.close();
                     self.undo();
                 }
-                if ui.add_enabled(self.history.can_redo(), egui::Button::new("Redo   Ctrl+Y")).clicked() {
+                if ui.add_enabled(self.history.can_redo(), egui::Button::new(t("Redo   Ctrl+Y"))).clicked() {
                     ui.close();
                     self.redo();
                 }
                 ui.separator();
-                if ui.button("Find / Replace…   Ctrl+F").clicked() {
+                if ui.button(t("Find / Replace…   Ctrl+F")).clicked() {
                     ui.close();
                     self.find.open = true;
                 }
-                if ui.button("Select all").clicked() {
+                if ui.button(t("Select all")).clicked() {
                     ui.close();
                     self.sel = (0..self.ev.len()).collect();
                 }
             });
-            ui.menu_button("Subtitles", |ui| {
-                if ui.button("Insert line   Ctrl+I").clicked() {
+            ui.menu_button(t("Subtitles"), |ui| {
+                if ui.button(t("Insert line   Ctrl+I")).clicked() {
                     ui.close();
                     self.insert_line_after_active();
                 }
-                if ui.button("Duplicate").clicked() {
+                if ui.button(t("Duplicate")).clicked() {
                     ui.close();
                     self.duplicate_selected();
                 }
-                if ui.button("Delete").clicked() {
+                if ui.button(t("Delete")).clicked() {
                     ui.close();
                     self.delete_selected();
                 }
-                if ui.button("Split at middle").clicked() {
+                if ui.button(t("Split at middle")).clicked() {
                     ui.close();
                     self.split_active();
                 }
-                if ui.button("Merge selected").clicked() {
+                if ui.button(t("Merge selected")).clicked() {
                     ui.close();
                     self.merge_selected();
                 }
                 ui.separator();
-                if ui.button("Sort by start time").clicked() {
+                if ui.button(t("Sort by start time")).clicked() {
                     ui.close();
                     self.edit("Sort", |s| s.sort_by_start());
                 }
-                if ui.button("Fix common errors").clicked() {
+                if ui.button(t("Fix common errors")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Fix common errors", |s| n = ops::fix_common_errors(s));
                     self.status = format!("Fixed {n} line(s)");
                 }
-                if ui.button("Remove empty lines").clicked() {
+                if ui.button(t("Remove empty lines")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Remove empty", |s| n = ops::remove_empty(s));
                     self.status = format!("Removed {n} line(s)");
                 }
-                if ui.button("Balance long lines").clicked() {
+                if ui.button(t("Balance long lines")).clicked() {
                     ui.close();
                     let m = self.balance_max;
                     let mut n = 0;
                     self.edit("Balance lines", |s| n = kaku_core::textfix::balance_script(s, m));
                     self.status = format!("Rebalanced {n} line(s)");
                 }
-                if ui.button("Remove hearing-impaired text").clicked() {
+                if ui.button(t("Remove hearing-impaired text")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Remove HI", |s| {
@@ -582,9 +604,9 @@ impl KakuApp {
                     });
                     self.status = format!("Changed {n} line(s)");
                 }
-                ui.menu_button("Change case (selected)", |ui| {
+                ui.menu_button(t("Change case (selected)"), |ui| {
                     use kaku_core::textfix::Casing;
-                    ui.checkbox(&mut self.turkish, "Turkish i/İ rules");
+                    ui.checkbox(&mut self.turkish, t("Turkish i/İ rules"));
                     for (label, mode) in [("UPPER", Casing::Upper), ("lower", Casing::Lower), ("Sentence case", Casing::Sentence), ("Title Case", Casing::Title)] {
                         if ui.button(label).clicked() {
                             ui.close();
@@ -601,45 +623,45 @@ impl KakuApp {
                         }
                     }
                 });
-                if ui.button("Check / collect fonts…").clicked() {
+                if ui.button(t("Check / collect fonts…")).clicked() {
                     ui.close();
                     self.fonts_cache = kaku_core::fonts::check_fonts(&self.script);
                     self.fonts_open = true;
                 }
-                if ui.button("Resample resolution…").clicked() {
+                if ui.button(t("Resample resolution…")).clicked() {
                     ui.close();
                     self.resample_xy = self.script.play_res();
                     self.resample_open = true;
                 }
-                if ui.button("Remove duplicates").clicked() {
+                if ui.button(t("Remove duplicates")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Remove duplicates", |s| n = ops::remove_duplicates(s));
                     self.status = format!("Removed {n} line(s)");
                 }
             });
-            ui.menu_button("Timing", |ui| {
-                if ui.button("Shift times…").clicked() {
+            ui.menu_button(t("Timing"), |ui| {
+                if ui.button(t("Shift times…")).clicked() {
                     ui.close();
                     self.shift_open = true;
                 }
-                if ui.button("Timing post-processor…").clicked() {
+                if ui.button(t("Timing post-processor…")).clicked() {
                     ui.close();
                     self.tpp_open = true;
                 }
-                if ui.button("Close small gaps (≤300 ms)").clicked() {
+                if ui.button(t("Close small gaps (≤300 ms)")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Close gaps", |s| n = ops::close_gaps(s, 300));
                     self.status = format!("Closed {n} gap(s)");
                 }
-                if ui.button("Enforce 2-frame gap (84 ms)").clicked() {
+                if ui.button(t("Enforce 2-frame gap (84 ms)")).clicked() {
                     ui.close();
                     let mut n = 0;
                     self.edit("Min gap", |s| n = ops::enforce_min_gap(s, 84));
                     self.status = format!("Adjusted {n} line(s)");
                 }
-                if ui.button("Extend to reading speed").clicked() {
+                if ui.button(t("Extend to reading speed")).clicked() {
                     ui.close();
                     let cps = self.qc_cfg.max_cps;
                     let max = self.qc_cfg.max_duration;
@@ -648,8 +670,8 @@ impl KakuApp {
                     self.status = format!("Extended {n} line(s)");
                 }
             });
-            ui.menu_button("Media", |ui| {
-                if ui.button("Open video / audio…").clicked() {
+            ui.menu_button(t("Media"), |ui| {
+                if ui.button(t("Open video / audio…")).clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Media", &["mkv", "mp4", "avi", "webm", "mov", "m4v", "flac", "wav", "mp3", "m4a", "aac", "ogg", "opus", "mka"]).pick_file() {
                         let ctx = ui.ctx().clone();
@@ -657,37 +679,37 @@ impl KakuApp {
                     }
                 }
                 let has = self.media.path.is_some();
-                if ui.add_enabled(has, egui::Button::new("▶ Play active line audio")).clicked() {
+                if ui.add_enabled(has, egui::Button::new(t("▶ Play active line audio"))).clicked() {
                     ui.close();
                     if let Some(l) = self.active.and_then(|a| self.line(a)).cloned() {
                         self.media.play(l.start, l.end);
                     }
                 }
-                if ui.add_enabled(has, egui::Button::new("■ Stop")).clicked() {
+                if ui.add_enabled(has, egui::Button::new(t("■ Stop"))).clicked() {
                     ui.close();
                     self.media.stop();
                 }
                 ui.separator();
-                if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("Snap all lines to keyframes (±250 ms)")).clicked() {
+                if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new(t("Snap all lines to keyframes (±250 ms)"))).clicked() {
                     ui.close();
                     let kf = self.media.keyframes.clone();
                     let mut n = 0;
                     self.edit("Snap to keyframes", |s| n = kaku_media::snap_to_keyframes(s, &kf, 250, 250));
                     self.status = format!("Snapped {n} line(s)");
                 }
-                ui.checkbox(&mut self.media.snap_keyframes, "Snap dragging to keyframes (Alt = off)");
-                ui.checkbox(&mut self.media.follow, "Waveform follows active line");
+                ui.checkbox(&mut self.media.snap_keyframes, t("Snap dragging to keyframes (Alt = off)"));
+                ui.checkbox(&mut self.media.follow, t("Waveform follows active line"));
             });
-            ui.menu_button("Karaoke", |ui| {
-                if ui.button("Auto-split selected by word").clicked() {
+            ui.menu_button(t("Karaoke"), |ui| {
+                if ui.button(t("Auto-split selected by word")).clicked() {
                     ui.close();
                     self.kara_auto(karaoke::Split::Word);
                 }
-                if ui.button("Auto-split selected by character").clicked() {
+                if ui.button(t("Auto-split selected by character")).clicked() {
                     ui.close();
                     self.kara_auto(karaoke::Split::Grapheme);
                 }
-                if ui.button("Remove karaoke tags").clicked() {
+                if ui.button(t("Remove karaoke tags")).clicked() {
                     ui.close();
                     let sel = self.selected_vec();
                     self.history.record("Strip karaoke", &self.script);
@@ -699,8 +721,8 @@ impl KakuApp {
                     self.dirty = true;
                 }
             });
-            ui.menu_button("Automation", |ui| {
-                if ui.button("Load Lua script…").clicked() {
+            ui.menu_button(t("Automation"), |ui| {
+                if ui.button(t("Load Lua script…")).clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() {
                         self.load_lua(&p);
@@ -771,9 +793,11 @@ impl KakuApp {
             }
         }
         tb.header(20.0, |mut h| {
-            for t in ["#", "L", "Start", "End", "Dur", "CPS", "Style", "Actor", "Text"] {
+            let heads_en = ["#", "L", "Start", "End", "Dur", "CPS", "Style", "Actor", "Text"];
+            let heads_tr = ["#", "K", "Başlangıç", "Bitiş", "Süre", "CPS", "Stil", "Karakter", "Metin"];
+            for k in 0..9 {
                 h.col(|ui| {
-                    ui.strong(t);
+                    ui.strong(if crate::i18n::is_turkish() { heads_tr[k] } else { heads_en[k] });
                 });
             }
         })
@@ -892,6 +916,30 @@ impl KakuApp {
         }
     }
 
+    fn set_pos_from_click(&mut self, fx: f32, fy: f32) {
+        let (rx, ry) = self.script.play_res();
+        let (x, y) = ((fx * rx as f32).round() as i64, (fy * ry as f32).round() as i64);
+        let sel = self.selected_vec();
+        self.history.record("Set \\pos", &self.script);
+        for i in sel {
+            if let Some(l) = self.line_mut(i) {
+                let mut segs = tags::parse(&l.text);
+                let pos = tags::Tag { name: "pos".into(), arg: format!("({x},{y})") };
+                match segs.first_mut() {
+                    Some(tags::Seg::Block(ts)) => {
+                        ts.retain(|t| t.name != "pos" && t.name != "move");
+                        ts.insert(0, pos);
+                    }
+                    _ => segs.insert(0, tags::Seg::Block(vec![pos])),
+                }
+                l.text = tags::render(&segs);
+            }
+        }
+        self.dirty = true;
+        self.qc_dirty = true;
+        self.status = format!("\\pos({x},{y})");
+    }
+
     fn wave_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui.small_button(if self.media.playing() { "■" } else { "▶" }).clicked() {
@@ -915,7 +963,19 @@ impl KakuApp {
                 Some(LineSpan { idx: i, start: l.start, end: l.end, active: self.active == Some(i), selected: self.sel.contains(&i) })
             })
             .collect();
-        let events = self.media.waveform_ui(ui, &spans);
+        // karaoke syllable boundaries of the active line
+        let marks: Vec<(i64, String)> = match self.active.and_then(|a| self.line(a)) {
+            Some(l) if l.text.contains("\\k") || l.text.contains("\\K") => {
+                let mut t = l.start;
+                karaoke::syllables(&l.text).iter().map(|s| {
+                    let m = (t, s.text.chars().take(8).collect::<String>());
+                    t += s.dur_cs * 10;
+                    m
+                }).collect()
+            }
+            _ => vec![],
+        };
+        let events = self.media.waveform_ui(ui, &spans, &marks);
         for e in events {
             match e {
                 MEvent::DragBegin => self.history.record("Drag timing", &self.script),
@@ -935,6 +995,24 @@ impl KakuApp {
                     self.qc_dirty = true;
                     self.time_buf.0 = usize::MAX;
                 }
+                MEvent::SylBoundary(i, t) => {
+                    if let Some(a) = self.active {
+                        if let Some(l) = self.line_mut(a) {
+                            let mut sy = karaoke::syllables(&l.text);
+                            if i >= 1 && i < sy.len() {
+                                let start0 = l.start + sy[..i - 1].iter().map(|s| s.dur_cs * 10).sum::<i64>();
+                                let pair_end = start0 + (sy[i - 1].dur_cs + sy[i].dur_cs) * 10;
+                                let t = t.clamp(start0, pair_end);
+                                let d0 = ((t - start0 + 5) / 10).max(0);
+                                let total = sy[i - 1].dur_cs + sy[i].dur_cs;
+                                sy[i - 1].dur_cs = d0.min(total);
+                                sy[i].dur_cs = total - sy[i - 1].dur_cs;
+                                l.text = karaoke::build(&sy);
+                                self.dirty = true;
+                            }
+                        }
+                    }
+                }
                 MEvent::Select(i) => {
                     self.select_only(i);
                     self.scroll_to = Some(i);
@@ -949,7 +1027,7 @@ impl KakuApp {
 
     fn editor(&mut self, ui: &mut egui::Ui) {
         let Some(a) = self.active else {
-            ui.label("No line selected");
+            ui.label(t("No line selected"));
             return;
         };
         let Some(mut l) = self.line(a).cloned() else { return };
@@ -957,15 +1035,15 @@ impl KakuApp {
         let styles: Vec<String> = self.script.styles().map(|s| s.name.clone()).collect();
         ui.horizontal(|ui| {
             let mut comment = l.is_comment();
-            if ui.checkbox(&mut comment, "Comment").changed() {
+            if ui.checkbox(&mut comment, t("Comment")).changed() {
                 l.kind = if comment { Kind::Comment } else { Kind::Dialogue };
             }
-            ui.label("Layer");
+            ui.label(t("Layer"));
             ui.add(egui::DragValue::new(&mut l.layer));
             if self.time_buf.0 != a {
                 self.time_buf = (a, format_ass_time(l.start), format_ass_time(l.end));
             }
-            ui.label("Start");
+            ui.label(t("Start"));
             let r1 = ui.add(egui::TextEdit::singleline(&mut self.time_buf.1).desired_width(100.0).font(egui::TextStyle::Monospace));
             if r1.lost_focus() {
                 if let Some(t) = parse_ass_time(&self.time_buf.1) {
@@ -973,7 +1051,7 @@ impl KakuApp {
                 }
                 self.time_buf.0 = usize::MAX;
             }
-            ui.label("End");
+            ui.label(t("End"));
             let r2 = ui.add(egui::TextEdit::singleline(&mut self.time_buf.2).desired_width(100.0).font(egui::TextStyle::Monospace));
             if r2.lost_focus() {
                 if let Some(t) = parse_ass_time(&self.time_buf.2) {
@@ -987,9 +1065,9 @@ impl KakuApp {
                     ui.selectable_value(&mut l.style, s.clone(), s);
                 }
             });
-            ui.label("Actor");
+            ui.label(t("Actor"));
             ui.add(egui::TextEdit::singleline(&mut l.actor).desired_width(90.0));
-            ui.label("Effect");
+            ui.label(t("Effect"));
             ui.add(egui::TextEdit::singleline(&mut l.effect).desired_width(80.0));
         });
         let font = egui::FontId::proportional(16.0);
@@ -1028,7 +1106,10 @@ impl KakuApp {
 
     fn side(&mut self, ui: &mut egui::Ui) {
         if self.media.path.is_some() {
-            self.media.video_ui(ui);
+            ui.checkbox(&mut self.pick_pos, t("Click video to set \\pos"));
+            if let Some((fx, fy)) = self.media.video_ui(ui, self.pick_pos) {
+                self.set_pos_from_click(fx, fy);
+            }
             ui.label(RichText::new(&self.media.status).weak().small());
             ui.separator();
         }
@@ -1043,16 +1124,16 @@ impl KakuApp {
                 ui.horizontal(|ui| {
                     ui.label("CPS");
                     ui.add(egui::DragValue::new(&mut self.qc_cfg.max_cps).range(5.0..=60.0));
-                    ui.label("Chars");
+                    ui.label(t("Chars"));
                     ui.add(egui::DragValue::new(&mut self.qc_cfg.max_line_chars).range(10..=120));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Min ms");
+                    ui.label(t("Min ms"));
                     ui.add(egui::DragValue::new(&mut self.qc_cfg.min_duration).range(0..=3000));
-                    ui.label("Max ms");
+                    ui.label(t("Max ms"));
                     ui.add(egui::DragValue::new(&mut self.qc_cfg.max_duration).range(1000..=30000));
                 });
-                if ui.button("Re-check").clicked() {
+                if ui.button(t("Re-check")).clicked() {
                     self.qc_dirty = true;
                 }
                 ui.label(format!("{} issue(s)", self.issues.len()));
@@ -1118,24 +1199,24 @@ impl KakuApp {
     fn styles_tab(&mut self, ui: &mut egui::Ui) {
         let names: Vec<String> = self.script.styles().map(|s| s.name.clone()).collect();
         if names.is_empty() {
-            ui.label("No styles");
+            ui.label(t("No styles"));
             return;
         }
         self.style_edit = self.style_edit.min(names.len() - 1);
         let cur = names[self.style_edit].clone();
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Duplicate").clicked() {
+            if ui.button(t("Duplicate")).clicked() {
                 let mut new = None;
                 self.edit("Duplicate style", |s| new = kaku_core::styles::duplicate(s, &cur));
                 if let Some(n) = new {
                     self.style_edit = self.script.styles().position(|x| x.name == n).unwrap_or(0);
                 }
             }
-            if ui.button("Delete").clicked() && names.len() > 1 {
+            if ui.button(t("Delete")).clicked() && names.len() > 1 {
                 let repl = names.iter().find(|n| **n != cur).cloned();
                 self.edit("Delete style", |s| kaku_core::styles::delete(s, &cur, repl.as_deref()));
             }
-            if ui.button("Import…").clicked() {
+            if ui.button(t("Import…")).clicked() {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
                     if let Ok(b) = std::fs::read(&p) {
                         let src = formats::load(&p.to_string_lossy(), &b);
@@ -1154,7 +1235,7 @@ impl KakuApp {
         });
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut self.style_rename).hint_text("new name").desired_width(140.0));
-            if ui.button("Rename").clicked() && !self.style_rename.trim().is_empty() {
+            if ui.button(t("Rename")).clicked() && !self.style_rename.trim().is_empty() {
                 let to = self.style_rename.trim().to_string();
                 let mut ok = false;
                 self.edit("Rename style", |s| ok = kaku_core::styles::rename(s, &cur, &to));
@@ -1179,13 +1260,13 @@ impl KakuApp {
         let Entry::Style(mut st) = self.script.entries[idx].clone() else { return };
         let orig = st.clone();
         egui::Grid::new("style_grid").num_columns(2).show(ui, |ui| {
-            ui.label("Font");
+            ui.label(t("Font"));
             ui.text_edit_singleline(&mut st.fontname);
             ui.end_row();
-            ui.label("Size");
+            ui.label(t("Size"));
             ui.add(egui::DragValue::new(&mut st.fontsize).range(1.0..=500.0));
             ui.end_row();
-            ui.label("Bold / Italic");
+            ui.label(t("Bold / Italic"));
             ui.horizontal(|ui| {
                 ui.checkbox(&mut st.bold, "B");
                 ui.checkbox(&mut st.italic, "I");
@@ -1203,16 +1284,16 @@ impl KakuApp {
                 }
                 ui.end_row();
             }
-            ui.label("Outline / Shadow");
+            ui.label(t("Outline / Shadow"));
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut st.outline).speed(0.1).range(0.0..=50.0));
                 ui.add(egui::DragValue::new(&mut st.shadow).speed(0.1).range(0.0..=50.0));
             });
             ui.end_row();
-            ui.label("Alignment");
+            ui.label(t("Alignment"));
             ui.add(egui::DragValue::new(&mut st.align).range(1..=9));
             ui.end_row();
-            ui.label("Margins L R V");
+            ui.label(t("Margins L R V"));
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut st.margin_l));
                 ui.add(egui::DragValue::new(&mut st.margin_r));
@@ -1230,19 +1311,19 @@ impl KakuApp {
     fn windows(&mut self, ctx: &egui::Context) {
         if self.find.open {
             let mut open = true;
-            egui::Window::new("Find / Replace").open(&mut open).default_width(360.0).show(ctx, |ui| {
+            egui::Window::new(t("Find / Replace")).open(&mut open).default_width(360.0).show(ctx, |ui| {
                 egui::Grid::new("fr").num_columns(2).show(ui, |ui| {
-                    ui.label("Find");
+                    ui.label(t("Find"));
                     ui.text_edit_singleline(&mut self.find.pattern);
                     ui.end_row();
-                    ui.label("Replace");
+                    ui.label(t("Replace"));
                     ui.text_edit_singleline(&mut self.find.replace);
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.find.regex, "Regex");
-                    ui.checkbox(&mut self.find.case, "Match case");
-                    ui.checkbox(&mut self.find.word, "Whole word");
+                    ui.checkbox(&mut self.find.regex, t("Regex"));
+                    ui.checkbox(&mut self.find.case, t("Match case"));
+                    ui.checkbox(&mut self.find.word, t("Whole word"));
                 });
                 egui::ComboBox::from_label("in").selected_text(["Text (raw)", "Text (no tags)", "Style", "Actor", "Effect"][self.find.field.min(4)]).show_ui(ui, |ui| {
                     for (i, n) in ["Text (raw)", "Text (no tags)", "Style", "Actor", "Effect"].iter().enumerate() {
@@ -1250,13 +1331,13 @@ impl KakuApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Find next").clicked() {
+                    if ui.button(t("Find next")).clicked() {
                         self.run_find(false, false);
                     }
-                    if ui.button("Replace").clicked() {
+                    if ui.button(t("Replace")).clicked() {
                         self.run_find(true, false);
                     }
-                    if ui.button("Replace all").clicked() {
+                    if ui.button(t("Replace all")).clicked() {
                         self.run_find(true, true);
                     }
                 });
@@ -1265,22 +1346,22 @@ impl KakuApp {
         }
         if self.shift_open {
             let mut open = true;
-            egui::Window::new("Shift times").open(&mut open).show(ctx, |ui| {
+            egui::Window::new(t("Shift times")).open(&mut open).show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Milliseconds");
+                    ui.label(t("Milliseconds"));
                     ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10));
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Selected").clicked() {
+                    if ui.button(t("Selected")).clicked() {
                         let sel = self.selected_vec();
                         let d = self.shift_ms;
                         self.edit("Shift selected", |s| ops::shift(s, d, Some(&sel)));
                     }
-                    if ui.button("All").clicked() {
+                    if ui.button(t("All")).clicked() {
                         let d = self.shift_ms;
                         self.edit("Shift all", |s| ops::shift(s, d, None));
                     }
-                    if ui.button("From selected to end").clicked() {
+                    if ui.button(t("From selected to end")).clicked() {
                         let first = self.sel.iter().next().copied().unwrap_or(0);
                         let sel: Vec<usize> = (first..self.ev.len()).collect();
                         let d = self.shift_ms;
@@ -1292,16 +1373,16 @@ impl KakuApp {
         }
         if self.fonts_open {
             let mut open = true;
-            egui::Window::new("Fonts").open(&mut open).default_width(520.0).show(ctx, |ui| {
-                if ui.button("Re-scan").clicked() {
+            egui::Window::new(t("Fonts")).open(&mut open).default_width(520.0).show(ctx, |ui| {
+                if ui.button(t("Re-scan")).clicked() {
                     self.fonts_cache = kaku_core::fonts::check_fonts(&self.script);
                 }
                 egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                     egui::Grid::new("fonts_grid").striped(true).num_columns(4).show(ui, |ui| {
-                        ui.strong("Font");
+                        ui.strong(t("Font"));
                         ui.strong("B/I");
-                        ui.strong("Lines");
-                        ui.strong("Status");
+                        ui.strong(t("Lines"));
+                        ui.strong(t("Status"));
                         ui.end_row();
                         for f in &self.fonts_cache {
                             ui.label(&f.used.family);
@@ -1318,7 +1399,7 @@ impl KakuApp {
                         }
                     });
                 });
-                if ui.button("Collect font files to folder…").clicked() {
+                if ui.button(t("Collect font files to folder…")).clicked() {
                     if let Some(d) = rfd::FileDialog::new().pick_folder() {
                         match kaku_core::fonts::collect_fonts(&self.script, &d) {
                             Ok((c, m)) => self.status = format!("Copied {} font file(s); {} not found", c.len(), m.len()),
@@ -1333,7 +1414,7 @@ impl KakuApp {
         }
         if self.resample_open {
             let mut open = true;
-            egui::Window::new("Resample resolution").open(&mut open).show(ctx, |ui| {
+            egui::Window::new(t("Resample resolution")).open(&mut open).show(ctx, |ui| {
                 let (ox, oy) = self.script.play_res();
                 ui.label(format!("Current: {ox}×{oy}"));
                 ui.horizontal(|ui| {
@@ -1346,7 +1427,7 @@ impl KakuApp {
                         }
                     }
                 });
-                if ui.button("Resample").clicked() {
+                if ui.button(t("Resample")).clicked() {
                     let (x, y) = self.resample_xy;
                     let mut ok = false;
                     self.edit("Resample", |s| ok = kaku_core::resample::resample(s, x, y, Default::default()));
@@ -1360,19 +1441,19 @@ impl KakuApp {
         }
         if self.tpp_open {
             let mut open = true;
-            egui::Window::new("Timing post-processor").open(&mut open).show(ctx, |ui| {
+            egui::Window::new(t("Timing post-processor")).open(&mut open).show(ctx, |ui| {
                 egui::Grid::new("tpp").num_columns(2).show(ui, |ui| {
-                    ui.label("Lead-in (ms)");
+                    ui.label(t("Lead-in (ms)"));
                     ui.add(egui::DragValue::new(&mut self.tpp.0).range(0..=2000));
                     ui.end_row();
-                    ui.label("Lead-out (ms)");
+                    ui.label(t("Lead-out (ms)"));
                     ui.add(egui::DragValue::new(&mut self.tpp.1).range(0..=2000));
                     ui.end_row();
-                    ui.label("Join gaps up to (ms)");
+                    ui.label(t("Join gaps up to (ms)"));
                     ui.add(egui::DragValue::new(&mut self.tpp.2).range(0..=2000));
                     ui.end_row();
                 });
-                if ui.button("Apply").clicked() {
+                if ui.button(t("Apply")).clicked() {
                     let t = kaku_core::textfix::Tpp { lead_in: self.tpp.0, lead_out: self.tpp.1, join_gap: self.tpp.2 };
                     let mut n = 0;
                     self.edit("Timing post-process", |s| n = kaku_core::textfix::timing_post_process(s, t));
@@ -1448,7 +1529,7 @@ impl KakuApp {
         }
         if let Some(text) = self.log_window.clone() {
             let mut open = true;
-            egui::Window::new("Automation log").open(&mut open).show(ctx, |ui| {
+            egui::Window::new(t("Automation log")).open(&mut open).show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| ui.monospace(&text));
             });
             if !open {
