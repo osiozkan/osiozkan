@@ -251,3 +251,38 @@ pub fn install_utf8(lua: &Lua) -> Result<Table> {
     })?)?;
     Ok(u)
 }
+
+/// Minimal LuaFileSystem: attributes, dir, mkdir, rmdir, currentdir, chdir.
+pub fn install_lfs(lua: &Lua) -> Result<Table> {
+    let t = lua.create_table()?;
+    t.set("currentdir", lua.create_function(|_, ()| Ok(std::env::current_dir().map(|p| p.to_string_lossy().to_string()).ok()))?)?;
+    t.set("chdir", lua.create_function(|_, p: String| Ok(std::env::set_current_dir(p).is_ok()))?)?;
+    t.set("mkdir", lua.create_function(|_, p: String| Ok(std::fs::create_dir(p).is_ok()))?)?;
+    t.set("rmdir", lua.create_function(|_, p: String| Ok(std::fs::remove_dir(p).is_ok()))?)?;
+    t.set("attributes", lua.create_function(|lua, (p, attr): (String, Option<String>)| {
+        let Ok(m) = std::fs::metadata(&p) else { return Ok(Value::Nil) };
+        let out = lua.create_table()?;
+        out.set("mode", if m.is_dir() { "directory" } else { "file" })?;
+        out.set("size", m.len())?;
+        let secs = |t: std::io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+        out.set("modification", secs(m.modified()))?;
+        out.set("access", secs(m.accessed()))?;
+        out.set("change", secs(m.modified()))?;
+        match attr {
+            Some(a) => out.get::<Value>(a),
+            None => Ok(Value::Table(out)),
+        }
+    })?)?;
+    t.set("dir", lua.create_function(|lua, p: String| {
+        let mut names: Vec<String> = vec![".".into(), "..".into()];
+        if let Ok(rd) = std::fs::read_dir(&p) {
+            names.extend(rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()));
+        }
+        let mut i = 0usize;
+        lua.create_function_mut(move |_, ()| {
+            i += 1;
+            Ok(names.get(i - 1).cloned())
+        })
+    })?)?;
+    Ok(t)
+}

@@ -119,3 +119,14 @@ fn karaoke_templater_generates_lines() {
     let (out2, _) = run_by_name(&rt, &regs, "Apply karaoke template", out, vec![]).unwrap();
     assert_eq!(out2.lines().filter(|l| l.effect == "fx").count(), 5);
 }
+
+#[test]
+fn require_sets_globals_and_lfs() {
+    let rt = Runtime::new().unwrap();
+    let regs = rt.load_source(
+        b"require 'karaskel'; require 'util'; local lfs = require 'lfs'; aegisub.register_macro('g','',function() aegisub.debug.out('%s %s %s', type(karaskel), type(util.copy), tostring(lfs.attributes('.', 'mode'))) end)",
+        "t",
+    ).unwrap();
+    let (_, out) = run_by_name(&rt, &regs, "g", Script::new_default(), vec![]).unwrap();
+    assert_eq!(out.log, vec!["table function directory".to_string()]);
+}

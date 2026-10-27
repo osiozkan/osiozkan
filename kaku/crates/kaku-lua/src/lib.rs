@@ -163,9 +163,18 @@ impl Runtime {
         let package: Table = g.get("package")?;
         let preload: Table = package.get("preload")?;
         let util_src = UTIL_LUA;
-        preload.set("util", lua.create_function(move |lua, ()| lua.load(util_src).set_name("=util.lua").eval::<Value>())?)?;
+        preload.set("util", lua.create_function(move |lua, ()| {
+            let m: Value = lua.load(util_src).set_name("=util.lua").eval()?;
+            lua.globals().set("util", m.clone())?;
+            Ok(m)
+        })?)?;
         preload.set("aegisub.util", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("util"))?)?;
-        preload.set("karaskel", lua.create_function(|lua, ()| lua.load(KARASKEL_LUA).set_name("=karaskel.lua").eval::<Value>())?)?;
+        preload.set("karaskel", lua.create_function(|lua, ()| {
+            let m: Value = lua.load(KARASKEL_LUA).set_name("=karaskel.lua").eval()?;
+            lua.globals().set("karaskel", m.clone())?;
+            Ok(m)
+        })?)?;
+        preload.set("lfs", lua.create_function(|lua, ()| natives::install_lfs(lua))?)?;
         preload.set("utf8", lua.create_function(|lua, ()| natives::install_utf8(lua))?)?;
         let re = natives::install_re(lua)?;
         preload.set("re", lua.create_function(move |_, ()| Ok(re.clone()))?)?;

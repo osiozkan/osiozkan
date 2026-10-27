@@ -54,6 +54,7 @@ pub struct KakuApp {
     tpp_open: bool,
     tpp: (i64, i64, i64),
     balance_max: usize,
+    style_rename: String,
     turkish: bool,
     side_tab: usize,
     rt: Option<Runtime>,
@@ -96,6 +97,7 @@ impl KakuApp {
             tpp_open: false,
             tpp: (120, 400, 300),
             balance_max: 42,
+            style_rename: String::new(),
             turkish: true,
             side_tab: 0,
             rt: None,
@@ -1085,6 +1087,52 @@ impl KakuApp {
             return;
         }
         self.style_edit = self.style_edit.min(names.len() - 1);
+        let cur = names[self.style_edit].clone();
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Duplicate").clicked() {
+                let mut new = None;
+                self.edit("Duplicate style", |s| new = kaku_core::styles::duplicate(s, &cur));
+                if let Some(n) = new {
+                    self.style_edit = self.script.styles().position(|x| x.name == n).unwrap_or(0);
+                }
+            }
+            if ui.button("Delete").clicked() && names.len() > 1 {
+                let repl = names.iter().find(|n| **n != cur).cloned();
+                self.edit("Delete style", |s| kaku_core::styles::delete(s, &cur, repl.as_deref()));
+            }
+            if ui.button("Import…").clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
+                    if let Ok(b) = std::fs::read(&p) {
+                        let src = formats::load(&p.to_string_lossy(), &b);
+                        let mut n = 0;
+                        self.edit("Import styles", |s| n = kaku_core::styles::import(s, &src, None, false));
+                        self.status = format!("Imported {n} style(s)");
+                    }
+                }
+            }
+            let miss = kaku_core::styles::missing(&self.script);
+            if !miss.is_empty() && ui.button(format!("Create {} missing", miss.len())).clicked() {
+                self.edit("Create missing styles", |s| {
+                    kaku_core::styles::create_missing(s);
+                });
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.style_rename).hint_text("new name").desired_width(140.0));
+            if ui.button("Rename").clicked() && !self.style_rename.trim().is_empty() {
+                let to = self.style_rename.trim().to_string();
+                let mut ok = false;
+                self.edit("Rename style", |s| ok = kaku_core::styles::rename(s, &cur, &to));
+                if ok {
+                    self.style_edit = self.script.styles().position(|x| x.name == to).unwrap_or(0);
+                    self.style_rename.clear();
+                } else {
+                    self.status = "Rename failed (name exists?)".into();
+                }
+            }
+        });
+        let names: Vec<String> = self.script.styles().map(|s| s.name.clone()).collect();
+        self.style_edit = self.style_edit.min(names.len().saturating_sub(1));
         egui::ComboBox::from_id_salt("style_pick").selected_text(&names[self.style_edit]).show_ui(ui, |ui| {
             for (i, n) in names.iter().enumerate() {
                 ui.selectable_value(&mut self.style_edit, i, n);
