@@ -163,6 +163,42 @@ pub fn merge_blocks(text: &str) -> String {
     render(&out)
 }
 
+/// Tags that may legitimately repeat inside one block (animations, karaoke sequences).
+fn repeatable(name: &str) -> bool {
+    matches!(name, "t" | "k" | "K" | "kf" | "ko" | "" )
+}
+
+/// Clean override tags: merge adjacent blocks, drop empty blocks, and within a block keep only the
+/// last occurrence of each non-repeatable tag (later values win in the renderer anyway).
+pub fn clean(text: &str) -> String {
+    let merged = parse(&merge_blocks(text));
+    let out: Vec<Seg> = merged
+        .into_iter()
+        .filter_map(|s| match s {
+            Seg::Block(tags) => {
+                let mut keep: Vec<Tag> = Vec::new();
+                for (i, t) in tags.iter().enumerate() {
+                    let later_dup = !repeatable(&t.name) && tags[i + 1..].iter().any(|u| u.name == t.name && !(t.name == "r"));
+                    if !later_dup {
+                        keep.push(t.clone());
+                    }
+                }
+                if keep.is_empty() { None } else { Some(Seg::Block(keep)) }
+            }
+            x => Some(x),
+        })
+        .collect();
+    render(&out)
+}
+
+/// Insert override tags at the start of the text (into the first block when it exists).
+pub fn prepend_tags(text: &str, new_tags: &str) -> String {
+    match text.strip_prefix('{') {
+        Some(rest) => format!("{{{}{}", new_tags, rest),
+        None => format!("{{{}}}{}", new_tags, text),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +222,14 @@ mod tests {
         let tags = parse_block("\\fscx120\\fs30\\fsp2");
         let names: Vec<_> = tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["fscx", "fs", "fsp"]);
+    }
+
+    #[test]
+    fn cleaning() {
+        assert_eq!(clean("{\\i1}{\\b1\\i0}x{}y{\\fs20\\fs30}z"), "{\\b1\\i0}xy{\\fs30}z");
+        assert_eq!(clean("{\\t(0,10,\\fs5)\\t(10,20,\\fs9)}a"), "{\\t(0,10,\\fs5)\\t(10,20,\\fs9)}a");
+        assert_eq!(prepend_tags("hi", "\\blur0.6"), "{\\blur0.6}hi");
+        assert_eq!(prepend_tags("{\\an8}hi", "\\blur0.6"), "{\\blur0.6\\an8}hi");
     }
 
     #[test]

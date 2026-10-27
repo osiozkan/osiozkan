@@ -604,6 +604,41 @@ impl KakuApp {
                     });
                     self.status = format!("Changed {n} line(s)");
                 }
+                ui.menu_button("Tags", |ui| {
+                    let apply = |me: &mut Self, label: &str, f: &dyn Fn(&str) -> String| {
+                        let sel = me.selected_vec();
+                        me.history.record(label, &me.script);
+                        for i in sel {
+                            if let Some(l) = me.line_mut(i) {
+                                l.text = f(&l.text);
+                            }
+                        }
+                        me.dirty = true;
+                        me.qc_dirty = true;
+                    };
+                    if ui.button("Clean tags (selected)").clicked() {
+                        ui.close();
+                        apply(self, "Clean tags", &|t| tags::clean(t));
+                    }
+                    if ui.button("Strip all tags (selected)").clicked() {
+                        ui.close();
+                        apply(self, "Strip tags", &|t| tags::strip_tags(t));
+                    }
+                    if ui.button("Add \\blur0.6 (selected)").clicked() {
+                        ui.close();
+                        apply(self, "Add blur", &|t| tags::prepend_tags(t, "\\blur0.6"));
+                    }
+                });
+                if ui.button("Select overlapping lines").clicked() {
+                    ui.close();
+                    let o = ops::find_overlaps(&self.script);
+                    self.status = format!("{} overlapping line(s)", o.len());
+                    self.sel = o.into_iter().collect();
+                    if let Some(&f) = self.sel.iter().next() {
+                        self.active = Some(f);
+                        self.scroll_to = Some(f);
+                    }
+                }
                 ui.menu_button(t("Change case (selected)"), |ui| {
                     use kaku_core::textfix::Casing;
                     ui.checkbox(&mut self.turkish, t("Turkish i/İ rules"));

@@ -201,6 +201,26 @@ pub fn fix_common_errors(script: &mut Script) -> usize {
     n
 }
 
+/// Indices (among `lines()`) of dialogue lines that overlap another line in time on the same layer.
+pub fn find_overlaps(script: &Script) -> Vec<usize> {
+    let lines: Vec<&Line> = script.lines().collect();
+    let mut order: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].kind == Kind::Dialogue && !tags::has_drawing(&lines[i].text)).collect();
+    order.sort_by_key(|&i| lines[i].start);
+    let mut hit = std::collections::BTreeSet::new();
+    for (a, &i) in order.iter().enumerate() {
+        for &j in &order[a + 1..] {
+            if lines[j].start >= lines[i].end {
+                break;
+            }
+            if lines[i].layer == lines[j].layer {
+                hit.insert(i);
+                hit.insert(j);
+            }
+        }
+    }
+    hit.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +261,12 @@ mod tests {
         assert_eq!(remove_empty(&mut s), 2);
         assert_eq!(s.lines().next().unwrap().text, "a b,c");
     }
+    #[test]
+    fn overlaps() {
+        let s = sc(&[(0, 1000, "a"), (500, 1500, "b"), (2000, 3000, "c")]);
+        assert_eq!(find_overlaps(&s), vec![0, 1]);
+    }
+
     #[test]
     fn merging() {
         let mut s = sc(&[(0, 1000, "a"), (1000, 2000, "b"), (3000, 4000, "c")]);
