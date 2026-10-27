@@ -1,0 +1,1 @@
+-- Aegisub-flavoured globals available to scripts: `include`, `unicode`, `re`, etc. are wired in Rust.

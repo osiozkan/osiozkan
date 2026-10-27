@@ -8,3 +8,4 @@ license.workspace = true
 kaku-core = { path = "../kaku-core" }
 mlua = { version = "0.12", features = ["luajit", "vendored"] }
 regex = "1"
+fancy-regex = "0.14"
