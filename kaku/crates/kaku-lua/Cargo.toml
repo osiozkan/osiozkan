@@ -1,0 +1,10 @@
+[package]
+name = "kaku-lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kaku-core = { path = "../kaku-core" }
+mlua = { version = "0.12", features = ["luajit", "vendored"] }
+regex = "1"

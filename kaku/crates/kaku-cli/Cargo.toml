@@ -1,0 +1,13 @@
+[package]
+name = "kaku-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kaku"
+path = "src/main.rs"
+
+[dependencies]
+kaku-core = { path = "../kaku-core" }
+kaku-lua = { path = "../kaku-lua" }
