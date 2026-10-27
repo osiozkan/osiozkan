@@ -210,3 +210,44 @@ pub fn approx_extents(fontsize: f64, scale_x: f64, scale_y: f64, spacing: f64, b
     let d = fontsize * 0.22 * scale_y / 100.0;
     (w, h, d, 0.0)
 }
+
+/// Minimal `utf8` library (lua-utf8 flavoured): char, len, codepoint, sub, reverse, upper, lower.
+pub fn install_utf8(lua: &Lua) -> Result<Table> {
+    let u = lua.create_table()?;
+    u.set("char", lua.create_function(|_, args: MultiValue| {
+        let mut s = String::new();
+        for a in args {
+            let n = match a { Value::Integer(i) => i as u32, Value::Number(f) => f as u32, _ => 0 };
+            s.push(char::from_u32(n).unwrap_or('\u{FFFD}'));
+        }
+        Ok(s)
+    })?)?;
+    u.set("len", lua.create_function(|_, s: String| Ok(s.chars().count()))?)?;
+    u.set("upper", lua.create_function(|_, s: String| Ok(s.to_uppercase()))?)?;
+    u.set("lower", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
+    u.set("reverse", lua.create_function(|_, s: String| Ok(s.chars().rev().collect::<String>()))?)?;
+    u.set("codepoint", lua.create_function(|_, (s, i, j): (String, Option<i64>, Option<i64>)| {
+        let cs: Vec<char> = s.chars().collect();
+        let n = cs.len() as i64;
+        let i = i.unwrap_or(1);
+        let i = if i < 0 { n + i + 1 } else { i }.max(1);
+        let j = j.unwrap_or(i);
+        let j = if j < 0 { n + j + 1 } else { j }.min(n);
+        let mut out = Vec::new();
+        let mut k = i;
+        while k <= j {
+            out.push(Value::Integer(cs[(k - 1) as usize] as i64));
+            k += 1;
+        }
+        Ok(MultiValue::from_vec(out))
+    })?)?;
+    u.set("sub", lua.create_function(|_, (s, i, j): (String, i64, Option<i64>)| {
+        let cs: Vec<char> = s.chars().collect();
+        let n = cs.len() as i64;
+        let i = if i < 0 { n + i + 1 } else { i }.max(1);
+        let j = j.unwrap_or(-1);
+        let j = if j < 0 { n + j + 1 } else { j }.min(n);
+        Ok(if i > j { String::new() } else { cs[(i - 1) as usize..j as usize].iter().collect() })
+    })?)?;
+    Ok(u)
+}

@@ -39,6 +39,8 @@ enum Cmd {
     Fix { file: PathBuf, #[arg(short, long)] output: Option<PathBuf> },
     /// Change frame rate (e.g. 23.976 -> 25)
     Fps { file: PathBuf, from: f64, to: f64, #[arg(short, long)] output: Option<PathBuf> },
+    /// Apply the karaoke templater (Aegisub-compatible) to a script
+    Template { file: PathBuf, #[arg(short, long)] output: Option<PathBuf>, #[arg(short = 'I', long = "include")] include: Vec<PathBuf> },
     /// List macros/filters registered by a Lua automation script
     Macros { script: PathBuf, #[arg(short = 'I', long = "include")] include: Vec<PathBuf> },
     /// Run an Aegisub-style Lua macro/filter on a subtitle file
@@ -133,6 +135,19 @@ fn run() -> Result<ExitCode, String> {
         Cmd::Fps { file, from, to, output } => {
             let mut s = load(&file)?;
             ops::change_fps(&mut s, fps_of(from), fps_of(to));
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Template { file, output, include } => {
+            let rt = Runtime::new().map_err(|e| e.to_string())?;
+            for d in include {
+                rt.add_include_dir(d);
+            }
+            let regs = rt.load_builtins().map_err(|e| e.to_string())?;
+            let s = load(&file)?;
+            let (s, out) = kaku_lua::run_by_name(&rt, &regs, "Apply karaoke template", s, vec![]).map_err(|e| e.to_string())?;
+            for l in &out.log {
+                eprintln!("{l}");
+            }
             save(&output.unwrap_or(file), &s)?;
         }
         Cmd::Macros { script, include } => {

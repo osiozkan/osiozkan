@@ -85,3 +85,37 @@ fn ipairs_over_subs() {
     let (_, out) = run_by_name(&rt, &regs, "c", sc.clone(), vec![]).unwrap();
     assert_eq!(out.log, vec![format!("n={}", sc.entries.len())]);
 }
+
+#[test]
+fn utf8_and_unicode_modules() {
+    let rt = Runtime::new().unwrap();
+    let regs = rt.load_source(
+        b"local u=require'utf8'; local un=require'unicode'; aegisub.register_macro('u','',function() aegisub.debug.out('%d %s %d %s', u.len('d\xc3\xbcnya'), u.sub('d\xc3\xbcnya',2,3), un.len('\xc4\xb1\xc5\x9f'), u.char(252)) end)",
+        "t",
+    ).unwrap();
+    let (_, out) = run_by_name(&rt, &regs, "u", Script::new_default(), vec![]).unwrap();
+    assert_eq!(out.log, vec!["5 ün 2 ü".to_string()]);
+}
+
+#[test]
+fn karaoke_templater_generates_lines() {
+    let rt = Runtime::new().unwrap();
+    let regs = rt.load_builtins().unwrap();
+    assert_eq!(regs[0].name, "Apply karaoke template");
+    let sc = Script::parse(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/templater_demo.ass")).unwrap());
+    let (out, res) = run_by_name(&rt, &regs, "Apply karaoke template", sc, vec![]).unwrap();
+    assert!(res.log[0].contains("generated 5 line"), "{:?}", res.log);
+    let fx: Vec<_> = out.lines().filter(|l| l.effect == "fx").collect();
+    assert_eq!(fx.len(), 5);
+    // first syl: starts 300 ms before the line start, ends at syl start (retime start2syl -300,0)
+    assert_eq!(fx[0].start, 10000 - 300);
+    assert_eq!(fx[0].end, 10000);
+    assert!(fx[0].text.starts_with("{\\pos("));
+    assert!(fx[0].text.contains("\\fad(300,200)"));
+    assert!(fx[0].text.contains("\\t(0,500,"));
+    assert!(fx[0].text.ends_with("}ka"));
+    assert_eq!(fx[4].text, "{\\an2\\fad(100,100)}kara oke");
+    // regenerating must not duplicate
+    let (out2, _) = run_by_name(&rt, &regs, "Apply karaoke template", out, vec![]).unwrap();
+    assert_eq!(out2.lines().filter(|l| l.effect == "fx").count(), 5);
+}

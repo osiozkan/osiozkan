@@ -17,6 +17,7 @@ pub use subs::Shared;
 
 const UTIL_LUA: &str = include_str!("../lua/util.lua");
 const KARASKEL_LUA: &str = include_str!("../lua/karaskel.lua");
+const TEMPLATER_LUA: &str = include_str!("../lua/kara-templater.lua");
 const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 const CANCEL_MARK: &str = "__kaku_cancel__";
 const NEED_DIALOG_MARK: &str = "__kaku_need_dialog__";
@@ -165,6 +166,7 @@ impl Runtime {
         preload.set("util", lua.create_function(move |lua, ()| lua.load(util_src).set_name("=util.lua").eval::<Value>())?)?;
         preload.set("aegisub.util", lua.create_function(|lua, ()| lua.globals().get::<Function>("require")?.call::<Value>("util"))?)?;
         preload.set("karaskel", lua.create_function(|lua, ()| lua.load(KARASKEL_LUA).set_name("=karaskel.lua").eval::<Value>())?)?;
+        preload.set("utf8", lua.create_function(|lua, ()| natives::install_utf8(lua))?)?;
         let re = natives::install_re(lua)?;
         preload.set("re", lua.create_function(move |_, ()| Ok(re.clone()))?)?;
         let uni = natives::install_unicode(lua)?;
@@ -407,7 +409,7 @@ impl Runtime {
         let package: Table = self.lua.globals().get("package")?;
         let mut path: String = package.get("path")?;
         let mut add = |d: &Path| {
-            path = format!("{}/?.lua;{}", d.display(), path);
+            path = format!("{0}/?.lua;{0}/?/init.lua;{1}", d.display(), path);
         };
         if let Some(d) = self.script_path.borrow().as_ref().and_then(|p| p.parent()) {
             add(d);
@@ -416,6 +418,11 @@ impl Runtime {
             add(d);
         }
         package.set("path", path)
+    }
+
+    /// Register the built-in automation scripts (karaoke templater). Returns what was registered.
+    pub fn load_builtins(&self) -> Result<Vec<Registered>, Error> {
+        self.load_source(TEMPLATER_LUA.as_bytes(), "kara-templater.lua")
     }
 
     /// Load an automation script; returns the macros/filters it registered.

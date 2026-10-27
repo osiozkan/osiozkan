@@ -89,6 +89,7 @@ impl KakuApp {
             time_buf: (usize::MAX, String::new(), String::new()),
         };
         a.reindex();
+        a.ensure_runtime();
         a.autoload_scripts();
         a
     }
@@ -110,17 +111,29 @@ impl KakuApp {
         }
     }
 
-    fn load_lua(&mut self, path: &Path) {
+    fn ensure_runtime(&mut self) {
         if self.rt.is_none() {
             match Runtime::new() {
-                Ok(r) => self.rt = Some(r),
+                Ok(r) => {
+                    if let Some(h) = std::env::var_os("HOME") {
+                        r.add_include_dir(PathBuf::from(h).join(".kaku/automation/include"));
+                    }
+                    r.add_include_dir("automation/include");
+                    if let Ok(b) = r.load_builtins() {
+                        self.macros.extend(b);
+                    }
+                    self.rt = Some(r);
+                }
                 Err(e) => {
                     self.status = format!("Lua init failed: {e}");
-                    return;
                 }
             }
         }
-        let rt = self.rt.as_ref().unwrap();
+    }
+
+    fn load_lua(&mut self, path: &Path) {
+        self.ensure_runtime();
+        let Some(rt) = self.rt.as_ref() else { return };
         match rt.load_script(path) {
             Ok(r) => {
                 self.status = format!("Loaded {} ({} macros)", path.display(), r.len());

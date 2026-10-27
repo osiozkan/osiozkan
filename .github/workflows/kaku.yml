@@ -1,0 +1,46 @@
+name: kaku
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths: ["kaku/**", ".github/workflows/kaku.yml"]
+  pull_request:
+    paths: ["kaku/**"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: kaku } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: kaku }
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev
+      - run: cargo test --workspace
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/kaku-v')
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, ext: .exe, name: windows-x64 }
+          - { os: ubuntu-latest, ext: "", name: linux-x64 }
+          - { os: macos-latest, ext: "", name: macos-arm64 }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { working-directory: kaku } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: kaku }
+      - if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev
+      - run: cargo build --release -p kaku-cli -p kaku-gui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaku-${{ matrix.name }}
+          path: |
+            kaku/target/release/kaku${{ matrix.ext }}
+            kaku/target/release/kaku-gui${{ matrix.ext }}
