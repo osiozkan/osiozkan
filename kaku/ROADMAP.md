@@ -23,5 +23,12 @@
 5. Styles manager: import/export, resample resolution, translation assistant, spellcheck (hunspell), Turkish typography fixes.
 6. Auto4 `.lua` compatibility test-suite using the user's scripts (drop them into `examples/user_scripts/`).
 
+## Next night — start here
+- Extended "fix common errors" (space after punctuation, ellipsis, dialogue dashes, sentence caps, min/max duration, merge same text) with GUI checkbox window.
+- Templater: `mixin`, `furi`, `fxgroup`; compare against real Aegisub output once user scripts are available (`examples/user_scripts/`).
+- Spectrogram, VFR timecodes, scene-change detection, real playback.
+- Translation workflow (two-column view), spellcheck.
+
 ## Nightly log
 - 2026-10-27: project bootstrapped (core, lua runtime, CLI, tests).
+- 2026-10-27 (night 1, later): GUI (egui, TR/EN), media pane (video preview via libass, waveform retiming, karaoke syllable dragging, click-to-\pos), templater, resample, TPP, fonts check/collect/embed/extract, styles manager, LRC/SUB/SBV, autosave/recent/drag-drop, F5 script reload.
