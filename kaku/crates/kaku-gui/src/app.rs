@@ -173,6 +173,21 @@ impl KakuApp {
         }
     }
 
+    /// Drop the Lua state and load every known script again (pick up edits while developing macros).
+    fn reload_scripts(&mut self) {
+        let paths = std::mem::take(&mut self.lua_paths);
+        self.rt = None;
+        self.macros.clear();
+        self.ensure_runtime();
+        self.autoload_scripts();
+        for p in paths {
+            if !self.lua_paths.contains(&p) {
+                self.load_lua(&p);
+            }
+        }
+        self.status = format!("Reloaded {} script(s), {} macro(s)", self.lua_paths.len(), self.macros.len());
+    }
+
     fn load_lua(&mut self, path: &Path) {
         self.ensure_runtime();
         let Some(rt) = self.rt.as_ref() else { return };
@@ -440,6 +455,12 @@ impl KakuApp {
         let sel: Vec<usize> = self.sel.iter().filter_map(|&i| self.ev.get(i)).map(|e| e + 1).collect();
         let active = self.active.and_then(|a| self.ev.get(a)).map(|e| e + 1).unwrap_or(1);
         let shared = Rc::new(RefCell::new(self.script.clone()));
+        if pm.answers.is_empty() {
+            if let Ok(false) = rt.validate(pm.reg.index, &shared, &sel, active) {
+                self.status = format!("{}: not applicable to the current selection", pm.reg.name);
+                return;
+            }
+        }
         let res = rt.run(pm.reg.index, &shared, &sel, active);
         let log_text;
         match res {
@@ -493,6 +514,9 @@ impl KakuApp {
             )
         });
         let _ = del;
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) {
+            self.reload_scripts();
+        }
         if open {
             self.do_open();
         }
@@ -808,6 +832,10 @@ impl KakuApp {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() {
                         self.load_lua(&p);
                     }
+                }
+                if ui.button("Reload scripts   F5").clicked() {
+                    ui.close();
+                    self.reload_scripts();
                 }
                 ui.separator();
                 if self.macros.is_empty() {
