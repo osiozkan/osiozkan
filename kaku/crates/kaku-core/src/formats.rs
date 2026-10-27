@@ -124,11 +124,104 @@ pub fn write_vtt(script: &Script) -> String {
     out
 }
 
+/// LRC lyrics: `[mm:ss.xx]text`; each line ends where the next begins (last gets 3 s).
+pub fn parse_lrc(input: &str) -> Script {
+    let re = regex::Regex::new(r"^((?:\[\d+:\d+(?:[.:]\d+)?\])+)(.*)$").unwrap();
+    let ts = regex::Regex::new(r"\[(\d+):(\d+)(?:[.:](\d+))?\]").unwrap();
+    let mut items: Vec<(i64, String)> = Vec::new();
+    for line in input.lines() {
+        let line = line.trim();
+        if let Some(c) = re.captures(line) {
+            let text = c[2].trim().to_string();
+            for t in ts.captures_iter(&c[1]) {
+                let m: i64 = t[1].parse().unwrap_or(0);
+                let sec: i64 = t[2].parse().unwrap_or(0);
+                let frac = t.get(3).map(|f| { let f = f.as_str(); let v: i64 = f.parse().unwrap_or(0); match f.len() { 1 => v * 100, 2 => v * 10, _ => v } }).unwrap_or(0);
+                items.push(((m * 60 + sec) * 1000 + frac, text.clone()));
+            }
+        }
+    }
+    items.sort_by_key(|i| i.0);
+    let mut script = Script::new_default();
+    for (i, (t, text)) in items.iter().enumerate() {
+        let end = items.get(i + 1).map(|n| n.0).unwrap_or(t + 3000);
+        script.push_line(Line { start: *t, end, text: html_to_ass(text), ..Default::default() });
+    }
+    script
+}
+
+pub fn write_lrc(script: &Script) -> String {
+    let mut out = String::new();
+    let mut lines: Vec<_> = script.lines().filter(|l| l.kind == Kind::Dialogue).collect();
+    lines.sort_by_key(|l| l.start);
+    for l in lines {
+        let t = crate::tags::visible_text(&l.text).replace('\n', " ");
+        let cs = (l.start + 5) / 10;
+        out.push_str(&format!("[{:02}:{:02}.{:02}]{}\n", cs / 6000, cs / 100 % 60, cs % 100, t));
+    }
+    out
+}
+
+/// MicroDVD `{start}{end}text` (frame based; `|` is a line break).
+pub fn parse_microdvd(input: &str, fps: f64) -> Script {
+    let re = regex::Regex::new(r"^\{(\d+)\}\{(\d+)\}(.*)$").unwrap();
+    let mut script = Script::new_default();
+    for line in input.lines() {
+        if let Some(c) = re.captures(line.trim_end()) {
+            let (a, b): (f64, f64) = (c[1].parse().unwrap_or(0.0), c[2].parse().unwrap_or(0.0));
+            let text = c[3].replace('|', "\\N");
+            script.push_line(Line { start: (a * 1000.0 / fps).round() as i64, end: (b * 1000.0 / fps).round() as i64, text, ..Default::default() });
+        }
+    }
+    script
+}
+
+pub fn write_microdvd(script: &Script, fps: f64) -> String {
+    let mut out = String::new();
+    for l in script.lines().filter(|l| l.kind == Kind::Dialogue) {
+        let t = crate::tags::visible_text(&l.text).replace('\n', "|");
+        out.push_str(&format!("{{{}}}{{{}}}{}\n", (l.start as f64 * fps / 1000.0).round() as i64, (l.end as f64 * fps / 1000.0).round() as i64, t));
+    }
+    out
+}
+
+/// YouTube SBV: `h:mm:ss.mmm,h:mm:ss.mmm` followed by text.
+pub fn parse_sbv(input: &str) -> Script {
+    let mut script = Script::new_default();
+    for block in input.replace("\r\n", "\n").split("\n\n") {
+        let mut it = block.lines();
+        let Some(head) = it.next() else { continue };
+        let Some((a, b)) = head.split_once(',') else { continue };
+        let (Some(start), Some(end)) = (parse_ts(a), parse_ts(b)) else { continue };
+        let text = it.collect::<Vec<_>>().join("\\N");
+        script.push_line(Line { start, end, text, ..Default::default() });
+    }
+    script
+}
+
+pub fn write_sbv(script: &Script) -> String {
+    let f = |ms: i64| format!("{}:{:02}:{:02}.{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000);
+    let mut out = String::new();
+    for l in script.lines().filter(|l| l.kind == Kind::Dialogue) {
+        out.push_str(&format!("{},{}\n{}\n\n", f(l.start), f(l.end), crate::tags::visible_text(&l.text)));
+    }
+    out
+}
+
+/// Plain text: one visible text line per event.
+pub fn write_txt(script: &Script) -> String {
+    script.lines().filter(|l| l.kind == Kind::Dialogue).map(|l| crate::tags::visible_text(&l.text).replace('\n', " ")).collect::<Vec<_>>().join("\n") + "\n"
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Ass,
     Srt,
     Vtt,
+    Lrc,
+    MicroDvd,
+    Sbv,
+    Txt,
 }
 
 impl Format {
@@ -138,6 +231,10 @@ impl Format {
             "ass" | "ssa" => Some(Format::Ass),
             "srt" => Some(Format::Srt),
             "vtt" => Some(Format::Vtt),
+            "lrc" => Some(Format::Lrc),
+            "sub" => Some(Format::MicroDvd),
+            "sbv" => Some(Format::Sbv),
+            "txt" => Some(Format::Txt),
             _ => None,
         }
     }
@@ -170,6 +267,9 @@ pub fn load(path: &str, bytes: &[u8]) -> Script {
     match Format::from_path(path) {
         Some(Format::Srt) => parse_srt(&text),
         Some(Format::Vtt) => parse_vtt(&text),
+        Some(Format::Lrc) => parse_lrc(&text),
+        Some(Format::MicroDvd) => parse_microdvd(&text, 23.976),
+        Some(Format::Sbv) => parse_sbv(&text),
         _ => Script::parse(&text),
     }
 }
@@ -178,6 +278,10 @@ pub fn save(path: &str, script: &Script) -> String {
     match Format::from_path(path) {
         Some(Format::Srt) => write_srt(script),
         Some(Format::Vtt) => write_vtt(script),
+        Some(Format::Lrc) => write_lrc(script),
+        Some(Format::MicroDvd) => write_microdvd(script, 23.976),
+        Some(Format::Sbv) => write_sbv(script),
+        Some(Format::Txt) => write_txt(script),
         _ => script.to_string(),
     }
 }
@@ -199,6 +303,20 @@ mod tests {
         assert!(out.contains("<i>Merhaba</i>\ndünya"));
         assert!(out.contains("00:00:01,000 --> 00:00:02,500"));
     }
+    #[test]
+    fn lrc_microdvd_sbv() {
+        let s = parse_lrc("[ar:x]\n[00:01.50]Hello\n[00:03.00]World\n");
+        let l: Vec<_> = s.lines().map(|l| (l.start, l.end, l.text.clone())).collect();
+        assert_eq!(l, [(1500, 3000, "Hello".to_string()), (3000, 6000, "World".to_string())]);
+        assert_eq!(write_lrc(&s), "[00:01.50]Hello\n[00:03.00]World\n");
+        let m = parse_microdvd("{24}{48}Hi|there\n", 24.0);
+        assert_eq!(m.lines().next().unwrap().text, "Hi\\Nthere");
+        assert_eq!(write_microdvd(&m, 24.0), "{24}{48}Hi|there\n");
+        let b = parse_sbv("0:00:01.000,0:00:02.500\nHi\nthere\n\n");
+        assert_eq!(b.lines().next().unwrap().end, 2500);
+        assert!(write_sbv(&b).starts_with("0:00:01.000,0:00:02.500\nHi\nthere"));
+    }
+
     #[test]
     fn vtt_header() {
         let v = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n";

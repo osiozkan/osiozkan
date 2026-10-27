@@ -130,3 +130,14 @@ fn require_sets_globals_and_lfs() {
     let (_, out) = run_by_name(&rt, &regs, "g", Script::new_default(), vec![]).unwrap();
     assert_eq!(out.log, vec!["table function directory".to_string()]);
 }
+
+#[test]
+fn ffi_and_bit_available() {
+    let rt = Runtime::new().unwrap();
+    let regs = rt.load_source(
+        b"local ffi=require'ffi'; ffi.cdef[[typedef struct {int x;} p;]]; aegisub.register_macro('f','',function() local v=ffi.new('p',7); aegisub.debug.out('%d %d', v.x, bit.bxor(5,1)) end)",
+        "t",
+    ).unwrap();
+    let (_, out) = run_by_name(&rt, &regs, "f", Script::new_default(), vec![]).unwrap();
+    assert_eq!(out.log, vec!["7 4".to_string()]);
+}

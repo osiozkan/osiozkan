@@ -127,7 +127,7 @@ pub struct Runtime {
 impl Runtime {
     pub fn new() -> Result<Runtime, Error> {
         let rt = Runtime {
-            lua: Lua::new(),
+            lua: unsafe { Lua::unsafe_new() },
             log: Rc::new(RefCell::new(Vec::new())),
             dialog_values: Rc::new(RefCell::new(HashMap::new())),
             dialog_button: Rc::new(RefCell::new(None)),
