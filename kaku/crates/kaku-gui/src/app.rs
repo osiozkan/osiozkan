@@ -1,3 +1,4 @@
+use crate::config::{self, Config};
 use crate::highlight;
 use crate::i18n::t;
 use crate::media_pane::{Event as MEvent, LineSpan, MediaPane};
@@ -58,6 +59,8 @@ pub struct KakuApp {
     style_rename: String,
     fonts_open: bool,
     pick_pos: bool,
+    cfg: Config,
+    last_autosave: f64,
     fonts_cache: Vec<kaku_core::fonts::FontStatus>,
     turkish: bool,
     side_tab: usize,
@@ -90,7 +93,10 @@ impl KakuApp {
             anchor: 0,
             filter: String::new(),
             issues: vec![],
-            qc_cfg: qc::QcConfig::default(),
+            qc_cfg: {
+                let c = Config::load();
+                qc::QcConfig { max_cps: c.max_cps, max_line_chars: c.max_chars, ..Default::default() }
+            },
             qc_dirty: true,
             status: "Welcome to Kaku — File ▸ Open (Ctrl+O)".into(),
             find: FindState::default(),
@@ -104,6 +110,8 @@ impl KakuApp {
             style_rename: String::new(),
             fonts_open: false,
             pick_pos: false,
+            cfg: Config::load(),
+            last_autosave: 0.0,
             fonts_cache: vec![],
             turkish: true,
             side_tab: 0,
@@ -191,9 +199,27 @@ impl KakuApp {
                 if !self.ev.is_empty() {
                     self.select_only(0);
                 }
+                self.cfg.push_recent(p);
                 self.status = format!("Opened {} — {} lines", p.display(), self.ev.len());
             }
             Err(e) => self.status = format!("Open failed: {e}"),
+        }
+    }
+
+    fn autosave_name(&self) -> String {
+        self.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "untitled".into())
+    }
+
+    fn autosave_tick(&mut self, now: f64) {
+        if !self.dirty || self.cfg.autosave_secs == 0 || now - self.last_autosave < self.cfg.autosave_secs as f64 {
+            return;
+        }
+        self.last_autosave = now;
+        if let Some(p) = config::autosave_path(&self.autosave_name()) {
+            let _ = std::fs::create_dir_all(p.parent().unwrap());
+            if std::fs::write(&p, self.script.to_string()).is_ok() {
+                self.status = format!("Autosaved {}", p.display());
+            }
         }
     }
 
@@ -210,6 +236,10 @@ impl KakuApp {
             Ok(_) => {
                 self.path = Some(p.to_path_buf());
                 self.dirty = false;
+                self.cfg.push_recent(p);
+                if let Some(a) = config::autosave_path(&self.autosave_name()) {
+                    let _ = std::fs::remove_file(a);
+                }
                 self.status = format!("Saved {}", p.display());
             }
             Err(e) => self.status = format!("Save failed: {e}"),
@@ -507,6 +537,18 @@ impl KakuApp {
                     ui.close();
                     self.do_save();
                 }
+                ui.menu_button("Recent", |ui| {
+                    let recent = self.cfg.recent.clone();
+                    if recent.is_empty() {
+                        ui.label("—");
+                    }
+                    for r in recent {
+                        if ui.button(r.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default()).on_hover_text(r.display().to_string()).clicked() {
+                            ui.close();
+                            self.open_path(&r);
+                        }
+                    }
+                });
                 if ui.button(t("Save as…")).clicked() {
                     ui.close();
                     self.do_save_as();
@@ -1587,6 +1629,20 @@ impl eframe::App for KakuApp {
             self.rev += 1;
         }
         self.shortcuts(&ctx);
+        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        for p in dropped {
+            let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            match ext.as_str() {
+                "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "sub" => self.open_path(&p),
+                "lua" => self.load_lua(&p),
+                _ => self.media.load(p, &ctx),
+            }
+        }
+        let now = ctx.input(|i| i.time);
+        self.autosave_tick(now);
+        if self.dirty {
+            ctx.request_repaint_after(std::time::Duration::from_secs(5));
+        }
         self.media.poll(&ctx);
         self.frame_logic(&ctx);
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
