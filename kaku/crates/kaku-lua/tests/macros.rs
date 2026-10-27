@@ -60,3 +60,28 @@ fn regex_sub() {
     let (out, _) = run_by_name(&rt, &regs, "Regex", sc, vec![]).unwrap();
     assert_eq!(out.lines().nth(1).unwrap().text, "Merhaba  dünya!");
 }
+
+#[test]
+fn probe_dialog_then_answer() {
+    use kaku_lua::DialogAnswer;
+    let (rt, regs, sc) = setup();
+    rt.probe_dialogs.set(true);
+    let sel: Vec<usize> = (1..=sc.entries.len()).collect();
+    let (_, res) = run_by_name(&rt, &regs, "Dialog", sc.clone(), sel.clone()).unwrap();
+    let spec = res.pending_dialog.expect("dialog spec");
+    assert_eq!(spec.buttons, ["Apply", "Cancel"]);
+    assert!(spec.controls.iter().any(|c| c.name == "suffix" && c.value == "!"));
+    rt.answers.borrow_mut().push(DialogAnswer { button: Some("Apply".into()), values: [("suffix".to_string(), "~".to_string())].into() });
+    let (out, res) = run_by_name(&rt, &regs, "Dialog", sc, sel).unwrap();
+    assert!(res.pending_dialog.is_none());
+    assert!(out.lines().next().unwrap().text.ends_with("oke~"));
+}
+
+#[test]
+fn ipairs_over_subs() {
+    let rt = Runtime::new().unwrap();
+    let regs = rt.load_source(b"aegisub.register_macro('c','',function(subs) local n=0 for i,l in ipairs(subs) do n=n+1 end aegisub.debug.out('n=%d',n) end)", "t").unwrap();
+    let sc = Script::parse(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/sample.ass")).unwrap());
+    let (_, out) = run_by_name(&rt, &regs, "c", sc.clone(), vec![]).unwrap();
+    assert_eq!(out.log, vec![format!("n={}", sc.entries.len())]);
+}

@@ -17,7 +17,9 @@ pub use subs::Shared;
 
 const UTIL_LUA: &str = include_str!("../lua/util.lua");
 const KARASKEL_LUA: &str = include_str!("../lua/karaskel.lua");
+const PRELUDE_LUA: &str = include_str!("../lua/prelude.lua");
 const CANCEL_MARK: &str = "__kaku_cancel__";
+const NEED_DIALOG_MARK: &str = "__kaku_need_dialog__";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
@@ -33,8 +35,41 @@ pub struct Registered {
     pub index: usize,
 }
 
+/// One control of an `aegisub.dialog.display` config.
+#[derive(Debug, Clone, Default)]
+pub struct Control {
+    pub class: String,
+    pub name: String,
+    pub label: String,
+    /// Default value rendered as text (checkbox: "true"/"false").
+    pub value: String,
+    pub items: Vec<String>,
+    pub x: i64,
+    pub y: i64,
+    pub width: i64,
+    pub height: i64,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DialogSpec {
+    pub controls: Vec<Control>,
+    pub buttons: Vec<String>,
+}
+
+/// A user's answer to the n-th dialog shown during a run (`button == None` means cancelled).
+#[derive(Debug, Clone, Default)]
+pub struct DialogAnswer {
+    pub button: Option<String>,
+    pub values: HashMap<String, String>,
+}
+
 #[derive(Debug, Default)]
 pub struct RunOutput {
+    /// Set when the macro needs user input that was not supplied (probe mode).
+    pub pending_dialog: Option<DialogSpec>,
     pub log: Vec<String>,
     pub selection: Option<Vec<usize>>,
     pub active: Option<usize>,
@@ -80,6 +115,12 @@ pub struct Runtime {
     video: Rc<RefCell<VideoInfo>>,
     script_path: Rc<RefCell<Option<PathBuf>>>,
     include_dirs: Rc<RefCell<Vec<PathBuf>>>,
+    /// Pre-supplied answers for dialogs, consumed in order of appearance.
+    pub answers: Rc<RefCell<Vec<DialogAnswer>>>,
+    /// When true, a dialog without a supplied answer aborts the run and reports its spec.
+    pub probe_dialogs: Rc<std::cell::Cell<bool>>,
+    dialog_counter: Rc<std::cell::Cell<usize>>,
+    pending: Rc<RefCell<Option<DialogSpec>>>,
 }
 
 impl Runtime {
@@ -92,6 +133,10 @@ impl Runtime {
             video: Rc::new(RefCell::new(VideoInfo::default())),
             script_path: Rc::new(RefCell::new(None)),
             include_dirs: Rc::new(RefCell::new(Vec::new())),
+            answers: Rc::new(RefCell::new(Vec::new())),
+            probe_dialogs: Rc::new(std::cell::Cell::new(false)),
+            dialog_counter: Rc::new(std::cell::Cell::new(0)),
+            pending: Rc::new(RefCell::new(None)),
         };
         rt.setup()?;
         Ok(rt)
@@ -289,14 +334,34 @@ impl Runtime {
         let dialog = lua.create_table()?;
         let vals = self.dialog_values.clone();
         let btn = self.dialog_button.clone();
+        let answers = self.answers.clone();
+        let probe = self.probe_dialogs.clone();
+        let counter = self.dialog_counter.clone();
+        let pending = self.pending.clone();
         dialog.set("display", lua.create_function(move |lua, (controls, buttons, _ids): (Table, Option<Table>, Option<Table>)| {
+            let n = counter.get();
+            counter.set(n + 1);
+            let supplied: Option<DialogAnswer> = answers.borrow().get(n).cloned();
+            if supplied.is_none() && probe.get() {
+                *pending.borrow_mut() = Some(read_spec(&controls, buttons.as_ref())?);
+                return Err(mlua::Error::runtime(NEED_DIALOG_MARK));
+            }
+            if let Some(a) = &supplied {
+                match &a.button {
+                    None => {
+                        // Cancelled: emulate pressing Cancel -> false.
+                        return Ok(MultiValue::from_vec(vec![Value::Boolean(false), Value::Table(lua.create_table()?)]));
+                    }
+                    Some(_) => {}
+                }
+            }
             let result = lua.create_table()?;
             for c in controls.sequence_values::<Table>() {
                 let c = c?;
                 let Some(name) = c.get::<Option<String>>("name")? else { continue };
                 let class: String = c.get::<Option<String>>("class")?.unwrap_or_default();
                 let default: Value = c.get("value")?;
-                let over = vals.borrow().get(&name).cloned();
+                let over = supplied.as_ref().and_then(|a| a.values.get(&name).cloned()).or_else(|| vals.borrow().get(&name).cloned());
                 let v: Value = match (class.as_str(), over) {
                     ("checkbox", Some(o)) => Value::Boolean(matches!(o.as_str(), "true" | "1" | "yes" | "on")),
                     ("intedit", Some(o)) => Value::Integer(o.parse::<f64>().map(|f| f as i64).unwrap_or(0)),
@@ -318,7 +383,7 @@ impl Runtime {
             match buttons {
                 Some(b) => {
                     let labels: Vec<String> = b.sequence_values::<String>().filter_map(|x| x.ok()).collect();
-                    let chosen = btn.borrow().clone().or_else(|| labels.first().cloned());
+                    let chosen = supplied.as_ref().and_then(|a| a.button.clone()).or_else(|| btn.borrow().clone()).or_else(|| labels.first().cloned());
                     match chosen {
                         Some(c) if c.eq_ignore_ascii_case("cancel") => Ok(MultiValue::from_vec(vec![Value::Boolean(false), Value::Table(result)])),
                         Some(c) => Ok(MultiValue::from_vec(vec![Value::String(lua.create_string(&c)?), Value::Table(result)])),
@@ -333,6 +398,7 @@ impl Runtime {
         aegisub.set("dialog", dialog)?;
 
         g.set("aegisub", aegisub)?;
+        lua.load(PRELUDE_LUA).set_name("=prelude").exec()?;
         // Common 5.1 compat shims already provided by LuaJIT (unpack, loadstring, …).
         Ok(())
     }
@@ -396,6 +462,7 @@ impl Runtime {
         let subs = self.lua.create_userdata(subs::Subs(script.clone()))?;
         let sel = self.lua.create_sequence_from(selection.iter().map(|&i| i as i64))?;
         let kind: String = e.get("kind")?;
+        self.dialog_counter.set(0);
         let res = if kind == "filter" {
             let cfg = self.lua.create_table()?;
             f.call::<MultiValue>((subs, cfg))
@@ -403,6 +470,7 @@ impl Runtime {
             f.call::<MultiValue>((subs, sel, active as i64))
         };
         let mut out = RunOutput::default();
+        self.dialog_counter.set(0);
         match res {
             Ok(rv) => {
                 let mut it = rv.into_iter();
@@ -418,7 +486,9 @@ impl Runtime {
                 }
             }
             Err(err) => {
-                if err.to_string().contains(CANCEL_MARK) {
+                if err.to_string().contains(NEED_DIALOG_MARK) {
+                    out.pending_dialog = self.pending.borrow_mut().take();
+                } else if err.to_string().contains(CANCEL_MARK) {
                     out.cancelled = true;
                 } else {
                     out.log = self.take_log();
@@ -464,4 +534,47 @@ pub fn run_by_name(rt: &Runtime, regs: &[Registered], name: &str, script: Script
     let out = rt.run(r.index, &shared, &selection, active)?;
     let s = shared.borrow().clone();
     Ok((s, out))
+}
+
+fn read_spec(controls: &Table, buttons: Option<&Table>) -> LResult<DialogSpec> {
+    let mut spec = DialogSpec::default();
+    for c in controls.clone().sequence_values::<Table>() {
+        let c = c?;
+        let val = |k: &str| -> LResult<String> {
+            Ok(match c.get::<Value>(k)? {
+                Value::String(s) => s.to_str()?.to_string(),
+                Value::Integer(i) => i.to_string(),
+                Value::Number(f) => kaku_core::ass::fmt_num(f),
+                Value::Boolean(b) => b.to_string(),
+                _ => String::new(),
+            })
+        };
+        let num = |k: &str| c.get::<Option<f64>>(k).ok().flatten();
+        let mut ctl = Control {
+            class: val("class")?,
+            name: val("name")?,
+            label: val("label")?,
+            value: val("value")?,
+            x: num("x").unwrap_or(0.0) as i64,
+            y: num("y").unwrap_or(0.0) as i64,
+            width: num("width").unwrap_or(1.0) as i64,
+            height: num("height").unwrap_or(1.0) as i64,
+            min: num("min"),
+            max: num("max"),
+            hint: val("hint")?,
+            ..Default::default()
+        };
+        if let Some(items) = c.get::<Option<Table>>("items")? {
+            ctl.items = items.sequence_values::<String>().filter_map(|x| x.ok()).collect();
+        }
+        if ctl.class == "checkbox" && ctl.value.is_empty() {
+            ctl.value = "false".into();
+        }
+        spec.controls.push(ctl);
+    }
+    spec.buttons = match buttons {
+        Some(b) => b.clone().sequence_values::<String>().filter_map(|x| x.ok()).collect(),
+        None => vec!["OK".into(), "Cancel".into()],
+    };
+    Ok(spec)
 }
