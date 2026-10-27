@@ -1,0 +1,17 @@
+[package]
+name = "kaku-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kaku-gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.37.0"
+egui = "0.37"
+egui_extras = "0.37.0"
+kaku-core = { path = "../kaku-core" }
+kaku-lua = { path = "../kaku-lua" }
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }

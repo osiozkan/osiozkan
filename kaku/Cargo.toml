@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/kaku-core", "crates/kaku-lua", "crates/kaku-cli"]
+members = ["crates/kaku-core", "crates/kaku-lua", "crates/kaku-cli", "crates/kaku-gui"]
 
 [workspace.package]
 version = "0.1.0"
