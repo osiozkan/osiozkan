@@ -39,6 +39,16 @@ enum Cmd {
     Fix { file: PathBuf, #[arg(short, long)] output: Option<PathBuf> },
     /// Change frame rate (e.g. 23.976 -> 25)
     Fps { file: PathBuf, from: f64, to: f64, #[arg(short, long)] output: Option<PathBuf> },
+    /// Resample the script to a new resolution (scales styles, margins, \pos, \fs, drawings, …)
+    Resample { file: PathBuf, #[arg(long)] x: i32, #[arg(long)] y: i32, #[arg(short, long)] output: Option<PathBuf> },
+    /// Break long lines into balanced rows (lines containing override tags are skipped)
+    Balance { file: PathBuf, #[arg(long, default_value_t = 42)] max: usize, #[arg(short, long)] output: Option<PathBuf> },
+    /// Change text casing: upper | lower | sentence | title
+    Case { file: PathBuf, mode: String, #[arg(long)] tr: bool, #[arg(short, long)] output: Option<PathBuf> },
+    /// Remove hearing-impaired text ([noise], (laughs), ♪ lyrics, SPEAKER:)
+    Hi { file: PathBuf, #[arg(short, long)] output: Option<PathBuf> },
+    /// Timing post-processor: lead-in/out and joining of close lines
+    Tpp { file: PathBuf, #[arg(long, default_value_t = 120)] lead_in: i64, #[arg(long, default_value_t = 400)] lead_out: i64, #[arg(long, default_value_t = 300)] join: i64, #[arg(short, long)] output: Option<PathBuf> },
     /// Show video/audio info of a media file (needs ffprobe)
     Media { file: PathBuf },
     /// Snap line starts/ends to video keyframes (needs ffprobe)
@@ -160,6 +170,49 @@ fn run() -> Result<ExitCode, String> {
         Cmd::Fps { file, from, to, output } => {
             let mut s = load(&file)?;
             ops::change_fps(&mut s, fps_of(from), fps_of(to));
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Resample { file, x, y, output } => {
+            let mut s = load(&file)?;
+            if !kaku_core::resample::resample(&mut s, x, y, Default::default()) {
+                println!("already {x}x{y} (or source resolution unknown)");
+            }
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Balance { file, max, output } => {
+            let mut s = load(&file)?;
+            let n = kaku_core::textfix::balance_script(&mut s, max);
+            println!("{n} line(s) rebalanced");
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Case { file, mode, tr, output } => {
+            use kaku_core::textfix::{change_case, Casing};
+            let m = match mode.as_str() {
+                "upper" => Casing::Upper,
+                "lower" => Casing::Lower,
+                "sentence" => Casing::Sentence,
+                "title" => Casing::Title,
+                _ => return Err("mode must be upper|lower|sentence|title".into()),
+            };
+            let mut s = load(&file)?;
+            for l in s.lines_mut() {
+                if !kaku_core::tags::has_drawing(&l.text) {
+                    l.text = change_case(&l.text, m, tr);
+                }
+            }
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Hi { file, output } => {
+            let mut s = load(&file)?;
+            let n = kaku_core::textfix::remove_hearing_impaired(&mut s);
+            let e = ops::remove_empty(&mut s);
+            println!("{n} line(s) changed, {e} emptied line(s) removed");
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Tpp { file, lead_in, lead_out, join, output } => {
+            let mut s = load(&file)?;
+            let n = kaku_core::textfix::timing_post_process(&mut s, kaku_core::textfix::Tpp { lead_in, lead_out, join_gap: join });
+            println!("{n} adjustment(s)");
             save(&output.unwrap_or(file), &s)?;
         }
         Cmd::Media { file } => {

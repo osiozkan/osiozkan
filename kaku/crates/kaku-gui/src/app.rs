@@ -49,6 +49,12 @@ pub struct KakuApp {
     find: FindState,
     shift_open: bool,
     shift_ms: i64,
+    resample_open: bool,
+    resample_xy: (i32, i32),
+    tpp_open: bool,
+    tpp: (i64, i64, i64),
+    balance_max: usize,
+    turkish: bool,
     side_tab: usize,
     rt: Option<Runtime>,
     macros: Vec<Registered>,
@@ -85,6 +91,12 @@ impl KakuApp {
             find: FindState::default(),
             shift_open: false,
             shift_ms: 0,
+            resample_open: false,
+            resample_xy: (1920, 1080),
+            tpp_open: false,
+            tpp: (120, 400, 300),
+            balance_max: 42,
+            turkish: true,
             side_tab: 0,
             rt: None,
             macros: vec![],
@@ -548,6 +560,46 @@ impl KakuApp {
                     self.edit("Remove empty", |s| n = ops::remove_empty(s));
                     self.status = format!("Removed {n} line(s)");
                 }
+                if ui.button("Balance long lines").clicked() {
+                    ui.close();
+                    let m = self.balance_max;
+                    let mut n = 0;
+                    self.edit("Balance lines", |s| n = kaku_core::textfix::balance_script(s, m));
+                    self.status = format!("Rebalanced {n} line(s)");
+                }
+                if ui.button("Remove hearing-impaired text").clicked() {
+                    ui.close();
+                    let mut n = 0;
+                    self.edit("Remove HI", |s| {
+                        n = kaku_core::textfix::remove_hearing_impaired(s);
+                        ops::remove_empty(s);
+                    });
+                    self.status = format!("Changed {n} line(s)");
+                }
+                ui.menu_button("Change case (selected)", |ui| {
+                    use kaku_core::textfix::Casing;
+                    ui.checkbox(&mut self.turkish, "Turkish i/İ rules");
+                    for (label, mode) in [("UPPER", Casing::Upper), ("lower", Casing::Lower), ("Sentence case", Casing::Sentence), ("Title Case", Casing::Title)] {
+                        if ui.button(label).clicked() {
+                            ui.close();
+                            let sel = self.selected_vec();
+                            let tr = self.turkish;
+                            self.history.record("Change case", &self.script);
+                            for i in sel {
+                                if let Some(l) = self.line_mut(i) {
+                                    l.text = kaku_core::textfix::change_case(&l.text, mode, tr);
+                                }
+                            }
+                            self.dirty = true;
+                            self.qc_dirty = true;
+                        }
+                    }
+                });
+                if ui.button("Resample resolution…").clicked() {
+                    ui.close();
+                    self.resample_xy = self.script.play_res();
+                    self.resample_open = true;
+                }
                 if ui.button("Remove duplicates").clicked() {
                     ui.close();
                     let mut n = 0;
@@ -559,6 +611,10 @@ impl KakuApp {
                 if ui.button("Shift times…").clicked() {
                     ui.close();
                     self.shift_open = true;
+                }
+                if ui.button("Timing post-processor…").clicked() {
+                    ui.close();
+                    self.tpp_open = true;
                 }
                 if ui.button("Close small gaps (≤300 ms)").clicked() {
                     ui.close();
@@ -1150,6 +1206,59 @@ impl KakuApp {
                 });
             });
             self.shift_open = open;
+        }
+        if self.resample_open {
+            let mut open = true;
+            egui::Window::new("Resample resolution").open(&mut open).show(ctx, |ui| {
+                let (ox, oy) = self.script.play_res();
+                ui.label(format!("Current: {ox}×{oy}"));
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut self.resample_xy.0).range(16..=16000));
+                    ui.label("×");
+                    ui.add(egui::DragValue::new(&mut self.resample_xy.1).range(16..=16000));
+                    for (w, h) in [(1280, 720), (1920, 1080), (3840, 2160)] {
+                        if ui.small_button(format!("{h}p")).clicked() {
+                            self.resample_xy = (w, h);
+                        }
+                    }
+                });
+                if ui.button("Resample").clicked() {
+                    let (x, y) = self.resample_xy;
+                    let mut ok = false;
+                    self.edit("Resample", |s| ok = kaku_core::resample::resample(s, x, y, Default::default()));
+                    self.status = if ok { format!("Resampled to {x}×{y}") } else { "Nothing to do".into() };
+                    self.resample_open = false;
+                }
+            });
+            if !open {
+                self.resample_open = false;
+            }
+        }
+        if self.tpp_open {
+            let mut open = true;
+            egui::Window::new("Timing post-processor").open(&mut open).show(ctx, |ui| {
+                egui::Grid::new("tpp").num_columns(2).show(ui, |ui| {
+                    ui.label("Lead-in (ms)");
+                    ui.add(egui::DragValue::new(&mut self.tpp.0).range(0..=2000));
+                    ui.end_row();
+                    ui.label("Lead-out (ms)");
+                    ui.add(egui::DragValue::new(&mut self.tpp.1).range(0..=2000));
+                    ui.end_row();
+                    ui.label("Join gaps up to (ms)");
+                    ui.add(egui::DragValue::new(&mut self.tpp.2).range(0..=2000));
+                    ui.end_row();
+                });
+                if ui.button("Apply").clicked() {
+                    let t = kaku_core::textfix::Tpp { lead_in: self.tpp.0, lead_out: self.tpp.1, join_gap: self.tpp.2 };
+                    let mut n = 0;
+                    self.edit("Timing post-process", |s| n = kaku_core::textfix::timing_post_process(s, t));
+                    self.status = format!("{n} adjustment(s)");
+                    self.tpp_open = false;
+                }
+            });
+            if !open {
+                self.tpp_open = false;
+            }
         }
         if let Some(mut pm) = self.pending.take() {
             let mut result: Option<Option<String>> = None; // Some(Some(button)) / Some(None)=cancel

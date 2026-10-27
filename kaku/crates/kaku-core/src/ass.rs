@@ -139,7 +139,7 @@ impl Line {
     }
     pub fn to_line(&self) -> String {
         format!(
-            "{}: {},{},{},{},{},{:04},{:04},{:04},{},{}",
+            "{}: {},{},{},{},{},{},{},{},{},{}",
             if self.is_comment() { "Comment" } else { "Dialogue" },
             self.layer, format_ass_time(self.start), format_ass_time(self.end), self.style, self.actor,
             self.margin_l, self.margin_r, self.margin_t, self.effect, self.text

@@ -7,6 +7,8 @@ pub mod history;
 pub mod karaoke;
 pub mod ops;
 pub mod qc;
+pub mod resample;
 pub mod search;
 pub mod tags;
+pub mod textfix;
 pub mod time;
