@@ -841,13 +841,13 @@ impl KakuApp {
                 if self.macros.is_empty() {
                     ui.label(RichText::new("No macros loaded.\nPut .lua files in ./automation or ~/.kaku/automation").weak());
                 }
+                // "Menu/Sub/Name" macro names become nested submenus, like Aegisub.
                 let list = self.macros.clone();
-                for r in list {
-                    let icon = if r.kind == LKind::Macro { "▶" } else { "⚙" };
-                    if ui.button(format!("{icon} {}", r.name)).on_hover_text(&r.description).clicked() {
-                        ui.close();
-                        self.run_macro_step(PendingMacro { reg: r, answers: vec![], spec: DialogSpec::default(), values: HashMap::new() });
-                    }
+                let mut clicked: Option<Registered> = None;
+                macro_menu(ui, &list.iter().map(|r| (r.name.split('/').map(|x| x.trim().to_string()).collect::<Vec<_>>(), r)).collect::<Vec<_>>(), 0, &mut clicked);
+                if let Some(r) = clicked {
+                    ui.close();
+                    self.run_macro_step(PendingMacro { reg: r, answers: vec![], spec: DialogSpec::default(), values: HashMap::new() });
                 }
             });
         });
@@ -1644,6 +1644,25 @@ impl KakuApp {
             if !open {
                 self.log_window = None;
             }
+        }
+    }
+}
+
+fn macro_menu(ui: &mut egui::Ui, items: &[(Vec<String>, &Registered)], depth: usize, clicked: &mut Option<Registered>) {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, Vec<(Vec<String>, &Registered)>> = BTreeMap::new();
+    for (path, r) in items {
+        if path.len() > depth + 1 {
+            groups.entry(path[depth].clone()).or_default().push((path.clone(), *r));
+        }
+    }
+    for (name, sub) in &groups {
+        ui.menu_button(name, |ui| macro_menu(ui, sub, depth + 1, clicked));
+    }
+    for (path, r) in items.iter().filter(|(p, _)| p.len() == depth + 1) {
+        let icon = if r.kind == LKind::Macro { "▶" } else { "⚙" };
+        if ui.button(format!("{icon} {}", path[depth])).on_hover_text(&r.description).clicked() {
+            *clicked = Some((*r).clone());
         }
     }
 }
