@@ -199,6 +199,8 @@ impl KakuApp {
                 if !self.ev.is_empty() {
                     self.select_only(0);
                 }
+                self.cfg.max_cps = self.qc_cfg.max_cps;
+                self.cfg.max_chars = self.qc_cfg.max_line_chars;
                 self.cfg.push_recent(p);
                 self.status = format!("Opened {} — {} lines", p.display(), self.ev.len());
             }
@@ -236,6 +238,8 @@ impl KakuApp {
             Ok(_) => {
                 self.path = Some(p.to_path_buf());
                 self.dirty = false;
+                self.cfg.max_cps = self.qc_cfg.max_cps;
+                self.cfg.max_chars = self.qc_cfg.max_line_chars;
                 self.cfg.push_recent(p);
                 if let Some(a) = config::autosave_path(&self.autosave_name()) {
                     let _ = std::fs::remove_file(a);
