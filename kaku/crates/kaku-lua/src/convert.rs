@@ -58,7 +58,6 @@ pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
             t.set("margin_b", st.margin_t)?;
             t.set("encoding", st.encoding)?;
             t.set("relative_to", 2)?;
-            t.set("raw", st.to_line())?;
         }
         Entry::Line(l) => {
             t.set("class", "dialogue")?;
@@ -76,7 +75,6 @@ pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
             t.set("effect", l.effect.as_str())?;
             t.set("text", l.text.as_str())?;
             t.set("extra", lua.create_table()?)?;
-            t.set("raw", l.to_line())?;
         }
         Entry::Raw { section, text } => {
             t.set("class", "unknown")?;

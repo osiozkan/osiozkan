@@ -277,6 +277,11 @@ impl Runtime {
             let sy = style.get::<Option<f64>>("scale_y")?.unwrap_or(100.0);
             let sp = style.get::<Option<f64>>("spacing")?.unwrap_or(0.0);
             let bold = style.get::<Option<bool>>("bold")?.unwrap_or(false);
+            let family = style.get::<Option<String>>("fontname")?.unwrap_or_default();
+            let italic = style.get::<Option<bool>>("italic")?.unwrap_or(false);
+            if let Some(e) = kaku_core::fonts::measure(&family, bold, italic, size, sx, sy, sp, &text) {
+                return Ok((e.width, e.height, e.descent, e.extlead));
+            }
             Ok(natives::approx_extents(size, sx, sy, sp, bold, &text))
         })?)?;
 

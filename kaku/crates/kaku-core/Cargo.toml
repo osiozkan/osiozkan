@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fontdb = "0.24.0"
 regex = "1"
 thiserror = "2"
+ttf-parser = "0.25.1"
 unicode-segmentation = "1"
