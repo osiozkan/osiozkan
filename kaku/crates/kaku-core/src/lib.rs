@@ -1,5 +1,6 @@
 //! kaku-core: format-agnostic subtitle engine.
 pub mod ass;
+pub mod attachments;
 pub mod color;
 pub mod fonts;
 pub mod formats;

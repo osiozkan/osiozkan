@@ -59,6 +59,10 @@ enum Cmd {
         #[arg(long = "font-dir")]
         font_dirs: Vec<PathBuf>,
     },
+    /// Embed font files into the script's [Fonts] section
+    Embed { file: PathBuf, fonts: Vec<PathBuf>, #[arg(short, long)] output: Option<PathBuf> },
+    /// Extract embedded fonts/graphics to a folder
+    Extract { file: PathBuf, #[arg(short, long, default_value = ".")] out: PathBuf },
     /// Show video/audio info of a media file (needs ffprobe)
     Media { file: PathBuf },
     /// Snap line starts/ends to video keyframes (needs ffprobe)
@@ -253,6 +257,25 @@ fn run() -> Result<ExitCode, String> {
             }
             if bad {
                 return Ok(ExitCode::from(2));
+            }
+        }
+        Cmd::Embed { file, fonts, output } => {
+            let mut s = load(&file)?;
+            for f in &fonts {
+                let data = std::fs::read(f).map_err(|e| format!("{}: {e}", f.display()))?;
+                let name = f.file_name().unwrap().to_string_lossy().to_string();
+                kaku_core::attachments::embed(&mut s, &name, &data, true);
+                println!("embedded {name} ({} bytes)", data.len());
+            }
+            save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Extract { file, out } => {
+            let s = load(&file)?;
+            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            for a in kaku_core::attachments::list(&s) {
+                let name = a.name.replace("_0.", ".");
+                std::fs::write(out.join(&name), &a.data).map_err(|e| e.to_string())?;
+                println!("{name} ({} bytes)", a.data.len());
             }
         }
         Cmd::Media { file } => {
