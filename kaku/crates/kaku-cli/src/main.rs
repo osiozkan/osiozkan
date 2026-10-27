@@ -49,6 +49,16 @@ enum Cmd {
     Hi { file: PathBuf, #[arg(short, long)] output: Option<PathBuf> },
     /// Timing post-processor: lead-in/out and joining of close lines
     Tpp { file: PathBuf, #[arg(long, default_value_t = 120)] lead_in: i64, #[arg(long, default_value_t = 400)] lead_out: i64, #[arg(long, default_value_t = 300)] join: i64, #[arg(short, long)] output: Option<PathBuf> },
+    /// Check which fonts a script uses and whether they are installed / have all needed glyphs
+    Fonts {
+        file: PathBuf,
+        /// Copy the used font files into this folder (Font Collector)
+        #[arg(long)]
+        collect: Option<PathBuf>,
+        /// Extra folder(s) with fonts to consider installed
+        #[arg(long = "font-dir")]
+        font_dirs: Vec<PathBuf>,
+    },
     /// Show video/audio info of a media file (needs ffprobe)
     Media { file: PathBuf },
     /// Snap line starts/ends to video keyframes (needs ffprobe)
@@ -214,6 +224,36 @@ fn run() -> Result<ExitCode, String> {
             let n = kaku_core::textfix::timing_post_process(&mut s, kaku_core::textfix::Tpp { lead_in, lead_out, join_gap: join });
             println!("{n} adjustment(s)");
             save(&output.unwrap_or(file), &s)?;
+        }
+        Cmd::Fonts { file, collect, font_dirs } => {
+            let s = load(&file)?;
+            for d in &font_dirs {
+                kaku_core::fonts::add_font_dir(d);
+            }
+            let mut bad = false;
+            for f in kaku_core::fonts::check_fonts(&s) {
+                let style = format!("{}{}", if f.used.bold { "B" } else { "" }, if f.used.italic { "I" } else { "" });
+                let status = if !f.installed {
+                    bad = true;
+                    "MISSING".to_string()
+                } else if !f.missing_glyphs.is_empty() {
+                    bad = true;
+                    format!("no glyph for: {}", f.missing_glyphs.iter().take(20).collect::<String>())
+                } else {
+                    "ok".to_string()
+                };
+                println!("{:<30} {:<3} {:>5} line(s)  {}", f.used.family, style, f.used.lines, status);
+            }
+            if let Some(dest) = collect {
+                let (copied, missing) = kaku_core::fonts::collect_fonts(&s, &dest).map_err(|e| e.to_string())?;
+                println!("copied {} font file(s) to {}", copied.len(), dest.display());
+                for m in missing {
+                    println!("not found: {m}");
+                }
+            }
+            if bad {
+                return Ok(ExitCode::from(2));
+            }
         }
         Cmd::Media { file } => {
             let i = kaku_media::probe(&file).map_err(|e| e.to_string())?;

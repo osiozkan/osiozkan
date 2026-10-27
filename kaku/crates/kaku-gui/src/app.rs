@@ -55,6 +55,8 @@ pub struct KakuApp {
     tpp: (i64, i64, i64),
     balance_max: usize,
     style_rename: String,
+    fonts_open: bool,
+    fonts_cache: Vec<kaku_core::fonts::FontStatus>,
     turkish: bool,
     side_tab: usize,
     rt: Option<Runtime>,
@@ -98,6 +100,8 @@ impl KakuApp {
             tpp: (120, 400, 300),
             balance_max: 42,
             style_rename: String::new(),
+            fonts_open: false,
+            fonts_cache: vec![],
             turkish: true,
             side_tab: 0,
             rt: None,
@@ -597,6 +601,11 @@ impl KakuApp {
                         }
                     }
                 });
+                if ui.button("Check / collect fonts…").clicked() {
+                    ui.close();
+                    self.fonts_cache = kaku_core::fonts::check_fonts(&self.script);
+                    self.fonts_open = true;
+                }
                 if ui.button("Resample resolution…").clicked() {
                     ui.close();
                     self.resample_xy = self.script.play_res();
@@ -1067,6 +1076,32 @@ impl KakuApp {
             }
             1 => self.styles_tab(ui),
             _ => {
+                ui.label(RichText::new("Script properties").strong());
+                let mut changed = false;
+                let mut remove: Option<usize> = None;
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                    egui::Grid::new("info_grid").num_columns(3).show(ui, |ui| {
+                        for (i, e) in self.script.entries.iter_mut().enumerate() {
+                            if let Entry::Info { key, value } = e {
+                                ui.label(key.as_str());
+                                changed |= ui.add(egui::TextEdit::singleline(value).desired_width(150.0)).changed();
+                                if ui.small_button("✖").clicked() {
+                                    remove = Some(i);
+                                }
+                                ui.end_row();
+                            }
+                        }
+                    });
+                });
+                if let Some(i) = remove {
+                    self.history.record("Remove property", &self.script);
+                    self.script.entries.remove(i);
+                    self.dirty = true;
+                }
+                if changed {
+                    self.dirty = true;
+                }
+                ui.separator();
                 let (x, y) = self.script.play_res();
                 ui.label(format!("Lines: {}", self.ev.len()));
                 ui.label(format!("Resolution: {x}×{y}"));
@@ -1254,6 +1289,47 @@ impl KakuApp {
                 });
             });
             self.shift_open = open;
+        }
+        if self.fonts_open {
+            let mut open = true;
+            egui::Window::new("Fonts").open(&mut open).default_width(520.0).show(ctx, |ui| {
+                if ui.button("Re-scan").clicked() {
+                    self.fonts_cache = kaku_core::fonts::check_fonts(&self.script);
+                }
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    egui::Grid::new("fonts_grid").striped(true).num_columns(4).show(ui, |ui| {
+                        ui.strong("Font");
+                        ui.strong("B/I");
+                        ui.strong("Lines");
+                        ui.strong("Status");
+                        ui.end_row();
+                        for f in &self.fonts_cache {
+                            ui.label(&f.used.family);
+                            ui.label(format!("{}{}", if f.used.bold { "B" } else { "" }, if f.used.italic { "I" } else { "" }));
+                            ui.label(f.used.lines.to_string());
+                            if !f.installed {
+                                ui.colored_label(Color32::from_rgb(255, 100, 100), "missing");
+                            } else if !f.missing_glyphs.is_empty() {
+                                ui.colored_label(Color32::from_rgb(255, 200, 90), format!("no glyph: {}", f.missing_glyphs.iter().take(12).collect::<String>()));
+                            } else {
+                                ui.colored_label(Color32::from_rgb(120, 220, 140), "ok");
+                            }
+                            ui.end_row();
+                        }
+                    });
+                });
+                if ui.button("Collect font files to folder…").clicked() {
+                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                        match kaku_core::fonts::collect_fonts(&self.script, &d) {
+                            Ok((c, m)) => self.status = format!("Copied {} font file(s); {} not found", c.len(), m.len()),
+                            Err(e) => self.status = format!("Collect failed: {e}"),
+                        }
+                    }
+                }
+            });
+            if !open {
+                self.fonts_open = false;
+            }
         }
         if self.resample_open {
             let mut open = true;
