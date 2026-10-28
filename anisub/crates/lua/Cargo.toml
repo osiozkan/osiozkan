@@ -1,0 +1,9 @@
+[package]
+name = "anisub-lua"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anisub-core = { version = "0.1.0", path = "../core" }
+mlua = { version = "0.12.2", features = ["lua51", "vendored"] }
+thiserror = "2.0.21"

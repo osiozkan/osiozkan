@@ -1,0 +1,8 @@
+[package]
+name = "anisub-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anisub-core = { path = "../core" }
+anisub-lua = { path = "../lua" }
