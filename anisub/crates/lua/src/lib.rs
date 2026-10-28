@@ -304,7 +304,8 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(file: AssFile) -> Result<Runtime> {
-        let lua = Lua::new();
+        // Aegisub exposes the full LuaJIT stdlib (ffi, debug) to scripts, so safe mode is not usable.
+        let lua = unsafe { Lua::unsafe_new() };
         let subs: Shared = Rc::new(RefCell::new(file));
         let include_dirs: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
         lua.load(PRELUDE).set_name("prelude.lua").exec()?;
