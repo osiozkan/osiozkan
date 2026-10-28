@@ -83,3 +83,36 @@ fn errors_and_cancel() {
     assert!(rt.run("e", vec![], 1).is_err());
     assert!(rt.run("nope", vec![], 1).is_err());
 }
+
+#[test]
+fn text_extents_uses_real_fonts() {
+    let rt = rt();
+    rt.load_source(
+        r#"aegisub.register_macro("w", "", function()
+            local st = { fontname = "DejaVu Sans", fontsize = 40, scale_x = 100, scale_y = 100, spacing = 0 }
+            local w1, h = aegisub.text_extents(st, "iiii")
+            local w2 = aegisub.text_extents(st, "WWWW")
+            st.spacing = 2
+            local w3 = aegisub.text_extents(st, "iiii")
+            aegisub.log("%s|%s|%s", w2 > w1 * 2, h, math.abs(w3 - w1 - 8) < 1e-6)
+        end)"#,
+        "w.lua",
+    )
+    .unwrap();
+    rt.run("w", vec![], 1).unwrap();
+    assert_eq!(rt.take_log().unwrap(), "true|40|true");
+}
+
+#[test]
+fn luajit_compat() {
+    let rt = rt();
+    rt.load_source(
+        r#"aegisub.register_macro("j", "", function()
+            aegisub.log("%s|%d|%s", tostring(jit ~= nil), bit.band(0xF0, 0x3C), type(require("ffi")))
+        end)"#,
+        "j.lua",
+    )
+    .unwrap();
+    rt.run("j", vec![], 1).unwrap();
+    assert_eq!(rt.take_log().unwrap(), "true|48|table");
+}

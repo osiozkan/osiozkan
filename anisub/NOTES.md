@@ -1,7 +1,7 @@
 # anisub — geliştirme notları (her gece buradan devam edilir)
 
 Hedef: Aegisub'ın tamamı + Subtitle Edit'in iyi özellikleri + anime altyazı iş akışı; Automation 4 Lua
-betikleriyle uyumlu; kolay arayüz; yüksek performans. Stack: Rust workspace + gömülü Lua 5.1 (mlua).
+betikleriyle uyumlu; kolay arayüz; yüksek performans. Stack: Rust workspace + gömülü LuaJIT (mlua, vendored; Aegisub ile aynı motor: bit/ffi/%s-boolean uyumu).
 
 ## Düzen
 - `crates/core`  ASS/SRT modeli, zaman/renk, kodlama tespiti (UTF-8/16, cp1254), etiket ayrıştırma,
@@ -15,9 +15,9 @@ Tamam: ASS okuma/yazma (format sırası, Aegisub bölümleri korunur), SRT, Lua 
 karaskel alt kümesi, QC (CPS, satır uzunluğu, süre, çakışma), shift/resync/sort/merge/close-gaps.
 
 ## Bilinen eksikler / sıradaki işler (öncelik sırasıyla)
-1. `aegisub.text_extents` şu an KABA yaklaşım → gerçek font ölçümü (fontdb + ttf-parser). karaskel konumları buna bağlı.
+1. `aegisub.text_extents` fontdb+ttf-parser ile gerçek ölçüm yapıyor (VSFilter hücre yüksekliği modeli, win ascent/descent). Eksik: kerning yok, font fallback/karışık yazı, `--font-dir` CLI bayrağı, GDI ile birebir karşılaştırma testi.
 2. Automation 4 tamamlama: `aegisub.dialog.display` gerçek GUI, `register_filter` config, `lpeg`/`re`/`lfs`,
-   `unicode.lua` tam, `cleantags.lua` tam, `util.lua` eksikleri, Lua 5.1 → LuaJIT (`ffi`, `bit`) değerlendirmesi.
+   `unicode.lua` tam, `cleantags.lua` tam, `util.lua` eksikleri.
    Kullanıcının kendi Lua betikleri gelince `tests/fixtures`'a eklenip uyumluluk testi yapılmalı.
 3. Etiket motoru: tam override-tag ayrıştırıcı/yazıcı (\t, \clip, \move vb. doğrulama), etiket temizleyici.
 4. Biçimler: WebVTT, SSA v4, SUB/MicroDVD, TTML, EBU STL, ASS ↔ SRT stil dönüşümü; OCR (sup/idx) uzun vade.

@@ -5,5 +5,7 @@ edition = "2021"
 
 [dependencies]
 anisub-core = { version = "0.1.0", path = "../core" }
-mlua = { version = "0.12.2", features = ["lua51", "vendored"] }
+fontdb = "0.24.0"
+mlua = { version = "0.12.2", features = ["luajit", "vendored"] }
 thiserror = "2.0.21"
+ttf-parser = "0.25.1"

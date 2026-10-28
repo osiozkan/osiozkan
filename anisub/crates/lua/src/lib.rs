@@ -14,6 +14,8 @@ use std::rc::Rc;
 pub type Shared = Rc<RefCell<AssFile>>;
 pub type Result<T> = mlua::Result<T>;
 
+mod fonts;
+
 const PRELUDE: &str = include_str!("../lua/prelude.lua");
 const LIBS: &[(&str, &str)] = &[
     ("utils.lua", include_str!("../lua/utils.lua")),
@@ -297,6 +299,7 @@ pub struct Runtime {
     pub lua: Lua,
     pub subs: Shared,
     include_dirs: Rc<RefCell<Vec<PathBuf>>>,
+    fonts: Rc<RefCell<fonts::Fonts>>,
 }
 
 impl Runtime {
@@ -325,12 +328,39 @@ impl Runtime {
             })?,
         )?;
 
-        let rt = Runtime { lua, subs, include_dirs };
+        let fonts = Rc::new(RefCell::new(fonts::Fonts::new()));
+        let fc = fonts.clone();
+        let fallback: mlua::Function = lua.globals().get::<Table>("aegisub")?.get("text_extents")?;
+        lua.globals().get::<Table>("aegisub")?.set(
+            "text_extents",
+            lua.create_function(move |_, (style, text): (Table, String)| {
+                let family = get_str(&style, "fontname", "Arial")?;
+                let spec = fonts::Spec {
+                    family: &family,
+                    size: get_f(&style, "fontsize", 40.0)?,
+                    bold: get_b(&style, "bold")?,
+                    italic: get_b(&style, "italic")?,
+                    scale_x: get_f(&style, "scale_x", 100.0)?,
+                    scale_y: get_f(&style, "scale_y", 100.0)?,
+                    spacing: get_f(&style, "spacing", 0.0)?,
+                };
+                match fc.borrow_mut().measure(&spec, &text) {
+                    Some(e) => Ok((e.width, e.height, e.descent, e.extlead)),
+                    None => fallback.call::<(f64, f64, f64, f64)>((style, text)),
+                }
+            })?,
+        )?;
+        let rt = Runtime { lua, subs, include_dirs, fonts };
         Ok(rt)
     }
 
     pub fn add_include_dir(&self, dir: impl Into<PathBuf>) {
         self.include_dirs.borrow_mut().push(dir.into());
+    }
+
+    /// Extra directory searched for fonts used by `aegisub.text_extents`.
+    pub fn add_font_dir(&self, dir: &Path) {
+        self.fonts.borrow_mut().add_dir(dir);
     }
 
     pub fn set_fps(&self, fps: f64) -> Result<()> {
