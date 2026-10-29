@@ -25,3 +25,4 @@
 | Ctrl + / Ctrl - | Yakınlaştır / uzaklaştır (arayüz) |
 | Video aracı Kırpma: sağ tık | Kırpmayı kaldır |
 | Video aracı Döndürme: Shift+sürükle | 15° adımlarla döndür |
+| Karaoke sekmesi → Tuşla zamanla: Boşluk | Çalarken hecenin başlangıcını işaretle |

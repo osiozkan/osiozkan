@@ -22,7 +22,8 @@
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [ ] Yazım: çok dilli sözlük seçimi, ızgarada hata göstergesi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
-- [ ] Karaoke: ses/dalga üzerinde canlı k-timing (tuşa basarak), otomatik hece ayırma (Japonca romaji/kana), şablonlayıcı (kara-templater uyumlu)
+- [x] Karaoke: oynatırken Boşluk ile tuşla zamanlama (gecikme ayarlı; çekirdek `apply_taps` testli)
+- [ ] Karaoke: gecikmeyi ses saatiyle otomatik kalibre et (uygulama içi ses motoru gerekir), otomatik hece ayırma (Japonca romaji/kana), şablonlayıcı (kara-templater uyumlu)
 
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils

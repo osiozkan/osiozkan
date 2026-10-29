@@ -149,6 +149,30 @@ pub fn distribute(syls: &mut [Syl], total_cs: i64) {
     }
 }
 
+/// Tuşla zamanlama: `taps_ms[i]` i. hecenin başlangıcı (satır başına göre, ms). Her hece bir sonrakinin
+/// başlangıcına, sonuncusu satır sonuna (`line_cs`) kadar sürer; ilk dokunuştan önceki boşluk
+/// (≥ 5 cs) boş bir başlangıç hecesi olur. Dokunulmayan heceler 0 süre alır.
+pub fn apply_taps(syls: &[Syl], taps_ms: &[i64], line_cs: i64) -> Vec<Syl> {
+    let n = syls.len().min(taps_ms.len());
+    let mut out: Vec<Syl> = syls.to_vec();
+    if n == 0 {
+        return out;
+    }
+    let starts: Vec<i64> = taps_ms.iter().map(|ms| ms / 10).collect();
+    for i in 0..n {
+        let end = if i + 1 < n { starts[i + 1] } else { line_cs };
+        out[i].dur = (end - starts[i]).max(0);
+    }
+    for s in out.iter_mut().skip(n) {
+        s.dur = 0;
+    }
+    if starts[0] >= 5 {
+        let kind = out[0].kind.clone();
+        out.insert(0, Syl { dur: starts[0], kind, text: String::new() });
+    }
+    out
+}
+
 /// Mevcut oranları koruyarak toplam süreyi değiştirir.
 pub fn scale_to(syls: &mut [Syl], total_cs: i64) {
     let cur = total(syls);
@@ -194,6 +218,18 @@ mod tests {
         assert_eq!(total(&s), 120);
         move_boundary(&mut s, 0, 5);
         assert_eq!((s[0].dur, s[1].dur), (25, 35));
+    }
+
+    #[test]
+    fn taps() {
+        let s = parse("{\\k0}ka{\\k0}ra{\\k0}o");
+        let r = apply_taps(&s, &[500, 800, 1500], 300);
+        assert_eq!(r.iter().map(|x| x.dur).collect::<Vec<_>>(), vec![50, 30, 70, 150]);
+        assert_eq!(r[0].text, "");
+        assert_eq!(build(&r), "{\\kf50}{\\k30}ka{\\k70}ra{\\k150}o".replace("kf50", "k50"));
+        // eksik dokunuş
+        let r = apply_taps(&s, &[0, 100], 300);
+        assert_eq!(r.iter().map(|x| x.dur).collect::<Vec<_>>(), vec![10, 290, 0]);
     }
 
     #[test]

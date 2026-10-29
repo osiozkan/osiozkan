@@ -82,6 +82,8 @@ pub struct App {
     ref_lines: Vec<(i64, i64, String)>,
     fonts_open: bool,
     fixes_open: bool,
+    tap: Option<TapState>,
+    tap_latency_ms: i64,
     backed_up: std::collections::HashSet<PathBuf>,
     theme_dirty: bool,
     goto_open: bool,
@@ -108,6 +110,12 @@ pub struct App {
     min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+}
+
+struct TapState {
+    line: usize,
+    /// Her hecenin başlangıcı (ms, satır başına göre).
+    taps: Vec<i64>,
 }
 
 enum RowAction {
@@ -252,6 +260,8 @@ impl App {
             ref_lines: vec![],
             fonts_open: false,
             fixes_open: false,
+            tap: None,
+            tap_latency_ms: 300,
             backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,
@@ -803,6 +813,9 @@ impl App {
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::G))) { self.goto_open = true; }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus))) { self.settings.zoom = (self.settings.zoom + 0.1).min(2.5); self.theme_dirty = true; }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Minus))) { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
+        if self.tap.is_some() && !typing && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space)) {
+            self.record_tap();
+        }
         if !typing {
             let (prev, next) = ctx.input_mut(|i| (i.consume_key(Modifiers::NONE, Key::Comma), i.consume_key(Modifiers::NONE, Key::Period)));
             if prev || next { self.media.step_frames(if next { 1 } else { -1 }); }
@@ -1267,6 +1280,39 @@ impl App {
         }
     }
 
+    fn start_tap(&mut self, ctx: &egui::Context) {
+        if !self.media.is_open() { self.status = "Önce ses/video açın".into(); return; }
+        if !matches!(self.doc.script.entries.get(self.doc.active), Some(Entry::Dialogue(_))) { return; }
+        if self.media.is_playing() { self.media.toggle_play(&self.doc, ctx); }
+        self.tap = Some(TapState { line: self.doc.active, taps: vec![] });
+        self.media.toggle_play(&self.doc, ctx);
+        self.status = "Tuşla zamanlama: her hecenin başlangıcında Boşluk'a basın".into();
+    }
+
+    fn record_tap(&mut self) {
+        let Some(t) = self.tap.as_mut() else { return };
+        if !self.media.is_playing() { return; }
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(t.line) else { return };
+        let ms = (self.media.playhead - d.start_time - self.tap_latency_ms).max(0);
+        t.taps.push(ms);
+        let n = osisub_core::karaoke::parse(&d.text).len();
+        if t.taps.len() >= n { self.finish_tap(); }
+    }
+
+    fn finish_tap(&mut self) {
+        use osisub_core::karaoke as k;
+        let Some(t) = self.tap.take() else { return };
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(t.line).cloned() else { return };
+        let syls = k::parse(&d.text);
+        let n = syls.len().min(t.taps.len());
+        if n == 0 { return; }
+        let syls = k::apply_taps(&syls, &t.taps, d.duration() / 10);
+        let text = k::build(&syls);
+        let at = t.line;
+        self.doc.edit("Tuşla karaoke zamanlama", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
+        self.status = format!("{} hece zamanlandı", n);
+    }
+
     fn karaoke_tab(&mut self, ui: &mut egui::Ui) {
         use osisub_core::karaoke as k;
         let at = self.doc.active;
@@ -1278,6 +1324,20 @@ impl App {
         let mut syls = k::parse(&d.text);
         let has_k = syls.iter().any(|s| s.dur > 0) || d.text.contains("\\k");
         let mut new_syls: Option<Vec<k::Syl>> = None;
+        ui.horizontal_wrapped(|ui| {
+            match &self.tap {
+                None => {
+                    if ui.add_enabled(self.media.is_open(), egui::Button::new("Tuşla zamanla (Boşluk)")).on_hover_text("Satırı oynatır; her hecenin başında Boşluk'a basın").clicked() { self.start_tap(ui.ctx()); }
+                }
+                Some(t) => {
+                    ui.label(RichText::new(format!("Kayıt: {} / {}", t.taps.len(), syls.len())).color(theme::ACCENT));
+                    if ui.button("Bitir").clicked() { self.finish_tap(); }
+                    if ui.button("İptal").clicked() { self.tap = None; }
+                }
+            }
+            ui.label("Gecikme (ms)");
+            ui.add(egui::DragValue::new(&mut self.tap_latency_ms).range(0..=1000).speed(5)).on_hover_text("İnsan tepkisi + ses başlatma gecikmesi için düzeltme");
+        });
 
         if !has_k {
             ui.label("Bu satırda karaoke etiketi yok.");
@@ -1828,6 +1888,7 @@ impl eframe::App for App {
         if self.show_media || self.media.is_open() {
             egui::Panel::top("media").resizable(true).default_size(280.0).show(ui, |ui| self.media.ui(ui, &mut self.doc));
         }
+        if self.tap.is_some() && !self.media.is_playing() { self.finish_tap(); }
         egui::Panel::bottom("editor").resizable(true).default_size(190.0).show(ui, |ui| self.editor(ui));
         egui::Panel::right("side").resizable(true).default_size(380.0).show(ui, |ui| self.side(ui));
         egui::CentralPanel::default_margins().show(ui, |ui| self.grid(ui));
