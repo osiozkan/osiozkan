@@ -141,8 +141,7 @@ enum RowAction {
 }
 
 fn autoload_dir() -> Option<PathBuf> {
-    let base = std::env::var("XDG_CONFIG_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("osisub/automation/autoload"))
+    osisub_core::paths::config_dir().map(|d| d.join("automation/autoload"))
 }
 
 /// Düzenleme kutusu renklendirmesi: etiket blokları soluk, `\\N` vurgulu, yazım hataları kırmızı altçizgili.
@@ -371,7 +370,7 @@ impl App {
     // ------------------------------------------------------------ yazım denetimi
 
     fn user_dict_dir() -> Option<PathBuf> {
-        std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config/osisub/dict"))
+        osisub_core::paths::config_dir().map(|d| d.join("dict"))
     }
 
     fn user_words_path() -> Option<PathBuf> {
@@ -512,7 +511,7 @@ impl App {
     }
 
     fn catalog_path() -> Option<PathBuf> {
-        std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config/osisub/styles.ass"))
+        osisub_core::paths::config_dir().map(|d| d.join("styles.ass"))
     }
 
     fn catalog_styles() -> Vec<Style> {
@@ -1896,8 +1895,8 @@ impl App {
     fn autosave(&mut self) {
         if !self.doc.is_dirty() || self.last_autosave.elapsed().as_secs() < 60 { return; }
         self.last_autosave = std::time::Instant::now();
-        let Some(base) = std::env::var("XDG_DATA_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/share"))) else { return };
-        let dir = base.join("osisub/autosave");
+        let Some(base) = osisub_core::paths::data_dir() else { return };
+        let dir = base.join("autosave");
         if std::fs::create_dir_all(&dir).is_err() { return; }
         let name = self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into());
         let _ = std::fs::write(dir.join(format!("{}.autosave.ass", name)), self.doc.script.to_ass_string());

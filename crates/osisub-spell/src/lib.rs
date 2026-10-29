@@ -73,8 +73,10 @@ pub struct Miss {
 pub fn find_dictionary(name: &str, extra_dirs: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
     let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
     dirs.extend(["/usr/share/hunspell", "/usr/share/myspell", "/usr/share/myspell/dicts", "/Library/Spelling", "C:\\Program Files\\LibreOffice\\share\\extensions"].iter().map(PathBuf::from));
+    if let Some(c) = osisub_core::paths::config_dir() {
+        dirs.push(c.join("dict"));
+    }
     if let Ok(h) = std::env::var("HOME") {
-        dirs.push(PathBuf::from(&h).join(".config/osisub/dict"));
         dirs.push(PathBuf::from(&h).join(".config/libreoffice/4/user/wordbook"));
     }
     for d in dirs {

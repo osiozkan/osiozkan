@@ -7,6 +7,7 @@ pub mod formats;
 pub mod io;
 pub mod karaoke;
 pub mod overrides;
+pub mod paths;
 pub mod qc;
 pub mod search;
 pub mod srt;

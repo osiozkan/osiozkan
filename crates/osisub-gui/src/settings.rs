@@ -53,8 +53,7 @@ impl Default for Settings {
 }
 
 fn path() -> Option<PathBuf> {
-    let base = std::env::var("XDG_CONFIG_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("osisub/settings.json"))
+    osisub_core::paths::config_dir().map(|d| d.join("settings.json"))
 }
 
 impl Settings {
