@@ -590,6 +590,90 @@ mod tests {
         assert_eq!(d.script.dialogues().count(), 3);
     }
 
+    /// Rastgele işlem dizileri: hepsini geri al → özgün; hepsini yinele → son durum.
+    #[test]
+    fn random_ops_undo_redo_roundtrip() {
+        let mut seed: u64 = 0x9E3779B97F4A7C15;
+        let mut rnd = move |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n.max(1)
+        };
+        for round in 0..30 {
+            let mut d = doc();
+            let original = d.script.entries.clone();
+            let steps = 5 + rnd(25);
+            let mut heavy = 0;
+            for _ in 0..steps {
+                let n = d.script.entries.len();
+                let dl: Vec<usize> = (0..n).filter(|&i| matches!(d.script.entries[i], Entry::Dialogue(_))).collect();
+                if dl.is_empty() {
+                    break;
+                }
+                let a = dl[rnd(dl.len())];
+                match rnd(9) {
+                    0 => d.set_text(a, &format!("t{}", rnd(1000))),
+                    1 => {
+                        d.select(vec![a], a);
+                        d.insert_after_active();
+                    }
+                    2 => {
+                        d.select(vec![a], a);
+                        d.duplicate_selected();
+                    }
+                    3 => {
+                        if dl.len() > 1 {
+                            d.select(vec![a], a);
+                            d.delete_selected();
+                        }
+                    }
+                    4 => {
+                        d.select(vec![a], a);
+                        d.shift_selected(rnd(2000) as i64 - 1000);
+                    }
+                    5 => {
+                        d.select(vec![a], a);
+                        d.set_text(a, "merhaba dünya nasılsın");
+                        d.split(a, 7, match &d.script.entries[a] { Entry::Dialogue(x) => (x.start_time + x.end_time) / 2, _ => 0 });
+                    }
+                    6 => {
+                        if dl.len() > 1 {
+                            let pos = dl.iter().position(|&x| x == a).unwrap();
+                            if pos + 1 < dl.len() && dl[pos + 1] == a + 1 {
+                                d.select(vec![a, a + 1], a);
+                                d.merge_selected();
+                            }
+                        }
+                    }
+                    7 => {
+                        d.select(vec![a], a);
+                        d.toggle_comment_selected();
+                    }
+                    _ => {
+                        let mut s = d.script.clone();
+                        s.entries.push(Entry::Dialogue(Dialogue { text: "lua".into(), ..Default::default() }));
+                        d.apply_new_script("yapısal", s);
+                        heavy += 1;
+                    }
+                }
+            }
+            let finalstate = d.script.entries.clone();
+            let mut undone = 0;
+            while d.undo().is_some() {
+                undone += 1;
+            }
+            // Ağır (yapısal) adımlar 8'den fazlaysa eskileri budanır; aksi halde tam geri dönüş şart.
+            if heavy <= 8 {
+                assert_eq!(d.script.entries, original, "tur {}: geri alma özgün duruma dönmedi", round);
+                let mut redone = 0;
+                while d.redo().is_some() {
+                    redone += 1;
+                }
+                assert_eq!(redone, undone, "tur {}", round);
+                assert_eq!(d.script.entries, finalstate, "tur {}: yineleme son duruma dönmedi", round);
+            }
+        }
+    }
+
     #[test]
     fn heavy_undo_is_pruned() {
         let mut d = doc();
