@@ -13,14 +13,18 @@ impl Color {
     pub const WHITE: Color = Color { r: 255, g: 255, b: 255, a: 0 };
     pub const BLACK: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 
+    /// `&H..&`/`H..` önekliyse onaltılık, öneksizse (eski SSA) ondalık; ondalık başarısızsa onaltılık denenir.
     pub fn parse(s: &str) -> Option<Color> {
-        let t = s.trim().trim_start_matches('&').trim_end_matches('&');
+        let raw = s.trim();
+        let hex_prefixed = raw.starts_with('&') || raw.starts_with('H') || raw.starts_with('h');
+        let t = raw.trim_start_matches('&').trim_end_matches('&');
         let t = t.strip_prefix(['H', 'h']).unwrap_or(t);
-        let v = if let Ok(v) = u32::from_str_radix(t, 16) {
-            v
+        let v = if hex_prefixed {
+            u32::from_str_radix(t, 16).ok()?
+        } else if let Ok(d) = t.parse::<i64>() {
+            d as u32
         } else {
-            // Eski ondalık biçim (SSA).
-            t.parse::<i64>().ok()? as u32
+            u32::from_str_radix(t, 16).ok()?
         };
         Some(Color { a: (v >> 24) as u8, b: (v >> 16) as u8, g: (v >> 8) as u8, r: v as u8 })
     }
@@ -45,5 +49,7 @@ mod tests {
         assert_eq!((c.r, c.g, c.b, c.a), (0x40, 0x80, 0xFF, 0));
         assert_eq!(c.to_style_string(), "&H00FF8040");
         assert_eq!(c.to_tag_string(), "&HFF8040&");
+        assert_eq!(Color::parse("16777215").unwrap().to_style_string(), "&H00FFFFFF");
+        assert_eq!(Color::parse("&HFF&").unwrap().r, 255);
     }
 }

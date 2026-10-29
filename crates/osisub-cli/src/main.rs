@@ -16,6 +16,14 @@ KULLANIM:
   osisub macros <betik.lua>...            betiklerdeki makroları listele
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N]
   osisub info <dosya>                     özet bilgi
+  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N]
+  osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
+  osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
+  osisub find <girdi> <desen> [--regex] [--case] [--replace METİN [çıktı]]
+  osisub fonts <girdi>                    kullanılan yazı tipleri ve kurulu mu
+  osisub batch <klasör> <uzantı> [--recursive]   klasördeki altyazıları toplu dönüştür
+
+Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD), sbv, ttml/dfxp; yazma: txt, csv.
 ";
 
 fn main() -> ExitCode {
@@ -118,6 +126,91 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             qc::shift(&mut s, ms, None);
             save(&s, &out)
         }
+        "fixes" => {
+            let mut f = osisub_core::fixes::Fixes::default();
+            f.ellipsis = flag(&mut args, "--ellipsis");
+            f.sentence_case = flag(&mut args, "--sentence");
+            f.remove_hi = flag(&mut args, "--hi");
+            f.min_duration_ms = opt(&mut args, "--min-dur").and_then(|v| v.parse().ok());
+            f.min_gap_ms = opt(&mut args, "--min-gap").and_then(|v| v.parse().ok());
+            let inp = args.first().ok_or("girdi gerekli")?.clone();
+            let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
+            let mut s = load(&inp)?;
+            let r = osisub_core::fixes::apply(&mut s, &f);
+            println!("{} satır değişti, {} zamanlama düzeltildi", r.changed_lines, r.timing_changes);
+            save(&s, &out)
+        }
+        "resample" => {
+            if args.len() < 3 { return Err("kullanım: resample <girdi> <genişlik> <yükseklik> [çıktı]".into()); }
+            let (w, h): (i32, i32) = (args[1].parse().map_err(|_| "genişlik sayı olmalı")?, args[2].parse().map_err(|_| "yükseklik sayı olmalı")?);
+            let out = args.get(3).cloned().unwrap_or_else(|| args[0].clone());
+            let mut s = load(&args[0])?;
+            osisub_core::timing::resample(&mut s, w, h);
+            save(&s, &out)
+        }
+        "post" => {
+            let mut o = osisub_core::timing::PostOptions::default();
+            if let Some(v) = opt(&mut args, "--lead-in") { o.lead_in_ms = v.parse().map_err(|_| "--lead-in sayı olmalı")?; }
+            if let Some(v) = opt(&mut args, "--lead-out") { o.lead_out_ms = v.parse().map_err(|_| "--lead-out sayı olmalı")?; }
+            if let Some(v) = opt(&mut args, "--gap") { o.adjacent_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
+            if let Some(v) = opt(&mut args, "--video") { o.keyframes = osisub_media::keyframes(Path::new(&v))?; println!("{} anahtar kare", o.keyframes.len()); }
+            let inp = args.first().ok_or("girdi gerekli")?.clone();
+            let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
+            let mut s = load(&inp)?;
+            osisub_core::timing::post_process(&mut s, &o);
+            save(&s, &out)
+        }
+        "find" => {
+            let regex = flag(&mut args, "--regex");
+            let case = flag(&mut args, "--case");
+            let repl = opt(&mut args, "--replace");
+            if args.len() < 2 { return Err("kullanım: find <girdi> <desen> [--replace METİN [çıktı]]".into()); }
+            let o = osisub_core::search::Options { pattern: args[1].clone(), replacement: repl.clone().unwrap_or_default(), regex, match_case: case, ..Default::default() };
+            let mut s = load(&args[0])?;
+            if repl.is_some() {
+                let n = osisub_core::search::replace_all(&mut s, &o)?;
+                println!("{} alan değiştirildi", n);
+                save(&s, args.get(2).unwrap_or(&args[0]))
+            } else {
+                let hits = osisub_core::search::find_all(&s, &o)?;
+                for h in &hits {
+                    if let Entry::Dialogue(d) = &s.entries[h.entry] {
+                        println!("{} [{}] {}", h.entry + 1, osisub_core::time::format_ass(d.start_time), d.text);
+                    }
+                }
+                println!("{} eşleşme", hits.len());
+                Ok(())
+            }
+        }
+        "fonts" => {
+            let s = load(args.first().ok_or("girdi gerekli")?)?;
+            let mut db = osisub_lua::fonts::FontDb::default();
+            let mut missing = 0;
+            for u in osisub_core::fonts_used::used_fonts(&s) {
+                let ok = db.has_family(&u.family);
+                if !ok { missing += 1; }
+                println!("{:<30} {}{} {:>4} satır  {}", u.family, if u.bold { "B" } else { "-" }, if u.italic { "I" } else { "-" }, u.lines, if ok { "kurulu" } else { "EKSİK" });
+            }
+            if missing > 0 { Err(format!("{} yazı tipi eksik", missing)) } else { Ok(()) }
+        }
+        "batch" => {
+            let recursive = flag(&mut args, "--recursive");
+            if args.len() < 2 { return Err("kullanım: batch <klasör> <uzantı> [--recursive]".into()); }
+            let to = args[1].trim_start_matches('.').to_lowercase();
+            let mut files = vec![];
+            collect(Path::new(&args[0]), recursive, &mut files);
+            let mut n = 0;
+            for f in files {
+                let ext = osisub_core::io::ext_of(&f);
+                if !matches!(ext.as_str(), "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp") || ext == to { continue; }
+                match osisub_core::io::load(&f).and_then(|s| osisub_core::io::save(&s, &f.with_extension(&to))) {
+                    Ok(()) => { n += 1; println!("{} → .{}", f.display(), to); }
+                    Err(e) => eprintln!("atlandı {}: {}", f.display(), e),
+                }
+            }
+            println!("{} dosya dönüştürüldü", n);
+            Ok(())
+        }
         "macros" => {
             let mut e = new_engine(HeadlessHost::default())?;
             for p in &args {
@@ -168,6 +261,18 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             save(&e.take_script(), &out)
         }
         _ => Err(format!("bilinmeyen komut: {}\n\n{}", cmd, HELP)),
+    }
+}
+
+fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.filter_map(|e| e.ok()) {
+        let p = e.path();
+        if p.is_dir() {
+            if recursive { collect(&p, recursive, out); }
+        } else {
+            out.push(p);
+        }
     }
 }
 

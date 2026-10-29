@@ -258,7 +258,7 @@ impl App {
     // ------------------------------------------------------------ dosya
 
     fn open_dialog(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
             self.open_path(p);
         }
     }
@@ -280,7 +280,7 @@ impl App {
 
     fn save(&mut self, as_new: bool) {
         let target = if as_new || self.doc.path.is_none() {
-            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).save_file()
+            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("LRC", &["lrc"]).add_filter("MicroDVD", &["sub"]).add_filter("SBV", &["sbv"]).add_filter("TTML", &["ttml"]).add_filter("Düz metin", &["txt"]).add_filter("CSV", &["csv"]).save_file()
         } else {
             self.doc.path.clone()
         };
@@ -437,7 +437,7 @@ impl App {
         for p in dropped {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
-                "ass" | "ssa" | "srt" | "vtt" => { if self.doc.is_dirty() { self.status = "Kaydedilmemiş değişiklik var; önce kaydedin".into(); } else { self.open_path(p); } }
+                "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { if self.doc.is_dirty() { self.status = "Kaydedilmemiş değişiklik var; önce kaydedin".into(); } else { self.open_path(p); } }
                 "lua" => self.worker.send(Cmd::Load(p)),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
@@ -521,7 +521,7 @@ impl App {
                 });
                 if ui.button("Referans altyazı aç…").clicked() {
                     ui.close();
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
                         match osisub_core::io::load(&p) {
                             Ok(s) => { self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
                             Err(e) => self.status = format!("Hata: {}", e),

@@ -17,3 +17,4 @@ Depo boştu; sıfırdan başlandı.
 - (aynı gece) Karaoke çekirdeği ve GUI sekmesi, `--line N`/`--open pencere` ekran görüntüsü bayrakları, Lua `utf8`/`clipboard`/auto4 takma adları ve geniş uyumluluk testi (compat.lua).
 - (aynı gece) Yazı tipi denetimi (`core::fonts_used`), sağ tık menüsü + pano (Dialogue satırları ve düz metin), sürükle-bırak, kalıcı ayarlar (settings.json), son açılanlar, referans altyazı.
 - (aynı gece) Sık hataları düzelt, konum aracı. HATA DÜZELTİLDİ: önizleme karesi kaba `-ss` ofseti yüzünden yanlış altyazı satırını gösteriyordu (`-copyts` ile çözüldü, `osisub-media` testi eklendi).
+- (aynı gece) Yeni biçimler (`core::formats`), CLI: fixes/resample/post/find/fonts/batch. Bayt-kararlı gidiş-dönüş testi iki gerçek hata buldu ve düzeltildi: küçük harfli bölüm adları (`[script info]`) ve SSA ondalık renkler.

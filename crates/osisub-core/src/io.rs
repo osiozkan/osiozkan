@@ -11,6 +11,10 @@ pub fn load_str(text: &str, ext: &str) -> Script {
     match ext {
         "srt" => srt::to_script(text),
         "vtt" => Script::from_dialogues(vtt::parse(text)),
+        "lrc" => Script::from_dialogues(crate::formats::parse_lrc(text)),
+        "sub" if text.trim_start().starts_with('{') => Script::from_dialogues(crate::formats::parse_microdvd(text, 23.976)),
+        "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
+        "ttml" | "dfxp" | "xml" => Script::from_dialogues(crate::formats::parse_ttml(text)),
         _ => Script::parse(text),
     }
 }
@@ -24,6 +28,12 @@ pub fn to_string(s: &Script, ext: &str) -> String {
     match ext {
         "srt" => srt::write(s),
         "vtt" => vtt::write(s),
+        "lrc" => crate::formats::write_lrc(s),
+        "sub" => crate::formats::write_microdvd(s, 23.976),
+        "sbv" => crate::formats::write_sbv(s),
+        "ttml" | "dfxp" => crate::formats::write_ttml(s),
+        "txt" => crate::formats::write_txt(s),
+        "csv" => crate::formats::write_csv(s),
         _ => s.to_ass_string(),
     }
 }
