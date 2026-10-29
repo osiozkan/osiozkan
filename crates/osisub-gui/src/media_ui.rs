@@ -16,6 +16,15 @@ enum Msg {
     Keyframes(Vec<i64>),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VideoTool {
+    None,
+    Pos,
+    Clip,
+    Rotate,
+    Scale,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Drag {
     None,
@@ -45,7 +54,8 @@ pub struct Media {
     pub keyframes: Vec<i64>,
     pub snap_kf: bool,
     /// Videoda \pos sürükleme aracı.
-    pub pos_tool: bool,
+    pub tool: VideoTool,
+    vt_drag: Option<(u8, (f32, f32))>,
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
@@ -82,7 +92,8 @@ impl Media {
             snap: true,
             keyframes: vec![],
             snap_kf: true,
-            pos_tool: false,
+            tool: VideoTool::None,
+            vt_drag: None,
             spectrum: false,
             spec_tex: None,
             stream: None,
@@ -364,6 +375,7 @@ impl Media {
             let h = ui.available_height();
             // Video
             let vid_w = (h * 16.0 / 9.0).min(ui.available_width() * 0.45);
+            let mut img_rect: Option<Rect> = None;
             ui.allocate_ui(egui::vec2(vid_w, h), |ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(vid_w, h), Sense::hover());
                 ui.painter().rect_filled(rect, 4.0, Color32::BLACK);
@@ -372,67 +384,183 @@ impl Media {
                     let scale = (rect.width() / sz.x).min(rect.height() / sz.y);
                     let img = Rect::from_center_size(rect.center(), sz * scale);
                     ui.painter().image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-                    if self.pos_tool {
-                        Self::pos_tool_ui(ui, img, doc);
-                    }
+                    img_rect = Some(img);
                 } else {
                     let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
                 }
                 ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, time::format_ass(self.playhead), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
             });
+            if let (Some(img), true) = (img_rect, self.tool != VideoTool::None) {
+                self.tool_ui(ui, img, doc);
+            }
             // Dalga formu
             self.wave_ui(ui, doc);
         });
     }
 
-    /// Etkin satırın \pos'unu (yoksa stilden türetilen varsayılan konumu) video üzerinde sürüklemeyi sağlar.
-    fn pos_tool_ui(ui: &mut egui::Ui, img: Rect, doc: &mut Document) {
+    /// Etkin satırın konumu: `\\pos` ya da stil/hizalamadan türetilen varsayılan.
+    fn current_pos(doc: &Document, d: &osisub_core::ass::Dialogue) -> (f32, f32) {
+        let (rx, ry) = doc.script.res();
+        let (rx, ry) = (rx as f32, ry as f32);
+        if let Some(t) = osisub_core::overrides::get_initial(&d.text, "pos") {
+            let a = t.args();
+            return (a.first().and_then(|v| v.trim().parse().ok()).unwrap_or(rx / 2.0), a.get(1).and_then(|v| v.trim().parse().ok()).unwrap_or(ry / 2.0));
+        }
+        let st = doc.script.style_by_name(&d.style).cloned().unwrap_or_default();
+        let an = osisub_core::overrides::get_initial(&d.text, "an").and_then(|t| t.number()).map(|n| n as i32).unwrap_or(st.align);
+        let (ml, mr, mv) = (if d.margin_l > 0 { d.margin_l } else { st.margin_l } as f32, if d.margin_r > 0 { d.margin_r } else { st.margin_r } as f32, if d.margin_t > 0 { d.margin_t } else { st.margin_t } as f32);
+        let x = match (an - 1) % 3 { 0 => ml, 1 => (rx - mr + ml) / 2.0, _ => rx - mr };
+        let y = match (an - 1) / 3 { 0 => ry - mv, 1 => ry / 2.0, _ => mv };
+        (x, y)
+    }
+
+    fn set_tag(doc: &mut Document, at: usize, text: &str, name: &str, arg: &str, desc: &str) {
+        let nt = osisub_core::overrides::set_initial(text, name, arg);
+        if nt != text {
+            let key = format!("vt:{}:{}", name, at);
+            doc.edit_keyed(desc, Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+        }
+    }
+
+    /// Videodaki tipografi araçları: konum, kırpma, döndürme, ölçek.
+    fn tool_ui(&mut self, ui: &mut egui::Ui, img: Rect, doc: &mut Document) {
         let at = doc.active;
         let Some(Entry::Dialogue(d)) = doc.script.entries.get(at).cloned() else { return };
         let (rx, ry) = doc.script.res();
         let (rx, ry) = (rx as f32, ry as f32);
-        if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
-            ui.painter().text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
-            return;
-        }
-        // Mevcut ya da varsayılan konum
-        let cur: (f32, f32) = match osisub_core::overrides::get_initial(&d.text, "pos") {
-            Some(t) => {
-                let a = t.args();
-                (a.first().and_then(|v| v.trim().parse().ok()).unwrap_or(rx / 2.0), a.get(1).and_then(|v| v.trim().parse().ok()).unwrap_or(ry / 2.0))
-            }
-            None => {
-                let st = doc.script.style_by_name(&d.style).cloned().unwrap_or_default();
-                let an = osisub_core::overrides::get_initial(&d.text, "an").and_then(|t| t.number()).map(|n| n as i32).unwrap_or(st.align);
-                let (ml, mr, mv) = (if d.margin_l > 0 { d.margin_l } else { st.margin_l } as f32, if d.margin_r > 0 { d.margin_r } else { st.margin_r } as f32, if d.margin_t > 0 { d.margin_t } else { st.margin_t } as f32);
-                let x = match (an - 1) % 3 { 0 => ml, 1 => (rx - mr + ml) / 2.0, _ => rx - mr };
-                let y = match (an - 1) / 3 { 0 => ry - mv, 1 => ry / 2.0, _ => mv };
-                (x, y)
-            }
-        };
         let to_screen = |x: f32, y: f32| Pos2::new(img.left() + x / rx * img.width(), img.top() + y / ry * img.height());
-        let c = to_screen(cur.0, cur.1);
-        let p = ui.painter_at(img);
+        let to_script = |p: Pos2| ((p.x - img.left()) / img.width() * rx, (p.y - img.top()) / img.height() * ry);
         let col = Color32::from_rgb(0xe5, 0x6b, 0x9a);
-        p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
-        p.line_segment([c - egui::vec2(14.0, 0.0), c + egui::vec2(14.0, 0.0)], Stroke::new(1.0, col));
-        p.line_segment([c - egui::vec2(0.0, 14.0), c + egui::vec2(0.0, 14.0)], Stroke::new(1.0, col));
-        p.text(c + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, format!("{:.0}, {:.0}", cur.0, cur.1), egui::FontId::monospace(11.0), col);
-        let r = ui.interact(img, egui::Id::unique("pos_tool"), Sense::click_and_drag());
-        if r.dragged() || r.clicked() {
-            if let Some(pos) = r.interact_pointer_pos() {
-                let x = ((pos.x - img.left()) / img.width() * rx).round().clamp(0.0, rx);
-                let y = ((pos.y - img.top()) / img.height() * ry).round().clamp(0.0, ry);
-                let nt = osisub_core::overrides::set_initial(&d.text, "pos", &format!("({},{})", x, y));
-                if nt != d.text {
-                    let key = format!("pos:{}", at);
-                    doc.edit_keyed("Konum", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
-                }
-            }
-        }
+        let p = ui.painter_at(img);
+        let cur = Self::current_pos(doc, &d);
+        let c = to_screen(cur.0, cur.1);
+        let r = ui.interact(img, egui::Id::unique("video_tool"), Sense::click_and_drag());
+        let ptr = r.interact_pointer_pos();
         if r.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        match self.tool {
+            VideoTool::None => {}
+            VideoTool::Pos => {
+                if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
+                    p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+                    return;
+                }
+                p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
+                p.line_segment([c - egui::vec2(14.0, 0.0), c + egui::vec2(14.0, 0.0)], Stroke::new(1.0, col));
+                p.line_segment([c - egui::vec2(0.0, 14.0), c + egui::vec2(0.0, 14.0)], Stroke::new(1.0, col));
+                p.text(c + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, format!("{:.0}, {:.0}", cur.0, cur.1), egui::FontId::monospace(11.0), col);
+                if r.dragged() || r.clicked() {
+                    if let Some(pos) = ptr {
+                        let (x, y) = to_script(pos);
+                        Self::set_tag(doc, at, &d.text, "pos", &format!("({},{})", x.round().clamp(0.0, rx), y.round().clamp(0.0, ry)), "Konum");
+                    }
+                }
+            }
+            VideoTool::Clip => {
+                let existing: Option<(f32, f32, f32, f32)> = osisub_core::overrides::get_initial(&d.text, "clip").and_then(|t| {
+                    let a: Vec<f32> = t.args().iter().filter_map(|v| v.trim().parse().ok()).collect();
+                    (a.len() == 4).then(|| (a[0], a[1], a[2], a[3]))
+                });
+                if let Some((x1, y1, x2, y2)) = existing {
+                    let (a, b) = (to_screen(x1.min(x2), y1.min(y2)), to_screen(x1.max(x2), y1.max(y2)));
+                    let dim = Color32::from_rgba_unmultiplied(0, 0, 0, 120);
+                    p.rect_filled(Rect::from_min_max(img.min, Pos2::new(img.right(), a.y)), 0.0, dim);
+                    p.rect_filled(Rect::from_min_max(Pos2::new(img.left(), b.y), img.max), 0.0, dim);
+                    p.rect_filled(Rect::from_min_max(Pos2::new(img.left(), a.y), Pos2::new(a.x, b.y)), 0.0, dim);
+                    p.rect_filled(Rect::from_min_max(Pos2::new(b.x, a.y), Pos2::new(img.right(), b.y)), 0.0, dim);
+                    p.rect_stroke(Rect::from_min_max(a, b), 0.0, Stroke::new(1.5, col), egui::StrokeKind::Inside);
+                    for corner in [a, b, Pos2::new(a.x, b.y), Pos2::new(b.x, a.y)] {
+                        p.rect_filled(Rect::from_center_size(corner, egui::vec2(8.0, 8.0)), 1.0, col);
+                    }
+                }
+                if r.drag_started() {
+                    if let Some(pos) = ptr {
+                        // Mevcut köşeye yakınsa onu taşı (modlar: 1=sol-üst, 2=sağ-alt, 3=sol-alt, 4=sağ-üst), değilse yeni dikdörtgen.
+                        let mut mode = 0u8;
+                        let anchor;
+                        if let Some((x1, y1, x2, y2)) = existing {
+                            let (l, t, rr, bb) = (x1.min(x2), y1.min(y2), x1.max(x2), y1.max(y2));
+                            let corners = [(1u8, (l, t), (rr, bb)), (2, (rr, bb), (l, t)), (3, (l, bb), (rr, t)), (4, (rr, t), (l, bb))];
+                            let hit = corners.iter().find(|(_, c, _)| to_screen(c.0, c.1).distance(pos) < 10.0);
+                            if let Some((m, _, opp)) = hit {
+                                mode = *m;
+                                anchor = *opp;
+                            } else {
+                                anchor = to_script(pos);
+                            }
+                        } else {
+                            anchor = to_script(pos);
+                        }
+                        self.vt_drag = Some((mode, anchor));
+                    }
+                }
+                if r.dragged() {
+                    if let (Some((_, anchor)), Some(pos)) = (self.vt_drag, ptr) {
+                        let (x, y) = to_script(pos);
+                        let (x, y) = (x.round().clamp(0.0, rx), y.round().clamp(0.0, ry));
+                        let (ax, ay) = (anchor.0.round(), anchor.1.round());
+                        Self::set_tag(doc, at, &d.text, "clip", &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
+                    }
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                }
+                if r.secondary_clicked() {
+                    let nt = osisub_core::overrides::remove_initial(&d.text, "clip");
+                    if nt != d.text {
+                        doc.edit("Kırpmayı kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
+            VideoTool::Rotate => {
+                let org = osisub_core::overrides::get_initial(&d.text, "org").map(|t| t.args()).and_then(|a| Some((a.first()?.trim().parse::<f32>().ok()?, a.get(1)?.trim().parse::<f32>().ok()?))).unwrap_or(cur);
+                let o = to_screen(org.0, org.1);
+                let frz = osisub_core::overrides::get_initial(&d.text, "frz").and_then(|t| t.number()).unwrap_or(0.0) as f32;
+                let rad = 70.0;
+                let hpos = o + egui::vec2(rad * (-frz).to_radians().cos(), rad * (-frz).to_radians().sin());
+                p.circle_stroke(o, rad, Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 120)));
+                p.line_segment([o, hpos], Stroke::new(2.0, col));
+                p.circle_filled(hpos, 6.0, col);
+                p.circle_filled(o, 4.0, Color32::WHITE);
+                p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frz {:.1}°", frz), egui::FontId::monospace(11.0), col);
+                if r.dragged() {
+                    if let Some(pos) = ptr {
+                        let v = pos - o;
+                        let mut a = -(v.y.atan2(v.x)).to_degrees();
+                        if ui.input(|i| i.modifiers.shift) {
+                            a = (a / 15.0).round() * 15.0;
+                        }
+                        Self::set_tag(doc, at, &d.text, "frz", &format!("{:.1}", a).trim_end_matches('0').trim_end_matches('.').to_string(), "Döndür");
+                    }
+                }
+                if r.secondary_clicked() {
+                    let nt = osisub_core::overrides::remove_initial(&d.text, "frz");
+                    if nt != d.text {
+                        doc.edit("Dönmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
+            VideoTool::Scale => {
+                let sx = osisub_core::overrides::get_initial(&d.text, "fscx").and_then(|t| t.number()).unwrap_or(100.0) as f32;
+                p.circle_stroke(c, 100.0 / 100.0 * 60.0, Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 120)));
+                let h = c + egui::vec2(sx / 100.0 * 60.0, 0.0);
+                p.line_segment([c, h], Stroke::new(2.0, col));
+                p.circle_filled(h, 6.0, col);
+                p.text(c + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("ölçek {:.0}%", sx), egui::FontId::monospace(11.0), col);
+                if r.dragged() {
+                    if let Some(pos) = ptr {
+                        let v = ((pos - c).length() / 60.0 * 100.0).round().clamp(1.0, 1000.0);
+                        let t1 = osisub_core::overrides::set_initial(&d.text, "fscx", &format!("{}", v));
+                        let t2 = osisub_core::overrides::set_initial(&t1, "fscy", &format!("{}", v));
+                        if t2 != d.text {
+                            let key = format!("vt:fsc:{}", at);
+                            doc.edit_keyed("Ölçek", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = t2));
+                        }
+                    }
+                }
+            }
         }
     }
 

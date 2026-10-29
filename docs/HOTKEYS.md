@@ -20,3 +20,8 @@
 | Dalga formu: tıkla / Shift+tıkla / sağ tıkla | Playhead / başlangıç / bitiş |
 | Dalga formu: Ctrl+tekerlek | Yakınlaştır (tekerlek: kaydır) |
 | Karaoke sekmesi: hece metnine `|` yaz | Heceyi böl |
+| Ctrl+G | Zamana git |
+| , / . | Playhead'i 1 kare geri / ileri (metin kutusunda değilken) |
+| Ctrl + / Ctrl - | Yakınlaştır / uzaklaştır (arayüz) |
+| Video aracı Kırpma: sağ tık | Kırpmayı kaldır |
+| Video aracı Döndürme: Shift+sürükle | 15° adımlarla döndür |

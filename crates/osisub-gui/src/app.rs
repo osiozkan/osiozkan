@@ -82,6 +82,7 @@ pub struct App {
     ref_lines: Vec<(i64, i64, String)>,
     fonts_open: bool,
     fixes_open: bool,
+    backed_up: std::collections::HashSet<PathBuf>,
     theme_dirty: bool,
     goto_open: bool,
     goto_buf: String,
@@ -251,6 +252,7 @@ impl App {
             ref_lines: vec![],
             fonts_open: false,
             fixes_open: false,
+            backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,
             goto_buf: String::new(),
@@ -300,7 +302,10 @@ impl App {
             Some("fixes") => app.fixes_open = true,
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
-            Some("pos") => app.media.pos_tool = true,
+            Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
+            Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
+            Some("rotate") => app.media.tool = crate::media_ui::VideoTool::Rotate,
+            Some("scale") => app.media.tool = crate::media_ui::VideoTool::Scale,
             Some("spectrum") => app.media.spectrum = true,
             Some("play") => app.autoplay = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
@@ -575,6 +580,12 @@ impl App {
             self.doc.path.clone()
         };
         if let Some(p) = target {
+            // Güvenlik: mevcut dosyanın oturumdaki ilk kaydında .bak yedeği al.
+            if p.is_file() && self.backed_up.insert(p.clone()) {
+                let mut bak = p.clone().into_os_string();
+                bak.push(".bak");
+                let _ = std::fs::copy(&p, PathBuf::from(bak));
+            }
             match self.doc.save_as(p.clone()) {
                 Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); }
                 Err(e) => self.status = format!("Hata: {}", e),
@@ -909,7 +920,12 @@ impl App {
                 ui.checkbox(&mut self.media.spectrum, "Spektrum göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
-                ui.checkbox(&mut self.media.pos_tool, "Konum aracı (videoda \\pos sürükle)");
+                ui.menu_button("Video aracı", |ui| {
+                    use crate::media_ui::VideoTool as T;
+                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
+                        if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
+                    }
+                });
                 if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc, ui.ctx()); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
