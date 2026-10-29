@@ -1,0 +1,39 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+          - os: windows-latest
+            name: windows-x86_64
+          - os: macos-latest
+            name: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux bağımlılıkları
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-0 libxkbcommon-dev libwayland-dev libx11-dev
+      - name: Derle
+        run: cargo build --release -p osisub-cli -p osisub-gui
+      - name: Paketle
+        shell: bash
+        run: |
+          mkdir dist
+          for b in osisub osisub-gui; do
+            if [ -f target/release/$b.exe ]; then cp target/release/$b.exe dist/; else cp target/release/$b dist/; fi
+          done
+          cp -r docs dist/docs
+          cp examples/demo.ass dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osisub-${{ matrix.name }}
+          path: dist

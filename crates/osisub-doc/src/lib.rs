@@ -161,8 +161,21 @@ impl Document {
                 self.undo.remove(0);
                 self.saved_at = self.saved_at.and_then(|s| s.checked_sub(1));
             }
+            self.prune_heavy();
         }
         r
+    }
+
+    /// Yapısal (tam kopya tutan) değişiklikler büyük belgelerde bellek yer; en fazla 8 tanesini sakla.
+    /// Eski adımlar yığının dibinden atılır, böylece tutarlılık bozulmaz.
+    fn prune_heavy(&mut self) {
+        const MAX_HEAVY: usize = 8;
+        let heavy = |t: &Txn| t.changes.iter().any(|c| matches!(c, Change::All { .. }));
+        while self.undo.iter().filter(|t| heavy(t)).count() > MAX_HEAVY {
+            let Some(pos) = self.undo.iter().position(|t| heavy(t)) else { break };
+            self.undo.drain(0..=pos);
+            self.saved_at = self.saved_at.and_then(|s| s.checked_sub(pos + 1));
+        }
     }
 
     fn apply_inverse(script: &mut Script, c: &Change) {
@@ -575,6 +588,20 @@ mod tests {
         d.undo();
         assert_eq!(d.stripped_text(a), "bir");
         assert_eq!(d.script.dialogues().count(), 3);
+    }
+
+    #[test]
+    fn heavy_undo_is_pruned() {
+        let mut d = doc();
+        for i in 0..12 {
+            let mut s = d.script.clone();
+            // satır sayısını değiştir → Change::All
+            s.entries.push(Entry::Dialogue(Dialogue { text: format!("x{}", i), ..Default::default() }));
+            d.apply_new_script("yapısal", s);
+        }
+        let mut n = 0;
+        while d.undo().is_some() { n += 1; }
+        assert!(n <= 8, "{}", n);
     }
 
     #[test]
