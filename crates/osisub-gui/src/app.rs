@@ -458,7 +458,10 @@ impl App {
         }
         self.sync_media_state();
         if let Some(f) = self.media.fps() { props.push(("video_position".to_string(), osisub_core::time::frame_from_ms(self.media.playhead, f).to_string())); }
-        self.worker.send(Cmd::Run { id, script: self.doc.script.clone(), selection: self.doc.selection.clone(), active: self.doc.active, props });
+        // Aegisub gibi: seçim boşsa etkin satır seçili sayılır.
+        let mut selection = self.doc.selection.clone();
+        if selection.is_empty() && self.doc.active < self.doc.script.entries.len() { selection.push(self.doc.active); }
+        self.worker.send(Cmd::Run { id, script: self.doc.script.clone(), selection, active: self.doc.active, props });
     }
 
     fn load_lua(&mut self, p: PathBuf) {
