@@ -77,6 +77,11 @@ pub struct App {
     settings: Settings,
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
+    fixes_open: bool,
+    fixes: osisub_core::fixes::Fixes,
+    fixes_selection_only: bool,
+    min_dur_on: bool,
+    min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
 }
@@ -175,6 +180,11 @@ impl App {
             settings: Settings::load(),
             reference: None,
             fonts_open: false,
+            fixes_open: false,
+            fixes: osisub_core::fixes::Fixes::default(),
+            fixes_selection_only: false,
+            min_dur_on: false,
+            min_gap_on: false,
             font_report: None,
             font_rx: None,
         };
@@ -191,6 +201,7 @@ impl App {
             Some("find") => app.find_open = true,
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
+            Some("fixes") => app.fixes_open = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
             _ => {}
         }
@@ -539,6 +550,7 @@ impl App {
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
+                if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
                 if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
                     let (x, y) = self.doc.script.res();
@@ -1165,6 +1177,47 @@ impl App {
         self.resample_open = open;
     }
 
+    fn fixes_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.fixes_open;
+        egui::Window::new("Sık hataları düzelt").open(&mut open).collapsible(false).show(ctx, |ui| {
+            let f = &mut self.fixes;
+            ui.checkbox(&mut f.mojibake, "Bozuk Türkçe karakterleri onar (Ã¼ → ü, Ý → İ, þ → ş …)");
+            ui.checkbox(&mut f.double_spaces, "Çift boşlukları tek yap");
+            ui.checkbox(&mut f.edge_spaces, "Satır başı/sonu boşluklarını sil");
+            ui.checkbox(&mut f.space_before_punct, "Noktalamadan önceki boşluğu sil");
+            ui.checkbox(&mut f.space_after_punct, "Noktalamadan sonra boşluk ekle");
+            ui.checkbox(&mut f.ellipsis, "Üç noktayı … yap");
+            ui.checkbox(&mut f.dialogue_dash, "Diyalog çizgisinden sonra boşluk (-Merhaba → - Merhaba)");
+            ui.checkbox(&mut f.sentence_case, "Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)");
+            ui.checkbox(&mut f.remove_hi, "İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.min_dur_on, "En kısa süre (ms)");
+                let mut v = f.min_duration_ms.unwrap_or(833);
+                ui.add_enabled(self.min_dur_on, egui::DragValue::new(&mut v).speed(10));
+                f.min_duration_ms = self.min_dur_on.then_some(v);
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.min_gap_on, "En küçük boşluk (ms)");
+                let mut v = f.min_gap_ms.unwrap_or(84);
+                ui.add_enabled(self.min_gap_on, egui::DragValue::new(&mut v).speed(5));
+                f.min_gap_ms = self.min_gap_on.then_some(v);
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.fixes_selection_only, "Yalnızca seçim");
+                if ui.button("Uygula").clicked() {
+                    let mut o = self.fixes.clone();
+                    o.only = if self.fixes_selection_only { Some(self.doc.selection.clone()) } else { None };
+                    let mut s = self.doc.script.clone();
+                    let rep = osisub_core::fixes::apply(&mut s, &o);
+                    self.doc.apply_new_script("Sık hataları düzelt", s);
+                    self.status = format!("{} satır değişti, {} zamanlama düzeltildi", rep.changed_lines, rep.timing_changes);
+                }
+            });
+        });
+        self.fixes_open = open;
+    }
+
     fn start_font_scan(&mut self) {
         let used = osisub_core::fonts_used::used_fonts(&self.doc.script);
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1279,6 +1332,7 @@ impl eframe::App for App {
         self.timing_window(&ctx);
         self.find_window(&ctx);
         self.fonts_window(&ctx);
+        self.fixes_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
         if let Some((title, st)) = self.dialog.as_mut() {
