@@ -14,3 +14,4 @@ Depo boştu; sıfırdan başlandı.
 - Ölçüm: 100k satırlık ASS ayrıştırma ~0.17 sn; karaskel ile 100k satır Lua işleme ~2.8 sn (release).
 - (aynı gece) `osisub-media`: ffprobe/ffmpeg ile bilgi, dalga formu, libass'lı kare; GUI'de video + dalga formu paneli. Ekran görüntüleri: `docs/img/`. Başsız doğrulama için `libxkbcommon-x11-0` kurulmalı (`apt-get install`), sonra `LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a osisub-gui dosya --media video.mkv --screenshot cikti.png`.
 - (aynı gece) Bul/Değiştir (`core::search`), zamanlama son-işleyicisi + çözünürlük yeniden örnekleme (`core::timing`), GUI'de pencereler, anahtar kareler, F5/F6/F7/Alt+↑↓ kısayolları, otomatik kayıt (~/.local/share/osisub/autosave), CI iş akışı.
+- (aynı gece) Karaoke çekirdeği ve GUI sekmesi, `--line N`/`--open pencere` ekran görüntüsü bayrakları, Lua `utf8`/`clipboard`/auto4 takma adları ve geniş uyumluluk testi (compat.lua).

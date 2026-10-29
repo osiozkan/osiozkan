@@ -19,6 +19,7 @@ use std::sync::Arc;
 #[derive(PartialEq, Clone, Copy)]
 enum Tab {
     Styles,
+    Karaoke,
     Quality,
     Automation,
     Info,
@@ -80,7 +81,7 @@ fn autoload_dir() -> Option<PathBuf> {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>, open_win: Option<String>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>, open_win: Option<String>, line: Option<usize>) -> App {
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -118,7 +119,7 @@ impl App {
             dialog: None,
             log: String::new(),
             status,
-            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
+            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("karaoke") => Tab::Karaoke, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
@@ -155,6 +156,11 @@ impl App {
         };
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
+        }
+        if let Some(n) = line {
+            if let Some(&r) = app.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect::<Vec<_>>().get(n.saturating_sub(1)) {
+                app.doc.select(vec![r], r);
+            }
         }
         match open_win.as_deref() {
             Some("find") => app.find_open = true,
@@ -607,13 +613,14 @@ impl App {
 
     fn side(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (t, l) in [(Tab::Styles, "Stiller"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
+            for (t, l) in [(Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
                 ui.selectable_value(&mut self.tab, t, l);
             }
         });
         ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
             Tab::Styles => self.styles_tab(ui),
+            Tab::Karaoke => self.karaoke_tab(ui),
             Tab::Quality => self.quality_tab(ui),
             Tab::Automation => self.automation_tab(ui),
             Tab::Info => self.info_tab(ui),
@@ -666,6 +673,118 @@ impl App {
                         }
                     });
                 }
+            }
+        }
+    }
+
+    fn karaoke_tab(&mut self, ui: &mut egui::Ui) {
+        use osisub_core::karaoke as k;
+        let at = self.doc.active;
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() else {
+            ui.label(RichText::new("Bir satır seçin").weak());
+            return;
+        };
+        let line_cs = d.duration() / 10;
+        let mut syls = k::parse(&d.text);
+        let has_k = syls.iter().any(|s| s.dur > 0) || d.text.contains("\\k");
+        let mut new_syls: Option<Vec<k::Syl>> = None;
+
+        if !has_k {
+            ui.label("Bu satırda karaoke etiketi yok.");
+            if ui.button("Sözcüklere böl ve süreyi dağıt").clicked() {
+                let plain = osisub_core::tags::strip_tags(&d.text);
+                let mut v: Vec<k::Syl> = vec![];
+                let mut cur = String::new();
+                for ch in plain.chars() {
+                    cur.push(ch);
+                    if ch == ' ' { v.push(k::Syl { dur: 0, kind: "kf".into(), text: std::mem::take(&mut cur) }); }
+                }
+                if !cur.is_empty() { v.push(k::Syl { dur: 0, kind: "kf".into(), text: cur }); }
+                k::distribute(&mut v, line_cs);
+                new_syls = Some(v);
+            }
+        } else {
+            let tot = k::total(&syls);
+            ui.horizontal(|ui| {
+                ui.label(format!("{} hece • toplam {} cs / satır {} cs", syls.len(), tot, line_cs));
+                if tot != line_cs { ui.label(RichText::new("(süre uyuşmuyor)").color(theme::WARN)); }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Süreye ölçekle").clicked() { let mut v = syls.clone(); k::scale_to(&mut v, line_cs); new_syls = Some(v); }
+                if ui.button("Harfe göre dağıt").clicked() { let mut v = syls.clone(); k::distribute(&mut v, line_cs); new_syls = Some(v); }
+                if ui.button("Etiketleri kaldır").clicked() { self.doc.edit("Karaoke etiketlerini kaldır", |tx| tx.dialogue_mut(at, |dd| { let v = k::parse(&dd.text); dd.text = v.iter().map(|s| s.text.clone()).collect(); })); }
+            });
+            // Çubuk
+            let width = ui.available_width();
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 40.0), egui::Sense::hover());
+            let total = tot.max(1) as f32;
+            let px_cs = width / total;
+            let p = ui.painter_at(rect);
+            let mut x = rect.left();
+            let mut bounds: Vec<f32> = vec![];
+            for (i, s) in syls.iter().enumerate() {
+                let w = s.dur as f32 * px_cs;
+                let r = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(w, rect.height()));
+                p.rect_filled(r.shrink(0.5), 3.0, if i % 2 == 0 { Color32::from_rgb(0x3a, 0x2a, 0x44) } else { Color32::from_rgb(0x2a, 0x3a, 0x4a) });
+                p.text(r.center(), egui::Align2::CENTER_CENTER, s.visible().trim().to_string(), egui::FontId::proportional(13.0), Color32::from_gray(230));
+                x += w;
+                bounds.push(x);
+            }
+            for (i, &bx) in bounds.iter().enumerate().take(syls.len().saturating_sub(1)) {
+                let hit = egui::Rect::from_center_size(egui::pos2(bx, rect.center().y), egui::vec2(10.0, rect.height()));
+                let r = ui.interact(hit, egui::Id::new(("kb", i)), egui::Sense::drag());
+                if r.hovered() || r.dragged() { ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal); }
+                p.line_segment([egui::pos2(bx, rect.top()), egui::pos2(bx, rect.bottom())], egui::Stroke::new(2.0, if r.dragged() { theme::ACCENT } else { Color32::from_gray(150) }));
+                if r.dragged() {
+                    if let Some(pos) = r.interact_pointer_pos() {
+                        let target = ((pos.x - rect.left()) / px_cs).round() as i64;
+                        let cum: i64 = syls[..=i].iter().map(|s| s.dur).sum();
+                        let mut v = syls.clone();
+                        k::move_boundary(&mut v, i, target - cum);
+                        new_syls = Some(v);
+                    }
+                }
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("Hece metnine | yazarak böl; sınırları çubukta sürükle.").weak().small());
+            // Hece listesi
+            let mut join_at: Option<usize> = None;
+            for i in 0..syls.len() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{}", i + 1)).weak());
+                    let mut t = syls[i].text.clone();
+                    if ui.add(TextEdit::singleline(&mut t).desired_width(150.0)).changed() {
+                        let mut v = syls.clone();
+                        if let Some(p) = t.find('|') {
+                            let before = t[..p].chars().count();
+                            v[i].text = t.replace('|', "");
+                            k::split(&mut v, i, before);
+                        } else {
+                            v[i].text = t;
+                        }
+                        new_syls = Some(v);
+                    }
+                    let mut dur = syls[i].dur;
+                    if ui.add(egui::DragValue::new(&mut dur).range(0..=100000).suffix(" cs")).changed() {
+                        let mut v = syls.clone();
+                        v[i].dur = dur;
+                        new_syls = Some(v);
+                    }
+                    let mut kind = syls[i].kind.clone();
+                    egui::ComboBox::from_id_salt(("kk", i)).selected_text(format!("\\{}", kind)).width(60.0).show_ui(ui, |ui| {
+                        for kk in ["k", "kf", "ko"] { ui.selectable_value(&mut kind, kk.to_string(), format!("\\{}", kk)); }
+                    });
+                    if kind != syls[i].kind { let mut v = syls.clone(); v[i].kind = kind; new_syls = Some(v); }
+                    if i + 1 < syls.len() && ui.small_button("Birleştir ↓").clicked() { join_at = Some(i); }
+                });
+            }
+            if let Some(i) = join_at { k::join(&mut syls, i); new_syls = Some(syls.clone()); }
+        }
+        if let Some(v) = new_syls {
+            let text = k::build(&v);
+            if text != d.text {
+                let key = format!("kara:{}", at);
+                self.doc.edit_keyed("Karaoke", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = text));
             }
         }
     }

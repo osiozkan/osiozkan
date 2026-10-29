@@ -14,12 +14,14 @@ fn main() -> eframe::Result {
     let mut tab: Option<String> = None;
     let mut media: Option<PathBuf> = None;
     let mut open_win: Option<String> = None;
+    let mut line: Option<usize> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--media" => media = args.next().map(PathBuf::from),
             "--open" => open_win = args.next(),
+            "--line" => line = args.next().and_then(|v| v.parse().ok()),
             "--tab" => tab = args.next(),
             "--lua" => scripts.extend(args.next().map(PathBuf::from)),
             "-h" | "--help" => {
@@ -33,5 +35,5 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]).with_min_inner_size([900.0, 560.0]).with_title("osisub"),
         ..Default::default()
     };
-    eframe::run_native("osisub", opts, Box::new(move |cc| Ok(Box::new(app::App::new(cc, file, scripts, screenshot, tab, media, open_win)))))
+    eframe::run_native("osisub", opts, Box::new(move |cc| Ok(Box::new(app::App::new(cc, file, scripts, screenshot, tab, media, open_win, line)))))
 }

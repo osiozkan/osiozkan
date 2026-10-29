@@ -14,7 +14,8 @@
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [ ] Anahtar kare/timecode dosyaları (Aegisub .txt, v1/v2), değişken fps
 - [ ] Çeviri akışı: iki dilli paralel görünüm, TM/sözlük, otomatik çeviri bağlayıcıları, yazım denetimi (Hunspell, tr_TR)
-- [ ] Karaoke: hece ayırma/birleştirme, otomatik k-timing, şablonlayıcı (kara-templater uyumlu)
+- [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
+- [ ] Karaoke: ses/dalga üzerinde canlı k-timing (tuşa basarak), otomatik hece ayırma (Japonca romaji/kana), şablonlayıcı (kara-templater uyumlu)
 
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
