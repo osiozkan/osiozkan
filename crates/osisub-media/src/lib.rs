@@ -125,6 +125,71 @@ impl Waveform {
 }
 
 #[derive(Clone, Debug)]
+pub struct VadOptions {
+    /// Gürültü tabanının üstünde konuşma sayılacak eşik (dB).
+    pub margin_db: f64,
+    /// Mutlak alt sınır (dBFS); bunun altı hep sessizlik.
+    pub floor_db: f64,
+    pub min_speech_ms: i64,
+    /// Bundan kısa sessizlikler konuşmayı bölmez.
+    pub min_silence_ms: i64,
+    /// Bulunan aralıkların her iki yanına eklenen pay.
+    pub pad_ms: i64,
+}
+
+impl Default for VadOptions {
+    fn default() -> Self {
+        VadOptions { margin_db: 12.0, floor_db: -50.0, min_speech_ms: 300, min_silence_ms: 350, pad_ms: 80 }
+    }
+}
+
+/// Basit enerji tabanlı konuşma etkinliği tespiti. (başlangıç_ms, bitiş_ms) aralıkları döndürür.
+pub fn detect_speech(w: &Waveform, o: &VadOptions) -> Vec<(i64, i64)> {
+    let frame = (w.sample_rate as usize / 50).max(1); // 20 ms
+    let db: Vec<f64> = w
+        .samples
+        .chunks(frame)
+        .map(|c| {
+            let e: f64 = c.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum::<f64>() / c.len() as f64;
+            10.0 * (e + 1e-12).log10()
+        })
+        .collect();
+    if db.is_empty() {
+        return vec![];
+    }
+    let mut sorted = db.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let noise = sorted[sorted.len() / 5];
+    let thr = (noise + o.margin_db).max(o.floor_db);
+    let ms = |i: usize| (i as i64) * 20;
+    let mut segs: Vec<(i64, i64)> = vec![];
+    let mut start: Option<usize> = None;
+    for (i, &v) in db.iter().enumerate() {
+        match (v > thr, start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                segs.push((ms(s), ms(i)));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        segs.push((ms(s), ms(db.len())));
+    }
+    // kısa sessizlikleri birleştir, kısa konuşmaları at
+    let mut merged: Vec<(i64, i64)> = vec![];
+    for (a, b) in segs {
+        match merged.last_mut() {
+            Some(l) if a - l.1 < o.min_silence_ms => l.1 = b,
+            _ => merged.push((a, b)),
+        }
+    }
+    let total = w.duration_ms();
+    merged.into_iter().filter(|(a, b)| b - a >= o.min_speech_ms).map(|(a, b)| ((a - o.pad_ms).max(0), (b + o.pad_ms).min(total))).collect()
+}
+
+#[derive(Clone, Debug)]
 pub struct Frame {
     pub width: u32,
     pub height: u32,
@@ -229,6 +294,23 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vad_finds_speech() {
+        // 1 sn sessiz, 1 sn "ses", 1 sn sessiz, 0.5 sn kısa tık (atılmalı), 1 sn "ses"
+        let sr = 8000usize;
+        let mut s: Vec<i16> = vec![0; sr];
+        s.extend((0..sr).map(|i| if i % 2 == 0 { 8000 } else { -8000 }));
+        s.extend(vec![0; sr]);
+        s.extend((0..sr / 10).map(|i| if i % 2 == 0 { 8000 } else { -8000 }));
+        s.extend(vec![0; sr]);
+        s.extend((0..sr).map(|i| if i % 2 == 0 { 8000 } else { -8000 }));
+        let w = Waveform { sample_rate: sr as u32, samples: s };
+        let v = detect_speech(&w, &VadOptions::default());
+        assert_eq!(v.len(), 2, "{:?}", v);
+        assert!((v[0].0 - 920).abs() <= 40 && (v[0].1 - 2080).abs() <= 40, "{:?}", v);
+        assert!(v[1].0 > 3500);
+    }
 
     #[test]
     fn peaks_basic() {

@@ -99,6 +99,10 @@ impl Media {
         }
     }
 
+    pub fn waveform(&self) -> Option<Arc<Waveform>> {
+        self.wave.clone()
+    }
+
     pub fn is_open(&self) -> bool {
         self.path.is_some()
     }

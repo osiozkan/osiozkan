@@ -81,6 +81,9 @@ pub struct App {
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
     fixes_open: bool,
+    vad_open: bool,
+    vad: osisub_media::VadOptions,
+    vad_skip_existing: bool,
     autoplay: bool,
     play_wait: u32,
     loaded_scripts: Vec<PathBuf>,
@@ -192,6 +195,9 @@ impl App {
             reference: None,
             fonts_open: false,
             fixes_open: false,
+            vad_open: false,
+            vad: osisub_media::VadOptions::default(),
+            vad_skip_existing: true,
             autoplay: false,
             play_wait: 0,
             loaded_scripts,
@@ -216,6 +222,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("fixes") => app.fixes_open = true,
+            Some("vad") => app.vad_open = true,
             Some("pos") => app.media.pos_tool = true,
             Some("play") => app.autoplay = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
@@ -588,6 +595,7 @@ impl App {
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
+                if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
                 if ui.button("Zamana göre sırala").clicked() {
                     let mut s = self.doc.script.clone();
                     qc::sort_by_start(&mut s);
@@ -1252,6 +1260,40 @@ impl App {
         self.resample_open = open;
     }
 
+    fn vad_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.vad_open;
+        egui::Window::new("Sesten satır oluştur").open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label("Konuşma bölgelerini bulup boş altyazı satırları oluşturur (zamanlama iskeleti).");
+            egui::Grid::new("vad_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Eşik payı (dB)"); ui.add(egui::DragValue::new(&mut self.vad.margin_db).speed(0.5).range(3.0..=40.0)); ui.end_row();
+                ui.label("Mutlak taban (dBFS)"); ui.add(egui::DragValue::new(&mut self.vad.floor_db).speed(0.5).range(-90.0..=-10.0)); ui.end_row();
+                ui.label("En kısa konuşma (ms)"); ui.add(egui::DragValue::new(&mut self.vad.min_speech_ms).speed(10)); ui.end_row();
+                ui.label("En kısa sessizlik (ms)"); ui.add(egui::DragValue::new(&mut self.vad.min_silence_ms).speed(10)); ui.end_row();
+                ui.label("Kenar payı (ms)"); ui.add(egui::DragValue::new(&mut self.vad.pad_ms).speed(5)); ui.end_row();
+            });
+            ui.checkbox(&mut self.vad_skip_existing, "Zaten satır olan bölgeleri atla");
+            if ui.button("Oluştur").clicked() {
+                if let Some(w) = self.media.waveform() {
+                    let segs = osisub_media::detect_speech(&w, &self.vad);
+                    let existing: Vec<(i64, i64)> = self.doc.script.dialogues().map(|d| (d.start_time, d.end_time)).collect();
+                    let style = self.doc.script.styles().next().map(|s| s.name.clone()).unwrap_or_else(|| "Default".into());
+                    let mut s = self.doc.script.clone();
+                    let mut n = 0;
+                    for (a, b) in segs {
+                        let covered = existing.iter().any(|&(x, y)| (y.min(b) - x.max(a)) * 2 > (b - a));
+                        if self.vad_skip_existing && covered { continue; }
+                        s.entries.push(Entry::Dialogue(osisub_core::Dialogue { start_time: a, end_time: b, style: style.clone(), ..Default::default() }));
+                        n += 1;
+                    }
+                    qc::sort_by_start(&mut s);
+                    self.doc.apply_new_script("Sesten satır oluştur", s);
+                    self.status = format!("{} satır oluşturuldu", n);
+                }
+            }
+        });
+        self.vad_open = open;
+    }
+
     fn fixes_window(&mut self, ctx: &egui::Context) {
         let mut open = self.fixes_open;
         egui::Window::new("Sık hataları düzelt").open(&mut open).collapsible(false).show(ctx, |ui| {
@@ -1409,6 +1451,7 @@ impl eframe::App for App {
         self.find_window(&ctx);
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
+        self.vad_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
         if let Some((title, st)) = self.dialog.as_mut() {
