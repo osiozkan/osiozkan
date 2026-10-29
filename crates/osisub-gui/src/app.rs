@@ -82,6 +82,9 @@ pub struct App {
     ref_lines: Vec<(i64, i64, String)>,
     fonts_open: bool,
     fixes_open: bool,
+    export_open: bool,
+    export_sel: Vec<usize>,
+    export_job: Option<ExportJob>,
     tap: Option<TapState>,
     tap_latency_ms: i64,
     backed_up: std::collections::HashSet<PathBuf>,
@@ -110,6 +113,12 @@ pub struct App {
     min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+}
+
+struct ExportJob {
+    queue: Vec<usize>,
+    script: osisub_core::Script,
+    path: PathBuf,
 }
 
 struct TapState {
@@ -260,6 +269,9 @@ impl App {
             ref_lines: vec![],
             fonts_open: false,
             fixes_open: false,
+            export_open: false,
+            export_sel: vec![],
+            export_job: None,
             tap: None,
             tap_latency_ms: 200,
             backed_up: Default::default(),
@@ -605,6 +617,43 @@ impl App {
 
     // ------------------------------------------------------------ Lua
 
+    fn export_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.export_open;
+        egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
+            let mut filters: Vec<(usize, String, String, i64)> = self.macros.iter().filter(|m| m.info.kind == MacroKind::Filter).map(|m| (m.info.id, m.info.name.clone(), m.info.description.clone(), m.info.priority)).collect();
+            filters.sort_by_key(|f| -f.3);
+            if filters.is_empty() { ui.label(RichText::new("Yüklü filtre yok (Lua: aegisub.register_filter)").weak()); }
+            for (id, name, desc, prio) in &filters {
+                let mut on = self.export_sel.contains(id);
+                if ui.checkbox(&mut on, format!("{}  (öncelik {})", name, prio)).on_hover_text(desc).changed() {
+                    if on { self.export_sel.push(*id); } else { self.export_sel.retain(|x| x != id); }
+                }
+            }
+            ui.label(RichText::new("Seçili filtreler öncelik sırasıyla (büyükten küçüğe) çalışır; belge değişmez, sonuç dosyaya yazılır.").weak().small());
+            if ui.add_enabled(self.running.is_none(), egui::Button::new("Dışa aktar…")).clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("Düz metin", &["txt"]).save_file() {
+                    let mut queue: Vec<usize> = filters.iter().filter(|f| self.export_sel.contains(&f.0)).map(|f| f.0).collect();
+                    if queue.is_empty() {
+                        match osisub_core::io::save(&self.doc.script, &p) { Ok(()) => self.status = format!("Dışa aktarıldı: {}", p.display()), Err(e) => self.status = format!("Hata: {}", e) }
+                    } else {
+                        let first = queue.remove(0);
+                        self.export_job = Some(ExportJob { queue, script: self.doc.script.clone(), path: p });
+                        self.run_export_step(first);
+                    }
+                }
+            }
+        });
+        self.export_open = open;
+    }
+
+    fn run_export_step(&mut self, id: usize) {
+        let Some(script) = self.export_job.as_ref().map(|j| j.script.clone()) else { return };
+        let name = self.macros.iter().find(|m| m.info.id == id).map(|m| m.info.name.clone()).unwrap_or_default();
+        self.running = Some(name);
+        self.sync_media_state();
+        self.worker.send(Cmd::Run { id, script, selection: vec![], active: 0, props: vec![] });
+    }
+
     fn run_macro(&mut self, id: usize) {
         if self.running.is_some() {
             return;
@@ -682,12 +731,32 @@ impl App {
                     let name = self.running.take().unwrap_or_default();
                     self.progress = 0.0;
                     match r {
+                        Ok(done) if self.export_job.is_some() => {
+                            if done.cancelled {
+                                self.export_job = None;
+                                self.status = format!("{}: iptal edildi; dışa aktarma durdu", name);
+                            } else {
+                                let mut job = self.export_job.take().unwrap();
+                                job.script = done.script;
+                                if job.queue.is_empty() {
+                                    match osisub_core::io::save(&job.script, &job.path) {
+                                        Ok(()) => self.status = format!("Dışa aktarıldı: {}", job.path.display()),
+                                        Err(e) => self.status = format!("Hata: {}", e),
+                                    }
+                                } else {
+                                    let next = job.queue.remove(0);
+                                    self.export_job = Some(job);
+                                    self.run_export_step(next);
+                                }
+                            }
+                        }
                         Ok(done) => {
                             let cancelled = done.cancelled;
                             self.doc.apply_run_done(done, &name);
                             self.status = if cancelled { format!("{}: iptal edildi", name) } else { format!("{}: tamamlandı", name) };
                         }
                         Err((msg, log)) => {
+                            self.export_job = None;
                             self.log.push_str(&log);
                             self.log.push_str(&format!("HATA ({}): {}\n", name, msg));
                             self.status = format!("{}: hata (günlüğe bakın)", name);
@@ -885,6 +954,7 @@ impl App {
                 ui.separator();
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
+                if ui.button("Dışa aktar (filtreler)…").clicked() { ui.close(); self.export_open = true; }
                 ui.separator();
                 if ui.button("Çıkış").clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
             });
@@ -1898,6 +1968,7 @@ impl eframe::App for App {
         self.find_window(&ctx);
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
+        self.export_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
