@@ -48,4 +48,8 @@ target/release/osisub --help
 Başsız GUI doğrulaması (ekran görüntüsü): `apt-get install libxkbcommon-x11-0 xvfb ffmpeg`, sonra
 `LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a target/debug/osisub-gui dosya.ass --media video.mkv --tab karaoke --line 5 --open timing --screenshot cikti.png`.
 
+Etkileşimli duman testi (xdotool ile tıklama/tuş/sürükleme; çökme avı): `apt-get install xdotool xvfb libxkbcommon-x11-0 ffmpeg`, sonra
+`tools/ui-smoke.sh target/debug/osisub-gui examples/demo.ass cikti.png` (medya için `MEDIA_TEST=1 ... --media video.mkv`). `OSISUB_DEBUG_INPUT=1` gelen girdi olaylarını yazar.
+Not: Xvfb'de pencere odağı için `xdotool search --onlyvisible` + `windowfocus` gerekir (betik yapar).
+
 Bilinen eksikler ve sıradaki işler: `docs/ROADMAP.md`. Gece gece ilerleme: `docs/DEVLOG.md`.

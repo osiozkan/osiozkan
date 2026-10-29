@@ -19,6 +19,8 @@ pub struct Args {
     pub open_win: Option<String>,
     pub line: Option<usize>,
     pub reference: Option<PathBuf>,
+    /// Ekran görüntüsünü bu kadar saniye sonra al (xdotool senaryoları için).
+    pub shot_delay: Option<f32>,
 }
 
 fn main() -> eframe::Result {
@@ -32,6 +34,7 @@ fn main() -> eframe::Result {
             "--open" => a.open_win = args.next(),
             "--line" => a.line = args.next().and_then(|v| v.parse().ok()),
             "--tab" => a.tab = args.next(),
+            "--shot-delay" => a.shot_delay = args.next().and_then(|v| v.parse().ok()),
             "--ref" => a.reference = args.next().map(PathBuf::from),
             "-h" | "--help" => {
                 println!("osisub-gui [dosya.ass|srt|vtt] [--lua betik.lua]... [--media video.mkv] [--ref referans.srt] [--tab styles|karaoke|spell|quality|automation|info] [--line N] [--open find|timing|resample|fonts|fixes|vad|pos|play|spectrum|spell] [--screenshot cikti.png]");

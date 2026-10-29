@@ -65,6 +65,8 @@ pub struct App {
     shot: Option<PathBuf>,
     shot_frame: u32,
     shot_requested: bool,
+    shot_delay: Option<f32>,
+    started: std::time::Instant,
     shot_done: Arc<AtomicBool>,
     media: Media,
     show_media: bool,
@@ -91,6 +93,8 @@ pub struct App {
     backed_up: std::collections::HashSet<PathBuf>,
     theme_dirty: bool,
     goto_open: bool,
+    goto_focus: bool,
+    find_focus: bool,
     goto_buf: String,
     import_styles: Option<Vec<(Style, bool)>>,
     autospell: bool,
@@ -188,7 +192,7 @@ fn editor_job(text: &str, sp: Option<&osisub_spell::Speller>) -> LayoutJob {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, args: crate::Args) -> App {
-        let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference } = args;
+        let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference, shot_delay } = args;
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -252,6 +256,8 @@ impl App {
             shot,
             shot_frame: 0,
             shot_requested: false,
+            shot_delay,
+            started: std::time::Instant::now(),
             shot_done: Arc::new(AtomicBool::new(false)),
             media: Media::new(),
             show_media: false,
@@ -278,6 +284,8 @@ impl App {
             backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,
+            goto_focus: false,
+            find_focus: false,
             goto_buf: String::new(),
             import_styles: None,
             autospell: false,
@@ -838,6 +846,18 @@ impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.memory(|m| m.focused().is_some()) && ctx.egui_wants_keyboard_input();
         let k = |m: Modifiers, key: Key| KeyboardShortcut::new(m, key);
+        // Esc: küçük araç pencerelerini kapat (metin kutusu Esc'yi tüketmeden önce yakala).
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.find_open = false;
+            self.goto_open = false;
+            self.timing_open = false;
+            self.resample_open = false;
+            self.fixes_open = false;
+            self.stats_open = false;
+            self.vad_open = false;
+            self.export_open = false;
+            self.fonts_open = false;
+        }
         if !typing {
             let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
             for ev in events {
@@ -874,7 +894,7 @@ impl App {
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc, ctx); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) { self.media.set_active_start(&mut self.doc); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) { self.media.set_active_end(&mut self.doc); }
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::H))) { self.find_open = true; }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::H))) { self.find_open = true; self.find_focus = true; }
         let (alt_up, alt_down) = ctx.input_mut(|i| (i.consume_key(Modifiers::ALT, Key::ArrowUp), i.consume_key(Modifiers::ALT, Key::ArrowDown)));
         if (alt_up || alt_down) && !self.rows.is_empty() {
             let pos = self.rows.iter().position(|&r| r == self.doc.active).unwrap_or(0);
@@ -884,7 +904,7 @@ impl App {
             self.anchor = np;
             self.scroll_to = Some(r);
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::G))) { self.goto_open = true; }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::G))) { self.goto_open = true; self.goto_focus = true; }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus))) { self.settings.zoom = (self.settings.zoom + 0.1).min(2.5); self.theme_dirty = true; }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Minus))) { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
         if self.tap.is_some() && !typing && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space)) {
@@ -994,7 +1014,7 @@ impl App {
                 if ui.add(egui::Button::new("Uzaklaştır").shortcut_text("Ctrl -")).clicked() { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
                 if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
                 ui.separator();
-                if ui.add(egui::Button::new("Zamana git…").shortcut_text("Ctrl+G")).clicked() { self.goto_open = true; ui.close(); }
+                if ui.add(egui::Button::new("Zamana git…").shortcut_text("Ctrl+G")).clicked() { self.goto_open = true; self.goto_focus = true; ui.close(); }
             });
             ui.menu_button("Video", |ui| {
                 if ui.button("Video / ses aç…").clicked() {
@@ -1030,7 +1050,7 @@ impl App {
                 if ui.button("Betikleri yeniden yükle").clicked() { ui.close(); self.reload_scripts(); }
             });
             ui.menu_button("Araçlar", |ui| {
-                if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
+                if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; self.find_focus = true; ui.close(); }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
@@ -1654,6 +1674,7 @@ impl App {
             egui::Grid::new("find_grid").num_columns(2).show(ui, |ui| {
                 ui.label("Bul");
                 let r = ui.add(TextEdit::singleline(&mut self.find.pattern).desired_width(280.0));
+                if self.find_focus { r.request_focus(); self.find_focus = false; }
                 if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) { self.find_next(); }
                 ui.end_row();
                 ui.label("Değiştir");
@@ -1763,7 +1784,7 @@ impl App {
         egui::Window::new("Zamana git").open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.label("Zaman (H:MM:SS.cc, MM:SS ya da saniye):");
             let r = ui.add(TextEdit::singleline(&mut self.goto_buf).desired_width(160.0));
-            r.request_focus();
+            if self.goto_focus { r.request_focus(); self.goto_focus = false; }
             if ui.button("Git").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
                 let t = time::parse_ass(&self.goto_buf).or_else(|| self.goto_buf.trim().parse::<f64>().ok().map(|s| (s * 1000.0) as i64));
                 match t {
@@ -1959,7 +1980,8 @@ impl App {
         let Some(path) = self.shot.clone() else { return };
         self.shot_frame += 1;
         ctx.request_repaint();
-        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() && !self.autoplay && self.play_wait == 0 && !self.autospell && self.miss_rx.is_none() && self.spell_load_rx.is_none() {
+        let delay_ok = self.shot_delay.map_or(true, |d| self.started.elapsed().as_secs_f32() >= d);
+        if self.shot_frame >= 12 && delay_ok && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() && !self.autoplay && self.play_wait == 0 && !self.autospell && self.miss_rx.is_none() && self.spell_load_rx.is_none() {
             self.shot_requested = true;
             let done = self.shot_done.clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -1985,6 +2007,9 @@ impl eframe::App for App {
             self.theme_dirty = false;
             theme::apply(&ctx, self.settings.light_theme);
             ctx.set_zoom_factor(self.settings.zoom);
+        }
+        if std::env::var_os("OSISUB_DEBUG_INPUT").is_some() {
+            ctx.input(|i| for e in &i.events { if !matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_)) { eprintln!("girdi: {:?}", e); } });
         }
         self.pump_events(&ctx);
         self.pump_spell(&ctx);
