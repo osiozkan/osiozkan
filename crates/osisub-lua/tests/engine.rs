@@ -1,0 +1,48 @@
+use osisub_core::ass::{Entry, Script};
+use osisub_lua::{Engine, HeadlessHost};
+use std::path::Path;
+
+const ASS: &str = "[Script Info]\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\k20}ka{\\k30}ra\n";
+
+fn engine() -> Engine {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.load_script(Path::new("tests/fixtures/sample.lua")).unwrap();
+    e
+}
+
+fn last_dialogue_idx(e: &Engine) -> usize {
+    e.script().entries.iter().position(|x| matches!(x, Entry::Dialogue(_))).unwrap() + 1
+}
+
+#[test]
+fn registers_and_shifts() {
+    let mut e = engine();
+    assert_eq!(e.macros().len(), 3);
+    let idx = last_dialogue_idx(&e);
+    let out = e.run_macro(0, &[idx], idx).unwrap();
+    assert_eq!(out.selection, Some(vec![idx]));
+    assert_eq!(out.undo_desc.as_deref(), Some("kaydir"));
+    let d = e.script().dialogues().next().unwrap().clone();
+    assert_eq!(d.start_time, 2000);
+    assert!(d.text.ends_with('!'));
+}
+
+#[test]
+fn karaoke_and_libs() {
+    let mut e = engine();
+    let idx = last_dialogue_idx(&e);
+    e.run_macro(1, &[idx], idx).unwrap();
+    let log = e.take_log();
+    assert!(log.contains("sylls=2 first=\"ka\" dur=200"), "{}", log);
+    assert!(log.contains("re=k,a up=İŞ len=3"), "{}", log);
+    assert_eq!(e.script().dialogues().count(), 2);
+    assert_eq!(e.script().dialogues().next().unwrap().text, "kara!".replace('!', ""));
+}
+
+#[test]
+fn cancel_and_dialog_defaults() {
+    let mut e = engine();
+    let out = e.run_macro(2, &[], 0).unwrap();
+    assert!(out.cancelled);
+}

@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 osisub-core = { path = "../osisub-core" }
 mlua = { version = "0.11", features = ["luajit", "vendored"] }
+fancy-regex = "0.14"
