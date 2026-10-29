@@ -23,7 +23,20 @@ pub struct Args {
     pub shot_delay: Option<f32>,
 }
 
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(dir) = osisub_core::paths::data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            let bt = std::backtrace::Backtrace::force_capture();
+            let _ = std::fs::write(dir.join("crash.log"), format!("{}\n\n{}\n", info, bt));
+        }
+        default(info);
+    }));
+}
+
 fn main() -> eframe::Result {
+    install_panic_hook();
     let mut a = Args::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {

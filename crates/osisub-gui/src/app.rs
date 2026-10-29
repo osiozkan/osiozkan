@@ -80,6 +80,7 @@ pub struct App {
     post: PostOptions,
     post_selection_only: bool,
     last_autosave: std::time::Instant,
+    recovery: Vec<Recovery>,
     settings: Settings,
     reference: Option<osisub_core::Script>,
     ref_lines: Vec<(i64, i64, String)>,
@@ -120,6 +121,13 @@ pub struct App {
     min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+}
+
+/// Bulunan otomatik kayıt dosyası.
+struct Recovery {
+    file: PathBuf,
+    original: Option<PathBuf>,
+    age_min: u64,
 }
 
 struct ExportJob {
@@ -276,6 +284,7 @@ impl App {
             post: PostOptions::default(),
             post_selection_only: true,
             last_autosave: std::time::Instant::now(),
+            recovery: vec![],
             settings: Settings::load(),
             reference: None,
             ref_lines: vec![],
@@ -319,6 +328,7 @@ impl App {
         };
         app.apply_settings();
         app.auto_load_dictionary();
+        if app.doc.path.is_none() { app.scan_recovery(); }
         if let Some(r) = reference {
             if let Ok(sc) = osisub_core::io::load(&r) {
                 app.ref_lines = { let mut v: Vec<(i64, i64, String)> = sc.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v };
@@ -434,7 +444,7 @@ impl App {
                 let _ = std::fs::copy(&p, PathBuf::from(bak));
             }
             match self.doc.save_as(p.clone()) {
-                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); }
+                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); }
                 Err(e) => self.status = format!("Hata: {}", e),
             }
         }
@@ -850,14 +860,85 @@ impl App {
         });
     }
 
+    fn autosave_dir() -> Option<PathBuf> {
+        osisub_core::paths::data_dir().map(|d| d.join("autosave"))
+    }
+
+    fn autosave_name(&self) -> String {
+        self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into())
+    }
+
     fn autosave(&mut self) {
-        if !self.doc.is_dirty() || self.last_autosave.elapsed().as_secs() < 60 { return; }
+        if !self.doc.is_dirty() || self.last_autosave.elapsed().as_secs() < 30 { return; }
         self.last_autosave = std::time::Instant::now();
-        let Some(base) = osisub_core::paths::data_dir() else { return };
-        let dir = base.join("autosave");
+        let Some(dir) = Self::autosave_dir() else { return };
         if std::fs::create_dir_all(&dir).is_err() { return; }
-        let name = self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into());
+        let name = self.autosave_name();
         let _ = std::fs::write(dir.join(format!("{}.autosave.ass", name)), self.doc.script.to_ass_string());
+        // Özgün yol (kurtarma için)
+        let side = dir.join(format!("{}.autosave.path", name));
+        match &self.doc.path {
+            Some(p) => { let _ = std::fs::write(side, p.to_string_lossy().as_bytes()); }
+            None => { let _ = std::fs::remove_file(side); }
+        }
+    }
+
+    /// Kaydedildiğinde ya da temiz çıkışta bu belgenin otomatik kaydını sil.
+    fn clear_autosave(&self) {
+        if let Some(dir) = Self::autosave_dir() {
+            let name = self.autosave_name();
+            let _ = std::fs::remove_file(dir.join(format!("{}.autosave.ass", name)));
+            let _ = std::fs::remove_file(dir.join(format!("{}.autosave.path", name)));
+        }
+    }
+
+    /// Açılışta kalmış otomatik kayıtları tara (önceki oturum çökmüş olabilir).
+    fn scan_recovery(&mut self) {
+        let Some(dir) = Self::autosave_dir() else { return };
+        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        for e in rd.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if !p.to_string_lossy().ends_with(".autosave.ass") { continue; }
+            let age_min = e.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).map(|d| d.as_secs() / 60).unwrap_or(0);
+            let side = PathBuf::from(p.to_string_lossy().replace(".autosave.ass", ".autosave.path"));
+            let original = std::fs::read_to_string(side).ok().map(|t| PathBuf::from(t.trim()));
+            self.recovery.push(Recovery { file: p, original, age_min });
+        }
+    }
+
+    fn recovery_window(&mut self, ctx: &egui::Context) {
+        if self.recovery.is_empty() { return; }
+        let mut act: Option<(usize, bool)> = None; // (indeks, kurtar mı)
+        egui::Window::new("Otomatik kayıt bulundu").collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.label("Önceki oturum düzgün kapanmamış olabilir. Kurtarılabilir otomatik kayıtlar:");
+            for (i, r) in self.recovery.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} — {} dk önce", r.original.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| r.file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), r.age_min));
+                    if ui.button("Kurtar").clicked() { act = Some((i, true)); }
+                    if ui.button("Sil").clicked() { act = Some((i, false)); }
+                });
+            }
+            if ui.button("Hepsini yoksay").clicked() { self.recovery.clear(); }
+        });
+        if let Some((i, recover)) = act {
+            let r = self.recovery.remove(i);
+            if recover {
+                match osisub_core::io::load(&r.file) {
+                    Ok(s) => {
+                        let mut d = Document::new(s);
+                        d.path = r.original.clone();
+                        d.mark_dirty();
+                        self.doc = d;
+                        if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
+                        self.status = "Otomatik kayıttan kurtarıldı — kaydetmeyi unutmayın".into();
+                    }
+                    Err(e) => self.status = format!("Kurtarılamadı: {}", e),
+                }
+            } else {
+                let _ = std::fs::remove_file(&r.file);
+                let _ = std::fs::remove_file(PathBuf::from(r.file.to_string_lossy().replace(".autosave.ass", ".autosave.path")));
+            }
+        }
     }
 
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
@@ -883,6 +964,7 @@ impl App {
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_settings();
+        if !self.doc.is_dirty() { self.clear_autosave(); }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -931,6 +1013,7 @@ impl eframe::App for App {
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
         self.stats_window(&ctx);
+        self.recovery_window(&ctx);
         self.export_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);

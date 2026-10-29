@@ -20,6 +20,14 @@ impl App {
             if !self.filter.is_empty() && ui.small_button("x").clicked() { self.filter.clear(); }
             ui.label(RichText::new(format!("{} / {} satır", self.rows.len(), self.doc.script.dialogues().count())).weak());
         });
+        if self.doc.script.dialogues().next().is_none() {
+            ui.add_space(24.0);
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("Henüz altyazı satırı yok").size(18.0).weak());
+                ui.label(RichText::new("Bir altyazı dosyasını (.ass .srt .vtt …) buraya sürükleyin, Ctrl+O ile açın ya da Ctrl+Enter ile ilk satırı ekleyin.").weak());
+            });
+            return;
+        }
         let mods = ui.input(|i| i.modifiers);
         let has_ref = !self.ref_lines.is_empty();
         let avail_w = ui.available_width();

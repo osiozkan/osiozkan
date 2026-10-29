@@ -107,6 +107,11 @@ impl Document {
         Ok(())
     }
 
+    /// Belgeyi "kaydedilmemiş" işaretler (ör. otomatik kayıttan kurtarılan içerik).
+    pub fn mark_dirty(&mut self) {
+        self.saved_at = None;
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.saved_at != Some(self.undo.len())
     }
