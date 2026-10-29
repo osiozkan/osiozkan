@@ -48,6 +48,9 @@ pub struct App {
     issues: Vec<Issue>,
     issue_map: HashMap<usize, Vec<Kind>>,
     issues_key: u64,
+    qc_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<Issue>)>>,
+    qc_seen_rev: u64,
+    qc_changed_at: std::time::Instant,
     start_buf: String,
     end_buf: String,
     buf_for: (usize, u64),
@@ -151,6 +154,9 @@ impl App {
             issues: vec![],
             issue_map: HashMap::new(),
             issues_key: u64::MAX,
+            qc_rx: None,
+            qc_seen_rev: u64::MAX,
+            qc_changed_at: std::time::Instant::now(),
             start_buf: String::new(),
             end_buf: String::new(),
             buf_for: (usize::MAX, u64::MAX),
@@ -372,14 +378,39 @@ impl App {
                 .collect();
             self.rows_key = key;
         }
-        if self.issues_key != self.doc.rev {
-            self.issues = qc::check(&self.doc.script, &self.rules);
-            self.issue_map.clear();
-            for i in &self.issues {
-                self.issue_map.entry(i.entry).or_default().push(i.kind.clone());
-            }
-            self.issues_key = self.doc.rev;
+        if self.qc_seen_rev != self.doc.rev {
+            self.qc_seen_rev = self.doc.rev;
+            self.qc_changed_at = std::time::Instant::now();
         }
+        if let Some(rx) = &self.qc_rx {
+            if let Ok((rev, issues)) = rx.try_recv() {
+                self.qc_rx = None;
+                if rev == self.doc.rev {
+                    self.set_issues(issues, rev);
+                }
+            }
+        }
+        if self.issues_key != self.doc.rev {
+            if self.doc.script.entries.len() < 5000 {
+                let issues = qc::check(&self.doc.script, &self.rules);
+                self.set_issues(issues, self.doc.rev);
+            } else if self.qc_rx.is_none() && self.qc_changed_at.elapsed() >= std::time::Duration::from_millis(300) {
+                // Büyük belge: düzenleme durunca arka planda hesapla.
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.qc_rx = Some(rx);
+                let (script, rules, rev) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev);
+                std::thread::spawn(move || { let _ = tx.send((rev, qc::check(&script, &rules))); });
+            }
+        }
+    }
+
+    fn set_issues(&mut self, issues: Vec<Issue>, rev: u64) {
+        self.issue_map.clear();
+        for i in &issues {
+            self.issue_map.entry(i.entry).or_default().push(i.kind.clone());
+        }
+        self.issues = issues;
+        self.issues_key = rev;
     }
 
     fn recheck(&mut self) {
@@ -1306,6 +1337,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.pump_events(&ctx);
         self.refresh_caches();
+        if self.issues_key != self.doc.rev { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         self.shortcuts(&ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
