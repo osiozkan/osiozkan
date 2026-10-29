@@ -10,6 +10,7 @@ use crate::time;
 pub const SEC_INFO: &str = "Script Info";
 pub const SEC_STYLES: &str = "V4+ Styles";
 pub const SEC_EVENTS: &str = "Events";
+pub const SEC_GARBAGE: &str = "Aegisub Project Garbage";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Style {
@@ -200,6 +201,42 @@ impl Script {
             .map(|i| i + 1)
             .unwrap_or(0);
         self.entries.insert(pos, Entry::Info { key: key.into(), value: value.into() });
+    }
+
+    /// `[Aegisub Project Garbage]` bölümündeki `Anahtar: değer` satırı.
+    pub fn garbage(&self, key: &str) -> Option<&str> {
+        self.entries.iter().find_map(|e| match e {
+            Entry::Unknown { section, raw } if section == SEC_GARBAGE => {
+                let (k, v) = raw.split_once(':')?;
+                k.trim().eq_ignore_ascii_case(key).then(|| v.trim())
+            }
+            _ => None,
+        })
+    }
+
+    /// Garbage bölümünde anahtarı ayarlar; bölüm yoksa Script Info'dan sonra oluşturur.
+    pub fn set_garbage(&mut self, key: &str, value: &str) {
+        let line = format!("{}: {}", key, value);
+        for e in self.entries.iter_mut() {
+            if let Entry::Unknown { section, raw } = e {
+                if section == SEC_GARBAGE {
+                    if let Some((k, _)) = raw.split_once(':') {
+                        if k.trim().eq_ignore_ascii_case(key) {
+                            *raw = line;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        let pos = self
+            .entries
+            .iter()
+            .rposition(|e| matches!(e, Entry::Unknown { section, .. } if section == SEC_GARBAGE))
+            .map(|i| i + 1)
+            .or_else(|| self.entries.iter().rposition(|e| e.section() == SEC_INFO).map(|i| i + 1))
+            .unwrap_or(0);
+        self.entries.insert(pos, Entry::Unknown { section: SEC_GARBAGE.to_string(), raw: line });
     }
 
     pub fn res(&self) -> (i32, i32) {
@@ -637,6 +674,25 @@ mod roundtrip_tests {
         let s2 = Script::parse(&crlf);
         assert!(s2.crlf);
         assert_eq!(s2.to_ass_string(), crlf);
+    }
+
+    #[test]
+    fn garbage_get_set() {
+        let mut s = Script::parse(AEGI);
+        assert_eq!(s.garbage("video file"), Some("?dummy:23.976000:40000:640:480:47:163:254:"));
+        s.set_garbage("Video File", "../film.mkv");
+        s.set_garbage("Audio File", "../film.mkv");
+        assert_eq!(s.garbage("Video File"), Some("../film.mkv"));
+        assert_eq!(s.garbage("Audio File"), Some("../film.mkv"));
+        let out = s.to_ass_string();
+        assert!(out.contains("Video File: ../film.mkv") && out.contains("Audio File: ../film.mkv"));
+        // bölüm yoksa oluşturulur ve Script Info'dan sonra gelir
+        let mut n = Script::new_default();
+        n.set_garbage("Active Line", "3");
+        let t = n.to_ass_string();
+        assert!(t.find("[Aegisub Project Garbage]").unwrap() > t.find("[Script Info]").unwrap());
+        assert!(t.find("[Aegisub Project Garbage]").unwrap() < t.find("[V4+ Styles]").unwrap());
+        assert_eq!(Script::parse(&t).garbage("Active Line"), Some("3"));
     }
 
     #[test]

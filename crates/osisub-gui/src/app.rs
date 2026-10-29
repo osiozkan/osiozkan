@@ -82,6 +82,7 @@ pub struct App {
     last_autosave: std::time::Instant,
     recovery: Vec<Recovery>,
     guard: Option<Guarded>,
+    pending_auto_media: bool,
     glossary: Vec<osisub_core::glossary::Term>,
     gloss_findings: Vec<osisub_core::glossary::Finding>,
     help_open: bool,
@@ -299,6 +300,7 @@ impl App {
             last_autosave: std::time::Instant::now(),
             recovery: vec![],
             guard: None,
+            pending_auto_media: false,
             glossary: vec![],
             gloss_findings: vec![],
             help_open: false,
@@ -357,6 +359,7 @@ impl App {
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
         }
+        app.pending_auto_media = app.doc.path.is_some() && media.is_none();
         if let Some(n) = line {
             if let Some(&r) = app.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect::<Vec<_>>().get(n.saturating_sub(1)) {
                 app.doc.select(vec![r], r);
@@ -516,8 +519,50 @@ impl App {
                 self.status = format!("Açıldı: {}", p.display());
                 self.settings.push_recent(&p.to_string_lossy());
                 self.save_settings();
+                self.pending_auto_media = true;
             }
             Err(e) => self.status = format!("Hata: {}", e),
+        }
+    }
+
+    /// Aegisub proje bilgisini (`Video File`, `Audio File`) çözüp varsa ortamı otomatik açar.
+    fn auto_media_from_script(&mut self, ctx: &egui::Context) {
+        let base = self.doc.path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let resolve = |v: &str| -> Option<PathBuf> {
+            if v.is_empty() || v.starts_with('?') { return None; }
+            let p = PathBuf::from(v);
+            if p.is_absolute() { return p.is_file().then_some(p); }
+            let joined = base.as_ref()?.join(&p);
+            joined.is_file().then_some(joined)
+        };
+        // Aegisub'ın "Active Line" bilgisini uygula (diyalog sırası, 1 tabanlı).
+        if let Some(n) = self.doc.script.garbage("Active Line").and_then(|v| v.parse::<usize>().ok()) {
+            let idx = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).nth(n.saturating_sub(1));
+            if let Some(i) = idx { self.doc.select(vec![i], i); self.scroll_to = Some(i); }
+        }
+        let video = self.doc.script.garbage("Video File").and_then(resolve);
+        let audio = self.doc.script.garbage("Audio File").and_then(resolve);
+        if let Some(m) = video.or(audio) {
+            self.status = format!("Ortam otomatik açıldı: {}", m.display());
+            self.media.open(m, ctx);
+            self.show_media = true;
+        }
+    }
+
+    /// Kaydederken Aegisub uyumlu proje bilgisini güncelle (yalnızca ortam açıkken).
+    fn write_project_garbage(&mut self, script_path: &std::path::Path) {
+        let Some(m) = self.media.path.clone() else { return };
+        let rel = |p: &std::path::Path| -> String {
+            script_path.parent().and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
+        };
+        let has_video = self.media.info.as_ref().map_or(false, |i| i.has_video);
+        if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
+        self.doc.script.set_garbage("Audio File", &rel(&m));
+        if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
+            self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
+        }
+        if let Some(f) = self.media.fps() {
+            self.doc.script.set_garbage("Video Position", &osisub_core::time::frame_from_ms(self.media.playhead, f).to_string());
         }
     }
 
@@ -534,6 +579,7 @@ impl App {
                 bak.push(".bak");
                 let _ = std::fs::copy(&p, PathBuf::from(bak));
             }
+            self.write_project_garbage(&p);
             match self.doc.save_as(p.clone()) {
                 Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); }
                 Err(e) => self.status = format!("Hata: {}", e),
@@ -1072,6 +1118,10 @@ impl eframe::App for App {
         }
         if std::env::var_os("OSISUB_DEBUG_INPUT").is_some() {
             ctx.input(|i| for e in &i.events { if !matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_)) { eprintln!("girdi: {:?}", e); } });
+        }
+        if self.pending_auto_media {
+            self.pending_auto_media = false;
+            self.auto_media_from_script(&ctx);
         }
         self.pump_events(&ctx);
         self.pump_spell(&ctx);
