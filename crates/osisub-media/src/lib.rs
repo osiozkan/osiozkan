@@ -144,14 +144,14 @@ pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, 
         vf.push_str(&format!("ass='{}',", p));
     }
     vf.push_str(&format!("scale={}:{}", width, height));
-    // Hızlı arama için önce kaba -ss (girdiden önce), sonra hassas -ss (girdiden sonra);
-    // ikincisi çıktı zaman damgalarını sıfırlamadığı için ass filtresi doğru zamanı görür.
+    // Hızlı arama için önce kaba -ss (girdiden önce), sonra hassas -ss (girdiden sonra).
+    // `-copyts` zaman damgalarını korur; yoksa ass filtresi kaba aramanın ofsetini görür ve yanlış satırı çizer.
     let coarse = (time_ms - 2000).max(0) as f64 / 1000.0;
     let fine = time_ms.max(0) as f64 / 1000.0 - coarse;
     let out = Command::new(ffmpeg_bin())
-        .args(["-v", "error", "-ss", &format!("{:.3}", coarse), "-i"])
+        .args(["-v", "error", "-ss", &format!("{:.3}", coarse), "-copyts", "-i"])
         .arg(video)
-        .args(["-ss", &format!("{:.3}", fine), "-an", "-sn", "-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .args(["-ss", &format!("{:.3}", coarse + fine), "-an", "-sn", "-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
         .stderr(Stdio::piped())
         .output()
         .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
@@ -197,7 +197,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let mp4 = dir.join("t.mkv");
         let st = Command::new(ffmpeg_bin())
-            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest"])
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24:duration=4", "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-shortest"])
             .arg(&mp4)
             .status()
             .unwrap();
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!((info.width, info.height), (320, 180));
         assert!((info.fps - 24.0).abs() < 0.01);
         let w = load_waveform(&mp4).unwrap();
-        assert!((w.duration_ms() - 2000).abs() < 100);
+        assert!((w.duration_ms() - 4000).abs() < 100);
         assert!(w.samples.iter().any(|&s| s.abs() > 1000));
         let ass = dir.join("s.ass");
         std::fs::write(&ass, "[Script Info]\nPlayResX: 320\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H0000FFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,HELLO\n").unwrap();
@@ -215,6 +215,10 @@ mod tests {
         let with = render_frame(&mp4, Some(&ass), 1000, 320, &info).unwrap();
         assert_eq!(plain.rgba.len(), with.rgba.len());
         assert_ne!(plain.rgba, with.rgba, "altyazı karede görünmeli");
+        // Zaman doğruluğu: HELLO yalnızca 0–2 sn arası; 1 sn'de görünür, 2.5 sn'de görünmez (kaba arama ofseti olsa bile).
+        let late_plain = render_frame(&mp4, None, 2_500, 320, &info).unwrap();
+        let late_with = render_frame(&mp4, Some(&ass), 2_500, 320, &info).unwrap();
+        assert_eq!(late_plain.rgba, late_with.rgba, "2.5 sn'de altyazı olmamalı");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -44,6 +44,8 @@ pub struct Media {
     pub snap: bool,
     pub keyframes: Vec<i64>,
     pub snap_kf: bool,
+    /// Videoda \pos sürükleme aracı.
+    pub pos_tool: bool,
 }
 
 impl Media {
@@ -71,6 +73,7 @@ impl Media {
             snap: true,
             keyframes: vec![],
             snap_kf: true,
+            pos_tool: false,
         }
     }
 
@@ -252,6 +255,9 @@ impl Media {
                     let scale = (rect.width() / sz.x).min(rect.height() / sz.y);
                     let img = Rect::from_center_size(rect.center(), sz * scale);
                     ui.painter().image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                    if self.pos_tool {
+                        Self::pos_tool_ui(ui, img, doc);
+                    }
                 } else {
                     let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
@@ -261,6 +267,56 @@ impl Media {
             // Dalga formu
             self.wave_ui(ui, doc);
         });
+    }
+
+    /// Etkin satırın \pos'unu (yoksa stilden türetilen varsayılan konumu) video üzerinde sürüklemeyi sağlar.
+    fn pos_tool_ui(ui: &mut egui::Ui, img: Rect, doc: &mut Document) {
+        let at = doc.active;
+        let Some(Entry::Dialogue(d)) = doc.script.entries.get(at).cloned() else { return };
+        let (rx, ry) = doc.script.res();
+        let (rx, ry) = (rx as f32, ry as f32);
+        if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
+            ui.painter().text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+            return;
+        }
+        // Mevcut ya da varsayılan konum
+        let cur: (f32, f32) = match osisub_core::overrides::get_initial(&d.text, "pos") {
+            Some(t) => {
+                let a = t.args();
+                (a.first().and_then(|v| v.trim().parse().ok()).unwrap_or(rx / 2.0), a.get(1).and_then(|v| v.trim().parse().ok()).unwrap_or(ry / 2.0))
+            }
+            None => {
+                let st = doc.script.style_by_name(&d.style).cloned().unwrap_or_default();
+                let an = osisub_core::overrides::get_initial(&d.text, "an").and_then(|t| t.number()).map(|n| n as i32).unwrap_or(st.align);
+                let (ml, mr, mv) = (if d.margin_l > 0 { d.margin_l } else { st.margin_l } as f32, if d.margin_r > 0 { d.margin_r } else { st.margin_r } as f32, if d.margin_t > 0 { d.margin_t } else { st.margin_t } as f32);
+                let x = match (an - 1) % 3 { 0 => ml, 1 => (rx - mr + ml) / 2.0, _ => rx - mr };
+                let y = match (an - 1) / 3 { 0 => ry - mv, 1 => ry / 2.0, _ => mv };
+                (x, y)
+            }
+        };
+        let to_screen = |x: f32, y: f32| Pos2::new(img.left() + x / rx * img.width(), img.top() + y / ry * img.height());
+        let c = to_screen(cur.0, cur.1);
+        let p = ui.painter_at(img);
+        let col = Color32::from_rgb(0xe5, 0x6b, 0x9a);
+        p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
+        p.line_segment([c - egui::vec2(14.0, 0.0), c + egui::vec2(14.0, 0.0)], Stroke::new(1.0, col));
+        p.line_segment([c - egui::vec2(0.0, 14.0), c + egui::vec2(0.0, 14.0)], Stroke::new(1.0, col));
+        p.text(c + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, format!("{:.0}, {:.0}", cur.0, cur.1), egui::FontId::monospace(11.0), col);
+        let r = ui.interact(img, egui::Id::new("pos_tool"), Sense::click_and_drag());
+        if r.dragged() || r.clicked() {
+            if let Some(pos) = r.interact_pointer_pos() {
+                let x = ((pos.x - img.left()) / img.width() * rx).round().clamp(0.0, rx);
+                let y = ((pos.y - img.top()) / img.height() * ry).round().clamp(0.0, ry);
+                let nt = osisub_core::overrides::set_initial(&d.text, "pos", &format!("({},{})", x, y));
+                if nt != d.text {
+                    let key = format!("pos:{}", at);
+                    doc.edit_keyed("Konum", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                }
+            }
+        }
+        if r.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
     }
 
     fn wave_ui(&mut self, ui: &mut egui::Ui, doc: &mut Document) {

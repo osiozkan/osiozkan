@@ -202,6 +202,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("fixes") => app.fixes_open = true,
+            Some("pos") => app.media.pos_tool = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
             _ => {}
         }
@@ -534,6 +535,7 @@ impl App {
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
+                ui.checkbox(&mut self.media.pos_tool, "Konum aracı (videoda \\pos sürükle)");
                 if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {

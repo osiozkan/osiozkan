@@ -8,6 +8,7 @@
 - [x] QC: çakışma, süre, okuma hızı, satır uzunluğu, bilinmeyen stil, boşluk
 - [x] Toplu araçlar: kaydır, doğrusal senkron, fps dönüşümü, kareye oturt, sırala, yinelenen/boş sil, çakışma düzelt, Türkçe harf
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
+- [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
 - [ ] Override etiketlerinin tipli anlamlandırılması (\t içi, \clip vektör, animasyon süreleri)
 - [ ] ASS Extradata/Fonts/Graphics yapılandırılmış erişim
 - [ ] Biçimler: SUB (MicroDVD), SBV, TTML, STL, ITT, PGS/VobSub OCR (SE'den)
@@ -41,7 +42,8 @@
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici
-- [ ] Çizim/konum görsel araçları (\pos, \move, \clip, \org, \frz)
+- [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)
+- [ ] Diğer görsel araçlar: \move, \clip (dikdörtgen/vektör), \org, \frz/\fscx/\fscy tutamaçları
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama
