@@ -85,7 +85,12 @@ pub fn ass_text_to_srt(s: &str) -> String {
     while let Some((i, c)) = chars.next() {
         match c {
             '{' => {
-                let end = s[i..].find('}').map(|e| i + e).unwrap_or(s.len() - 1);
+                // Kapanmamış blok: süslü parantezi düz metin say.
+                let Some(rel) = s[i..].find('}') else {
+                    out.push(c);
+                    continue;
+                };
+                let end = i + rel;
                 let block = &s[i + 1..end];
                 for t in block.split('\\').skip(1) {
                     let on = |t: &str, k: &str| t.strip_prefix(k).map(|v| v.trim() != "0");
