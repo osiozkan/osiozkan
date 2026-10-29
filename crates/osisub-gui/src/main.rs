@@ -2,6 +2,7 @@
 mod app;
 mod dialog_ui;
 mod media_ui;
+mod settings;
 mod style_ui;
 mod theme;
 

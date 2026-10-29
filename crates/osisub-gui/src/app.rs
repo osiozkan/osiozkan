@@ -1,5 +1,6 @@
 use crate::dialog_ui::{self, DialogState};
 use crate::media_ui::Media;
+use crate::settings::Settings;
 use crate::{style_ui, theme};
 use eframe::egui::{self, text::LayoutJob, Align, Color32, Key, KeyboardShortcut, Modifiers, RichText, TextEdit, TextFormat};
 use egui_extras::{Column, TableBuilder};
@@ -73,6 +74,24 @@ pub struct App {
     post: PostOptions,
     post_selection_only: bool,
     last_autosave: std::time::Instant,
+    settings: Settings,
+    reference: Option<osisub_core::Script>,
+    fonts_open: bool,
+    font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
+    font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+}
+
+enum RowAction {
+    InsertBefore,
+    InsertAfter,
+    Duplicate,
+    Delete,
+    ToggleComment,
+    Merge,
+    Copy,
+    Cut,
+    Paste,
+    SetStyle(String),
 }
 
 fn autoload_dir() -> Option<PathBuf> {
@@ -153,7 +172,13 @@ impl App {
             post: PostOptions::default(),
             post_selection_only: true,
             last_autosave: std::time::Instant::now(),
+            settings: Settings::load(),
+            reference: None,
+            fonts_open: false,
+            font_report: None,
+            font_rx: None,
         };
+        app.apply_settings();
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
         }
@@ -166,6 +191,7 @@ impl App {
             Some("find") => app.find_open = true,
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
+            Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
             _ => {}
         }
         if let Some(m) = media {
@@ -173,6 +199,33 @@ impl App {
             app.show_media = true;
         }
         app
+    }
+
+    fn apply_settings(&mut self) {
+        self.rules = self.settings.rules();
+        self.media.snap = self.settings.snap_frames;
+        self.media.snap_kf = self.settings.snap_keyframes;
+        self.post.lead_in_ms = self.settings.lead_in_ms;
+        self.post.lead_out_ms = self.settings.lead_out_ms;
+        self.post.adjacent_gap_ms = self.settings.adjacent_gap_ms;
+        self.fps = self.settings.fps;
+    }
+
+    fn save_settings(&mut self) {
+        let s = &mut self.settings;
+        s.max_cps = self.rules.max_cps;
+        s.max_line_len = self.rules.max_line_len;
+        s.max_lines = self.rules.max_lines;
+        s.min_duration_ms = self.rules.min_duration_ms;
+        s.max_duration_ms = self.rules.max_duration_ms;
+        s.min_gap_ms = self.rules.min_gap_ms;
+        s.snap_frames = self.media.snap;
+        s.snap_keyframes = self.media.snap_kf;
+        s.lead_in_ms = self.post.lead_in_ms;
+        s.lead_out_ms = self.post.lead_out_ms;
+        s.adjacent_gap_ms = self.post.adjacent_gap_ms;
+        s.fps = self.fps;
+        s.save();
     }
 
     fn first_row(&self) -> Option<usize> {
@@ -200,6 +253,8 @@ impl App {
                     self.doc.select(vec![f], f);
                 }
                 self.status = format!("Açıldı: {}", p.display());
+                self.settings.push_recent(&p.to_string_lossy());
+                self.save_settings();
             }
             Err(e) => self.status = format!("Hata: {}", e),
         }
@@ -213,7 +268,7 @@ impl App {
         };
         if let Some(p) = target {
             match self.doc.save_as(p.clone()) {
-                Ok(()) => self.status = format!("Kaydedildi: {}", p.display()),
+                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); }
                 Err(e) => self.status = format!("Hata: {}", e),
             }
         }
@@ -324,6 +379,26 @@ impl App {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.memory(|m| m.focused().is_some()) && ctx.egui_wants_keyboard_input();
         let k = |m: Modifiers, key: Key| KeyboardShortcut::new(m, key);
+        if !typing {
+            let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
+            for ev in events {
+                match ev {
+                    egui::Event::Copy => { let t = self.doc.copy_lines(); if !t.is_empty() { ctx.copy_text(t); } }
+                    egui::Event::Cut => { let t = self.doc.cut_lines(); if !t.is_empty() { ctx.copy_text(t); } }
+                    egui::Event::Paste(t) => { let n = self.doc.paste_lines(&t); if n > 0 { self.status = format!("{} satır yapıştırıldı", n); self.scroll_to = Some(self.doc.active); } }
+                    _ => {}
+                }
+            }
+        }
+        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        for p in dropped {
+            let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            match ext.as_str() {
+                "ass" | "ssa" | "srt" | "vtt" => { if self.doc.is_dirty() { self.status = "Kaydedilmemiş değişiklik var; önce kaydedin".into(); } else { self.open_path(p); } }
+                "lua" => self.worker.send(Cmd::Load(p)),
+                _ => { self.media.open(p, ctx); self.show_media = true; }
+            }
+        }
         let (open, save, save_as, undo, redo, redo2, dup, ins, merge) = ctx.input_mut(|i| {
             (
                 i.consume_shortcut(&k(Modifiers::COMMAND, Key::O)),
@@ -394,6 +469,24 @@ impl App {
                     ui.close();
                 }
                 if ui.add(egui::Button::new("Aç…").shortcut_text("Ctrl+O")).clicked() { ui.close(); self.open_dialog(); }
+                ui.menu_button("Son açılanlar", |ui| {
+                    let recent = self.settings.recent.clone();
+                    if recent.is_empty() { ui.label(RichText::new("Yok").weak()); }
+                    for r in recent {
+                        if ui.button(&r).clicked() { ui.close(); self.open_path(PathBuf::from(&r)); }
+                    }
+                });
+                if ui.button("Referans altyazı aç…").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt"]).pick_file() {
+                        match osisub_core::io::load(&p) {
+                            Ok(s) => { self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
+                            Err(e) => self.status = format!("Hata: {}", e),
+                        }
+                    }
+                }
+                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; ui.close(); }
+                ui.separator();
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
                 ui.separator();
@@ -446,6 +539,7 @@ impl App {
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
+                if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
                 if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
                     let (x, y) = self.doc.script.res();
                     self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
@@ -502,6 +596,10 @@ impl App {
         }
         let rows = self.rows.clone();
         let mut clicked: Option<usize> = None;
+        let mut action: Option<RowAction> = None;
+        let style_names: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
+        let sel_snapshot = self.doc.selection.clone();
+        let mut ctx_row: Option<usize> = None;
         table
             .header(22.0, |mut h| {
                 for t in ["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Metin"] {
@@ -532,9 +630,42 @@ impl App {
                     row.col(|ui| { ui.label(RichText::new(&d.style).color(if flags.map_or(false, |f| f.contains(&Kind::UnknownStyle)) { theme::BAD } else { Color32::from_gray(180) })); });
                     row.col(|ui| { ui.label(RichText::new(&d.actor).weak()); });
                     row.col(|ui| { ui.add(egui::Label::new(Self::highlighted(&d.text, dim)).truncate()); });
-                    if row.response().clicked() { clicked = Some(pos); }
+                    let resp = row.response();
+                    if resp.clicked() { clicked = Some(pos); }
+                    if resp.secondary_clicked() && sel_snapshot.binary_search(&ei).is_err() { ctx_row = Some(ei); }
+                    resp.context_menu(|ui| {
+                        if ui.button("Önce satır ekle").clicked() { action = Some(RowAction::InsertBefore); ui.close(); }
+                        if ui.button("Sonra satır ekle").clicked() { action = Some(RowAction::InsertAfter); ui.close(); }
+                        if ui.button("Çoğalt").clicked() { action = Some(RowAction::Duplicate); ui.close(); }
+                        if ui.button("Sil").clicked() { action = Some(RowAction::Delete); ui.close(); }
+                        if ui.button("Birleştir").clicked() { action = Some(RowAction::Merge); ui.close(); }
+                        if ui.button("Yorum yap / kaldır").clicked() { action = Some(RowAction::ToggleComment); ui.close(); }
+                        ui.separator();
+                        if ui.button("Kopyala").clicked() { action = Some(RowAction::Copy); ui.close(); }
+                        if ui.button("Kes").clicked() { action = Some(RowAction::Cut); ui.close(); }
+                        if ui.button("Yapıştır (pano)").clicked() { action = Some(RowAction::Paste); ui.close(); }
+                        ui.menu_button("Stil", |ui| {
+                            for n in &style_names { if ui.button(n).clicked() { action = Some(RowAction::SetStyle(n.clone())); ui.close(); } }
+                        });
+                    });
                 });
             });
+        if let Some(ei) = ctx_row { self.doc.select(vec![ei], ei); }
+        if let Some(a) = action {
+            match a {
+                RowAction::InsertBefore => { self.doc.insert_before_active(); }
+                RowAction::InsertAfter => { self.doc.insert_after_active(); }
+                RowAction::Duplicate => self.doc.duplicate_selected(),
+                RowAction::Delete => self.doc.delete_selected(),
+                RowAction::ToggleComment => self.doc.toggle_comment_selected(),
+                RowAction::Merge => { self.doc.merge_selected(); }
+                RowAction::Copy => { let t = self.doc.copy_lines(); ui.ctx().copy_text(t); }
+                RowAction::Cut => { let t = self.doc.cut_lines(); ui.ctx().copy_text(t); }
+                RowAction::Paste => self.status = "Yapıştırmak için Ctrl+V kullanın".into(),
+                RowAction::SetStyle(n) => self.doc.set_style_selected(&n),
+            }
+            self.scroll_to = Some(self.doc.active);
+        }
         if let Some(pos) = clicked {
             let ei = rows[pos];
             if mods.shift {
@@ -604,6 +735,16 @@ impl App {
             ui.label(RichText::new(format!("en uzun satır {}", longest)).color(if longest > self.rules.max_line_len { theme::BAD } else { Color32::GRAY }));
             ui.label(RichText::new(format!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
         });
+        if let Some(r) = &self.reference {
+            let (a, b) = (d.start_time, d.end_time);
+            let mut best: Vec<(i64, String)> = r.dialogues().filter(|x| !x.comment && x.end_time > a && x.start_time < b).map(|x| ((x.end_time.min(b) - x.start_time.max(a)), osisub_core::tags::visible_text(&x.text).replace('\n', " ⏎ "))).collect();
+            best.sort_by_key(|x| -x.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Referans:").color(theme::ACCENT));
+                if best.is_empty() { ui.label(RichText::new("(eşleşen satır yok)").weak()); }
+                for (_, t) in best.iter().take(3) { ui.label(RichText::new(t).italics()); }
+            });
+        }
         if nd != d {
             let key = if nd.text != d.text { format!("text:{}", at) } else if nd.start_time != d.start_time || nd.end_time != d.end_time { format!("time:{}", at) } else { String::new() };
             let desc = if nd.text != d.text { "Metin düzenle" } else { "Satırı düzenle" };
@@ -1024,6 +1165,54 @@ impl App {
         self.resample_open = open;
     }
 
+    fn start_font_scan(&mut self) {
+        let used = osisub_core::fonts_used::used_fonts(&self.doc.script);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.font_rx = Some(rx);
+        self.font_report = None;
+        std::thread::spawn(move || {
+            let mut db = osisub_lua::fonts::FontDb::default();
+            let rep: Vec<_> = used.into_iter().map(|u| { let f = db.files_for(&u.family); (u, f) }).collect();
+            let _ = tx.send(rep);
+        });
+    }
+
+    fn fonts_window(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.font_rx {
+            if let Ok(r) = rx.try_recv() { self.font_report = Some(r); self.font_rx = None; }
+            else { ctx.request_repaint_after(std::time::Duration::from_millis(100)); }
+        }
+        let mut open = self.fonts_open;
+        egui::Window::new("Yazı tipi denetimi").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            if ui.button("Yenile").clicked() { self.start_font_scan(); }
+            match &self.font_report {
+                None => { ui.horizontal(|ui| { ui.spinner(); ui.label("Sistem yazı tipleri taranıyor…"); }); }
+                Some(rep) => {
+                    let missing = rep.iter().filter(|(_, f)| f.is_empty()).count();
+                    ui.label(if missing == 0 { RichText::new("Tüm yazı tipleri kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a)) } else { RichText::new(format!("{} yazı tipi eksik", missing)).color(theme::BAD) });
+                    egui::Grid::new("fonts_grid").striped(true).show(ui, |ui| {
+                        ui.strong("Aile"); ui.strong("Stil"); ui.strong("Satır"); ui.strong("Durum"); ui.end_row();
+                        for (u, files) in rep {
+                            ui.label(&u.family);
+                            ui.label(format!("{}{}", if u.bold { "kalın " } else { "" }, if u.italic { "italik" } else { "" }));
+                            ui.label(u.lines.to_string());
+                            if files.is_empty() { ui.label(RichText::new("EKSİK").color(theme::BAD)); } else { ui.label(RichText::new("kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a))).on_hover_text(files.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join("\n")); }
+                            ui.end_row();
+                        }
+                    });
+                    if ui.button("Kurulu yazı tiplerini klasöre kopyala…").clicked() {
+                        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                            let mut n = 0;
+                            for (_, files) in rep { for f in files { if let Some(name) = f.file_name() { if std::fs::copy(f, dir.join(name)).is_ok() { n += 1; } } } }
+                            self.status = format!("{} yazı tipi dosyası kopyalandı", n);
+                        }
+                    }
+                }
+            }
+        });
+        self.fonts_open = open;
+    }
+
     fn autosave(&mut self) {
         if !self.doc.is_dirty() || self.last_autosave.elapsed().as_secs() < 60 { return; }
         self.last_autosave = std::time::Instant::now();
@@ -1038,7 +1227,7 @@ impl App {
         let Some(path) = self.shot.clone() else { return };
         self.shot_frame += 1;
         ctx.request_repaint();
-        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) {
+        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() {
             self.shot_requested = true;
             let done = self.shot_done.clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -1054,6 +1243,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_settings();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.pump_events(&ctx);
@@ -1085,6 +1278,7 @@ impl eframe::App for App {
 
         self.timing_window(&ctx);
         self.find_window(&ctx);
+        self.fonts_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
         if let Some((title, st)) = self.dialog.as_mut() {

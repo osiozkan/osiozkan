@@ -16,4 +16,6 @@ osisub-media = { path = "../osisub-media" }
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 egui_extras = "0.37"
 image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }

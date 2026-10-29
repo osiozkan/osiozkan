@@ -13,7 +13,9 @@
 - [ ] Biçimler: SUB (MicroDVD), SBV, TTML, STL, ITT, PGS/VobSub OCR (SE'den)
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [ ] Anahtar kare/timecode dosyaları (Aegisub .txt, v1/v2), değişken fps
-- [ ] Çeviri akışı: iki dilli paralel görünüm, TM/sözlük, otomatik çeviri bağlayıcıları, yazım denetimi (Hunspell, tr_TR)
+- [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
+- [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
+- [ ] Çeviri akışı: iki dilli paralel ızgara, TM/sözlük, otomatik çeviri bağlayıcıları, yazım denetimi (Hunspell, tr_TR)
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
 - [ ] Karaoke: ses/dalga üzerinde canlı k-timing (tuşa basarak), otomatik hece ayırma (Japonca romaji/kana), şablonlayıcı (kara-templater uyumlu)
 
@@ -43,7 +45,8 @@
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama
-- [ ] Geri al/yinele (satır bazlı fark), otomatik kayıt/kurtarma
+- [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
+- [ ] Çökme sonrası otomatik kayıttan kurtarma sorusu
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
 ## Performans

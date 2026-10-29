@@ -392,6 +392,76 @@ impl Document {
         });
     }
 
+    /// Seçili satırların yorum durumunu çevirir (hepsi yorumsa yorumu kaldırır).
+    pub fn toggle_comment_selected(&mut self) {
+        let t = self.target_lines();
+        let all_comments = t.iter().all(|&i| matches!(&self.script.entries[i], Entry::Dialogue(d) if d.comment));
+        self.edit(if all_comments { "Yorumu kaldır" } else { "Yorum satırı yap" }, |tx| {
+            for i in t {
+                tx.dialogue_mut(i, |d| d.comment = !all_comments)
+            }
+        });
+    }
+
+    /// Etkin satırdan önce yeni satır ekler.
+    pub fn insert_before_active(&mut self) -> usize {
+        let at = self.active.min(self.script.entries.len());
+        let (end, style) = match self.script.entries.get(at) {
+            Some(Entry::Dialogue(d)) => (d.start_time, d.style.clone()),
+            _ => (0, "Default".into()),
+        };
+        let d = Dialogue { start_time: (end - 2000).max(0), end_time: end.max(1), style, ..Default::default() };
+        self.edit("Satır ekle", |tx| tx.insert(at, vec![Entry::Dialogue(d)]));
+        self.select(vec![at], at);
+        at
+    }
+
+    /// Seçili satırları ASS metni olarak verir (panoya kopyalamak için).
+    pub fn copy_lines(&self) -> String {
+        self.target_lines()
+            .iter()
+            .filter_map(|&i| if let Entry::Dialogue(d) = &self.script.entries[i] { Some(osisub_core::ass::dialogue_line(d)) } else { None })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn cut_lines(&mut self) -> String {
+        let t = self.copy_lines();
+        self.delete_selected();
+        t
+    }
+
+    /// Panodaki metni etkin/seçili son satırdan sonra yapıştırır. `Dialogue:` satırları olduğu gibi,
+    /// düz metin satırları ise art arda yeni altyazı satırları olarak eklenir. Eklenen sayıyı döndürür.
+    pub fn paste_lines(&mut self, text: &str) -> usize {
+        let parsed: Vec<Entry> = Script::parse(&format!("[Events]\n{}", text.replace("\r\n", "\n"))).entries.into_iter().filter(|e| matches!(e, Entry::Dialogue(_))).collect();
+        let items: Vec<Entry> = if !parsed.is_empty() {
+            parsed
+        } else {
+            let mut t = self.script.dialogues().map(|d| d.end_time).max().unwrap_or(0);
+            let style = match self.script.entries.get(self.active) {
+                Some(Entry::Dialogue(d)) => d.style.clone(),
+                _ => "Default".into(),
+            };
+            text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let d = Dialogue { start_time: t, end_time: t + 2000, style: style.clone(), text: l.trim().replace('\n', "\\N"), ..Default::default() };
+                    t += 2000;
+                    Entry::Dialogue(d)
+                })
+                .collect()
+        };
+        if items.is_empty() {
+            return 0;
+        }
+        let at = self.target_lines().last().map(|i| i + 1).unwrap_or(self.script.entries.len());
+        let n = items.len();
+        self.edit("Yapıştır", |tx| tx.insert(at, items));
+        self.select((at..at + n).collect(), at);
+        n
+    }
+
     pub fn stripped_text(&self, at: usize) -> String {
         match self.script.entries.get(at) {
             Some(Entry::Dialogue(d)) => tags::visible_text(&d.text),
@@ -505,6 +575,27 @@ mod tests {
         d.undo();
         assert_eq!(d.stripped_text(a), "bir");
         assert_eq!(d.script.dialogues().count(), 3);
+    }
+
+    #[test]
+    fn clipboard_roundtrip() {
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.select(vec![a, a + 1], a);
+        let clip = d.copy_lines();
+        assert_eq!(clip.lines().count(), 2);
+        d.select(vec![a + 2], a + 2);
+        assert_eq!(d.paste_lines(&clip), 2);
+        assert_eq!(d.script.dialogues().count(), 5);
+        assert_eq!(d.stripped_text(a + 3), "bir");
+        // düz metin yapıştırma
+        assert_eq!(d.paste_lines("yeni bir\nikinci satır"), 2);
+        assert_eq!(d.script.dialogues().count(), 7);
+        d.toggle_comment_selected();
+        assert!(d.script.dialogues().filter(|x| x.comment).count() == 2);
+        let cut = d.cut_lines();
+        assert_eq!(cut.lines().count(), 2);
+        assert_eq!(d.script.dialogues().count(), 5);
     }
 
     #[test]

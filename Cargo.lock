@@ -2212,6 +2212,8 @@ dependencies = [
  "osisub-lua",
  "osisub-media",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -105,6 +105,23 @@ impl FontDb {
         }
     }
 
+    /// Kurulu bir yazı tipi ailesi var mı (büyük/küçük harf duyarsız, tam adlar dahil).
+    pub fn has_family(&mut self, family: &str) -> bool {
+        self.scan();
+        let f = family.trim_start_matches('@').to_lowercase();
+        self.faces.iter().any(|x| x.family == f)
+    }
+
+    /// Ailenin dosya yolları (yinelenenler ayıklanmış).
+    pub fn files_for(&mut self, family: &str) -> Vec<PathBuf> {
+        self.scan();
+        let f = family.trim_start_matches('@').to_lowercase();
+        let mut v: Vec<PathBuf> = self.faces.iter().filter(|x| x.family == f).map(|x| x.path.clone()).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
     pub fn family_count(&mut self) -> usize {
         self.scan();
         let mut f: Vec<&str> = self.faces.iter().map(|f| f.family.as_str()).collect();
