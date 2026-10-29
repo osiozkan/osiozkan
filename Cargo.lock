@@ -2338,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "osisub-core",
  "osisub-lua",
@@ -2347,14 +2347,14 @@ dependencies = [
 
 [[package]]
 name = "osisub-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fancy-regex",
 ]
 
 [[package]]
 name = "osisub-doc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "osisub-core",
  "osisub-lua",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui_extras",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-lua"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fancy-regex",
  "mlua",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "rustfft",
@@ -2398,7 +2398,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-spell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "osisub-core",
  "spellbook",

@@ -82,6 +82,8 @@ pub struct App {
     last_autosave: std::time::Instant,
     recovery: Vec<Recovery>,
     guard: Option<Guarded>,
+    help_open: bool,
+    about_open: bool,
     settings: Settings,
     reference: Option<osisub_core::Script>,
     ref_lines: Vec<(i64, i64, String)>,
@@ -295,6 +297,8 @@ impl App {
             last_autosave: std::time::Instant::now(),
             recovery: vec![],
             guard: None,
+            help_open: false,
+            about_open: false,
             settings: Settings::load(),
             reference: None,
             ref_lines: vec![],
@@ -434,6 +438,31 @@ impl App {
             Guarded::OpenDialog => self.open_dialog(),
             Guarded::OpenPath(p) => self.open_path(p),
         }
+    }
+
+    fn help_windows(&mut self, ctx: &egui::Context) {
+        let mut open = self.help_open;
+        egui::Window::new("Kısayollar").open(&mut open).default_width(560.0).show(ctx, |ui| {
+            egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
+                for line in include_str!("../../../docs/HOTKEYS.md").lines().skip(2) {
+                    let cols: Vec<&str> = line.trim_matches('|').split('|').map(|c| c.trim()).collect();
+                    if cols.len() >= 2 && !cols[0].starts_with("---") {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(cols[0]).monospace().color(theme::ACCENT));
+                            ui.label(cols[1..].join(" | "));
+                        });
+                    }
+                }
+            });
+        });
+        self.help_open = open;
+        let mut open = self.about_open;
+        egui::Window::new("Hakkında").open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.heading(format!("osisub {}", env!("CARGO_PKG_VERSION")));
+            ui.label("Anime altyazı stüdyosu — Aegisub Lua uyumlu, Subtitle Edit'in iyi özellikleriyle.");
+            ui.label(RichText::new("Belgeler: docs/KULLANIM.md · docs/LUA_UYUMLULUK.md · docs/ROADMAP.md").weak());
+        });
+        self.about_open = open;
     }
 
     fn guard_window(&mut self, ctx: &egui::Context) {
@@ -840,6 +869,10 @@ impl App {
                     }
                 });
             });
+            ui.menu_button("Yardım", |ui| {
+                if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
+                if ui.button("Hakkında").clicked() { self.about_open = true; ui.close(); }
+            });
             ui.menu_button("Görünüm", |ui| {
                 let mut light = self.settings.light_theme;
                 if ui.checkbox(&mut light, "Açık tema").changed() { self.settings.light_theme = light; self.theme_dirty = true; }
@@ -1058,6 +1091,7 @@ impl eframe::App for App {
         self.stats_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
+        self.help_windows(&ctx);
         self.export_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);

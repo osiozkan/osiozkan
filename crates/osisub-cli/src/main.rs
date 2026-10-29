@@ -66,6 +66,10 @@ fn save(s: &Script, path: &str) -> Result<(), String> {
 }
 
 fn real_main(mut args: Vec<String>) -> Result<(), String> {
+    if args.first().map(|a| a == "--version" || a == "-V").unwrap_or(false) {
+        println!("osisub {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.is_empty() || args[0] == "-h" || args[0] == "--help" {
         print!("{}", HELP);
         return Ok(());
