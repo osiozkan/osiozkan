@@ -391,7 +391,7 @@ impl Media {
         p.line_segment([c - egui::vec2(14.0, 0.0), c + egui::vec2(14.0, 0.0)], Stroke::new(1.0, col));
         p.line_segment([c - egui::vec2(0.0, 14.0), c + egui::vec2(0.0, 14.0)], Stroke::new(1.0, col));
         p.text(c + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, format!("{:.0}, {:.0}", cur.0, cur.1), egui::FontId::monospace(11.0), col);
-        let r = ui.interact(img, egui::Id::new("pos_tool"), Sense::click_and_drag());
+        let r = ui.interact(img, egui::Id::unique("pos_tool"), Sense::click_and_drag());
         if r.dragged() || r.clicked() {
             if let Some(pos) = r.interact_pointer_pos() {
                 let x = ((pos.x - img.left()) / img.width() * rx).round().clamp(0.0, rx);

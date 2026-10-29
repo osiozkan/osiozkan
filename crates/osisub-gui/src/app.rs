@@ -53,7 +53,6 @@ pub struct App {
     qc_changed_at: std::time::Instant,
     start_buf: String,
     end_buf: String,
-    buf_for: (usize, u64),
     style_sel: usize,
     scroll_to: Option<usize>,
     anchor: usize,
@@ -167,7 +166,6 @@ impl App {
             qc_changed_at: std::time::Instant::now(),
             start_buf: String::new(),
             end_buf: String::new(),
-            buf_for: (usize::MAX, u64::MAX),
             style_sel: 0,
             scroll_to: None,
             anchor: 0,
@@ -778,7 +776,7 @@ impl App {
     }
 
     fn time_field(ui: &mut egui::Ui, id: &str, buf: &mut String, current: i64) -> Option<i64> {
-        let eid = egui::Id::new(id);
+        let eid = egui::Id::unique(id);
         let focused = ui.memory(|m| m.has_focus(eid));
         if !focused { *buf = time::format_ass(current); }
         let r = ui.add(TextEdit::singleline(buf).id(eid).desired_width(92.0).font(egui::TextStyle::Monospace));
@@ -967,7 +965,7 @@ impl App {
             }
             for (i, &bx) in bounds.iter().enumerate().take(syls.len().saturating_sub(1)) {
                 let hit = egui::Rect::from_center_size(egui::pos2(bx, rect.center().y), egui::vec2(10.0, rect.height()));
-                let r = ui.interact(hit, egui::Id::new(("kb", i)), egui::Sense::drag());
+                let r = ui.interact(hit, egui::Id::unique(("kb", i)), egui::Sense::drag());
                 if r.hovered() || r.dragged() { ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal); }
                 p.line_segment([egui::pos2(bx, rect.top()), egui::pos2(bx, rect.bottom())], egui::Stroke::new(2.0, if r.dragged() { theme::ACCENT } else { Color32::from_gray(150) }));
                 if r.dragged() {
@@ -1036,7 +1034,7 @@ impl App {
         });
         if changed { self.recheck(); }
         ui.horizontal_wrapped(|ui| {
-            let mut apply = |app: &mut App, name: &str, f: &dyn Fn(&mut osisub_core::Script)| {
+            let apply = |app: &mut App, name: &str, f: &dyn Fn(&mut osisub_core::Script)| {
                 let mut s = app.doc.script.clone();
                 f(&mut s);
                 app.doc.apply_new_script(name, s);

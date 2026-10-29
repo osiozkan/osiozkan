@@ -39,7 +39,7 @@ pub fn used_fonts(script: &Script) -> Vec<FontUse> {
         let mut seen: Vec<(String, bool, bool)> = vec![];
         let has_text = |t: &str| !t.is_empty();
         let mut pending_visible = false;
-        let mut push = |f: &(String, bool, bool), seen: &mut Vec<(String, bool, bool)>| {
+        let push = |f: &(String, bool, bool), seen: &mut Vec<(String, bool, bool)>| {
             if !seen.contains(f) {
                 seen.push(f.clone());
             }
