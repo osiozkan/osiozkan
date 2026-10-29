@@ -44,6 +44,10 @@ pub trait Host {
     fn video_size(&self) -> Option<(i32, i32)> {
         None
     }
+    /// Anahtar kare numaraları.
+    fn keyframes(&self) -> Vec<i64> {
+        vec![]
+    }
     /// Ses seçimi (başlangıç, bitiş) ms.
     fn audio_selection(&self) -> Option<(i64, i64)> {
         None

@@ -699,6 +699,7 @@ impl App {
         if let Ok(mut m) = self.worker.media.lock() {
             m.fps = self.media.fps();
             m.video_size = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width as i32, i.height as i32));
+            m.keyframes = self.media.fps().map(|f| self.media.keyframes.iter().map(|&ms| osisub_core::time::frame_from_ms(ms, f)).collect()).unwrap_or_default();
             m.audio_selection = match self.doc.script.entries.get(self.doc.active) {
                 Some(Entry::Dialogue(d)) => Some((d.start_time, d.end_time)),
                 _ => None,

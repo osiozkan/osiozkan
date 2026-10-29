@@ -65,6 +65,9 @@ impl Host for ChannelHost {
     fn video_size(&self) -> Option<(i32, i32)> {
         self.media.lock().ok().and_then(|m| m.video_size)
     }
+    fn keyframes(&self) -> Vec<i64> {
+        self.media.lock().map(|m| m.keyframes.clone()).unwrap_or_default()
+    }
     fn audio_selection(&self) -> Option<(i64, i64)> {
         self.media.lock().ok().and_then(|m| m.audio_selection)
     }

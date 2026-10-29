@@ -283,6 +283,22 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         )?;
         let inn = inner.clone();
         aegisub.set(
+            "keyframes",
+            lua.create_function(move |lua, ()| {
+                let t = lua.create_table()?;
+                for (i, k) in inn.borrow().host.keyframes().into_iter().enumerate() {
+                    t.set(i + 1, k)?;
+                }
+                Ok(t)
+            })?,
+        )?;
+        let inn = inner.clone();
+        aegisub.set(
+            "file_name",
+            lua.create_function(move |_, ()| Ok(inn.borrow().props.get("script_file").map(|p| std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())))?,
+        )?;
+        let inn = inner.clone();
+        aegisub.set(
             "get_audio_selection",
             lua.create_function(move |_, ()| {
                 Ok(match inn.borrow().host.audio_selection() {
