@@ -59,6 +59,7 @@ pub struct Media {
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
+    audio: Option<osisub_media::audio::AudioPlayer>,
     stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
     stream_count: usize,
     play_started: Option<std::time::Instant>,
@@ -97,6 +98,7 @@ impl Media {
             spectrum: false,
             spec_tex: None,
             stream: None,
+            audio: None,
             stream_frames: Default::default(),
             stream_count: 0,
             play_started: None,
@@ -176,11 +178,12 @@ impl Media {
     }
 
     pub fn is_playing(&self) -> bool {
-        self.player.is_some() || self.stream.is_some() || self.play_begin_at.is_some()
+        self.player.is_some() || self.stream.is_some() || self.audio.is_some() || self.play_begin_at.is_some()
     }
 
     fn stop_all(&mut self) {
         self.stop_player();
+        self.audio = None;
         self.stream = None;
         self.stream_frames.clear();
         self.play_begin_at = None;
@@ -199,14 +202,23 @@ impl Media {
             _ => (self.playhead, self.playhead + 5000),
         };
         let (from, dur) = ((s - 300).max(0), e - s + 600);
-        let child = Command::new("ffplay")
-            .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)])
-            .arg(&p)
-            .stdin(Stdio::null())
-            .spawn();
-        match child {
-            Ok(c) => self.player = Some(c),
-            Err(_) => self.status = "ffplay bulunamadı (ses oynatma için gerekli)".into(),
+        // Önce uygulama içi ses motoru (hassas ses saati); olmazsa harici ffplay.
+        match osisub_media::audio::AudioPlayer::start(&p, from, dur) {
+            Ok(a) => self.audio = Some(a),
+            Err(why) => {
+                let child = Command::new("ffplay")
+                    .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)])
+                    .arg(&p)
+                    .stdin(Stdio::null())
+                    .spawn();
+                match child {
+                    Ok(c) => {
+                        self.player = Some(c);
+                        self.status = format!("Uygulama içi ses yok ({}); ffplay kullanılıyor", why);
+                    }
+                    Err(_) => self.status = format!("Ses çalınamadı: {}; ffplay da bulunamadı", why),
+                }
+            }
         }
         if let Some(info) = self.info.clone().filter(|i| i.has_video) {
             let ass = self.tmp_dir.join("play.ass");
@@ -240,9 +252,18 @@ impl Media {
                 self.stream_count += 1;
             }
         }
-        let clock = self.play_started.unwrap_or(begin);
-        let elapsed = clock.elapsed().as_secs_f64();
-        self.playhead = self.play_from + (begin.elapsed().as_secs_f64() * 1000.0) as i64;
+        let (elapsed, ended) = match &self.audio {
+            // Ses saati: konum aygıtın gerçekten çaldığı örneklerden gelir.
+            Some(a) => {
+                self.playhead = a.position_ms();
+                (((self.playhead - self.play_from).max(0)) as f64 / 1000.0, a.finished() && begin.elapsed().as_millis() > 500)
+            }
+            None => {
+                let clock = self.play_started.unwrap_or(begin);
+                self.playhead = self.play_from + (begin.elapsed().as_secs_f64() * 1000.0) as i64;
+                (clock.elapsed().as_secs_f64(), begin.elapsed().as_millis() as i64 > self.play_dur + 800)
+            }
+        };
         if let Some(st) = &self.stream {
             let target = (elapsed * st.fps) as usize;
             let (w, h) = (st.width as usize, st.height as usize);
@@ -262,7 +283,7 @@ impl Media {
                 }
             }
         }
-        if begin.elapsed().as_millis() as i64 > self.play_dur + 800 {
+        if ended || begin.elapsed().as_millis() as i64 > self.play_dur + 3000 {
             self.stop_all();
             self.frame_shown = (-1, u64::MAX);
         }

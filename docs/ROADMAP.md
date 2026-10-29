@@ -45,7 +45,8 @@
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
 - [ ] Akıcı video oynatma (libmpv ya da kalıcı ffmpeg boru hattı), kare önbelleği, ön-yükleme
 - [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)
-- [ ] Ses oynatma uygulama içinden (cpal/rodio), basılı tutarak oynat, ses/video senkronu
+- [x] Uygulama içi ses oynatma (cpal 0.18 + ffmpeg PCM; ses saati playhead/video/tuşla zamanlamayı sürer; aygıt yoksa ffplay'e düşer). HENÜZ GERÇEK AYGITTA TEST EDİLMEDİ (kum havuzunda ses aygıtı yok); mantık sahte çıkışla testli
+- [ ] Basılı tutarak oynat, sürekli oynatma (satır sınırı olmadan), hız ayarı, ses seviyesi
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici

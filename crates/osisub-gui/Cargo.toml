@@ -12,7 +12,7 @@ path = "src/main.rs"
 osisub-core = { path = "../osisub-core" }
 osisub-lua = { path = "../osisub-lua" }
 osisub-doc = { path = "../osisub-doc" }
-osisub-media = { path = "../osisub-media" }
+osisub-media = { path = "../osisub-media", features = ["audio"] }
 osisub-spell = { path = "../osisub-spell" }
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 egui_extras = "0.37"

@@ -2,6 +2,8 @@
 //!
 //! Harici `ffmpeg`/`ffprobe` gerekir (PATH'te ya da `OSISUB_FFMPEG`/`OSISUB_FFPROBE`). Bu sayede her
 //! codec/kapsayıcı (MKV, MP4, ...) desteklenir ve altyazı önizlemesi gerçek libass çıktısıdır.
+pub mod audio;
+
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};

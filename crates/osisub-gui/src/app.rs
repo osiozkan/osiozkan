@@ -261,7 +261,7 @@ impl App {
             fonts_open: false,
             fixes_open: false,
             tap: None,
-            tap_latency_ms: 300,
+            tap_latency_ms: 200,
             backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,

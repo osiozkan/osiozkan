@@ -21,7 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux bağımlılıkları
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-0 libxkbcommon-dev libwayland-dev libx11-dev
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-0 libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev
       - name: Derle
         run: cargo build --release -p osisub-cli -p osisub-gui
       - name: Paketle
