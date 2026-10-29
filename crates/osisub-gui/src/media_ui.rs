@@ -43,6 +43,8 @@ pub struct Media {
     tex: Option<TextureHandle>,
     frame_busy: bool,
     frame_shown: (i64, u64),
+    rev_seen: u64,
+    rev_changed_at: std::time::Instant,
     pub playhead: i64,
     view_start: f64,
     ms_per_px: f64,
@@ -83,6 +85,8 @@ impl Media {
             tex: None,
             frame_busy: false,
             frame_shown: (-1, u64::MAX),
+            rev_seen: u64::MAX,
+            rev_changed_at: std::time::Instant::now(),
             playhead: 0,
             view_start: 0.0,
             ms_per_px: 20.0,
@@ -222,7 +226,8 @@ impl Media {
         }
         if let Some(info) = self.info.clone().filter(|i| i.has_video) {
             let ass = self.tmp_dir.join("play.ass");
-            let _ = std::fs::write(&ass, doc.script.to_ass_string());
+            let (lo, hi) = (from - 1000, from + dur + 1000);
+            let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.end_time >= lo && d.start_time <= hi));
             match osisub_media::spawn_play(&p, Some(&ass), from, dur, 640, &info) {
                 Ok(st) => {
                     self.stream = Some(st);
@@ -316,12 +321,22 @@ impl Media {
                 }
             }
         }
+        if self.rev_seen != doc.rev {
+            self.rev_seen = doc.rev;
+            self.rev_changed_at = std::time::Instant::now();
+        }
+        // Belge değiştiyse yazma bitene kadar (150 ms) bekle; yalnızca playhead değiştiyse hemen çiz.
+        let settling = self.frame_shown.1 != doc.rev && self.rev_changed_at.elapsed() < std::time::Duration::from_millis(150);
+        if settling {
+            ctx.request_repaint_after(std::time::Duration::from_millis(60));
+        }
         if let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) {
-            if info.has_video && !self.frame_busy && !self.is_playing() && self.frame_shown != (self.playhead, doc.rev) {
+            if info.has_video && !self.frame_busy && !settling && !self.is_playing() && self.frame_shown != (self.playhead, doc.rev) {
                 self.frame_busy = true;
                 let (t, rev) = (self.playhead, doc.rev);
                 let ass = self.tmp_dir.join("preview.ass");
-                let _ = std::fs::write(&ass, doc.script.to_ass_string());
+                let t0 = self.playhead;
+                let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.start_time <= t0 + 1000 && d.end_time >= t0 - 1000));
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
                 std::thread::spawn(move || {

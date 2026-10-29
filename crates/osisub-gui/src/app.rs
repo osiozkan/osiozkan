@@ -634,8 +634,9 @@ impl App {
 
     /// Motoru sıfırlayıp tüm betikleri yeniden yükler (betik geliştirirken değişiklikleri almak için).
     fn reload_scripts(&mut self) {
-        if self.running.is_some() { self.status = "Bir makro çalışıyor".into(); return; }
         self.dialog = None;
+        self.running = None;
+        self.tap = None;
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) { include.push(d); }
         self.worker = Worker::spawn(include, vec![]);
@@ -1481,7 +1482,7 @@ impl App {
             if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.load_lua(p); }
         }
         if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
-        if let Some(r) = &self.running { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
+        if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if ui.small_button("Durdur").on_hover_text("Betik motorunu sıfırlar (takılan betikler için)").clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
         let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
         for (id, script, name, desc, kind) in list {
             ui.horizontal(|ui| {

@@ -12,6 +12,8 @@ pub struct MediaState {
     pub fps: Option<f64>,
     pub video_size: Option<(i32, i32)>,
     pub audio_selection: Option<(i64, i64)>,
+    /// Arayüz iptal isterse `true`; betikler `aegisub.progress.is_cancelled()` ile görür.
+    pub cancel: bool,
 }
 
 pub enum Cmd {
@@ -65,6 +67,9 @@ impl Host for ChannelHost {
     }
     fn audio_selection(&self) -> Option<(i64, i64)> {
         self.media.lock().ok().and_then(|m| m.audio_selection)
+    }
+    fn is_cancelled(&mut self) -> bool {
+        self.media.lock().map(|m| m.cancel).unwrap_or(false)
     }
     fn progress(&mut self, fraction: f64) {
         let _ = self.tx.send(Event::Progress { fraction, task: self.task.clone(), title: self.title.clone() });
@@ -168,8 +173,8 @@ impl Drop for Worker {
         let _ = self.cmd.send(Cmd::Shutdown);
         // Bir iletişim kutusunda bekliyorsa serbest bırak.
         let _ = self.dialog_reply.send(DialogResult::default());
-        if let Some(h) = self.handle.take() {
-            let _ = h.join();
-        }
+        // Takılmış bir betik arayüzü kilitlemesin: iş parçacığını beklemeden bırak.
+        // Çalışan betik bitince (ya da süreç kapanınca) iş parçacığı kendiliğinden sonlanır.
+        drop(self.handle.take());
     }
 }
