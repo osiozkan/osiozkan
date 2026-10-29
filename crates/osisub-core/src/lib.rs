@@ -4,6 +4,7 @@ pub mod color;
 pub mod fixes;
 pub mod fonts_used;
 pub mod formats;
+pub mod glossary;
 pub mod io;
 pub mod karaoke;
 pub mod overrides;

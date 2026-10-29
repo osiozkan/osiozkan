@@ -82,6 +82,8 @@ pub struct App {
     last_autosave: std::time::Instant,
     recovery: Vec<Recovery>,
     guard: Option<Guarded>,
+    glossary: Vec<osisub_core::glossary::Term>,
+    gloss_findings: Vec<osisub_core::glossary::Finding>,
     help_open: bool,
     about_open: bool,
     settings: Settings,
@@ -297,6 +299,8 @@ impl App {
             last_autosave: std::time::Instant::now(),
             recovery: vec![],
             guard: None,
+            glossary: vec![],
+            gloss_findings: vec![],
             help_open: false,
             about_open: false,
             settings: Settings::load(),
@@ -342,6 +346,7 @@ impl App {
         };
         app.apply_settings();
         app.auto_load_dictionary();
+        if !app.settings.glossary_path.is_empty() { app.load_glossary(PathBuf::from(app.settings.glossary_path.clone())); }
         if app.doc.path.is_none() { app.scan_recovery(); }
         if let Some(r) = reference {
             if let Ok(sc) = osisub_core::io::load(&r) {
@@ -463,6 +468,17 @@ impl App {
             ui.label(RichText::new("Belgeler: docs/KULLANIM.md · docs/LUA_UYUMLULUK.md · docs/ROADMAP.md").weak());
         });
         self.about_open = open;
+    }
+
+    fn load_glossary(&mut self, p: PathBuf) {
+        match std::fs::read(&p) {
+            Ok(b) => {
+                self.glossary = osisub_core::glossary::parse(&osisub_core::ass::decode_bytes(&b));
+                self.settings.glossary_path = p.to_string_lossy().to_string();
+                self.status = format!("Terim sözlüğü: {} terim", self.glossary.len());
+            }
+            Err(e) => self.status = format!("Terim sözlüğü okunamadı: {}", e),
+        }
     }
 
     fn guard_window(&mut self, ctx: &egui::Context) {
@@ -917,6 +933,10 @@ impl App {
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; self.find_focus = true; ui.close(); }
+                if ui.button("Terim sözlüğü yükle…").on_hover_text("Her satır: kaynak = hedef").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Metin/CSV", &["txt", "csv", "tsv"]).pick_file() { self.load_glossary(p); }
+                }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }

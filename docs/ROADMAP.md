@@ -19,7 +19,8 @@
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
 - [x] Yazım denetimi: Hunspell uyumlu (spellbook), tr_TR indir/seç, öneriler, yoksay, kullanıcı sözlüğü; `FLAG num` bayrak-0 uyumluluğu (LibreOffice tr_TR ile doğrulandı, ~1 sn yükleme)
 - [x] Çeviri sekmesi (büyük referans, Enter = kaydet+sonraki, sonraki boş satır), referans sütunu, uzun satır bölme
-- [ ] Çeviri akışı: TM/sözlük (çeviri belleği), otomatik çeviri bağlayıcıları, terim sözlüğü denetimi
+- [x] Terim sözlüğü denetimi (kaynak = hedef; ekli biçimler kabul; Çeviri sekmesinde satır uyarısı + toplu denetim)
+- [ ] Çeviri belleği (TM), otomatik çeviri bağlayıcıları
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [ ] Yazım: çok dilli sözlük seçimi, ızgarada hata göstergesi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt

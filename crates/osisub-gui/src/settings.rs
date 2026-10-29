@@ -22,6 +22,7 @@ pub struct Settings {
     pub fps: f64,
     pub light_theme: bool,
     pub zoom: f32,
+    pub glossary_path: String,
     pub dict_aff: String,
     pub dict_dic: String,
 }
@@ -46,6 +47,7 @@ impl Default for Settings {
             fps: 23.976,
             light_theme: false,
             zoom: 1.0,
+            glossary_path: String::new(),
             dict_aff: String::new(),
             dict_dic: String::new(),
         }

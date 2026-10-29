@@ -29,6 +29,17 @@ impl App {
                 ui.label(RichText::new(&h.2).size(17.0).color(theme::ACCENT));
             }
         });
+        // Eksik terimler (kaynak referansta geçiyor, çeviride karşılığı yok)
+        if !self.glossary.is_empty() && !hits.is_empty() {
+            let src: String = hits.iter().map(|h| h.2.as_str()).collect::<Vec<_>>().join(" ");
+            let missing = osisub_core::glossary::missing_in_line(&src, &d.text, &self.glossary);
+            if !missing.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Terim:").color(theme::WARN));
+                    for t in missing { ui.label(RichText::new(format!("{} → {}", t.source, t.target)).color(theme::WARN).strong()); }
+                });
+            }
+        }
         // Çeviri kutusu
         let mut nd = d.clone();
         let sp = self.spell.clone();
@@ -79,6 +90,23 @@ impl App {
         });
         if enter {
             step(self, 1);
+        }
+        if !self.glossary.is_empty() && !self.ref_lines.is_empty() {
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Tüm terimleri denetle").clicked() {
+                    self.gloss_findings = osisub_core::glossary::check(&self.doc.script, &self.ref_lines, &self.glossary);
+                    self.status = format!("{} eksik terim", self.gloss_findings.len());
+                }
+                ui.label(RichText::new(format!("{} terim, {} bulgu", self.glossary.len(), self.gloss_findings.len())).weak());
+            });
+            let mut jump = None;
+            egui::ScrollArea::vertical().id_salt("gloss").max_height(160.0).show(ui, |ui| {
+                for f in &self.gloss_findings {
+                    if ui.selectable_label(false, format!("{} → {}  (satır {})", f.term.source, f.term.target, self.rows.iter().position(|&r| r == f.entry).map(|p| p + 1).unwrap_or(0))).clicked() { jump = Some(f.entry); }
+                }
+            });
+            if let Some(e) = jump { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
         }
     }
 
