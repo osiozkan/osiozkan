@@ -7,7 +7,8 @@
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü
 - [x] QC: çakışma, süre, okuma hızı, satır uzunluğu, bilinmeyen stil, boşluk
 - [x] Toplu araçlar: kaydır, doğrusal senkron, fps dönüşümü, kareye oturt, sırala, yinelenen/boş sil, çakışma düzelt, Türkçe harf
-- [ ] Override etiketi tam ayrıştırıcı + yazıcı (\t, \clip, \move, \fad ... tipli)
+- [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
+- [ ] Override etiketlerinin tipli anlamlandırılması (\t içi, \clip vektör, animasyon süreleri)
 - [ ] ASS Extradata/Fonts/Graphics yapılandırılmış erişim
 - [ ] Biçimler: SUB (MicroDVD), SBV, TTML, STL, ITT, PGS/VobSub OCR (SE'den)
 - [ ] Zamanlama: anahtar kare (keyframe) dosyaları, timecodes v1/v2, değişken fps
@@ -17,7 +18,8 @@
 
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
-- [ ] Gerçek yazı tipi ölçüleri (`text_extents` için ttf-parser/ab_glyph + sistem yazı tipi taraması)
+- [x] Gerçek yazı tipi ölçüleri (`text_extents`: ttf-parser, GDI/VSFilter uyumlu hücre yüksekliği)
+- [ ] Yazı tipi dizini önbelleği (tarama her açılışta tüm dosyaları okuyor)
 - [ ] `kara-templater.lua` ve Aegisub'ın gelen otomasyon betiklerinin birebir testi
 - [ ] Dışa aktarım filtreleri (register_filter) için boru hattı
 - [ ] `aegisub.get_audio_selection`, `project_properties` GUI'den
@@ -25,7 +27,8 @@
 - [ ] Kullanıcının Lua betikleriyle regresyon test paketi (kullanıcıdan betikler istenmeli)
 
 ## Arayüz (GUI)
-- [ ] Çerçeve seçimi ve iskelet (egui/eframe önerilir: tek ikili, GPU hızlı, çapraz platform)
+- [x] Çerçeve: egui/eframe 0.37 (osisub-gui). Başsız ekran görüntüsü: `xvfb-run osisub-gui dosya --screenshot out.png`
+- [x] İskelet: menü, ızgara (sanal kaydırma), düzenleme paneli, stil/kalite/otomasyon/bilgi sekmeleri, Lua diyalog köprüsü, geri al/yinele
 - [ ] Satır ızgarası (sanal kaydırma, 100k satır), çoklu seçim, sütun özelleştirme
 - [ ] Düzenleme kutusu: etiket renklendirme, karakter/CPS sayacı, stil seçici
 - [ ] Video önizleme (libmpv/ffmpeg), ASS renderer (libass), ses dalga formu/spektrum

@@ -1,0 +1,18 @@
+[package]
+name = "osisub-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "osisub-gui"
+path = "src/main.rs"
+
+[dependencies]
+osisub-core = { path = "../osisub-core" }
+osisub-lua = { path = "../osisub-lua" }
+osisub-doc = { path = "../osisub-doc" }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui_extras = "0.37"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }

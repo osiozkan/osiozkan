@@ -36,6 +36,8 @@ pub struct Document {
     /// Kaydedildiği andaki geri-al yığın uzunluğu; `None` = kaydedilmiş duruma geri dönülemez.
     saved_at: Option<usize>,
     pub max_undo: usize,
+    /// Her içerik değişikliğinde artar (önbellekleri geçersiz kılmak için).
+    pub rev: u64,
 }
 
 /// `edit` içinde kullanılan kayıt tutan düzenleyici.
@@ -83,7 +85,7 @@ impl Tx<'_> {
 
 impl Document {
     pub fn new(script: Script) -> Document {
-        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500 }
+        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500, rev: 0 }
     }
 
     pub fn open(path: impl Into<PathBuf>) -> Result<Document, String> {
@@ -137,6 +139,7 @@ impl Document {
             return r;
         }
         self.redo.clear();
+        self.rev += 1;
         // Kaydedilmiş duruma dönüş artık mümkün değilse işaretle.
         if let Some(s) = self.saved_at {
             if s > self.undo.len() {
@@ -197,6 +200,7 @@ impl Document {
         for c in t.changes.iter().rev() {
             Self::apply_inverse(&mut self.script, c);
         }
+        self.rev += 1;
         (self.selection, self.active) = t.sel_before.clone();
         let d = t.desc.clone();
         self.redo.push(t);
@@ -208,6 +212,7 @@ impl Document {
         for c in t.changes.iter() {
             Self::apply_forward(&mut self.script, c);
         }
+        self.rev += 1;
         (self.selection, self.active) = t.sel_after.clone();
         let d = t.desc.clone();
         self.undo.push(t);
