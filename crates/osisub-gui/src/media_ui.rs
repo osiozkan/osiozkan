@@ -46,6 +46,8 @@ pub struct Media {
     pub snap_kf: bool,
     /// Videoda \pos sürükleme aracı.
     pub pos_tool: bool,
+    pub spectrum: bool,
+    spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
     stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
     stream_count: usize,
@@ -81,6 +83,8 @@ impl Media {
             keyframes: vec![],
             snap_kf: true,
             pos_tool: false,
+            spectrum: false,
+            spec_tex: None,
             stream: None,
             stream_frames: Default::default(),
             stream_count: 0,
@@ -292,6 +296,19 @@ impl Media {
         self.tick_play(ctx);
     }
 
+    fn heat(v: u8) -> Color32 {
+        let t = v as f32 / 255.0;
+        let stops: [(f32, [f32; 3]); 5] = [(0.0, [8.0, 8.0, 24.0]), (0.3, [70.0, 20.0, 110.0]), (0.55, [190.0, 50.0, 90.0]), (0.8, [250.0, 150.0, 40.0]), (1.0, [252.0, 240.0, 150.0])];
+        for w in stops.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            if t <= b.0 {
+                let f = (t - a.0) / (b.0 - a.0);
+                return Color32::from_rgb((a.1[0] + (b.1[0] - a.1[0]) * f) as u8, (a.1[1] + (b.1[1] - a.1[1]) * f) as u8, (a.1[2] + (b.1[2] - a.1[2]) * f) as u8);
+            }
+        }
+        Color32::WHITE
+    }
+
     fn snap_ms(&self, ms: i64) -> i64 {
         if self.snap_kf {
             let tol = (self.ms_per_px * 6.0) as i64;
@@ -435,7 +452,9 @@ impl Media {
         let ms_of = |x: f32| vs + (x - rect.left()) as f64 * mpp;
         let (v_end, mid) = (vs + w_px as f64 * mpp, rect.center().y);
 
-        // Altyazı satırları
+        let act = doc.active;
+        // Altyazı satırları (spektrumda üstte, dalga formunda altta çizilir)
+        let draw_lines = |p: &egui::Painter, doc: &Document| {
         let (act, sel) = (doc.active, doc.selection.clone());
         for (i, e) in doc.script.entries.iter().enumerate() {
             if let Entry::Dialogue(d) = e {
@@ -452,8 +471,26 @@ impl Media {
             }
         }
 
-        // Dalga
-        if let Some(w) = &self.wave {
+        };
+        if !self.spectrum {
+            draw_lines(&p, doc);
+        }
+        // Spektrum
+        if let (true, Some(w)) = (self.spectrum, self.wave.clone()) {
+            let bins = (rect.height() as usize).clamp(32, 256);
+            let key = ((vs * 10.0) as i64, (mpp * 1000.0) as i64, w_px, bins);
+            if self.spec_tex.as_ref().map(|t| t.0) != Some(key) {
+                let raw = osisub_media::spectrogram(&w, vs, mpp, w_px, bins);
+                let pixels: Vec<Color32> = raw.iter().map(|&v| Self::heat(v)).collect();
+                let img = egui::ColorImage { size: [w_px, bins], source_size: egui::vec2(w_px as f32, bins as f32), pixels };
+                let tex = ui.ctx().load_texture("spectrum", img, egui::TextureOptions::LINEAR);
+                self.spec_tex = Some((key, tex));
+            }
+            if let Some((_, t)) = &self.spec_tex {
+                p.image(t.id(), Rect::from_min_size(rect.min, egui::vec2(w_px as f32, rect.height())), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            }
+            draw_lines(&p, doc);
+        } else if let Some(w) = &self.wave {
             let peaks = w.peaks(vs, mpp, w_px);
             let amp = rect.height() * 0.45 / 32768.0;
             for (i, (lo, hi)) in peaks.iter().enumerate() {

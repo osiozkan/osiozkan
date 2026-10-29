@@ -42,7 +42,8 @@
 - [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
 - [ ] Akıcı video oynatma (libmpv ya da kalıcı ffmpeg boru hattı), kare önbelleği, ön-yükleme
-- [ ] Ses oynatma uygulama içinden (şimdilik harici ffplay), spektrum görünümü, anahtar kare işaretleri
+- [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)
+- [ ] Ses oynatma uygulama içinden (cpal/rodio), basılı tutarak oynat, ses/video senkronu
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici

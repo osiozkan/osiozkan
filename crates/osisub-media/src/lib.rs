@@ -124,6 +124,41 @@ impl Waveform {
     }
 }
 
+/// Spektrogram: `px` sütun × `bins` satır (satır 0 = en yüksek frekans), değerler 0..=255 (dB eşlemesi).
+/// Pencere 512 örnek (Hann). `bins` ≤ 256 (0 .. örnekleme_hızı/2).
+pub fn spectrogram(w: &Waveform, start_ms: f64, ms_per_px: f64, px: usize, bins: usize) -> Vec<u8> {
+    use rustfft::{num_complex::Complex, FftPlanner};
+    const N: usize = 512;
+    let bins = bins.clamp(1, N / 2);
+    let fft = FftPlanner::<f32>::new().plan_fft_forward(N);
+    let hann: Vec<f32> = (0..N).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / N as f32).cos()).collect();
+    let sr = w.sample_rate as f64 / 1000.0;
+    let mut img = vec![0u8; px * bins];
+    let mut buf = vec![Complex { re: 0.0f32, im: 0.0 }; N];
+    for x in 0..px {
+        let center = ((start_ms + (x as f64 + 0.5) * ms_per_px) * sr) as i64;
+        let a = center - (N as i64) / 2;
+        for i in 0..N {
+            let idx = a + i as i64;
+            let v = if idx >= 0 && (idx as usize) < w.samples.len() { w.samples[idx as usize] as f32 / 32768.0 } else { 0.0 };
+            buf[i] = Complex { re: v * hann[i], im: 0.0 };
+        }
+        if center < 0 || center as usize >= w.samples.len() {
+            continue;
+        }
+        fft.process(&mut buf);
+        for b in 0..bins {
+            // bins'e eşit aralıklı bölüştür: her görüntü satırı birkaç FFT kutusunun en büyüğü
+            let (k0, k1) = (b * (N / 2) / bins, ((b + 1) * (N / 2) / bins).max(b * (N / 2) / bins + 1));
+            let mag = (k0..k1).map(|k| buf[k].norm()).fold(0.0f32, f32::max) / (N as f32 / 4.0);
+            let db = 20.0 * (mag + 1e-9).log10();
+            let v = ((db + 90.0) / 70.0).clamp(0.0, 1.0);
+            img[(bins - 1 - b) * px + x] = (v * 255.0) as u8;
+        }
+    }
+    img
+}
+
 #[derive(Clone, Debug)]
 pub struct VadOptions {
     /// Gürültü tabanının üstünde konuşma sayılacak eşik (dB).
@@ -294,6 +329,24 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spectrogram_peaks_at_tone() {
+        // 8 kHz'de 1 kHz sinüs → 256 kutudan (0..4 kHz) 64. kutuda enerji
+        let sr = 8000usize;
+        let samples: Vec<i16> = (0..sr).map(|i| ((2.0 * std::f32::consts::PI * 1000.0 * i as f32 / sr as f32).sin() * 16000.0) as i16).collect();
+        let w = Waveform { sample_rate: sr as u32, samples };
+        let img = spectrogram(&w, 100.0, 10.0, 20, 256);
+        let col = 10;
+        let (mut best, mut bv) = (0, 0u8);
+        for row in 0..256 {
+            let v = img[row * 20 + col];
+            if v > bv { bv = v; best = row; }
+        }
+        let bin = 255 - best;
+        assert!((62..=66).contains(&bin), "bin {}", bin);
+        assert!(bv > 200);
+    }
 
     #[test]
     fn vad_finds_speech() {

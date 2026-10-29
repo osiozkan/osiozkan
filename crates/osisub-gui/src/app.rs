@@ -243,6 +243,7 @@ impl App {
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("pos") => app.media.pos_tool = true,
+            Some("spectrum") => app.media.spectrum = true,
             Some("play") => app.autoplay = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
             _ => {}
@@ -774,6 +775,7 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                ui.checkbox(&mut self.media.spectrum, "Spektrum göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.checkbox(&mut self.media.pos_tool, "Konum aracı (videoda \\pos sürükle)");
