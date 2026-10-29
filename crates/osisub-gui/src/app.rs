@@ -314,6 +314,7 @@ impl App {
         if let Some(n) = line {
             if let Some(&r) = app.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect::<Vec<_>>().get(n.saturating_sub(1)) {
                 app.doc.select(vec![r], r);
+                app.scroll_to = Some(r);
             }
         }
         match open_win.as_deref() {
@@ -1090,7 +1091,7 @@ impl App {
                 table = table.scroll_to_row(pos, Some(Align::Center));
             }
         }
-        let rows = self.rows.clone();
+        let rows = std::mem::take(&mut self.rows); // kopyalamadan ödünç al; fonksiyon sonunda geri konur
         let mut clicked: Option<usize> = None;
         let mut action: Option<RowAction> = None;
         let style_names: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
@@ -1184,6 +1185,7 @@ impl App {
                 self.anchor = pos;
             }
         }
+        self.rows = rows;
     }
 
     fn time_field(ui: &mut egui::Ui, id: &str, buf: &mut String, current: i64) -> Option<i64> {
