@@ -20,6 +20,7 @@
 - [x] Yazım denetimi: Hunspell uyumlu (spellbook), tr_TR indir/seç, öneriler, yoksay, kullanıcı sözlüğü; `FLAG num` bayrak-0 uyumluluğu (LibreOffice tr_TR ile doğrulandı, ~1 sn yükleme)
 - [x] Çeviri sekmesi (büyük referans, Enter = kaydet+sonraki, sonraki boş satır), referans sütunu, uzun satır bölme
 - [x] Terim sözlüğü denetimi (kaynak = hedef; ekli biçimler kabul; Çeviri sekmesinde satır uyarısı + toplu denetim)
+- [x] Noktadan senkron, FPS dönüştürme, kare cinsinden kaydırma, anahtar kare dosyası, Aegisub proje bilgisi (Video File/Active Line), kodlama seçimi/tespiti
 - [ ] Çeviri belleği (TM), otomatik çeviri bağlayıcıları
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [ ] Yazım: çok dilli sözlük seçimi, ızgarada hata göstergesi
@@ -59,7 +60,7 @@
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
-- [ ] Çökme sonrası otomatik kayıttan kurtarma sorusu
+- [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
 ## Performans
