@@ -17,7 +17,9 @@
 - [ ] Anahtar kare/timecode dosyaları (Aegisub .txt, v1/v2), değişken fps
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
-- [ ] Çeviri akışı: iki dilli paralel ızgara, TM/sözlük, otomatik çeviri bağlayıcıları, yazım denetimi (Hunspell, tr_TR)
+- [x] Yazım denetimi: Hunspell uyumlu (spellbook), tr_TR indir/seç, öneriler, yoksay, kullanıcı sözlüğü; `FLAG num` bayrak-0 uyumluluğu (LibreOffice tr_TR ile doğrulandı, ~1 sn yükleme)
+- [ ] Çeviri akışı: iki dilli paralel ızgara, TM/sözlük, otomatik çeviri bağlayıcıları
+- [ ] Yazım: editörde hatalı sözcük vurgusu, canlı denetim, çok dilli sözlük seçimi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
 - [ ] Karaoke: ses/dalga üzerinde canlı k-timing (tuşa basarak), otomatik hece ayırma (Japonca romaji/kana), şablonlayıcı (kara-templater uyumlu)
 

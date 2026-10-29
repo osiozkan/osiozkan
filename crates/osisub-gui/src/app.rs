@@ -21,6 +21,7 @@ use std::sync::Arc;
 enum Tab {
     Styles,
     Karaoke,
+    Spell,
     Quality,
     Automation,
     Info,
@@ -80,6 +81,15 @@ pub struct App {
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
     fixes_open: bool,
+    autospell: bool,
+    spell: Option<std::sync::Arc<osisub_spell::Speller>>,
+    spell_load_rx: Option<std::sync::mpsc::Receiver<Result<osisub_spell::Speller, String>>>,
+    spell_status: String,
+    misses: Vec<osisub_spell::Miss>,
+    miss_rx: Option<std::sync::mpsc::Receiver<Vec<osisub_spell::Miss>>>,
+    miss_sel: Option<usize>,
+    suggestions: Vec<String>,
+    spell_ignore: std::collections::HashSet<String>,
     vad_open: bool,
     vad: osisub_media::VadOptions,
     vad_skip_existing: bool,
@@ -153,7 +163,7 @@ impl App {
             dialog: None,
             log: String::new(),
             status,
-            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("karaoke") => Tab::Karaoke, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
+            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("karaoke") => Tab::Karaoke, Some("spell") => Tab::Spell, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
@@ -193,6 +203,15 @@ impl App {
             reference: None,
             fonts_open: false,
             fixes_open: false,
+            autospell: false,
+            spell: None,
+            spell_load_rx: None,
+            spell_status: String::new(),
+            misses: vec![],
+            miss_rx: None,
+            miss_sel: None,
+            suggestions: vec![],
+            spell_ignore: Default::default(),
             vad_open: false,
             vad: osisub_media::VadOptions::default(),
             vad_skip_existing: true,
@@ -207,6 +226,7 @@ impl App {
             font_rx: None,
         };
         app.apply_settings();
+        app.auto_load_dictionary();
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
         }
@@ -221,6 +241,7 @@ impl App {
             Some("resample") => app.resample_open = true,
             Some("fixes") => app.fixes_open = true,
             Some("vad") => app.vad_open = true,
+            Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("pos") => app.media.pos_tool = true,
             Some("play") => app.autoplay = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
@@ -258,6 +279,149 @@ impl App {
         s.adjacent_gap_ms = self.post.adjacent_gap_ms;
         s.fps = self.fps;
         s.save();
+    }
+
+    // ------------------------------------------------------------ yazım denetimi
+
+    fn user_dict_dir() -> Option<PathBuf> {
+        std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config/osisub/dict"))
+    }
+
+    fn user_words_path() -> Option<PathBuf> {
+        Self::user_dict_dir().map(|d| d.join("kullanici_sozcukleri.txt"))
+    }
+
+    fn auto_load_dictionary(&mut self) {
+        let (aff, dic) = (PathBuf::from(&self.settings.dict_aff), PathBuf::from(&self.settings.dict_dic));
+        if aff.is_file() && dic.is_file() {
+            self.load_dictionary(aff, dic);
+        } else if let Some((a, d)) = osisub_spell::find_dictionary("tr_TR", &Self::user_dict_dir().into_iter().collect::<Vec<_>>()) {
+            self.load_dictionary(a, d);
+        }
+    }
+
+    fn load_dictionary(&mut self, aff: PathBuf, dic: PathBuf) {
+        self.settings.dict_aff = aff.to_string_lossy().to_string();
+        self.settings.dict_dic = dic.to_string_lossy().to_string();
+        self.spell_status = "Sözlük yükleniyor…".into();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.spell_load_rx = Some(rx);
+        std::thread::spawn(move || {
+            let r = osisub_spell::Speller::load(&aff, &dic).map(|mut s| {
+                if let Some(p) = Self::user_words_path() {
+                    if let Ok(t) = std::fs::read_to_string(p) { for w in t.lines().filter(|l| !l.trim().is_empty()) { s.add_word(w.trim()); } }
+                }
+                s
+            });
+            let _ = tx.send(r);
+        });
+    }
+
+    fn pump_spell(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.spell_load_rx {
+            match rx.try_recv() {
+                Ok(Ok(s)) => { self.spell_status = format!("Sözlük yüklü: {}", s.name); self.spell = Some(std::sync::Arc::new(s)); self.spell_load_rx = None; }
+                Ok(Err(e)) => { self.spell_status = format!("Sözlük yüklenemedi: {}", e); self.spell_load_rx = None; }
+                Err(_) => ctx.request_repaint_after(std::time::Duration::from_millis(150)),
+            }
+        }
+        if let Some(rx) = &self.miss_rx {
+            if let Ok(m) = rx.try_recv() { self.misses = m; self.miss_rx = None; self.miss_sel = None; self.suggestions.clear(); }
+            else { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
+        }
+    }
+
+    fn start_spellcheck(&mut self) {
+        let Some(sp) = self.spell.clone() else { return };
+        let script = self.doc.script.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.miss_rx = Some(rx);
+        let ignore = self.spell_ignore.clone();
+        std::thread::spawn(move || {
+            let m: Vec<_> = osisub_spell::check_script(&sp, &script, None).into_iter().filter(|m| !ignore.contains(&osisub_core::qc::tr_lower(&m.word))).collect();
+            let _ = tx.send(m);
+        });
+    }
+
+    fn spell_tab(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(if self.spell_status.is_empty() { "Sözlük yüklü değil".to_string() } else { self.spell_status.clone() });
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Sözlük seç (.dic)…").clicked() {
+                if let Some(dic) = rfd::FileDialog::new().add_filter("Hunspell sözlüğü", &["dic"]).pick_file() {
+                    let aff = dic.with_extension("aff");
+                    if aff.is_file() { self.load_dictionary(aff, dic); } else { self.spell_status = "Aynı klasörde .aff dosyası yok".into(); }
+                }
+            }
+            if ui.button("tr_TR indir").on_hover_text("LibreOffice sözlüklerinden ~/.config/osisub/dict içine indirir (curl gerekir)").clicked() {
+                if let Some(dir) = Self::user_dict_dir() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let ok = ["tr_TR.aff", "tr_TR.dic"].iter().all(|f| std::process::Command::new("curl").args(["-sSfL", "-o"]).arg(dir.join(f)).arg(format!("https://raw.githubusercontent.com/LibreOffice/dictionaries/master/tr_TR/{}", f)).status().map(|s| s.success()).unwrap_or(false));
+                    if ok { self.load_dictionary(dir.join("tr_TR.aff"), dir.join("tr_TR.dic")); } else { self.spell_status = "İndirme başarısız (curl/ağ)".into(); }
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(self.spell.is_some() && self.miss_rx.is_none(), egui::Button::new("Denetle")).clicked() { self.start_spellcheck(); }
+            if self.miss_rx.is_some() { ui.spinner(); }
+            ui.label(RichText::new(format!("{} hata", self.misses.len())).strong());
+        });
+        ui.separator();
+        let misses = self.misses.clone();
+        let mut jump: Option<usize> = None;
+        egui::ScrollArea::vertical().id_salt("misses").max_height(220.0).show_rows(ui, 20.0, misses.len(), |ui, range| {
+            for i in range {
+                let m = &misses[i];
+                if ui.selectable_label(self.miss_sel == Some(i), format!("{}  (satır {})", m.word, self.rows.iter().position(|&r| r == m.entry).map(|p| p + 1).unwrap_or(m.entry + 1))).clicked() { jump = Some(i); }
+            }
+        });
+        if let Some(i) = jump {
+            self.miss_sel = Some(i);
+            let e = misses[i].entry;
+            self.doc.select(vec![e], e);
+            self.scroll_to = Some(e);
+            self.suggestions = self.spell.as_ref().map(|s| s.suggest(&misses[i].word, 8)).unwrap_or_default();
+        }
+        if let Some(i) = self.miss_sel.filter(|&i| i < misses.len()) {
+            let m = misses[i].clone();
+            ui.separator();
+            ui.label(RichText::new(&m.word).strong());
+            ui.horizontal_wrapped(|ui| {
+                for sug in self.suggestions.clone() {
+                    if ui.button(&sug).clicked() {
+                        let at = m.entry;
+                        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() {
+                            let nt = osisub_spell::replace_word(&d.text, &m.word, &sug, false);
+                            self.doc.edit("Yazım düzelt", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                        }
+                        self.misses.remove(i);
+                        self.miss_sel = None;
+                    }
+                }
+                if self.suggestions.is_empty() { ui.label(RichText::new("öneri yok").weak()); }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Yoksay").clicked() {
+                    let w = osisub_core::qc::tr_lower(&m.word);
+                    self.spell_ignore.insert(w.clone());
+                    self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
+                    self.miss_sel = None;
+                }
+                if ui.button("Sözlüğe ekle").clicked() {
+                    if let Some(p) = Self::user_words_path() {
+                        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+                        let mut t = std::fs::read_to_string(&p).unwrap_or_default();
+                        t.push_str(&format!("{}\n", m.word));
+                        let _ = std::fs::write(&p, t);
+                    }
+                    let w = osisub_core::qc::tr_lower(&m.word);
+                    self.spell_ignore.insert(w.clone());
+                    self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
+                    self.miss_sel = None;
+                }
+            });
+        }
     }
 
     fn first_row(&self) -> Option<usize> {
@@ -846,7 +1010,7 @@ impl App {
 
     fn side(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (t, l) in [(Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
+            for (t, l) in [(Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Spell, "Yazım"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
                 ui.selectable_value(&mut self.tab, t, l);
             }
         });
@@ -854,6 +1018,7 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
             Tab::Styles => self.styles_tab(ui),
             Tab::Karaoke => self.karaoke_tab(ui),
+            Tab::Spell => self.spell_tab(ui),
             Tab::Quality => self.quality_tab(ui),
             Tab::Automation => self.automation_tab(ui),
             Tab::Info => self.info_tab(ui),
@@ -1395,7 +1560,7 @@ impl App {
         let Some(path) = self.shot.clone() else { return };
         self.shot_frame += 1;
         ctx.request_repaint();
-        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() && !self.autoplay && self.play_wait == 0 {
+        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() && !self.autoplay && self.play_wait == 0 && !self.autospell && self.miss_rx.is_none() && self.spell_load_rx.is_none() {
             self.shot_requested = true;
             let done = self.shot_done.clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -1418,6 +1583,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.pump_events(&ctx);
+        self.pump_spell(&ctx);
         self.refresh_caches();
         if self.issues_key != self.doc.rev { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         self.shortcuts(&ctx);
@@ -1472,6 +1638,10 @@ impl eframe::App for App {
             self.autoplay = false;
             self.play_wait = 40;
             self.media.toggle_play(&self.doc, &ctx);
+        }
+        if self.autospell && self.spell.is_some() && self.miss_rx.is_none() {
+            self.autospell = false;
+            self.start_spellcheck();
         }
         if self.play_wait > 0 { self.play_wait -= 1; ctx.request_repaint(); }
         self.handle_screenshot(&ctx);

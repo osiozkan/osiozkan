@@ -1,0 +1,9 @@
+[package]
+name = "osisub-spell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+spellbook = "0.4"
+osisub-core = { path = "../osisub-core" }
