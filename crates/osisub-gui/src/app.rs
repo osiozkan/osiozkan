@@ -949,6 +949,25 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                if ui.button("Anahtar kareleri yükle…").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Anahtar kare", &["txt", "log", "stats", "keyframes"]).pick_file() {
+                        match std::fs::read_to_string(&p) {
+                            Ok(t) => {
+                                self.media.keyframes = osisub_media::parse_keyframe_file(&t, self.media.fps().unwrap_or(23.976));
+                                self.status = format!("{} anahtar kare yüklendi", self.media.keyframes.len());
+                            }
+                            Err(e) => self.status = format!("Hata: {}", e),
+                        }
+                    }
+                }
+                if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("Anahtar kareleri kaydet…")).clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Anahtar kare", &["txt"]).save_file() {
+                        let t = osisub_media::write_keyframe_file(&self.media.keyframes, self.media.fps().unwrap_or(23.976));
+                        match std::fs::write(&p, t) { Ok(()) => self.status = "Anahtar kareler kaydedildi".into(), Err(e) => self.status = format!("Hata: {}", e) }
+                    }
+                }
                 ui.checkbox(&mut self.media.spectrum, "Spektrum göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");

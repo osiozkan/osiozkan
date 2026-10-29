@@ -316,6 +316,51 @@ pub fn spawn_play(video: &Path, ass: Option<&Path>, start_ms: i64, dur_ms: i64, 
     Ok(PlayStream { child, frames: rx, width, height, fps })
 }
 
+/// Aegisub anahtar kare dosyasını (`# keyframe format v1`, `fps X`, satır başına kare numarası) ya da
+/// yalnızca kare numaraları içeren metni ms'ye çevirir. `fallback_fps` dosyada fps yoksa kullanılır.
+pub fn parse_keyframe_file(text: &str, fallback_fps: f64) -> Vec<i64> {
+    let mut fps = fallback_fps;
+    let mut frames: Vec<i64> = vec![];
+    for l in text.lines() {
+        let l = l.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("fps") {
+            if let Ok(f) = v.trim().parse::<f64>() {
+                if f > 0.0 {
+                    fps = f;
+                }
+            }
+            continue;
+        }
+        // x264/xvid istatistik biçimi: "in:0 out:0 type:I ..." → I/i türündekiler anahtar kare
+        if l.starts_with("in:") {
+            if l.contains("type:I") || l.contains("type:i") {
+                if let Some(n) = l.split_whitespace().next().and_then(|t| t.strip_prefix("in:")).and_then(|t| t.parse().ok()) {
+                    frames.push(n);
+                }
+            }
+            continue;
+        }
+        if let Ok(n) = l.split_whitespace().next().unwrap_or("").parse::<i64>() {
+            frames.push(n);
+        }
+    }
+    frames.sort_unstable();
+    frames.dedup();
+    frames.into_iter().map(|f| (f as f64 * 1000.0 / fps).round() as i64).collect()
+}
+
+/// Anahtar kareleri Aegisub biçiminde yazar.
+pub fn write_keyframe_file(keyframes_ms: &[i64], fps: f64) -> String {
+    let mut out = format!("# keyframe format v1\nfps {}\n", fps);
+    for &ms in keyframes_ms {
+        out.push_str(&format!("{}\n", (ms as f64 * fps / 1000.0).round() as i64));
+    }
+    out
+}
+
 /// Anahtar kare zamanları (ms). Büyük dosyalarda birkaç saniye sürebilir.
 pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
     let out = Command::new(ffprobe_bin())
@@ -365,6 +410,16 @@ mod tests {
         assert_eq!(v.len(), 2, "{:?}", v);
         assert!((v[0].0 - 920).abs() <= 40 && (v[0].1 - 2080).abs() <= 40, "{:?}", v);
         assert!(v[1].0 > 3500);
+    }
+
+    #[test]
+    fn keyframe_files() {
+        let t = "# keyframe format v1\nfps 25\n0\n50\n125\n";
+        assert_eq!(parse_keyframe_file(t, 23.976), vec![0, 2000, 5000]);
+        assert_eq!(parse_keyframe_file("0\n24\n", 24.0), vec![0, 1000]);
+        assert_eq!(parse_keyframe_file("in:0 out:0 type:I\nin:1 out:1 type:P\nin:48 out:48 type:i\n", 24.0), vec![0, 2000]);
+        let w = write_keyframe_file(&[0, 2000, 5000], 25.0);
+        assert_eq!(parse_keyframe_file(&w, 1.0), vec![0, 2000, 5000]);
     }
 
     #[test]
