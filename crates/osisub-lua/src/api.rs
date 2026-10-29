@@ -244,8 +244,15 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             "text_extents",
             lua.create_function(move |_, (style, text): (Table, String)| {
                 let m = style_metrics(&style);
-                let (w, h, d, e) = inn.borrow_mut().host.text_extents(&m, &text);
-                Ok((w, h, d, e))
+                let mut i = inn.borrow_mut();
+                let r = match i.host.text_extents(&m, &text) {
+                    Some(r) => r,
+                    None => match i.fonts.extents(&m, &text) {
+                        Some(r) => r,
+                        None => approx_extents(&m, &text),
+                    },
+                };
+                Ok(r)
             })?,
         )?;
         let inn = inner.clone();

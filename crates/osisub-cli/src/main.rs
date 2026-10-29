@@ -1,7 +1,6 @@
 //! osisub: komut satırı arayüzü.
 use osisub_core::ass::{Entry, Script};
 use osisub_core::qc::{self, Rules};
-use osisub_core::{srt, vtt};
 use osisub_lua::{Engine, HeadlessHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -51,26 +50,11 @@ fn opt(args: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 fn load(path: &str) -> Result<Script, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path, e))?;
-    let text = osisub_core::ass::decode_bytes(&bytes);
-    Ok(match ext(path).as_str() {
-        "srt" => srt::to_script(&text),
-        "vtt" => Script::from_dialogues(vtt::parse(&text)),
-        _ => Script::parse(&text),
-    })
+    osisub_core::io::load(Path::new(path))
 }
 
 fn save(s: &Script, path: &str) -> Result<(), String> {
-    let out = match ext(path).as_str() {
-        "srt" => srt::write(s),
-        "vtt" => vtt::write(s),
-        _ => s.to_ass_string(),
-    };
-    std::fs::write(path, out).map_err(|e| format!("{}: {}", path, e))
-}
-
-fn ext(p: &str) -> String {
-    Path::new(p).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
+    osisub_core::io::save(s, Path::new(path))
 }
 
 fn real_main(mut args: Vec<String>) -> Result<(), String> {

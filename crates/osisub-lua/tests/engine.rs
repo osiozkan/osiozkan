@@ -46,3 +46,24 @@ fn cancel_and_dialog_defaults() {
     let out = e.run_macro(2, &[], 0).unwrap();
     assert!(out.cancelled);
 }
+
+#[test]
+fn real_font_extents_when_available() {
+    use osisub_lua::StyleMetrics;
+    let mut db = osisub_lua::fonts::FontDb::default();
+    if db.family_count() == 0 {
+        return; // ortamda yazı tipi yok
+    }
+    // Herhangi bir sistem yazı tipi için ölçüler tutarlı olmalı: ikiye katlanan metin ~iki kat geniş.
+    let mut found = false;
+    for fam in ["dejavu sans", "arial", "liberation sans", "noto sans"] {
+        let st = StyleMetrics { fontname: fam.into(), fontsize: 40.0, scale_x: 100.0, scale_y: 100.0, ..Default::default() };
+        if let (Some(a), Some(b)) = (db.extents(&st, "Hello"), db.extents(&st, "HelloHello")) {
+            assert!((b.0 - 2.0 * a.0).abs() < 0.01);
+            assert_eq!(a.1, 40.0);
+            found = true;
+            break;
+        }
+    }
+    eprintln!("fonts: {} aile, eşleşme={}", db.family_count(), found);
+}

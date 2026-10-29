@@ -27,9 +27,9 @@ pub trait Host {
     fn dialog(&mut self, spec: &DialogSpec) -> DialogResult {
         spec.defaults()
     }
-    /// (genişlik, yükseklik, descent, extlead)
-    fn text_extents(&mut self, st: &StyleMetrics, text: &str) -> (f64, f64, f64, f64) {
-        api::approx_extents(st, text)
+    /// (genişlik, yükseklik, descent, extlead). `None` = yerleşik yazı tipi ölçümünü kullan.
+    fn text_extents(&mut self, _st: &StyleMetrics, _text: &str) -> Option<(f64, f64, f64, f64)> {
+        None
     }
     fn progress(&mut self, _fraction: f64) {}
     fn progress_task(&mut self, _task: &str) {}
@@ -168,6 +168,7 @@ pub(crate) struct Inner {
     pub props: HashMap<String, String>,
     pub undo_desc: Option<String>,
     pub clipboard: String,
+    pub fonts: crate::fonts::FontDb,
 }
 
 pub struct Engine {
@@ -192,6 +193,7 @@ impl Engine {
             props: HashMap::new(),
             undo_desc: None,
             clipboard: String::new(),
+            fonts: Default::default(),
         }));
         let script: SharedScript = Rc::new(RefCell::new(Script::new_default()));
         api::install(&lua, &inner, &script)?;
@@ -209,6 +211,10 @@ impl Engine {
 
     pub fn take_script(&self) -> Script {
         self.script.borrow().clone()
+    }
+
+    pub fn add_font_dir(&mut self, p: impl Into<PathBuf>) {
+        self.inner.borrow_mut().fonts.add_dir(p);
     }
 
     pub fn add_include_dir(&mut self, p: impl Into<PathBuf>) {

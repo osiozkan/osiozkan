@@ -6,6 +6,7 @@
 mod api;
 mod dialog;
 mod engine;
+pub mod fonts;
 mod subs;
 
 pub use dialog::{Control, DialogResult, DialogSpec, DV};

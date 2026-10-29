@@ -1,6 +1,7 @@
 //! osisub-core: altyazı veri modeli, biçim okuyucu/yazıcıları ve kalite araçları.
 pub mod ass;
 pub mod color;
+pub mod io;
 pub mod qc;
 pub mod srt;
 pub mod tags;

@@ -1,0 +1,9 @@
+[package]
+name = "osisub-doc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+osisub-core = { path = "../osisub-core" }
+osisub-lua = { path = "../osisub-lua" }
