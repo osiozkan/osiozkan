@@ -21,6 +21,8 @@ pub fn apply(ctx: &egui::Context, light: bool) {
     ctx.global_style_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 5.0);
         s.spacing.button_padding = egui::vec2(8.0, 4.0);
+        // Hücre etiketleri seçilebilir olmasın: Ctrl+C satır kopyalamayı bozuyor, tıklamalar satıra gitsin.
+        s.interaction.selectable_labels = false;
     });
 }
 
