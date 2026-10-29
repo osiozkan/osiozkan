@@ -202,8 +202,9 @@ pub fn remove_empty(script: &mut Script) -> usize {
 
 /// Çift boşluk, kenar boşluğu ve üç noktayı temizler.
 pub fn clean_text(text: &str) -> String {
+    let text = crate::overrides::clean(text);
     let mut out = String::new();
-    for p in tags::split(text) {
+    for p in tags::split(&text) {
         match p {
             tags::Part::Block(b) => {
                 out.push('{');

@@ -2,6 +2,8 @@
 //!
 //! GUI (ve testler) yalnızca bu katmanla konuşur; böylece tüm düzenleme mantığı başsız test edilebilir.
 
+pub mod worker;
+
 use osisub_core::ass::{Dialogue, Entry, Script};
 use osisub_core::tags;
 use std::path::PathBuf;
@@ -393,6 +395,20 @@ impl Document {
     }
 
     // ------------------------------------------------------------ Lua
+
+    /// Arka plan çalışanından gelen sonucu uygular (tek geri-al adımı).
+    pub fn apply_run_done(&mut self, done: worker::RunDone, fallback_name: &str) {
+        if done.cancelled {
+            return;
+        }
+        let desc = done.undo_desc.unwrap_or_else(|| fallback_name.to_string());
+        self.apply_new_script(&desc, done.script);
+        if let Some(s) = done.selection {
+            self.select(s, done.active.unwrap_or(self.active));
+        } else if let Some(a) = done.active {
+            self.active = a;
+        }
+    }
 
     /// Makroyu çalıştırır; sonucu tek geri-al adımı olarak uygular. Seçim/etkin satır makronun
     /// döndürdüğüne göre güncellenir. Dönüş: (günlük metni, iptal edildi mi).

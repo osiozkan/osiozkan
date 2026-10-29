@@ -2,6 +2,7 @@
 pub mod ass;
 pub mod color;
 pub mod io;
+pub mod overrides;
 pub mod qc;
 pub mod srt;
 pub mod tags;
