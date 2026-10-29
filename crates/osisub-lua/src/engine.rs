@@ -44,6 +44,10 @@ pub trait Host {
     fn video_size(&self) -> Option<(i32, i32)> {
         None
     }
+    /// Ses seçimi (başlangıç, bitiş) ms.
+    fn audio_selection(&self) -> Option<(i64, i64)> {
+        None
+    }
     fn open_dialog(&mut self, _title: &str, _dir: &str, _file: &str, _wildcard: &str, _multiple: bool) -> Option<Vec<String>> {
         None
     }

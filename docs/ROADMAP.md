@@ -27,7 +27,8 @@
 - [ ] Yazı tipi dizini önbelleği (tarama her açılışta tüm dosyaları okuyor)
 - [ ] `kara-templater.lua` ve Aegisub'ın gelen otomasyon betiklerinin birebir testi
 - [ ] Dışa aktarım filtreleri (register_filter) için boru hattı
-- [ ] `aegisub.get_audio_selection`, `project_properties` GUI'den
+- [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
+- [x] Betikleri yeniden yükle (motoru sıfırlar)
 - [ ] Betik hata ayıklama: satır numaralı iz, günlük penceresi
 - [ ] Kullanıcının Lua betikleriyle regresyon test paketi (kullanıcıdan betikler istenmeli)
 

@@ -81,6 +81,7 @@ pub struct App {
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
     fixes_open: bool,
+    loaded_scripts: Vec<PathBuf>,
     fixes: osisub_core::fixes::Fixes,
     fixes_selection_only: bool,
     min_dur_on: bool,
@@ -134,7 +135,9 @@ impl App {
                 all.extend(v);
             }
         }
+        let mut loaded_scripts = vec![];
         for s in all {
+            loaded_scripts.push(s.clone());
             worker.send(Cmd::Load(s));
         }
         let mut app = App {
@@ -187,6 +190,7 @@ impl App {
             reference: None,
             fonts_open: false,
             fixes_open: false,
+            loaded_scripts,
             fixes: osisub_core::fixes::Fixes::default(),
             fixes_selection_only: false,
             min_dur_on: false,
@@ -311,7 +315,38 @@ impl App {
             props.push(("video_file".to_string(), p.to_string_lossy().to_string()));
             props.push(("audio_file".to_string(), p.to_string_lossy().to_string()));
         }
+        self.sync_media_state();
+        if let Some(f) = self.media.fps() { props.push(("video_position".to_string(), osisub_core::time::frame_from_ms(self.media.playhead, f).to_string())); }
         self.worker.send(Cmd::Run { id, script: self.doc.script.clone(), selection: self.doc.selection.clone(), active: self.doc.active, props });
+    }
+
+    fn load_lua(&mut self, p: PathBuf) {
+        self.loaded_scripts.push(p.clone());
+        self.worker.send(Cmd::Load(p));
+    }
+
+    /// Motoru sıfırlayıp tüm betikleri yeniden yükler (betik geliştirirken değişiklikleri almak için).
+    fn reload_scripts(&mut self) {
+        if self.running.is_some() { self.status = "Bir makro çalışıyor".into(); return; }
+        self.dialog = None;
+        let mut include = vec![];
+        if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) { include.push(d); }
+        self.worker = Worker::spawn(include, vec![]);
+        self.macros.clear();
+        let list = self.loaded_scripts.clone();
+        for p in list { self.worker.send(Cmd::Load(p)); }
+        self.log.push_str("— betikler yeniden yüklendi —\n");
+    }
+
+    fn sync_media_state(&mut self) {
+        if let Ok(mut m) = self.worker.media.lock() {
+            m.fps = self.media.fps();
+            m.video_size = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width as i32, i.height as i32));
+            m.audio_selection = match self.doc.script.entries.get(self.doc.active) {
+                Some(Entry::Dialogue(d)) => Some((d.start_time, d.end_time)),
+                _ => None,
+            };
+        }
     }
 
     fn pump_events(&mut self, ctx: &egui::Context) {
@@ -438,7 +473,7 @@ impl App {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
                 "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { if self.doc.is_dirty() { self.status = "Kaydedilmemiş değişiklik var; önce kaydedin".into(); } else { self.open_path(p); } }
-                "lua" => self.worker.send(Cmd::Load(p)),
+                "lua" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
         }
@@ -578,8 +613,9 @@ impl App {
                 ui.separator();
                 if ui.button("Lua betiği yükle…").clicked() {
                     ui.close();
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.worker.send(Cmd::Load(p)); }
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.load_lua(p); }
                 }
+                if ui.button("Betikleri yeniden yükle").clicked() { ui.close(); self.reload_scripts(); }
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
@@ -1014,8 +1050,9 @@ impl App {
 
     fn automation_tab(&mut self, ui: &mut egui::Ui) {
         if ui.button("Lua betiği yükle…").clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.worker.send(Cmd::Load(p)); }
+            if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.load_lua(p); }
         }
+        if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
         if let Some(r) = &self.running { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
         let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
         for (id, script, name, desc, kind) in list {

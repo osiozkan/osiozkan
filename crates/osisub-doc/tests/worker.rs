@@ -34,3 +34,29 @@ fn load_run_dialog() {
         }
     }
 }
+
+#[test]
+fn media_state_visible_to_lua() {
+    use osisub_core::ass::{Dialogue, Script};
+    let w = Worker::spawn(vec![], vec![]);
+    {
+        let mut m = w.media.lock().unwrap();
+        m.fps = Some(24.0);
+        m.video_size = Some((1920, 1080));
+        m.audio_selection = Some((1500, 2500));
+    }
+    w.send(Cmd::Load("../osisub-lua/tests/fixtures/media.lua".into()));
+    let Event::Loaded(Ok(_)) = recv(&w) else { panic!("yüklenemedi") };
+    let script = Script::from_dialogues(vec![Dialogue::default()]);
+    w.send(Cmd::Run { id: 0, script, selection: vec![], active: 0, props: vec![("video_position".into(), "42".into())] });
+    let mut log = String::new();
+    loop {
+        match recv(&w) {
+            Event::Log(m) => log.push_str(&m),
+            Event::Done(Ok(_)) => break,
+            Event::Done(Err(e)) => panic!("{:?}", e),
+            _ => {}
+        }
+    }
+    assert_eq!(log, "fps:24,1000 size:1920x1080 aud:1500-2500 pos:42");
+}

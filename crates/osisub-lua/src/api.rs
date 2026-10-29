@@ -281,7 +281,16 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 })
             })?,
         )?;
-        aegisub.set("get_audio_selection", lua.create_function(|_, ()| Ok(MultiValue::new()))?)?;
+        let inn = inner.clone();
+        aegisub.set(
+            "get_audio_selection",
+            lua.create_function(move |_, ()| {
+                Ok(match inn.borrow().host.audio_selection() {
+                    Some((a, b)) => MultiValue::from_iter([Value::Integer(a), Value::Integer(b)]),
+                    None => MultiValue::new(),
+                })
+            })?,
+        )?;
         aegisub.set("get_cursor", lua.create_function(|_, ()| Ok(MultiValue::new()))?)?;
         let inn = inner.clone();
         aegisub.set(

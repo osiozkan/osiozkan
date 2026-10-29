@@ -4,6 +4,15 @@ use osisub_core::ass::Script;
 use osisub_lua::{DialogResult, DialogSpec, Engine, Host, MacroInfo, ScriptInfo};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+
+/// Arayüzün güncellediği, betiklerin okuduğu ortam bilgisi.
+#[derive(Clone, Debug, Default)]
+pub struct MediaState {
+    pub fps: Option<f64>,
+    pub video_size: Option<(i32, i32)>,
+    pub audio_selection: Option<(i64, i64)>,
+}
 
 pub enum Cmd {
     Load(PathBuf),
@@ -34,6 +43,7 @@ pub enum Event {
 }
 
 struct ChannelHost {
+    media: Arc<Mutex<MediaState>>,
     tx: Sender<Event>,
     resp: Receiver<DialogResult>,
     task: String,
@@ -46,6 +56,15 @@ impl Host for ChannelHost {
             return DialogResult::default();
         }
         self.resp.recv().unwrap_or_default()
+    }
+    fn fps(&self) -> Option<f64> {
+        self.media.lock().ok().and_then(|m| m.fps)
+    }
+    fn video_size(&self) -> Option<(i32, i32)> {
+        self.media.lock().ok().and_then(|m| m.video_size)
+    }
+    fn audio_selection(&self) -> Option<(i64, i64)> {
+        self.media.lock().ok().and_then(|m| m.audio_selection)
     }
     fn progress(&mut self, fraction: f64) {
         let _ = self.tx.send(Event::Progress { fraction, task: self.task.clone(), title: self.title.clone() });
@@ -66,6 +85,7 @@ pub struct Worker {
     pub events: Receiver<Event>,
     dialog_reply: Sender<DialogResult>,
     handle: Option<std::thread::JoinHandle<()>>,
+    pub media: Arc<Mutex<MediaState>>,
 }
 
 impl Worker {
@@ -73,8 +93,10 @@ impl Worker {
         let (cmd_tx, cmd_rx) = channel::<Cmd>();
         let (ev_tx, ev_rx) = channel::<Event>();
         let (dlg_tx, dlg_rx) = channel::<DialogResult>();
+        let media: Arc<Mutex<MediaState>> = Arc::new(Mutex::new(MediaState::default()));
+        let media_t = media.clone();
         let handle = std::thread::spawn(move || {
-            let host = ChannelHost { tx: ev_tx.clone(), resp: dlg_rx, task: String::new(), title: String::new() };
+            let host = ChannelHost { media: media_t, tx: ev_tx.clone(), resp: dlg_rx, task: String::new(), title: String::new() };
             let mut engine = match Engine::new(Box::new(host)) {
                 Ok(e) => e,
                 Err(e) => {
@@ -129,7 +151,7 @@ impl Worker {
                 }
             }
         });
-        Worker { cmd: cmd_tx, events: ev_rx, dialog_reply: dlg_tx, handle: Some(handle) }
+        Worker { cmd: cmd_tx, events: ev_rx, dialog_reply: dlg_tx, handle: Some(handle), media }
     }
 
     pub fn send(&self, c: Cmd) {
