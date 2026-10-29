@@ -139,6 +139,58 @@ impl App {
                 }
             });
             ui.separator();
+            ui.strong("Noktadan senkron (iki nokta, doğrusal)");
+            ui.label(RichText::new("Etkin satırı A/B noktası yapın, oynatma imlecini (playhead) hedef zaman olarak alın; uygulayınca tüm zamanlar kayar ve ölçeklenir.").weak().small());
+            for (name, slot_is_a) in [("A", true), ("B", false)] {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} noktası:", name));
+                    if ui.button("Etkin satır").clicked() {
+                        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active) {
+                            let v = Some((self.doc.active, d.start_time));
+                            if slot_is_a { self.sync_a = v.map(|(i, t)| (i, t)); } else { self.sync_b = v.map(|(i, t)| (i, t)); }
+                        }
+                    }
+                    let slot = if slot_is_a { &mut self.sync_a } else { &mut self.sync_b };
+                    match slot {
+                        Some((i, target)) => {
+                            let src = match self.doc.script.entries.get(*i) { Some(Entry::Dialogue(d)) => d.start_time, _ => 0 };
+                            ui.label(RichText::new(format!("{} →", time::format_ass(src))).monospace());
+                            let mut t = *target;
+                            if ui.button("Playhead").clicked() { t = self.media.playhead; }
+                            ui.add(egui::DragValue::new(&mut t).speed(10).suffix(" ms"));
+                            *target = t;
+                            ui.label(RichText::new(time::format_ass(t)).monospace());
+                        }
+                        None => { ui.label(RichText::new("seçilmedi").weak()); }
+                    }
+                });
+            }
+            if ui.add_enabled(self.sync_a.is_some() && self.sync_b.is_some(), egui::Button::new("Senkronu uygula")).clicked() {
+                if let (Some((ia, ta)), Some((ib, tb))) = (self.sync_a, self.sync_b) {
+                    let src = |i: usize| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None };
+                    if let (Some(sa), Some(sb)) = (src(ia), src(ib)) {
+                        if sa == sb { self.status = "A ve B farklı zamanlarda olmalı".into(); } else {
+                            let mut sc = self.doc.script.clone();
+                            qc::linear_retime(&mut sc, (sa, ta), (sb, tb));
+                            self.doc.apply_new_script("Noktadan senkron", sc);
+                            self.sync_a = None; self.sync_b = None;
+                            self.status = "Senkron uygulandı".into();
+                        }
+                    }
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("FPS dönüştür");
+                ui.add(egui::DragValue::new(&mut self.fps_from).speed(0.001).range(1.0..=240.0));
+                ui.label("→");
+                ui.add(egui::DragValue::new(&mut self.fps_to).speed(0.001).range(1.0..=240.0));
+                if ui.button("Uygula").on_hover_text("Zamanları from/to oranıyla ölçekler (ör. 25 → 23.976)").clicked() {
+                    let mut sc = self.doc.script.clone();
+                    qc::fps_convert(&mut sc, self.fps_from, self.fps_to);
+                    self.doc.apply_new_script("FPS dönüştür", sc);
+                }
+            });
             ui.horizontal(|ui| {
                 ui.label("FPS");
                 ui.add(egui::DragValue::new(&mut self.fps).speed(0.001).range(1.0..=240.0));
