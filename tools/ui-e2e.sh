@@ -9,7 +9,7 @@ Xvfb $D -screen 0 1400x900x24 >/dev/null 2>&1 &
 XPID=$!
 sleep 1
 export DISPLAY=$D LIBGL_ALWAYS_SOFTWARE=1
-"$BIN" "$TMP/t.ass" --shot-delay 60 --screenshot "$TMP/s.png" >"$TMP/log" 2>&1 &
+"$BIN" "$TMP/t.ass" --lua "$(dirname "$0")/../crates/osisub-lua/tests/fixtures/sample.lua" --shot-delay 60 --screenshot "$TMP/s.png" >"$TMP/log" 2>&1 &
 APID=$!
 for i in $(seq 1 60); do xdotool search --onlyvisible --name osisub >/dev/null 2>&1 && break; sleep 0.3; done
 WID=$(xdotool search --onlyvisible --name osisub | head -1)
@@ -38,6 +38,14 @@ click 200 158; k Delete; k ctrl+s; sleep 1
 checkno "satır silindi" "Bu satır çok kısa"
 k ctrl+z; k ctrl+s; sleep 1
 check "silme geri alındı" "Bu satır çok kısa"
+# Lua makrosu: Otomasyon menüsü → ilk makro (Kaydir: +1 sn ve '!' ekler), tek geri-al adımı
+click 200 100
+click 330 12; sleep 0.5
+click 345 40; sleep 1.5
+k ctrl+s; sleep 1
+check "Lua makrosu uygulandı (+1 sn, '!')" "Dialogue: 0,0:00:02.00,0:00:04.20,Default,Sakura,0,0,0,,.*!"
+k ctrl+z; k ctrl+s; sleep 1
+checkno "makro tek adımda geri alındı" "0:00:02.00,0:00:04.20,Default,Sakura"
 # .bak yedeği
 [ -f "$TMP/t.ass.bak" ] && echo "TAMAM: .bak yedeği var" || { echo "HATA: .bak yok"; fail=1; }
 
