@@ -22,3 +22,9 @@ Depo boştu; sıfırdan başlandı.
 - (aynı gece) Uygulama içi ses motoru (`osisub-media::audio`, özellik `audio`; Linux'ta `libasound2-dev` gerekir), oynatma saati ses saatine bağlandı. DİKKAT: gerçek ses aygıtında henüz denenmedi — ilk gerçek makinede F5 ile doğrulayın; sorun olursa ffplay yedeği otomatik devreye girer. Ayrıca: video araçları (clip/frz/fsc), tuşla karaoke zamanlama, referans sütunu, Görünüm menüsü (açık tema, yakınlaştırma), Zamana git, .bak yedek.
 - (aynı gece) `tools/ui-smoke.sh`: etkileşimli duman testi. Bulunan/giderilen hatalar: Zamana-git penceresi her karede odağı çalıyordu, Bul penceresinde otomatik odak yoktu, Esc pencereleri kapatmıyordu. Ayrıca: dışa aktarma filtreleri, istatistikler, platform yolları (`core::paths`), önizleme optimizasyonu (küçültülmüş ASS), worker'ı beklemeden bırakma.
 - (aynı gece) Windows çapraz derleme doğrulandı: `apt-get install gcc-mingw-w64-x86-64; rustup target add x86_64-pc-windows-gnu; cargo build -p osisub-gui --target x86_64-pc-windows-gnu` (LuaJIT, cpal/WASAPI, eframe, rfd dahil derlenip BAĞLANDI; çalıştırılamadı — wine yok). `.cargo/config.toml` yalnızca bu hedef için bağlayıcıyı ayarlar. macOS doğrulanmadı.
+
+### Gece sonu durumu (2026-10-29, v0.2.0)
+- Tüm testler yeşil (`cargo test --workspace --exclude osisub-gui`), `tools/ui-e2e.sh` yeşil (düzenle/kaydet/geri al/yinele/sil/Lua makrosu/.bak), `tools/ui-smoke.sh` (+MEDIA_TEST) çökmesiz.
+- Fuzz/dayanıklılık testleri bulup düzeltti: diyalog sonu boşluk kaybı, kapanmamış `{` ile ASS→SRT paniği, küçük harfli bölüm adı, SSA ondalık renk.
+- Doğrulanmayanlar: gerçek ses aygıtı, macOS, Windows'ta çalıştırma, CI'nin gerçek çalıştırması.
+- Depo: dal `claude/vibrant-clarke-2e8jtn`; PR açılmadı (istenmedi). Kullanım: `docs/KULLANIM.md`, proje notları: `CLAUDE.md`.

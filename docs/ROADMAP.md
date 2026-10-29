@@ -2,6 +2,15 @@
 
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
+## Sıradaki geceler için öncelikli öneriler
+1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows/macOS çalıştırma, GitHub Actions'ın ilk gerçek çalışması (CI + release iş akışları hiç çalıştırılmadı).
+2. **Kullanıcının kendi Lua betikleri** ile regresyon testi (betikler depoya eklenip `crates/osisub-lua/tests/fixtures/`'a konmalı; çalışmayan API'ler `docs/LUA_UYUMLULUK.md`'e işlenmeli). `kara-templater.lua` uyumluluğu.
+3. **Video araçları:** `\move`, `\org`, vektör `\clip`/çizim, `\t` animasyon düzenleme.
+4. **Çeviri belleği (TM)** ve çevrimiçi çeviri bağlayıcıları (anahtar gerektirir; kullanıcıya sorulmalı).
+5. **Kısayol özelleştirme** (Aegisub kısayol profili).
+6. **Performans:** yazı tipi dizini önbelleği; video için kalıcı ffmpeg/libmpv hattı; büyük belgede QC'yi artımlı yapma.
+7. Ses/dalga: basılı tutarak oynat, hız/ses seviyesi, VFR/timecode dosyaları.
+
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü
