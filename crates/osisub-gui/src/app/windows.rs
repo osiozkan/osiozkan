@@ -94,8 +94,17 @@ impl App {
         let mut open = self.timing_open;
         egui::Window::new("Zamanlama").open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Kaydır (ms)");
-                ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10));
+                ui.checkbox(&mut self.shift_use_frames, "kare");
+                if self.shift_use_frames {
+                    ui.label("Kaydır (kare)");
+                    ui.add(egui::DragValue::new(&mut self.shift_frames));
+                    let fps = self.media.fps().unwrap_or(self.fps);
+                    self.shift_ms = (self.shift_frames as f64 * 1000.0 / fps).round() as i64;
+                    ui.label(RichText::new(format!("= {} ms", self.shift_ms)).weak());
+                } else {
+                    ui.label("Kaydır (ms)");
+                    ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10));
+                }
                 ui.checkbox(&mut self.shift_all, "tüm satırlar");
                 if ui.button("Uygula").clicked() {
                     if self.shift_all {
