@@ -74,6 +74,7 @@ impl AudioPlayer {
     }
 
     /// ffmpeg çıktısını `shared`'a akıtır; tampon 2 sn'yi aşınca bekler.
+    #[cfg_attr(not(feature = "audio"), allow(dead_code))]
     fn spawn_reader(path: &Path, start_ms: i64, dur_ms: i64, shared: Arc<Shared>) -> Result<Child, String> {
         let mut child = Command::new(crate::ffmpeg_bin())
             .args(["-v", "error", "-ss", &format!("{:.3}", start_ms.max(0) as f64 / 1000.0), "-i"])
