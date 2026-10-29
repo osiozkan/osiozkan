@@ -81,6 +81,7 @@ pub struct App {
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
     fixes_open: bool,
+    import_styles: Option<Vec<(Style, bool)>>,
     autospell: bool,
     spell: Option<std::sync::Arc<osisub_spell::Speller>>,
     spell_load_rx: Option<std::sync::mpsc::Receiver<Result<osisub_spell::Speller, String>>>,
@@ -203,6 +204,7 @@ impl App {
             reference: None,
             fonts_open: false,
             fixes_open: false,
+            import_styles: None,
             autospell: false,
             spell: None,
             spell_load_rx: None,
@@ -422,6 +424,58 @@ impl App {
                     self.miss_sel = None;
                 }
             });
+        }
+    }
+
+    fn catalog_path() -> Option<PathBuf> {
+        std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config/osisub/styles.ass"))
+    }
+
+    fn catalog_styles() -> Vec<Style> {
+        Self::catalog_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::Script::parse(&t).styles().cloned().collect()).unwrap_or_default()
+    }
+
+    fn save_catalog(styles: &[Style]) {
+        if let Some(p) = Self::catalog_path() {
+            if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+            let mut s = osisub_core::Script::new_default();
+            s.entries.retain(|e| !matches!(e, Entry::Style(_)));
+            s.entries.extend(styles.iter().cloned().map(Entry::Style));
+            let _ = std::fs::write(p, s.to_ass_string());
+        }
+    }
+
+    fn add_styles(&mut self, list: Vec<Style>) {
+        if list.is_empty() { return; }
+        let at = self.doc.script.entries.iter().rposition(|e| matches!(e, Entry::Style(_))).map(|i| i + 1).unwrap_or(self.doc.script.entries.len());
+        let mut items = vec![];
+        let mut taken: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
+        for mut st in list {
+            if taken.contains(&st.name) {
+                let base = st.name.clone();
+                st.name = (2..).map(|n| format!("{} ({})", base, n)).find(|n| !taken.contains(n)).unwrap();
+            }
+            taken.push(st.name.clone());
+            items.push(Entry::Style(st));
+        }
+        let n = items.len();
+        self.doc.edit("Stil ekle", |tx| tx.insert(at, items));
+        self.status = format!("{} stil eklendi", n);
+    }
+
+    fn import_window(&mut self, ctx: &egui::Context) {
+        let Some(list) = self.import_styles.as_mut() else { return };
+        let mut done: Option<bool> = None;
+        egui::Window::new("Stilleri içe aktar").collapsible(false).show(ctx, |ui| {
+            for (st, on) in list.iter_mut() { ui.checkbox(on, &st.name); }
+            ui.horizontal(|ui| {
+                if ui.button("İçe aktar").clicked() { done = Some(true); }
+                if ui.button("İptal").clicked() { done = Some(false); }
+            });
+        });
+        if let Some(go) = done {
+            let chosen: Vec<Style> = self.import_styles.take().unwrap_or_default().into_iter().filter(|(_, on)| *on && go).map(|(s, _)| s).collect();
+            self.add_styles(chosen);
         }
     }
 
@@ -868,7 +922,7 @@ impl App {
                 body.rows(24.0, rows.len(), |mut row| {
                     let pos = row.index();
                     let ei = rows[pos];
-                    let Entry::Dialogue(d) = &self.doc.script.entries[ei] else { return };
+                    let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(ei) else { return };
                     let selected = self.doc.selection.binary_search(&ei).is_ok();
                     row.set_selected(selected);
                     let flags = self.issue_map.get(&ei);
@@ -1053,6 +1107,30 @@ impl App {
                     }
                 }
             }
+            if ui.button("Kataloğa kaydet").on_hover_text("~/.config/osisub/styles.ass").clicked() {
+                if let Some(&i) = idxs.get(self.style_sel) {
+                    if let Entry::Style(st) = self.doc.script.entries[i].clone() {
+                        let mut cat = Self::catalog_styles();
+                        cat.retain(|c| c.name != st.name);
+                        cat.push(st);
+                        Self::save_catalog(&cat);
+                        self.status = "Stil kataloğa kaydedildi".into();
+                    }
+                }
+            }
+            ui.menu_button("Katalogdan ekle", |ui| {
+                let cat = Self::catalog_styles();
+                if cat.is_empty() { ui.label(RichText::new("Katalog boş").weak()); }
+                for c in cat { if ui.button(&c.name).clicked() { self.add_styles(vec![c]); ui.close(); } }
+            });
+            if ui.button("Dosyadan içe aktar…").clicked() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
+                    match osisub_core::io::load(&p) {
+                        Ok(sc) => self.import_styles = Some(sc.styles().cloned().map(|s| (s, true)).collect()),
+                        Err(e) => self.status = format!("Hata: {}", e),
+                    }
+                }
+            }
             if ui.button("Sil").clicked() && idxs.len() > 1 {
                 if let Some(&i) = idxs.get(self.style_sel) { self.doc.edit("Stil sil", |tx| tx.remove(i, 1)); }
             }
@@ -1217,7 +1295,7 @@ impl App {
         egui::ScrollArea::vertical().id_salt("issues").show_rows(ui, 20.0, issues.len(), |ui, range| {
             for i in range {
                 let is = &issues[i];
-                if let Entry::Dialogue(d) = &self.doc.script.entries[is.entry] {
+                if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(is.entry) {
                     let txt = format!("{}  {}  {}", time::format_ass(d.start_time), is.message, "");
                     if ui.selectable_label(self.doc.active == is.entry, txt).clicked() { jump = Some(is.entry); }
                 }
@@ -1589,6 +1667,7 @@ impl eframe::App for App {
         self.refresh_caches();
         if self.issues_key != self.doc.rev { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         self.shortcuts(&ctx);
+        self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
         if ctx.input(|i| i.viewport().close_requested()) && self.doc.is_dirty() && !self.quit_confirm && self.shot.is_none() {
@@ -1618,6 +1697,7 @@ impl eframe::App for App {
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
         self.vad_window(&ctx);
+        self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
         if let Some((title, st)) = self.dialog.as_mut() {
