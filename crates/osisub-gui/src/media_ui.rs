@@ -103,6 +103,17 @@ impl Media {
         }
     }
 
+    /// Playhead'i `n` kare ileri/geri alır (fps yoksa 40 ms).
+    pub fn step_frames(&mut self, n: i64) {
+        let step = self.fps().map(|f| 1000.0 / f).unwrap_or(40.0);
+        let cur = self.fps().map(|f| (self.playhead as f64 * f / 1000.0).round()).unwrap_or(0.0);
+        self.playhead = match self.fps() {
+            Some(f) => (((cur as i64 + n) as f64) * 1000.0 / f).round() as i64,
+            None => self.playhead + (n as f64 * step) as i64,
+        }
+        .max(0);
+    }
+
     pub fn waveform(&self) -> Option<Arc<Waveform>> {
         self.wave.clone()
     }

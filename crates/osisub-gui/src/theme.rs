@@ -7,8 +7,13 @@ pub const BAD: Color32 = Color32::from_rgb(0xe0, 0x5a, 0x5a);
 pub const WARN: Color32 = Color32::from_rgb(0xe0, 0xa8, 0x4a);
 
 pub fn setup(ctx: &egui::Context) {
-    let mut v = egui::Visuals::dark();
-    v.selection.bg_fill = Color32::from_rgb(0x4a, 0x2a, 0x3c);
+    apply(ctx, false);
+    load_cjk_font(ctx);
+}
+
+pub fn apply(ctx: &egui::Context, light: bool) {
+    let mut v = if light { egui::Visuals::light() } else { egui::Visuals::dark() };
+    v.selection.bg_fill = if light { Color32::from_rgb(0xf3, 0xc4, 0xd7) } else { Color32::from_rgb(0x4a, 0x2a, 0x3c) };
     v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
     v.hyperlink_color = ACCENT;
     v.window_corner_radius = egui::CornerRadius::same(8);
@@ -17,7 +22,6 @@ pub fn setup(ctx: &egui::Context) {
         s.spacing.item_spacing = egui::vec2(8.0, 5.0);
         s.spacing.button_padding = egui::vec2(8.0, 4.0);
     });
-    load_cjk_font(ctx);
 }
 
 /// Japonca/Çince karakterler için bulunan ilk sistem yazı tipini yedek olarak ekler.

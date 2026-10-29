@@ -20,6 +20,8 @@ pub struct Settings {
     pub lead_out_ms: i64,
     pub adjacent_gap_ms: i64,
     pub fps: f64,
+    pub light_theme: bool,
+    pub zoom: f32,
     pub dict_aff: String,
     pub dict_dic: String,
 }
@@ -42,6 +44,8 @@ impl Default for Settings {
             lead_out_ms: p.lead_out_ms,
             adjacent_gap_ms: p.adjacent_gap_ms,
             fps: 23.976,
+            light_theme: false,
+            zoom: 1.0,
             dict_aff: String::new(),
             dict_dic: String::new(),
         }

@@ -79,8 +79,12 @@ pub struct App {
     last_autosave: std::time::Instant,
     settings: Settings,
     reference: Option<osisub_core::Script>,
+    ref_lines: Vec<(i64, i64, String)>,
     fonts_open: bool,
     fixes_open: bool,
+    theme_dirty: bool,
+    goto_open: bool,
+    goto_buf: String,
     import_styles: Option<Vec<(Style, bool)>>,
     autospell: bool,
     spell: Option<std::sync::Arc<osisub_spell::Speller>>,
@@ -165,7 +169,8 @@ fn editor_job(text: &str, sp: Option<&osisub_spell::Speller>) -> LayoutJob {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>, open_win: Option<String>, line: Option<usize>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, args: crate::Args) -> App {
+        let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference } = args;
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -243,8 +248,12 @@ impl App {
             last_autosave: std::time::Instant::now(),
             settings: Settings::load(),
             reference: None,
+            ref_lines: vec![],
             fonts_open: false,
             fixes_open: false,
+            theme_dirty: true,
+            goto_open: false,
+            goto_buf: String::new(),
             import_styles: None,
             autospell: false,
             spell: None,
@@ -270,6 +279,12 @@ impl App {
         };
         app.apply_settings();
         app.auto_load_dictionary();
+        if let Some(r) = reference {
+            if let Ok(sc) = osisub_core::io::load(&r) {
+                app.ref_lines = { let mut v: Vec<(i64, i64, String)> = sc.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v };
+                app.reference = Some(sc);
+            }
+        }
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
         }
@@ -306,6 +321,7 @@ impl App {
         self.post.lead_out_ms = self.settings.lead_out_ms;
         self.post.adjacent_gap_ms = self.settings.adjacent_gap_ms;
         self.fps = self.settings.fps;
+        self.theme_dirty = true;
     }
 
     fn save_settings(&mut self) {
@@ -773,6 +789,13 @@ impl App {
             self.anchor = np;
             self.scroll_to = Some(r);
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::G))) { self.goto_open = true; }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus))) { self.settings.zoom = (self.settings.zoom + 0.1).min(2.5); self.theme_dirty = true; }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Minus))) { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
+        if !typing {
+            let (prev, next) = ctx.input_mut(|i| (i.consume_key(Modifiers::NONE, Key::Comma), i.consume_key(Modifiers::NONE, Key::Period)));
+            if prev || next { self.media.step_frames(if next { 1 } else { -1 }); }
+        }
         if open { self.open_dialog(); }
         if save_as { self.save(true); } else if save { self.save(false); }
         if undo || redo || redo2 {
@@ -828,12 +851,12 @@ impl App {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
                         match osisub_core::io::load(&p) {
-                            Ok(s) => { self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
+                            Ok(s) => { self.ref_lines = { let mut v: Vec<(i64, i64, String)> = s.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v }; self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
                             Err(e) => self.status = format!("Hata: {}", e),
                         }
                     }
                 }
-                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; ui.close(); }
+                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; self.ref_lines.clear(); ui.close(); }
                 ui.separator();
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
@@ -864,6 +887,15 @@ impl App {
                         }
                     }
                 });
+            });
+            ui.menu_button("Görünüm", |ui| {
+                let mut light = self.settings.light_theme;
+                if ui.checkbox(&mut light, "Açık tema").changed() { self.settings.light_theme = light; self.theme_dirty = true; }
+                if ui.add(egui::Button::new("Yakınlaştır").shortcut_text("Ctrl +")).clicked() { self.settings.zoom = (self.settings.zoom + 0.1).min(2.5); self.theme_dirty = true; }
+                if ui.add(egui::Button::new("Uzaklaştır").shortcut_text("Ctrl -")).clicked() { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
+                if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
+                ui.separator();
+                if ui.add(egui::Button::new("Zamana git…").shortcut_text("Ctrl+G")).clicked() { self.goto_open = true; ui.close(); }
             });
             ui.menu_button("Video", |ui| {
                 if ui.button("Video / ses aç…").clicked() {
@@ -933,6 +965,8 @@ impl App {
             ui.label(RichText::new(format!("{} / {} satır", self.rows.len(), self.doc.script.dialogues().count())).weak());
         });
         let mods = ui.input(|i| i.modifiers);
+        let has_ref = !self.ref_lines.is_empty();
+        let avail_w = ui.available_width();
         let mut table = TableBuilder::new(ui)
             .striped(true)
             .sense(egui::Sense::click())
@@ -944,8 +978,13 @@ impl App {
             .column(Column::exact(52.0))
             .column(Column::exact(44.0))
             .column(Column::initial(90.0).clip(true))
-            .column(Column::initial(80.0).clip(true))
-            .column(Column::remainder().clip(true));
+            .column(Column::initial(80.0).clip(true));
+        if has_ref {
+            // Sabit sütunlar ≈ 482 px; kalanı Referans ve Metin eşit paylaşsın.
+            let w = ((avail_w - 482.0 - 16.0) / 2.0).max(120.0);
+            table = table.column(Column::initial(w).clip(true).resizable(true));
+        }
+        table = table.column(Column::remainder().clip(true));
         if let Some(target) = self.scroll_to.take() {
             if let Some(pos) = self.rows.iter().position(|&r| r == target) {
                 table = table.scroll_to_row(pos, Some(Align::Center));
@@ -959,7 +998,8 @@ impl App {
         let mut ctx_row: Option<usize> = None;
         table
             .header(22.0, |mut h| {
-                for t in ["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Metin"] {
+                let titles: Vec<&str> = if has_ref { vec!["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Referans", "Metin"] } else { vec!["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Metin"] };
+                for t in titles {
                     h.col(|ui| { ui.strong(t); });
                 }
             })
@@ -986,6 +1026,12 @@ impl App {
                     row.col(|ui| { ui.label(col(if cps.is_finite() { format!("{:.0}", cps) } else { "∞".into() }, flags.and_then(|f| f.contains(&Kind::ReadingSpeed).then_some(theme::BAD)))); });
                     row.col(|ui| { ui.label(RichText::new(&d.style).color(if flags.map_or(false, |f| f.contains(&Kind::UnknownStyle)) { theme::BAD } else { Color32::from_gray(180) })); });
                     row.col(|ui| { ui.label(RichText::new(&d.actor).weak()); });
+                    if has_ref {
+                        let refs = &self.ref_lines;
+                        let end = refs.partition_point(|r| r.0 < d.end_time);
+                        let best = refs[..end].iter().rev().take(8).filter(|r| r.1 > d.start_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time));
+                        row.col(|ui| { if let Some(r) = best { ui.add(egui::Label::new(RichText::new(&r.2).italics().color(theme::ACCENT)).truncate()); } });
+                    }
                     row.col(|ui| { ui.add(egui::Label::new(Self::highlighted(&d.text, dim)).truncate()); });
                     let resp = row.response();
                     if resp.clicked() { clicked = Some(pos); }
@@ -1553,6 +1599,29 @@ impl App {
         self.resample_open = open;
     }
 
+    fn goto_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.goto_open;
+        egui::Window::new("Zamana git").open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label("Zaman (H:MM:SS.cc, MM:SS ya da saniye):");
+            let r = ui.add(TextEdit::singleline(&mut self.goto_buf).desired_width(160.0));
+            r.request_focus();
+            if ui.button("Git").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
+                let t = time::parse_ass(&self.goto_buf).or_else(|| self.goto_buf.trim().parse::<f64>().ok().map(|s| (s * 1000.0) as i64));
+                match t {
+                    Some(t) => {
+                        // en yakın satır (başlangıcı t'ye en yakın/içeren)
+                        let best = self.rows.iter().copied().min_by_key(|&i| match &self.doc.script.entries[i] { Entry::Dialogue(d) => if d.start_time <= t && t < d.end_time { 0 } else { (d.start_time - t).abs().min((d.end_time - t).abs()) }, _ => i64::MAX });
+                        if let Some(b) = best { self.doc.select(vec![b], b); self.scroll_to = Some(b); }
+                        self.media.playhead = t;
+                        self.goto_open = false;
+                    }
+                    None => self.status = "Geçersiz zaman".into(),
+                }
+            }
+        });
+        if !open { self.goto_open = false; }
+    }
+
     fn vad_window(&mut self, ctx: &egui::Context) {
         let mut open = self.vad_open;
         egui::Window::new("Sesten satır oluştur").open(&mut open).collapsible(false).show(ctx, |ui| {
@@ -1712,6 +1781,11 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if self.theme_dirty {
+            self.theme_dirty = false;
+            theme::apply(&ctx, self.settings.light_theme);
+            ctx.set_zoom_factor(self.settings.zoom);
+        }
         self.pump_events(&ctx);
         self.pump_spell(&ctx);
         self.refresh_caches();
@@ -1747,6 +1821,7 @@ impl eframe::App for App {
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
         self.vad_window(&ctx);
+        self.goto_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
