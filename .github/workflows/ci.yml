@@ -21,3 +21,15 @@ jobs:
         run: cargo test --workspace --exclude osisub-gui
       - name: GUI derle
         run: cargo build -p osisub-gui
+  ui-e2e:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # zamanlamaya duyarlı; kararlı olunca kaldırın
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Bağımlılıklar
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool libxkbcommon-x11-0 libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev libgl1-mesa-dri ffmpeg
+      - run: cargo build -p osisub-gui
+      - name: Uçtan uca GUI testi
+        run: tools/ui-e2e.sh target/debug/osisub-gui examples/demo.ass
