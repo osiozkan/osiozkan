@@ -12,6 +12,8 @@ pub struct MediaState {
     pub fps: Option<f64>,
     pub video_size: Option<(i32, i32)>,
     pub audio_selection: Option<(i64, i64)>,
+    /// Anahtar kare numaraları (fps biliniyorsa).
+    pub keyframes: Vec<i64>,
     /// Arayüz iptal isterse `true`; betikler `aegisub.progress.is_cancelled()` ile görür.
     pub cancel: bool,
 }
