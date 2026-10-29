@@ -158,6 +158,66 @@ pub fn words_of(text: &str) -> Vec<String> {
     words
 }
 
+/// Görünür metindeki sözcük gövdelerinin bayt aralıkları. `\\N`, `\\n`, `\\h` ayırıcıdır;
+/// kesme işaretinden sonraki Türkçe ek dışarıda bırakılır ("İstanbul'da" → "İstanbul").
+pub fn word_spans(vis: &str) -> Vec<(usize, usize)> {
+    let mut spans = vec![];
+    let b: Vec<(usize, char)> = vis.char_indices().collect();
+    let mut start: Option<usize> = None;
+    let mut end = 0;
+    let mut skip = false;
+    let mut i = 0;
+    let flush = |start: &mut Option<usize>, end: usize, spans: &mut Vec<(usize, usize)>| {
+        if let Some(s) = start.take() {
+            let word = vis[s..end].trim_matches(|c: char| !c.is_alphanumeric());
+            if !word.is_empty() {
+                let off = vis[s..end].find(word).unwrap_or(0);
+                spans.push((s + off, s + off + word.len()));
+            }
+        }
+    };
+    while i < b.len() {
+        let (pos, c) = b[i];
+        let next = b.get(i + 1).map(|x| x.1);
+        if c == '\\' && matches!(next, Some('N') | Some('n') | Some('h')) {
+            flush(&mut start, end, &mut spans);
+            skip = false;
+            i += 2;
+            continue;
+        }
+        if c.is_alphanumeric() {
+            if !skip {
+                if start.is_none() {
+                    start = Some(pos);
+                }
+                end = pos + c.len_utf8();
+            }
+        } else if (c == '\'' || c == '’') && start.is_some() {
+            skip = true;
+        } else if c == '-' && start.is_some() && !skip && next.map_or(false, |n| n.is_alphanumeric()) {
+            end = pos + 1;
+        } else {
+            skip = false;
+            flush(&mut start, end, &mut spans);
+        }
+        i += 1;
+    }
+    flush(&mut start, end, &mut spans);
+    spans
+}
+
+/// Bu sözcük hata olarak işaretlenmeli mi (kısaltma/rakam/Latin dışı atlanır)?
+pub fn should_flag(sp: &Speller, w: &str) -> bool {
+    let latin = |c: char| (c as u32) < 0x0250 || (0x1E00..=0x1EFF).contains(&(c as u32));
+    if w.chars().any(|c| c.is_alphabetic() && !latin(c)) || w.chars().any(|c| c.is_numeric()) {
+        return false;
+    }
+    if w.chars().count() <= 4 && w.chars().all(|c| c.is_uppercase()) {
+        return false;
+    }
+    !sp.check(w)
+}
+
 /// Metindeki `word` sözcüğünü (tam sözcük, etiketler dışı) `repl` ile değiştirir; `all` değilse yalnızca ilkini.
 pub fn replace_word(text: &str, word: &str, repl: &str, all: bool) -> String {
     let mut done = false;
@@ -238,6 +298,15 @@ mod tests {
     fn words_and_apostrophe() {
         assert_eq!(words_of("{\\i1}İstanbul'da{\\i0} merhaba\\Ndünya!"), vec!["İstanbul", "merhaba", "dünya"]);
         assert_eq!(words_of("e-posta (test)"), vec!["e-posta", "test"]);
+    }
+
+    #[test]
+    fn spans_and_flags() {
+        let s = sp();
+        let t = "hello wrold'da\\Nmerhaba x2 e-posta";
+        let sp_: Vec<&str> = word_spans(t).into_iter().map(|(a, b)| &t[a..b]).collect();
+        assert_eq!(sp_, vec!["hello", "wrold", "merhaba", "x2", "e-posta"]);
+        assert!(should_flag(&s, "wrold") && !should_flag(&s, "hello") && !should_flag(&s, "x2") && !should_flag(&s, "NASA"));
     }
 
     #[test]

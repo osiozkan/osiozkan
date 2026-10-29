@@ -123,6 +123,47 @@ fn autoload_dir() -> Option<PathBuf> {
     Some(base.join("osisub/automation/autoload"))
 }
 
+/// Düzenleme kutusu renklendirmesi: etiket blokları soluk, `\\N` vurgulu, yazım hataları kırmızı altçizgili.
+fn editor_job(text: &str, sp: Option<&osisub_spell::Speller>) -> LayoutJob {
+    let parts = osisub_core::tags::split(text);
+    let visible: String = parts.iter().filter_map(|p| if let osisub_core::tags::Part::Text(t) = p { Some(*t) } else { None }).collect();
+    let bad: Vec<(usize, usize)> = match sp {
+        Some(sp) => osisub_spell::word_spans(&visible).into_iter().filter(|&(a, b)| osisub_spell::should_flag(sp, &visible[a..b])).collect(),
+        None => vec![],
+    };
+    let font = egui::FontId::monospace(14.0);
+    let normal = TextFormat { color: Color32::from_gray(225), font_id: font.clone(), ..Default::default() };
+    let tag = TextFormat { color: theme::TAG_COLOR, font_id: font.clone(), ..Default::default() };
+    let nl = TextFormat { color: theme::ACCENT, font_id: font.clone(), ..Default::default() };
+    let wrong = TextFormat { underline: egui::Stroke::new(1.5, theme::BAD), ..normal.clone() };
+    let mut job = LayoutJob::default();
+    let mut off = 0usize;
+    for p in parts {
+        match p {
+            osisub_core::tags::Part::Block(b) => job.append(&format!("{{{}}}", b), 0.0, tag.clone()),
+            osisub_core::tags::Part::Text(t) => {
+                // Hata sınırlarında ve \N konumlarında böl.
+                let mut cuts: Vec<usize> = vec![0, t.len()];
+                for &(a, b) in &bad {
+                    for x in [a, b] { if x > off && x < off + t.len() { cuts.push(x - off); } }
+                }
+                let mut i = 0;
+                while let Some(j) = t[i..].find("\\N") { cuts.push(i + j); cuts.push(i + j + 2); i += j + 2; }
+                cuts.sort_unstable();
+                cuts.dedup();
+                for w in cuts.windows(2) {
+                    let seg = &t[w[0]..w[1]];
+                    if seg.is_empty() { continue; }
+                    let fmt = if seg == "\\N" { &nl } else if bad.iter().any(|&(a, b)| off + w[0] >= a && off + w[1] <= b) { &wrong } else { &normal };
+                    job.append(seg, 0.0, fmt.clone());
+                }
+                off += t.len();
+            }
+        }
+    }
+    job
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>, open_win: Option<String>, line: Option<usize>) -> App {
         theme::setup(&cc.egui_ctx);
@@ -1040,8 +1081,13 @@ impl App {
             ui.label("Efekt");
             ui.add(TextEdit::singleline(&mut nd.effect).desired_width(120.0));
         });
-        let r = ui.add(TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).hint_text("Altyazı metni — satır sonu için \\N"));
-        let _ = r;
+        let sp = self.spell.clone();
+        let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+            let mut job = editor_job(buf.as_str(), sp.as_deref());
+            job.wrap.max_width = wrap_width;
+            ui.fonts_mut(|f| f.layout_job(job))
+        };
+        ui.add(TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N"));
         let cps = qc::cps(&nd);
         let vis = osisub_core::tags::visible_text(&nd.text);
         let longest = osisub_core::tags::max_line_len(&nd.text);
@@ -1094,7 +1140,7 @@ impl App {
                 if let Entry::Style(s) = &self.doc.script.entries[i] { ui.selectable_value(&mut self.style_sel, n, &s.name); }
             }
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("+ Yeni").clicked() {
                 let at = idxs.last().map_or(self.doc.script.entries.len(), |i| i + 1);
                 let mut s = Style::default();
