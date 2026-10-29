@@ -2188,6 +2188,9 @@ dependencies = [
 [[package]]
 name = "osisub-core"
 version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+]
 
 [[package]]
 name = "osisub-doc"

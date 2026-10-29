@@ -5,6 +5,8 @@ use eframe::egui::{self, text::LayoutJob, Align, Color32, Key, KeyboardShortcut,
 use egui_extras::{Column, TableBuilder};
 use osisub_core::ass::{Entry, Style};
 use osisub_core::qc::{self, Issue, Kind, Rules};
+use osisub_core::search::{self, Field};
+use osisub_core::timing::{self, PostOptions};
 use osisub_core::time;
 use osisub_doc::worker::{Cmd, Event, Worker};
 use osisub_doc::Document;
@@ -61,6 +63,15 @@ pub struct App {
     shot_done: Arc<AtomicBool>,
     media: Media,
     show_media: bool,
+    find_open: bool,
+    find: search::Options,
+    find_selection_only: bool,
+    resample_open: bool,
+    res_x: i32,
+    res_y: i32,
+    post: PostOptions,
+    post_selection_only: bool,
+    last_autosave: std::time::Instant,
 }
 
 fn autoload_dir() -> Option<PathBuf> {
@@ -69,7 +80,7 @@ fn autoload_dir() -> Option<PathBuf> {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>, open_win: Option<String>) -> App {
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -132,9 +143,24 @@ impl App {
             shot_done: Arc::new(AtomicBool::new(false)),
             media: Media::new(),
             show_media: false,
+            find_open: false,
+            find: search::Options::default(),
+            find_selection_only: false,
+            resample_open: false,
+            res_x: 1920,
+            res_y: 1080,
+            post: PostOptions::default(),
+            post_selection_only: true,
+            last_autosave: std::time::Instant::now(),
         };
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
+        }
+        match open_win.as_deref() {
+            Some("find") => app.find_open = true,
+            Some("timing") => app.timing_open = true,
+            Some("resample") => app.resample_open = true,
+            _ => {}
         }
         if let Some(m) = media {
             app.media.open(m, &cc.egui_ctx);
@@ -306,6 +332,18 @@ impl App {
             )
         });
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc); }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) { self.media.set_active_start(&mut self.doc); }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) { self.media.set_active_end(&mut self.doc); }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::H))) { self.find_open = true; }
+        let (alt_up, alt_down) = ctx.input_mut(|i| (i.consume_key(Modifiers::ALT, Key::ArrowUp), i.consume_key(Modifiers::ALT, Key::ArrowDown)));
+        if (alt_up || alt_down) && !self.rows.is_empty() {
+            let pos = self.rows.iter().position(|&r| r == self.doc.active).unwrap_or(0);
+            let np = if alt_up { pos.saturating_sub(1) } else { (pos + 1).min(self.rows.len() - 1) };
+            let r = self.rows[np];
+            self.doc.select(vec![r], r);
+            self.anchor = np;
+            self.scroll_to = Some(r);
+        }
         if open { self.open_dialog(); }
         if save_as { self.save(true); } else if save { self.save(false); }
         if undo || redo || redo2 {
@@ -367,6 +405,7 @@ impl App {
             });
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
+                if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.button("Zamana göre sırala").clicked() {
                     let mut s = self.doc.script.clone();
                     qc::sort_by_start(&mut s);
@@ -384,6 +423,7 @@ impl App {
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
+                ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
@@ -399,6 +439,12 @@ impl App {
                 }
             });
             ui.menu_button("Araçlar", |ui| {
+                if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
+                if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
+                    let (x, y) = self.doc.script.res();
+                    self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
+                }
+                ui.separator();
                 if ui.button("Kalite kontrolü göster").clicked() { self.tab = Tab::Quality; ui.close(); }
                 if ui.button("Metni temizle (etiket + boşluk)").clicked() {
                     let mut s = self.doc.script.clone();
@@ -713,6 +759,29 @@ impl App {
                     }
                 }
             });
+            ui.separator();
+            ui.strong("Son-işleyici");
+            egui::Grid::new("post_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Lead-in (ms)"); ui.add(egui::DragValue::new(&mut self.post.lead_in_ms).speed(5)); ui.end_row();
+                ui.label("Lead-out (ms)"); ui.add(egui::DragValue::new(&mut self.post.lead_out_ms).speed(5)); ui.end_row();
+                ui.label("Bitişik satır eşiği (ms)"); ui.add(egui::DragValue::new(&mut self.post.adjacent_gap_ms).speed(5)); ui.end_row();
+                ui.label("Boşluk eğilimi (0–1)"); ui.add(egui::DragValue::new(&mut self.post.adjacent_bias).speed(0.05).range(0.0..=1.0)); ui.end_row();
+                ui.label("Anahtar kare: başl. önce/sonra"); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_start_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_start_after).speed(5)); }); ui.end_row();
+                ui.label("Anahtar kare: bitiş önce/sonra"); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_end_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_end_after).speed(5)); }); ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.post_selection_only, "Yalnızca seçim");
+                ui.label(RichText::new(format!("{} anahtar kare", self.media.keyframes.len())).weak());
+                if ui.button("Uygula").clicked() {
+                    let mut o = self.post.clone();
+                    o.keyframes = self.media.keyframes.clone();
+                    o.only = if self.post_selection_only { Some(self.doc.selection.clone()) } else { None };
+                    let mut s = self.doc.script.clone();
+                    timing::post_process(&mut s, &o);
+                    self.doc.apply_new_script("Zamanlama son-işleyici", s);
+                }
+            });
+            ui.separator();
             ui.horizontal(|ui| {
                 ui.label("FPS");
                 ui.add(egui::DragValue::new(&mut self.fps).speed(0.001).range(1.0..=240.0));
@@ -724,6 +793,126 @@ impl App {
             });
         });
         self.timing_open = open;
+    }
+
+    fn find_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.find_open;
+        egui::Window::new("Bul / Değiştir").open(&mut open).collapsible(false).show(ctx, |ui| {
+            egui::Grid::new("find_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Bul");
+                let r = ui.add(TextEdit::singleline(&mut self.find.pattern).desired_width(280.0));
+                if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) { self.find_next(); }
+                ui.end_row();
+                ui.label("Değiştir");
+                ui.add(TextEdit::singleline(&mut self.find.replacement).desired_width(280.0));
+                ui.end_row();
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.find.regex, "Düzenli ifade");
+                ui.checkbox(&mut self.find.match_case, "Büyük/küçük harf");
+                ui.checkbox(&mut self.find.whole_word, "Tam sözcük");
+                ui.checkbox(&mut self.find.ignore_tags, "Etiketleri yok say");
+                ui.checkbox(&mut self.find.skip_comments, "Yorumları atla");
+                ui.checkbox(&mut self.find_selection_only, "Yalnızca seçim");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Alanlar:");
+                for (f, l) in [(Field::Text, "Metin"), (Field::Actor, "Konuşan"), (Field::Effect, "Efekt"), (Field::Style, "Stil")] {
+                    let mut on = self.find.fields.contains(&f);
+                    if ui.checkbox(&mut on, l).changed() {
+                        if on { self.find.fields.push(f); } else { self.find.fields.retain(|x| *x != f); }
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Sonrakini bul").clicked() { self.find_next(); }
+                if ui.button("Tümünü seç").clicked() { self.find_select_all(); }
+                if ui.button("Tümünü değiştir").clicked() { self.find_replace_all(); }
+            });
+        });
+        self.find_open = open;
+    }
+
+    fn find_opts(&self) -> search::Options {
+        let mut o = self.find.clone();
+        if self.find_selection_only { o.only = Some(self.doc.selection.clone()); }
+        o
+    }
+
+    fn find_next(&mut self) {
+        let o = self.find_opts();
+        match search::find_all(&self.doc.script, &o) {
+            Ok(hits) if !hits.is_empty() => {
+                let cur = self.doc.active;
+                let h = hits.iter().find(|h| h.entry > cur).unwrap_or(&hits[0]).entry;
+                self.doc.select(vec![h], h);
+                self.scroll_to = Some(h);
+                self.status = format!("{} eşleşme", hits.len());
+            }
+            Ok(_) => self.status = "Eşleşme yok".into(),
+            Err(e) => self.status = format!("Arama hatası: {}", e),
+        }
+    }
+
+    fn find_select_all(&mut self) {
+        let o = self.find_opts();
+        match search::find_all(&self.doc.script, &o) {
+            Ok(hits) => {
+                let mut v: Vec<usize> = hits.iter().map(|h| h.entry).collect();
+                v.dedup();
+                self.status = format!("{} satır seçildi", v.len());
+                let a = v.first().copied().unwrap_or(self.doc.active);
+                self.doc.select(v, a);
+                self.scroll_to = Some(a);
+            }
+            Err(e) => self.status = format!("Arama hatası: {}", e),
+        }
+    }
+
+    fn find_replace_all(&mut self) {
+        let o = self.find_opts();
+        let mut s = self.doc.script.clone();
+        match search::replace_all(&mut s, &o) {
+            Ok(n) => {
+                self.doc.apply_new_script("Bul/Değiştir", s);
+                self.status = format!("{} alan değiştirildi", n);
+            }
+            Err(e) => self.status = format!("Arama hatası: {}", e),
+        }
+    }
+
+    fn resample_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.resample_open;
+        egui::Window::new("Çözünürlüğü yeniden örnekle").open(&mut open).collapsible(false).show(ctx, |ui| {
+            let (ox, oy) = self.doc.script.res();
+            ui.label(format!("Mevcut: {}×{}", ox, oy));
+            ui.horizontal(|ui| {
+                ui.label("Yeni");
+                ui.add(egui::DragValue::new(&mut self.res_x).range(16..=16384));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut self.res_y).range(16..=16384));
+                for (x, y, l) in [(1280, 720, "720p"), (1920, 1080, "1080p"), (384, 288, "384×288")] {
+                    if ui.small_button(l).clicked() { self.res_x = x; self.res_y = y; }
+                }
+            });
+            ui.label(RichText::new("Stiller, kenar boşlukları, \\pos/\\move/\\org/\\clip/\\fs/\\bord/... ve çizimler ölçeklenir.").weak().small());
+            if ui.button("Uygula").clicked() {
+                let mut s = self.doc.script.clone();
+                timing::resample(&mut s, self.res_x, self.res_y);
+                self.doc.apply_new_script("Çözünürlüğü yeniden örnekle", s);
+            }
+        });
+        self.resample_open = open;
+    }
+
+    fn autosave(&mut self) {
+        if !self.doc.is_dirty() || self.last_autosave.elapsed().as_secs() < 60 { return; }
+        self.last_autosave = std::time::Instant::now();
+        let Some(base) = std::env::var("XDG_DATA_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/share"))) else { return };
+        let dir = base.join("osisub/autosave");
+        if std::fs::create_dir_all(&dir).is_err() { return; }
+        let name = self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into());
+        let _ = std::fs::write(dir.join(format!("{}.autosave.ass", name)), self.doc.script.to_ass_string());
     }
 
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
@@ -776,6 +965,9 @@ impl eframe::App for App {
         egui::CentralPanel::default_margins().show(ui, |ui| self.grid(ui));
 
         self.timing_window(&ctx);
+        self.find_window(&ctx);
+        self.resample_window(&ctx);
+        self.autosave();
         if let Some((title, st)) = self.dialog.as_mut() {
             if let Some(res) = dialog_ui::show(&ctx, title, st) {
                 self.worker.reply_dialog(res);

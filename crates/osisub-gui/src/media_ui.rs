@@ -13,6 +13,7 @@ enum Msg {
     Info(Result<MediaInfo, String>),
     Wave(Result<Waveform, String>),
     Frame { time: i64, rev: u64, res: Result<Frame, String> },
+    Keyframes(Vec<i64>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -41,6 +42,8 @@ pub struct Media {
     tmp_dir: PathBuf,
     player: Option<Child>,
     pub snap: bool,
+    pub keyframes: Vec<i64>,
+    pub snap_kf: bool,
 }
 
 impl Media {
@@ -66,6 +69,8 @@ impl Media {
             tmp_dir,
             player: None,
             snap: true,
+            keyframes: vec![],
+            snap_kf: true,
         }
     }
 
@@ -89,6 +94,7 @@ impl Media {
         self.stop_player();
         self.info = None;
         self.wave = None;
+        self.keyframes.clear();
         self.tex = None;
         self.frame_shown = (-1, u64::MAX);
         self.view_start = 0.0;
@@ -99,11 +105,18 @@ impl Media {
         std::thread::spawn(move || {
             let info = osisub_media::probe(&p);
             let has_audio = info.as_ref().map(|i| i.has_audio).unwrap_or(false);
+            let info_has_video = info.as_ref().map(|i| i.has_video).unwrap_or(false);
             let _ = tx.send(Msg::Info(info));
             ctx2.request_repaint();
             if has_audio {
                 let _ = tx.send(Msg::Wave(osisub_media::load_waveform(&p)));
                 ctx2.request_repaint();
+            }
+            if info_has_video {
+                if let Ok(k) = osisub_media::keyframes(&p) {
+                    let _ = tx.send(Msg::Keyframes(k));
+                    ctx2.request_repaint();
+                }
             }
         });
     }
@@ -145,6 +158,7 @@ impl Media {
                 }
                 Msg::Info(Err(e)) => self.status = format!("Ortam açılamadı: {}", e),
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
+                Msg::Keyframes(k) => self.keyframes = k,
                 Msg::Wave(Err(e)) => self.status = format!("Ses okunamadı: {}", e),
                 Msg::Frame { time, rev, res } => {
                     self.frame_busy = false;
@@ -187,9 +201,28 @@ impl Media {
     }
 
     fn snap_ms(&self, ms: i64) -> i64 {
+        if self.snap_kf {
+            let tol = (self.ms_per_px * 6.0) as i64;
+            if let Some(k) = self.keyframes.iter().copied().filter(|k| (k - ms).abs() <= tol).min_by_key(|k| (k - ms).abs()) {
+                return k;
+            }
+        }
         match (self.snap, self.fps()) {
             (true, Some(f)) => time::snap_to_frame(ms, f),
             _ => ms,
+        }
+    }
+
+    /// Playhead'i başlangıç/bitiş olarak ayarlar (kısayollar için).
+    pub fn set_active_start(&self, doc: &mut Document) {
+        if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
+            doc.set_times(doc.active, self.playhead.min(d.end_time), d.end_time);
+        }
+    }
+
+    pub fn set_active_end(&self, doc: &mut Document) {
+        if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
+            doc.set_times(doc.active, d.start_time, self.playhead.max(d.start_time));
         }
     }
 
@@ -299,6 +332,14 @@ impl Media {
                 p.text(Pos2::new(x + 3.0, rect.bottom() - 2.0), egui::Align2::LEFT_BOTTOM, time::format_ass(t as i64).trim_end_matches(|c: char| c == '0').trim_end_matches('.').to_string(), egui::FontId::monospace(9.0), Color32::from_gray(130));
             }
             t += step;
+        }
+
+        // Anahtar kareler
+        for &k in &self.keyframes {
+            if (k as f64) >= vs && (k as f64) <= v_end {
+                let x = x_of(k as f64, vs, mpp);
+                p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 7.0)], Stroke::new(1.0, Color32::from_rgb(0x7a, 0xd9, 0x8a)));
+            }
         }
 
         // Playhead

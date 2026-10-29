@@ -1,0 +1,23 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux bağımlılıkları (GUI)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-x11-0 libxkbcommon-dev libwayland-dev libx11-dev ffmpeg
+      - name: Test (GUI hariç)
+        run: cargo test --workspace --exclude osisub-gui
+      - name: GUI derle
+        run: cargo build -p osisub-gui

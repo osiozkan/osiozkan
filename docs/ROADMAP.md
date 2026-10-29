@@ -11,8 +11,8 @@
 - [ ] Override etiketlerinin tipli anlamlandırılması (\t içi, \clip vektör, animasyon süreleri)
 - [ ] ASS Extradata/Fonts/Graphics yapılandırılmış erişim
 - [ ] Biçimler: SUB (MicroDVD), SBV, TTML, STL, ITT, PGS/VobSub OCR (SE'den)
-- [ ] Zamanlama: anahtar kare (keyframe) dosyaları, timecodes v1/v2, değişken fps
-- [ ] Sahne kesimine yapışma (snap) + lead-in/out, ortak "zamanlama sihirbazı"
+- [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
+- [ ] Anahtar kare/timecode dosyaları (Aegisub .txt, v1/v2), değişken fps
 - [ ] Çeviri akışı: iki dilli paralel görünüm, TM/sözlük, otomatik çeviri bağlayıcıları, yazım denetimi (Hunspell, tr_TR)
 - [ ] Karaoke: hece ayırma/birleştirme, otomatik k-timing, şablonlayıcı (kara-templater uyumlu)
 
@@ -39,7 +39,9 @@
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici
 - [ ] Çizim/konum görsel araçları (\pos, \move, \clip, \org, \frz)
-- [ ] Makro menüsü, otomasyon yöneticisi, Lua diyalog penceresi
+- [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
+- [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
+- [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama
 - [ ] Geri al/yinele (satır bazlı fark), otomatik kayıt/kurtarma
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
@@ -48,5 +50,5 @@
 - [ ] Lua çağrıları için toplu (batch) API ile satır kopyası azaltma
 
 ## Dağıtım
-- [ ] GitHub Actions: Linux/Windows/macOS derleme + test
+- [x] GitHub Actions: Linux/Windows/macOS derleme + test (.github/workflows/ci.yml; henüz çalıştırılmadı)
 - [ ] Sürüm etiketleri, değişiklik günlüğü
