@@ -65,7 +65,7 @@ fn autoload_dir() -> Option<PathBuf> {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>) -> App {
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -103,7 +103,7 @@ impl App {
             dialog: None,
             log: String::new(),
             status,
-            tab: Tab::Styles,
+            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
@@ -396,9 +396,9 @@ impl App {
 
     fn grid(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("🔍");
+            ui.label("Ara:");
             ui.add(TextEdit::singleline(&mut self.filter).hint_text("Süz (metin, stil, konuşan)…").desired_width(260.0));
-            if !self.filter.is_empty() && ui.small_button("✕").clicked() { self.filter.clear(); }
+            if !self.filter.is_empty() && ui.small_button("x").clicked() { self.filter.clear(); }
             ui.label(RichText::new(format!("{} / {} satır", self.rows.len(), self.doc.script.dialogues().count())).weak());
         });
         let mods = ui.input(|i| i.modifiers);
@@ -556,14 +556,14 @@ impl App {
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("➕ Yeni").clicked() {
+            if ui.button("+ Yeni").clicked() {
                 let at = idxs.last().map_or(self.doc.script.entries.len(), |i| i + 1);
                 let mut s = Style::default();
                 s.name = format!("Stil{}", idxs.len() + 1);
                 self.doc.edit("Stil ekle", |tx| tx.insert(at, vec![Entry::Style(s)]));
                 self.style_sel = idxs.len();
             }
-            if ui.button("⧉ Çoğalt").clicked() {
+            if ui.button("Çoğalt").clicked() {
                 if let Some(&i) = idxs.get(self.style_sel) {
                     if let Entry::Style(s) = self.doc.script.entries[i].clone() {
                         let mut c = s; c.name.push_str(" kopya");
@@ -572,7 +572,7 @@ impl App {
                     }
                 }
             }
-            if ui.button("🗑 Sil").clicked() && idxs.len() > 1 {
+            if ui.button("Sil").clicked() && idxs.len() > 1 {
                 if let Some(&i) = idxs.get(self.style_sel) { self.doc.edit("Stil sil", |tx| tx.remove(i, 1)); }
             }
         });
@@ -642,7 +642,7 @@ impl App {
         for (id, script, name, desc, kind) in list {
             ui.horizontal(|ui| {
                 let enabled = self.running.is_none() && kind == MacroKind::Macro;
-                if ui.add_enabled(enabled, egui::Button::new("▶")).clicked() { self.run_macro(id); }
+                if ui.add_enabled(enabled, egui::Button::new("Çalıştır")).clicked() { self.run_macro(id); }
                 ui.vertical(|ui| { ui.strong(&name); ui.label(RichText::new(format!("{} — {}", script, desc)).weak().small()); });
             });
         }
