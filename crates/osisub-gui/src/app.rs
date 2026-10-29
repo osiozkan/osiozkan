@@ -82,6 +82,7 @@ pub struct App {
     ref_lines: Vec<(i64, i64, String)>,
     fonts_open: bool,
     fixes_open: bool,
+    stats_open: bool,
     export_open: bool,
     export_sel: Vec<usize>,
     export_job: Option<ExportJob>,
@@ -268,6 +269,7 @@ impl App {
             ref_lines: vec![],
             fonts_open: false,
             fixes_open: false,
+            stats_open: false,
             export_open: false,
             export_sel: vec![],
             export_job: None,
@@ -322,6 +324,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("fixes") => app.fixes_open = true,
+            Some("stats") => app.stats_open = true,
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
@@ -1028,6 +1031,7 @@ impl App {
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.add(egui::Button::new("Bul / Değiştir…").shortcut_text("Ctrl+F")).clicked() { self.find_open = true; ui.close(); }
+                if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
                 if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
@@ -1414,6 +1418,12 @@ impl App {
 
         if !has_k {
             ui.label("Bu satırda karaoke etiketi yok.");
+            if ui.button("Karakterlere böl ve süreyi dağıt").on_hover_text("Japonca/Çince şarkı sözleri için").clicked() {
+                let plain = osisub_core::tags::strip_tags(&d.text);
+                let mut v: Vec<k::Syl> = plain.chars().filter(|c| !c.is_control()).map(|c| k::Syl { dur: 0, kind: "kf".into(), text: c.to_string() }).collect();
+                k::distribute(&mut v, line_cs);
+                new_syls = Some(v);
+            }
             if ui.button("Sözcüklere böl ve süreyi dağıt").clicked() {
                 let plain = osisub_core::tags::strip_tags(&d.text);
                 let mut v: Vec<k::Syl> = vec![];
@@ -1805,6 +1815,47 @@ impl App {
         self.vad_open = open;
     }
 
+    fn stats_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.stats_open;
+        egui::Window::new("İstatistikler").open(&mut open).collapsible(false).default_width(360.0).show(ctx, |ui| {
+            let st = osisub_core::stats::compute(&self.doc.script);
+            egui::Grid::new("stats_grid").num_columns(2).striped(true).show(ui, |ui| {
+                let row = |ui: &mut egui::Ui, k: &str, v: String| { ui.label(k); ui.label(RichText::new(v).monospace()); ui.end_row(); };
+                row(ui, "Satır (yorum hariç)", st.lines.to_string());
+                row(ui, "Yorum satırı", st.comments.to_string());
+                row(ui, "Sözcük", st.words.to_string());
+                row(ui, "Karakter (boşluksuz)", st.chars.to_string());
+                row(ui, "Toplam konuşma süresi", time::format_ass(st.total_duration_ms));
+                row(ui, "Kapsanan aralık", time::format_ass(st.span_ms));
+                row(ui, "Ortalama süre", format!("{:.2} sn", st.avg_duration_ms / 1000.0));
+                row(ui, "Ortalama okuma hızı", format!("{:.1} kar/sn", st.avg_cps));
+                row(ui, "En yüksek okuma hızı", format!("{:.1} kar/sn", st.max_cps));
+            });
+            ui.separator();
+            ui.strong("Okuma hızı dağılımı");
+            let labels = ["0–5", "6–10", "11–15", "16–20", "21–25", "26+"];
+            let maxv = *st.cps_histogram.iter().max().unwrap_or(&1).max(&1) as f32;
+            for (i, l) in labels.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{:>6}", l)).monospace());
+                    let w = 200.0 * st.cps_histogram[i] as f32 / maxv;
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(w.max(1.0), 12.0), egui::Sense::hover());
+                    ui.painter().rect_filled(r, 2.0, if i >= 4 { theme::BAD } else if i == 3 { theme::WARN } else { theme::ACCENT });
+                    ui.label(st.cps_histogram[i].to_string());
+                });
+            }
+            ui.separator();
+            ui.strong("Stiller");
+            for (k, v) in &st.styles { ui.label(format!("{}: {}", k, v)); }
+            if !st.actors.is_empty() {
+                ui.separator();
+                ui.strong("Konuşanlar");
+                for (k, v) in &st.actors { ui.label(format!("{}: {}", k, v)); }
+            }
+        });
+        self.stats_open = open;
+    }
+
     fn fixes_window(&mut self, ctx: &egui::Context) {
         let mut open = self.fixes_open;
         egui::Window::new("Sık hataları düzelt").open(&mut open).collapsible(false).show(ctx, |ui| {
@@ -1970,6 +2021,7 @@ impl eframe::App for App {
         self.find_window(&ctx);
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
+        self.stats_window(&ctx);
         self.export_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);

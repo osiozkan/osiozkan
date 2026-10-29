@@ -11,6 +11,7 @@ pub mod paths;
 pub mod qc;
 pub mod search;
 pub mod srt;
+pub mod stats;
 pub mod tags;
 pub mod time;
 pub mod timing;
