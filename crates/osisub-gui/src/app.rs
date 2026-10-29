@@ -885,10 +885,6 @@ impl App {
                     }
                 });
             });
-            ui.menu_button("Yardım", |ui| {
-                if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
-                if ui.button("Hakkında").clicked() { self.about_open = true; ui.close(); }
-            });
             ui.menu_button("Görünüm", |ui| {
                 let mut light = self.settings.light_theme;
                 if ui.checkbox(&mut light, "Açık tema").changed() { self.settings.light_theme = light; self.theme_dirty = true; }
@@ -952,6 +948,10 @@ impl App {
                     self.doc.apply_new_script("Metni temizle", s);
                     ui.close();
                 }
+            });
+            ui.menu_button("Yardım", |ui| {
+                if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
+                if ui.button("Hakkında").clicked() { self.about_open = true; ui.close(); }
             });
         });
     }
