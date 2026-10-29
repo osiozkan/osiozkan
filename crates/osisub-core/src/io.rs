@@ -19,6 +19,36 @@ pub fn load_str(text: &str, ext: &str) -> Script {
     }
 }
 
+/// Seçilebilir kodlamalar (etiket, görünen ad).
+pub const ENCODINGS: &[(&str, &str)] = &[
+    ("utf-8", "UTF-8"),
+    ("utf-16le", "UTF-16 LE"),
+    ("utf-16be", "UTF-16 BE"),
+    ("windows-1254", "Türkçe (Windows-1254)"),
+    ("iso-8859-9", "Türkçe (ISO-8859-9)"),
+    ("windows-1252", "Batı Avrupa (Windows-1252)"),
+    ("windows-1250", "Orta Avrupa (Windows-1250)"),
+    ("windows-1251", "Kiril (Windows-1251)"),
+    ("shift_jis", "Japonca (Shift-JIS)"),
+    ("euc-jp", "Japonca (EUC-JP)"),
+    ("gbk", "Çince (GBK)"),
+    ("big5", "Çince (Big5)"),
+    ("euc-kr", "Korece (EUC-KR)"),
+];
+
+/// Baytları açıkça belirtilen kodlamayla çözer (`label` encoding_rs etiketi).
+pub fn decode_with(bytes: &[u8], label: &str) -> Result<String, String> {
+    let enc = encoding_rs::Encoding::for_label(label.as_bytes()).ok_or_else(|| format!("bilinmeyen kodlama: {}", label))?;
+    let (text, _, _) = enc.decode(bytes);
+    Ok(text.into_owned())
+}
+
+/// Belirtilen kodlamayla dosya yükle (BOM varsa BOM önceliklidir).
+pub fn load_with_encoding(path: &Path, label: &str) -> Result<Script, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    Ok(load_str(&decode_with(&bytes, label)?, &ext_of(path)))
+}
+
 pub fn load(path: &Path) -> Result<Script, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
     Ok(load_str(&decode_bytes(&bytes), &ext_of(path)))
@@ -49,6 +79,17 @@ pub fn save(s: &Script, path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_encodings() {
+        // "İyi şarkı" Windows-1254 baytları
+        let bytes = [0xDD, b'y', b'i', b' ', 0xFE, b'a', b'r', b'k', 0xFD];
+        assert_eq!(decode_with(&bytes, "windows-1254").unwrap(), "İyi şarkı");
+        // Shift-JIS "日本語"
+        let sj = [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA];
+        assert_eq!(decode_with(&sj, "shift_jis").unwrap(), "日本語");
+        assert!(decode_with(&bytes, "yok-boyle").is_err());
+    }
+
     #[test]
     fn save_load() {
         let dir = std::env::temp_dir().join(format!("osisub_io_{}", std::process::id()));

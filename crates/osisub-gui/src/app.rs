@@ -135,6 +135,7 @@ enum Guarded {
     New,
     OpenDialog,
     OpenPath(PathBuf),
+    OpenWithEncoding(String),
 }
 
 /// Bulunan otomatik kayıt dosyası.
@@ -445,6 +446,22 @@ impl App {
             }
             Guarded::OpenDialog => self.open_dialog(),
             Guarded::OpenPath(p) => self.open_path(p),
+            Guarded::OpenWithEncoding(label) => {
+                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "txt"]).pick_file() {
+                    match osisub_core::io::load_with_encoding(&p, &label) {
+                        Ok(sc) => {
+                            let mut d = Document::new(sc);
+                            d.path = Some(p.clone());
+                            // Kaydederken UTF-8 yazılır; içerik değiştiği için kaydedilmemiş say.
+                            d.mark_dirty();
+                            self.doc = d;
+                            if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
+                            self.status = format!("Açıldı ({}): {} — kaydedince UTF-8 olur", label, p.display());
+                        }
+                        Err(e) => self.status = format!("Hata: {}", e),
+                    }
+                }
+            }
         }
     }
 
@@ -882,6 +899,11 @@ impl App {
             ui.menu_button("Dosya", |ui| {
                 if ui.add(egui::Button::new("Yeni").shortcut_text("")).clicked() { ui.close(); self.request(Guarded::New); }
                 if ui.add(egui::Button::new("Aç…").shortcut_text("Ctrl+O")).clicked() { ui.close(); self.request(Guarded::OpenDialog); }
+                ui.menu_button("Kodlamayla aç", |ui| {
+                    for (label, name) in osisub_core::io::ENCODINGS {
+                        if ui.button(*name).clicked() { ui.close(); self.request(Guarded::OpenWithEncoding(label.to_string())); }
+                    }
+                });
                 ui.menu_button("Son açılanlar", |ui| {
                     let recent = self.settings.recent.clone();
                     if recent.is_empty() { ui.label(RichText::new("Yok").weak()); }
