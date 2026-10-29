@@ -331,15 +331,15 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             lua.create_function(move |_, p: String| {
                 let i = inn.borrow();
                 let get = |k: &str, d: &str| i.props.get(k).cloned().unwrap_or_else(|| d.to_string());
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+                let user_dir = osisub_core::paths::config_dir().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|| ".".into());
                 let repl = |tag: &str| -> Option<String> {
                     Some(match tag {
                         "?script" => get("script_dir", "."),
                         "?video" => PathBuf::from(get("video_file", "")).parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
                         "?audio" => PathBuf::from(get("audio_file", "")).parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
                         "?data" => get("data_dir", "."),
-                        "?user" => get("user_dir", &format!("{}/.config/osisub", home)),
-                        "?local" => get("user_dir", &format!("{}/.config/osisub", home)),
+                        "?user" => get("user_dir", &user_dir),
+                        "?local" => get("user_dir", &user_dir),
                         "?temp" => std::env::temp_dir().to_string_lossy().to_string(),
                         "?dictionary" => get("data_dir", "."),
                         _ => return None,
