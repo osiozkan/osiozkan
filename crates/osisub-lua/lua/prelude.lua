@@ -42,3 +42,22 @@ package.preload["unicode"] = function() return aegisub.__unicode end
 package.preload["aegisub.unicode"] = package.preload["unicode"]
 package.preload["aegisub.clipboard"] = function() return aegisub.__clipboard end
 package.preload["lfs"] = function() return aegisub.__lfs end
+package.preload["clipboard"] = package.preload["aegisub.clipboard"]
+package.preload["utf8"] = function()
+  local src, chunk = N.find_include("utf8.lua", "")
+  local f = assert(loadstring(src, "@" .. chunk))
+  return f()
+end
+
+-- LuaJIT'te ipairs(userdata) hata verir; `subs` üzerinde yinelemeyi de destekle.
+local real_ipairs = ipairs
+function ipairs(t)
+  if type(t) == "userdata" then
+    return function(_, i)
+      i = i + 1
+      local v = t[i]
+      if v ~= nil then return i, v end
+    end, t, 0
+  end
+  return real_ipairs(t)
+end

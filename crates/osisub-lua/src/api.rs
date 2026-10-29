@@ -12,6 +12,9 @@ type InnerRc = Rc<RefCell<Inner>>;
 
 const UTILS: &str = include_str!("../lua/utils.lua");
 const KARASKEL: &str = include_str!("../lua/karaskel.lua");
+const UTF8_LUA: &str = include_str!("../lua/utf8.lua");
+const UTILS_AUTO4: &str = include_str!("../lua/utils-auto4.lua");
+const KARASKEL_AUTO4: &str = include_str!("../lua/karaskel-auto4.lua");
 const UNICODE_LUA: &str = "unicode = aegisub.__unicode\nreturn unicode\n";
 
 fn embedded(name: &str) -> Option<&'static str> {
@@ -19,6 +22,9 @@ fn embedded(name: &str) -> Option<&'static str> {
         "utils.lua" => Some(UTILS),
         "karaskel.lua" => Some(KARASKEL),
         "unicode.lua" => Some(UNICODE_LUA),
+        "utf8.lua" => Some(UTF8_LUA),
+        "utils-auto4.lua" => Some(UTILS_AUTO4),
+        "karaskel-auto4.lua" => Some(KARASKEL_AUTO4),
         _ => None,
     }
 }

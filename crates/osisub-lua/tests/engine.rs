@@ -67,3 +67,20 @@ fn real_font_extents_when_available() {
     }
     eprintln!("fonts: {} aile, eşleşme={}", db.family_count(), found);
 }
+
+#[test]
+fn compat_script_patterns() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    let info = e.load_script(Path::new("tests/fixtures/compat.lua")).unwrap();
+    assert_eq!(info.macros.len(), 2);
+    let idx = e.script().entries.iter().position(|x| matches!(x, Entry::Dialogue(_))).unwrap() + 1;
+    assert!(e.validate_macro(0, &[idx], idx));
+    assert!(!e.validate_macro(0, &[], 0));
+    let out = e.run_macro(0, &[idx], idx).unwrap();
+    assert!(out.selection.is_some());
+    assert_eq!(out.undo_desc.as_deref(), Some("uyumluluk"));
+    // Filtre
+    e.run_macro(1, &[], 0).unwrap();
+    assert!(e.script().dialogues().all(|d| d.text.ends_with('?')));
+}
