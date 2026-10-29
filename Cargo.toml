@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/osisub-doc", "crates/osisub-gui", "crates/osisub-core", "crates/osisub-lua", "crates/osisub-cli"]
+members = ["crates/osisub-doc", "crates/osisub-media", "crates/osisub-gui", "crates/osisub-core", "crates/osisub-lua", "crates/osisub-cli"]
 
 [workspace.package]
 version = "0.1.0"

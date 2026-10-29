@@ -31,7 +31,11 @@
 - [x] İskelet: menü, ızgara (sanal kaydırma), düzenleme paneli, stil/kalite/otomasyon/bilgi sekmeleri, Lua diyalog köprüsü, geri al/yinele
 - [ ] Satır ızgarası (sanal kaydırma, 100k satır), çoklu seçim, sütun özelleştirme
 - [ ] Düzenleme kutusu: etiket renklendirme, karakter/CPS sayacı, stil seçici
-- [ ] Video önizleme (libmpv/ffmpeg), ASS renderer (libass), ses dalga formu/spektrum
+- [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
+- [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
+- [ ] Akıcı video oynatma (libmpv ya da kalıcı ffmpeg boru hattı), kare önbelleği, ön-yükleme
+- [ ] Ses oynatma uygulama içinden (şimdilik harici ffplay), spektrum görünümü, anahtar kare işaretleri
+- [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici
 - [ ] Çizim/konum görsel araçları (\pos, \move, \clip, \org, \frz)

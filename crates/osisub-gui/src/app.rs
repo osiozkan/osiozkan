@@ -1,4 +1,5 @@
 use crate::dialog_ui::{self, DialogState};
+use crate::media_ui::Media;
 use crate::{style_ui, theme};
 use eframe::egui::{self, text::LayoutJob, Align, Color32, Key, KeyboardShortcut, Modifiers, RichText, TextEdit, TextFormat};
 use egui_extras::{Column, TableBuilder};
@@ -56,7 +57,10 @@ pub struct App {
     quit_confirm: bool,
     shot: Option<PathBuf>,
     shot_frame: u32,
+    shot_requested: bool,
     shot_done: Arc<AtomicBool>,
+    media: Media,
+    show_media: bool,
 }
 
 fn autoload_dir() -> Option<PathBuf> {
@@ -65,7 +69,7 @@ fn autoload_dir() -> Option<PathBuf> {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, file: Option<PathBuf>, scripts: Vec<PathBuf>, shot: Option<PathBuf>, tab: Option<String>, media: Option<PathBuf>) -> App {
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -124,10 +128,17 @@ impl App {
             quit_confirm: false,
             shot,
             shot_frame: 0,
+            shot_requested: false,
             shot_done: Arc::new(AtomicBool::new(false)),
+            media: Media::new(),
+            show_media: false,
         };
         if let Some(first) = app.first_row() {
             app.doc.select(vec![first], first);
+        }
+        if let Some(m) = media {
+            app.media.open(m, &cc.egui_ctx);
+            app.show_media = true;
         }
         app
     }
@@ -190,6 +201,10 @@ impl App {
             if let Some(d) = p.parent() {
                 props.push(("script_dir".to_string(), d.to_string_lossy().to_string()));
             }
+        }
+        if let Some(p) = &self.media.path {
+            props.push(("video_file".to_string(), p.to_string_lossy().to_string()));
+            props.push(("audio_file".to_string(), p.to_string_lossy().to_string()));
         }
         self.worker.send(Cmd::Run { id, script: self.doc.script.clone(), selection: self.doc.selection.clone(), active: self.doc.active, props });
     }
@@ -290,6 +305,7 @@ impl App {
                 i.consume_shortcut(&k(Modifiers::COMMAND, Key::M)),
             )
         });
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc); }
         if open { self.open_dialog(); }
         if save_as { self.save(true); } else if save { self.save(false); }
         if undo || redo || redo2 {
@@ -357,6 +373,18 @@ impl App {
                     self.doc.apply_new_script("Sırala", s);
                     ui.close();
                 }
+            });
+            ui.menu_button("Video", |ui| {
+                if ui.button("Video / ses aç…").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Ortam", &["mkv", "mp4", "avi", "webm", "mov", "mka", "mp3", "flac", "wav", "ogg", "m4a", "aac", "opus"]).pick_file() {
+                        self.media.open(p, ui.ctx());
+                        self.show_media = true;
+                    }
+                }
+                ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                ui.checkbox(&mut self.media.snap, "Karelere yapış");
+                if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new("Yüklü makro yok").weak()); }
@@ -702,7 +730,8 @@ impl App {
         let Some(path) = self.shot.clone() else { return };
         self.shot_frame += 1;
         ctx.request_repaint();
-        if self.shot_frame == 12 {
+        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) {
+            self.shot_requested = true;
             let done = self.shot_done.clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
                 let (w, h) = (img.size[0] as u32, img.size[1] as u32);
@@ -739,6 +768,9 @@ impl eframe::App for App {
                 });
             });
         });
+        if self.show_media || self.media.is_open() {
+            egui::Panel::top("media").resizable(true).default_size(280.0).show(ui, |ui| self.media.ui(ui, &mut self.doc));
+        }
         egui::Panel::bottom("editor").resizable(true).default_size(190.0).show(ui, |ui| self.editor(ui));
         egui::Panel::right("side").resizable(true).default_size(380.0).show(ui, |ui| self.side(ui));
         egui::CentralPanel::default_margins().show(ui, |ui| self.grid(ui));
