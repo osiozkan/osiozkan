@@ -78,6 +78,11 @@ function all_checks(subs, sel, active)
   subs.deleterange(first, first)
   subs.append(l)
   subs[0] = l
+  local before = #subs
+  local marker = util.deep_copy(l); marker.text = "NEG"
+  subs[-first] = marker
+  check(#subs == before + 1 and subs[first].text == "NEG", "negatif dizin ekleme")
+  subs.delete(first)
   check(subs.n == #subs, "subs.n")
   local cnt = 0
   for i, line in ipairs(subs) do cnt = cnt + 1 end

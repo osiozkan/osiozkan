@@ -268,6 +268,10 @@ impl UserData for Subs {
                     let e = table_to_entry(&t, &sec)?;
                     if i >= 1 && (i as usize) <= sc.entries.len() {
                         sc.entries[i as usize - 1] = e;
+                    } else if i < 0 {
+                        // Aegisub: negatif dizin = |i|'nci satırdan ÖNCE ekle.
+                        let at = ((-i) as usize - 1).min(sc.entries.len());
+                        sc.entries.insert(at, e);
                     } else {
                         sc.entries.push(e);
                     }
