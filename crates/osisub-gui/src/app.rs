@@ -813,12 +813,16 @@ impl App {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
-                if ui.button("Zamana göre sırala").clicked() {
-                    let mut s = self.doc.script.clone();
-                    qc::sort_by_start(&mut s);
-                    self.doc.apply_new_script("Sırala", s);
-                    ui.close();
-                }
+                ui.menu_button("Sırala", |ui| {
+                    for (k, l) in [(qc::SortKey::Start, "Başlangıç zamanına göre"), (qc::SortKey::End, "Bitiş zamanına göre"), (qc::SortKey::Style, "Stile göre"), (qc::SortKey::Actor, "Konuşana göre"), (qc::SortKey::Effect, "Efekte göre"), (qc::SortKey::Layer, "Katmana göre"), (qc::SortKey::Text, "Metne göre")] {
+                        if ui.button(l).clicked() {
+                            let mut s = self.doc.script.clone();
+                            qc::sort_by(&mut s, k);
+                            self.doc.apply_new_script("Sırala", s);
+                            ui.close();
+                        }
+                    }
+                });
             });
             ui.menu_button("Video", |ui| {
                 if ui.button("Video / ses aç…").clicked() {

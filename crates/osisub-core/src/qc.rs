@@ -151,6 +151,39 @@ pub fn sort_by_start(script: &mut Script) {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortKey {
+    Start,
+    End,
+    Style,
+    Actor,
+    Effect,
+    Layer,
+    Text,
+}
+
+/// Diyalog satırlarını anahtara göre (kararlı) sıralar; diğer girdiler yerinde kalır.
+pub fn sort_by(script: &mut Script, key: SortKey) {
+    let Some(first) = script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))) else { return };
+    let last = script.entries.iter().rposition(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+    let mut slice: Vec<Entry> = script.entries.drain(first..=last).collect();
+    slice.sort_by(|a, b| match (a, b) {
+        (Entry::Dialogue(x), Entry::Dialogue(y)) => match key {
+            SortKey::Start => (x.start_time, x.layer).cmp(&(y.start_time, y.layer)),
+            SortKey::End => x.end_time.cmp(&y.end_time),
+            SortKey::Style => tr_lower(&x.style).cmp(&tr_lower(&y.style)).then(x.start_time.cmp(&y.start_time)),
+            SortKey::Actor => tr_lower(&x.actor).cmp(&tr_lower(&y.actor)).then(x.start_time.cmp(&y.start_time)),
+            SortKey::Effect => tr_lower(&x.effect).cmp(&tr_lower(&y.effect)).then(x.start_time.cmp(&y.start_time)),
+            SortKey::Layer => x.layer.cmp(&y.layer).then(x.start_time.cmp(&y.start_time)),
+            SortKey::Text => tr_lower(&tags::strip_tags(&x.text)).cmp(&tr_lower(&tags::strip_tags(&y.text))),
+        },
+        _ => std::cmp::Ordering::Equal,
+    });
+    for (k, e) in slice.into_iter().enumerate() {
+        script.entries.insert(first + k, e);
+    }
+}
+
 pub fn snap_to_frames(script: &mut Script, fps: f64) {
     for d in script.dialogues_mut() {
         d.start_time = crate::time::snap_to_frame(d.start_time, fps);
@@ -268,6 +301,20 @@ mod tests {
         assert!(issues.iter().any(|i| i.kind == Kind::Overlap));
         assert_eq!(fix_overlaps(&mut s), 1);
         assert!(!check(&s, &Rules::default()).iter().any(|i| i.kind == Kind::Overlap));
+    }
+
+    #[test]
+    fn sort_keys() {
+        let mut s = Script::from_dialogues(vec![
+            Dialogue { start_time: 2000, text: "b".into(), style: "Zeta".into(), ..Default::default() },
+            Dialogue { start_time: 1000, text: "a".into(), style: "alfa".into(), ..Default::default() },
+            Dialogue { start_time: 3000, text: "I".into(), style: "İkinci".into(), ..Default::default() },
+        ]);
+        sort_by(&mut s, SortKey::Style);
+        let v: Vec<&str> = s.dialogues().map(|d| d.style.as_str()).collect();
+        assert_eq!(v, vec!["alfa", "İkinci", "Zeta"]);
+        sort_by(&mut s, SortKey::Start);
+        assert_eq!(s.dialogues().map(|d| d.start_time).collect::<Vec<_>>(), vec![1000, 2000, 3000]);
     }
 
     #[test]
