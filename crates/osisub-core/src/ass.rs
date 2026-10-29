@@ -584,7 +584,18 @@ pub fn decode_bytes(b: &[u8]) -> String {
     }
     match std::str::from_utf8(b) {
         Ok(s) => s.to_string(),
-        Err(_) => b.iter().map(|&c| cp1254(c)).collect(),
+        Err(_) => {
+            // UTF-8 değil: kodlamayı tahmin et (Firefox'un chardetng'i; belirsizse Türkçe'ye eğilimli).
+            let mut det = chardetng::EncodingDetector::new();
+            det.feed(b, true);
+            let enc = det.guess(Some(b"tr"), false);
+            if enc == encoding_rs::WINDOWS_1254 || enc == encoding_rs::WINDOWS_1252 || enc == encoding_rs::ISO_8859_2 {
+                // Tek baytlı Latin ailesi: Türkçe harfleri doğru eşleyen tablomuz var.
+                b.iter().map(|&c| cp1254(c)).collect()
+            } else {
+                enc.decode(b).0.into_owned()
+            }
+        }
     }
 }
 
@@ -641,6 +652,16 @@ mod tests {
         let s2 = Script::parse(&out);
         assert_eq!(s.entries, s2.entries);
         assert!(out.contains("[Aegisub Project Garbage]"));
+    }
+
+    #[test]
+    fn autodetect_non_utf8() {
+        let tr = [0xDD, b's', b't', b'a', b'n', b'b', b'u', b'l', b' ', b'g', 0xFC, b'z', b'e', b'l', b'.'];
+        assert_eq!(decode_bytes(&tr), "İstanbul gÜzel.".replace("Ü", "ü"));
+        // Shift-JIS Japonca (uzun metin; tespit güvenilir olsun)
+        let sj: Vec<u8> = [0x93u8, 0xFA, 0x96, 0x7B, 0x8C, 0xEA, 0x82, 0xCC, 0x8E, 0x9A, 0x96, 0x8B, 0x82, 0xAA, 0x82, 0xB1, 0x82, 0xB1, 0x82, 0xC9, 0x82, 0xA0, 0x82, 0xE9].repeat(8);
+        let out = decode_bytes(&sj);
+        assert!(out.contains("日本語"), "{}", out);
     }
 
     #[test]
