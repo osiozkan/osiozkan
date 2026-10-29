@@ -84,3 +84,16 @@ fn compat_script_patterns() {
     e.run_macro(1, &[], 0).unwrap();
     assert!(e.script().dialogues().all(|d| d.text.ends_with('?')));
 }
+
+#[test]
+fn api_misuse_yields_errors_not_panics() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.load_script(Path::new("tests/fixtures/abuse.lua")).unwrap();
+    let r = e.run_macro(0, &[], 0);
+    assert!(r.is_ok(), "{:?}", r.err());
+    let log = e.take_log();
+    assert!(log.contains("hata="), "{}", log);
+    // Betik bozuk durumda da çalışmaya devam etmeli ve belge tutarlı kalmalı
+    let _ = e.script().to_ass_string();
+}
