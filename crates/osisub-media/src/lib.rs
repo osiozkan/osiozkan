@@ -162,6 +162,58 @@ pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, 
     Ok(Frame { width, height, rgba: out.stdout[..need].to_vec() })
 }
 
+/// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
+pub struct PlayStream {
+    pub child: std::process::Child,
+    pub frames: std::sync::mpsc::Receiver<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+}
+
+impl Drop for PlayStream {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// `[start_ms, start_ms+dur_ms)` aralığını `width` genişliğinde RGBA kare akışı olarak başlatır
+/// (altyazı libass ile işlenmiş). Küçültme önce yapılır, ass `original_size` ile doğru ölçeklenir (hız için).
+/// Not: `-copyts` ile zaman damgaları mutlak kaldığından süre `-to` (mutlak bitiş) ile sınırlanır.
+pub fn spawn_play(video: &Path, ass: Option<&Path>, start_ms: i64, dur_ms: i64, width: u32, info: &MediaInfo) -> Result<PlayStream, String> {
+    if !info.has_video || info.width == 0 {
+        return Err("video yok".into());
+    }
+    let width = (width.max(16) / 2) * 2;
+    let height = ((width as f64 * info.height as f64 / info.width as f64 / 2.0).round() as u32).max(1) * 2;
+    let fps = if info.fps > 0.0 { info.fps } else { 24.0 };
+    let mut vf = format!("scale={}:{},", width, height);
+    if let Some(a) = ass {
+        let p = a.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
+        vf.push_str(&format!("ass='{}':original_size={}x{},", p, width, height));
+    }
+    vf.push_str(&format!("fps={}", fps));
+    let mut child = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-ss", &format!("{:.3}", start_ms.max(0) as f64 / 1000.0), "-copyts", "-i"])
+        .arg(video)
+        .args(["-to", &format!("{:.3}", (start_ms.max(0) + dur_ms.max(1)) as f64 / 1000.0), "-an", "-sn", "-vf", &vf, "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    let mut out = child.stdout.take().ok_or("stdout yok")?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let size = (width * height * 4) as usize;
+    std::thread::spawn(move || loop {
+        let mut buf = vec![0u8; size];
+        if out.read_exact(&mut buf).is_err() || tx.send(buf).is_err() {
+            break;
+        }
+    });
+    Ok(PlayStream { child, frames: rx, width, height, fps })
+}
+
 /// Anahtar kare zamanları (ms). Büyük dosyalarda birkaç saniye sürebilir.
 pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
     let out = Command::new(ffprobe_bin())
@@ -219,6 +271,14 @@ mod tests {
         let late_plain = render_frame(&mp4, None, 2_500, 320, &info).unwrap();
         let late_with = render_frame(&mp4, Some(&ass), 2_500, 320, &info).unwrap();
         assert_eq!(late_plain.rgba, late_with.rgba, "2.5 sn'de altyazı olmamalı");
+        // Akış: 1 sn'lik aralık ≈ 24 kare
+        let st = spawn_play(&mp4, Some(&ass), 500, 1000, 160, &info).unwrap();
+        let mut n = 0;
+        while let Ok(f) = st.frames.recv_timeout(std::time::Duration::from_secs(10)) {
+            assert_eq!(f.len(), (st.width * st.height * 4) as usize);
+            n += 1;
+        }
+        assert!((22..=26).contains(&n), "kare sayısı {}", n);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

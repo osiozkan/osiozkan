@@ -46,6 +46,13 @@ pub struct Media {
     pub snap_kf: bool,
     /// Videoda \pos sürükleme aracı.
     pub pos_tool: bool,
+    stream: Option<osisub_media::PlayStream>,
+    stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
+    stream_count: usize,
+    play_started: Option<std::time::Instant>,
+    play_begin_at: Option<std::time::Instant>,
+    play_from: i64,
+    play_dur: i64,
 }
 
 impl Media {
@@ -74,6 +81,13 @@ impl Media {
             keyframes: vec![],
             snap_kf: true,
             pos_tool: false,
+            stream: None,
+            stream_frames: Default::default(),
+            stream_count: 0,
+            play_started: None,
+            play_begin_at: None,
+            play_from: 0,
+            play_dur: 0,
         }
     }
 
@@ -124,16 +138,29 @@ impl Media {
         });
     }
 
-    fn stop_player(&mut self) {
+    pub fn stop_player(&mut self) {
         if let Some(mut c) = self.player.take() {
             let _ = c.kill();
             let _ = c.wait();
         }
     }
 
-    pub fn toggle_play(&mut self, doc: &Document) {
-        if self.player.is_some() {
-            self.stop_player();
+    pub fn is_playing(&self) -> bool {
+        self.player.is_some() || self.stream.is_some() || self.play_begin_at.is_some()
+    }
+
+    fn stop_all(&mut self) {
+        self.stop_player();
+        self.stream = None;
+        self.stream_frames.clear();
+        self.play_begin_at = None;
+        self.play_started = None;
+    }
+
+    /// Etkin satırı (ses + varsa video) oynatır; çalarken tekrar çağrılırsa durdurur.
+    pub fn toggle_play(&mut self, doc: &Document, ctx: &egui::Context) {
+        if self.is_playing() {
+            self.stop_all();
             return;
         }
         let Some(p) = self.path.clone() else { return };
@@ -141,14 +168,73 @@ impl Media {
             Some(Entry::Dialogue(d)) => (d.start_time, d.end_time),
             _ => (self.playhead, self.playhead + 5000),
         };
+        let (from, dur) = ((s - 300).max(0), e - s + 600);
         let child = Command::new("ffplay")
-            .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", (s - 300).max(0) as f64 / 1000.0), "-t", &format!("{:.3}", (e - s + 600) as f64 / 1000.0)])
-            .arg(p)
+            .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)])
+            .arg(&p)
             .stdin(Stdio::null())
             .spawn();
         match child {
             Ok(c) => self.player = Some(c),
             Err(_) => self.status = "ffplay bulunamadı (ses oynatma için gerekli)".into(),
+        }
+        if let Some(info) = self.info.clone().filter(|i| i.has_video) {
+            let ass = self.tmp_dir.join("play.ass");
+            let _ = std::fs::write(&ass, doc.script.to_ass_string());
+            match osisub_media::spawn_play(&p, Some(&ass), from, dur, 640, &info) {
+                Ok(st) => {
+                    self.stream = Some(st);
+                    self.stream_frames.clear();
+                    self.stream_count = 0;
+                    self.play_started = None;
+                }
+                Err(e) => self.status = e,
+            }
+        }
+        self.play_from = from;
+        self.play_dur = dur;
+        self.play_begin_at = Some(std::time::Instant::now());
+        ctx.request_repaint();
+    }
+
+    /// Oynatma sırasında kare/zaman ilerletme.
+    fn tick_play(&mut self, ctx: &egui::Context) {
+        let Some(begin) = self.play_begin_at else { return };
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        if let Some(st) = &self.stream {
+            while let Ok(buf) = st.frames.try_recv() {
+                if self.play_started.is_none() {
+                    self.play_started = Some(std::time::Instant::now());
+                }
+                self.stream_frames.push_back((self.stream_count, buf));
+                self.stream_count += 1;
+            }
+        }
+        let clock = self.play_started.unwrap_or(begin);
+        let elapsed = clock.elapsed().as_secs_f64();
+        self.playhead = self.play_from + (begin.elapsed().as_secs_f64() * 1000.0) as i64;
+        if let Some(st) = &self.stream {
+            let target = (elapsed * st.fps) as usize;
+            let (w, h) = (st.width as usize, st.height as usize);
+            let mut latest: Option<Vec<u8>> = None;
+            while let Some((idx, _)) = self.stream_frames.front() {
+                if *idx <= target {
+                    latest = self.stream_frames.pop_front().map(|x| x.1);
+                } else {
+                    break;
+                }
+            }
+            if let Some(buf) = latest {
+                let img = egui::ColorImage::from_rgba_unmultiplied([w, h], &buf);
+                match &mut self.tex {
+                    Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                    None => self.tex = Some(ctx.load_texture("frame", img, egui::TextureOptions::LINEAR)),
+                }
+            }
+        }
+        if begin.elapsed().as_millis() as i64 > self.play_dur + 800 {
+            self.stop_all();
+            self.frame_shown = (-1, u64::MAX);
         }
     }
 
@@ -180,7 +266,7 @@ impl Media {
             }
         }
         if let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) {
-            if info.has_video && !self.frame_busy && self.frame_shown != (self.playhead, doc.rev) {
+            if info.has_video && !self.frame_busy && !self.is_playing() && self.frame_shown != (self.playhead, doc.rev) {
                 self.frame_busy = true;
                 let (t, rev) = (self.playhead, doc.rev);
                 let ass = self.tmp_dir.join("preview.ass");
@@ -197,10 +283,9 @@ impl Media {
         if let Some(c) = self.player.as_mut() {
             if matches!(c.try_wait(), Ok(Some(_))) {
                 self.player = None;
-            } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(200));
             }
         }
+        self.tick_play(ctx);
     }
 
     fn snap_ms(&self, ms: i64) -> i64 {
@@ -464,7 +549,7 @@ impl Media {
 
 impl Drop for Media {
     fn drop(&mut self) {
-        self.stop_player();
+        self.stop_all();
         let _ = std::fs::remove_dir_all(&self.tmp_dir);
     }
 }

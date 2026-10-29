@@ -81,6 +81,8 @@ pub struct App {
     reference: Option<osisub_core::Script>,
     fonts_open: bool,
     fixes_open: bool,
+    autoplay: bool,
+    play_wait: u32,
     loaded_scripts: Vec<PathBuf>,
     fixes: osisub_core::fixes::Fixes,
     fixes_selection_only: bool,
@@ -190,6 +192,8 @@ impl App {
             reference: None,
             fonts_open: false,
             fixes_open: false,
+            autoplay: false,
+            play_wait: 0,
             loaded_scripts,
             fixes: osisub_core::fixes::Fixes::default(),
             fixes_selection_only: false,
@@ -213,6 +217,7 @@ impl App {
             Some("resample") => app.resample_open = true,
             Some("fixes") => app.fixes_open = true,
             Some("pos") => app.media.pos_tool = true,
+            Some("play") => app.autoplay = true,
             Some("fonts") => { app.fonts_open = true; app.start_font_scan(); }
             _ => {}
         }
@@ -490,7 +495,7 @@ impl App {
                 i.consume_shortcut(&k(Modifiers::COMMAND, Key::M)),
             )
         });
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc); }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc, ctx); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) { self.media.set_active_start(&mut self.doc); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) { self.media.set_active_end(&mut self.doc); }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::F)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::H))) { self.find_open = true; }
@@ -602,7 +607,7 @@ impl App {
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.checkbox(&mut self.media.pos_tool, "Konum aracı (videoda \\pos sürükle)");
-                if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc); ui.close(); }
+                if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc, ui.ctx()); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new("Yüklü makro yok").weak()); }
@@ -1350,7 +1355,7 @@ impl App {
         let Some(path) = self.shot.clone() else { return };
         self.shot_frame += 1;
         ctx.request_repaint();
-        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() {
+        if self.shot_frame >= 12 && !self.shot_requested && (!self.media.is_open() || self.media.ready() || self.shot_frame > 900) && self.font_rx.is_none() && !self.autoplay && self.play_wait == 0 {
             self.shot_requested = true;
             let done = self.shot_done.clone();
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -1422,6 +1427,12 @@ impl eframe::App for App {
                 });
             });
         }
+        if self.autoplay && self.media.ready() {
+            self.autoplay = false;
+            self.play_wait = 40;
+            self.media.toggle_play(&self.doc, &ctx);
+        }
+        if self.play_wait > 0 { self.play_wait -= 1; ctx.request_repaint(); }
         self.handle_screenshot(&ctx);
     }
 }
