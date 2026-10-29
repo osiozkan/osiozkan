@@ -1,6 +1,87 @@
 use super::*;
 
 impl App {
+    /// Çevirmen görünümü: referans büyük gösterilir, Enter kaydedip sonraki satıra geçer.
+    pub(super) fn translate_tab(&mut self, ui: &mut egui::Ui) {
+        let at = self.doc.active;
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() else {
+            ui.label(RichText::new("Bir satır seçin").weak());
+            return;
+        };
+        let pos = self.rows.iter().position(|&r| r == at).map(|p| p + 1).unwrap_or(0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("Satır {} / {}", pos, self.rows.len())).strong());
+            ui.label(RichText::new(format!("{} → {}", time::format_ass(d.start_time), time::format_ass(d.end_time))).monospace().weak());
+        });
+        // Kaynak metin: referanstan eşleşenler
+        let (a, b) = (d.start_time, d.end_time);
+        let refs = &self.ref_lines;
+        let mut hits: Vec<&(i64, i64, String)> = refs.iter().filter(|r| r.1 > a && r.0 < b).collect();
+        hits.sort_by_key(|r| -(r.1.min(b) - r.0.max(a)));
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_min_height(64.0);
+            if refs.is_empty() {
+                ui.label(RichText::new("Referans altyazı yüklü değil (Dosya → Referans altyazı aç…)").weak());
+            } else if hits.is_empty() {
+                ui.label(RichText::new("(bu aralıkta referans satırı yok)").weak());
+            }
+            for h in hits.iter().take(3) {
+                ui.label(RichText::new(&h.2).size(17.0).color(theme::ACCENT));
+            }
+        });
+        // Çeviri kutusu
+        let mut nd = d.clone();
+        let sp = self.spell.clone();
+        let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+            let mut job = editor_job(buf.as_str(), sp.as_deref());
+            job.wrap.max_width = wrap_width;
+            ui.fonts_mut(|f| f.layout_job(job))
+        };
+        let id = egui::Id::unique("translate_box");
+        let r = ui.add(TextEdit::multiline(&mut nd.text).id(id).desired_rows(4).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Çeviri — Enter: kaydet ve sonraki satır"));
+        if self.tr_last_active != at {
+            self.tr_last_active = at;
+            r.request_focus();
+        }
+        // Enter = sonraki satır (metin kutusu Enter'ı tüketmeden önce yakala)
+        let enter = r.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
+        if enter {
+            nd.text = nd.text.trim_end_matches('\n').to_string();
+        }
+        let cps = qc::cps(&nd);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());
+            ui.label(RichText::new(format!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
+        });
+        if nd.text != d.text {
+            let key = format!("text:{}", at);
+            self.doc.edit_keyed("Metin düzenle", Some(&key), |tx| tx.replace(at, Entry::Dialogue(nd.clone())));
+        }
+        let step = |app: &mut App, delta: isize| {
+            let p = app.rows.iter().position(|&r| r == at).unwrap_or(0) as isize;
+            let np = (p + delta).clamp(0, app.rows.len() as isize - 1) as usize;
+            if let Some(&row) = app.rows.get(np) {
+                app.doc.select(vec![row], row);
+                app.scroll_to = Some(row);
+            }
+        };
+        ui.horizontal(|ui| {
+            if ui.button("◀ Önceki").clicked() { step(self, -1); }
+            if ui.button("Sonraki ▶").clicked() { step(self, 1); }
+            if ui.button("Sonraki boş satır").on_hover_text("Metni boş olan sonraki satıra atla (ör. sesten oluşturulanlar)").clicked() {
+                let p = self.rows.iter().position(|&r| r == at).unwrap_or(0);
+                let next = self.rows.iter().enumerate().skip(p + 1).find(|(_, &r)| matches!(&self.doc.script.entries[r], Entry::Dialogue(x) if osisub_core::tags::visible_text(&x.text).trim().is_empty())).map(|(_, &r)| r);
+                match next {
+                    Some(row) => { self.doc.select(vec![row], row); self.scroll_to = Some(row); }
+                    None => self.status = "Boş satır kalmadı".into(),
+                }
+            }
+        });
+        if enter {
+            step(self, 1);
+        }
+    }
+
     pub(super) fn user_dict_dir() -> Option<PathBuf> {
         osisub_core::paths::config_dir().map(|d| d.join("dict"))
     }
@@ -144,12 +225,13 @@ impl App {
 
     pub(super) fn side(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (t, l) in [(Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Spell, "Yazım"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
+            for (t, l) in [(Tab::Translate, "Çeviri"), (Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Spell, "Yazım"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
                 ui.selectable_value(&mut self.tab, t, l);
             }
         });
         ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
+            Tab::Translate => self.translate_tab(ui),
             Tab::Styles => self.styles_tab(ui),
             Tab::Karaoke => self.karaoke_tab(ui),
             Tab::Spell => self.spell_tab(ui),

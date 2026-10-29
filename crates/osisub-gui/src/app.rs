@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Tab {
+    Translate,
     Styles,
     Karaoke,
     Spell,
@@ -94,6 +95,7 @@ pub struct App {
     theme_dirty: bool,
     goto_open: bool,
     goto_focus: bool,
+    tr_last_active: usize,
     find_focus: bool,
     goto_buf: String,
     import_styles: Option<Vec<(Style, bool)>>,
@@ -236,7 +238,7 @@ impl App {
             dialog: None,
             log: String::new(),
             status,
-            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("karaoke") => Tab::Karaoke, Some("spell") => Tab::Spell, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
+            tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("translate") => Tab::Translate, Some("karaoke") => Tab::Karaoke, Some("spell") => Tab::Spell, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
@@ -289,6 +291,7 @@ impl App {
             theme_dirty: true,
             goto_open: false,
             goto_focus: false,
+            tr_last_active: usize::MAX,
             find_focus: false,
             goto_buf: String::new(),
             import_styles: None,

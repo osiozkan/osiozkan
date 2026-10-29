@@ -366,6 +366,13 @@ impl App {
             ui.checkbox(&mut f.sentence_case, "Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)");
             ui.checkbox(&mut f.remove_hi, "İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)");
             ui.horizontal(|ui| {
+                let mut on = f.split_long.is_some();
+                ui.checkbox(&mut on, "Uzun satırları böl (karakter)");
+                let mut v = f.split_long.unwrap_or(84);
+                ui.add_enabled(on, egui::DragValue::new(&mut v).range(20..=300));
+                f.split_long = on.then_some(v);
+            });
+            ui.horizontal(|ui| {
                 ui.checkbox(&mut self.min_dur_on, "En kısa süre (ms)");
                 let mut v = f.min_duration_ms.unwrap_or(833);
                 ui.add_enabled(self.min_dur_on, egui::DragValue::new(&mut v).speed(10));
@@ -386,7 +393,7 @@ impl App {
                     let mut s = self.doc.script.clone();
                     let rep = osisub_core::fixes::apply(&mut s, &o);
                     self.doc.apply_new_script("Sık hataları düzelt", s);
-                    self.status = format!("{} satır değişti, {} zamanlama düzeltildi", rep.changed_lines, rep.timing_changes);
+                    self.status = format!("{} satır değişti, {} zamanlama düzeltildi, {} satır bölündü", rep.changed_lines, rep.timing_changes, rep.split_lines);
                 }
             });
         });

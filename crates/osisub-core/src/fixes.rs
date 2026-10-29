@@ -14,6 +14,8 @@ pub struct Fixes {
     pub sentence_case: bool,
     pub dialogue_dash: bool,
     pub remove_hi: bool,
+    /// Etiketsiz satırlarda bu karakterden uzun metni iki olaya böl (None = kapalı).
+    pub split_long: Option<usize>,
     pub min_duration_ms: Option<i64>,
     pub min_gap_ms: Option<i64>,
     pub only: Option<Vec<usize>>,
@@ -21,7 +23,7 @@ pub struct Fixes {
 
 impl Default for Fixes {
     fn default() -> Self {
-        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, min_duration_ms: None, min_gap_ms: None, only: None }
+        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, split_long: None, min_duration_ms: None, min_gap_ms: None, only: None }
     }
 }
 
@@ -29,6 +31,7 @@ impl Default for Fixes {
 pub struct Report {
     pub changed_lines: usize,
     pub timing_changes: usize,
+    pub split_lines: usize,
 }
 
 // ---------------------------------------------------------------- yardımcılar
@@ -267,10 +270,51 @@ pub fn apply(script: &mut Script, f: &Fixes) -> Report {
         let _ = prev_idx;
         prev_idx = Some(i);
     }
+    if let Some(max) = f.split_long {
+        rep.split_lines += split_long_lines(script, max, f.only.as_deref());
+    }
     if f.min_duration_ms.is_some() || f.min_gap_ms.is_some() {
         rep.timing_changes += fix_timing(script, f);
     }
     rep
+}
+
+/// Etiketsiz, tek satırlı ve `max` karakterden uzun olayları, ortaya en yakın cümle sonu/boşlukta ikiye böler;
+/// süre karakter oranında paylaşılır. Bölünen olay sayısını döndürür.
+pub fn split_long_lines(script: &mut Script, max: usize, only: Option<&[usize]>) -> usize {
+    let mut out: Vec<Entry> = Vec::with_capacity(script.entries.len());
+    let mut n = 0;
+    for (i, e) in std::mem::take(&mut script.entries).into_iter().enumerate() {
+        let Entry::Dialogue(d) = &e else {
+            out.push(e);
+            continue;
+        };
+        let eligible = only.map_or(true, |o| o.contains(&i)) && !d.comment && !d.text.contains('{') && !d.text.contains("\\N") && d.text.chars().count() > max && d.duration() > 0;
+        if !eligible {
+            out.push(e);
+            continue;
+        }
+        let chars: Vec<char> = d.text.chars().collect();
+        let mid = chars.len() / 2;
+        // Önce cümle sonu (. ! ? …), yoksa boşluk; ortaya en yakın olanı seç.
+        let pick = |pred: &dyn Fn(usize) -> bool| (1..chars.len() - 1).filter(|&k| pred(k)).min_by_key(|&k| k.abs_diff(mid));
+        let cut = pick(&|k| matches!(chars[k], '.' | '!' | '?' | '…') && chars.get(k + 1) == Some(&' ')).map(|k| k + 1).or_else(|| pick(&|k| chars[k] == ' '));
+        let Some(cut) = cut else {
+            out.push(e);
+            continue;
+        };
+        let (a, b): (String, String) = (chars[..cut].iter().collect::<String>().trim().to_string(), chars[cut..].iter().collect::<String>().trim().to_string());
+        if a.is_empty() || b.is_empty() {
+            out.push(e);
+            continue;
+        }
+        let t = d.start_time + (d.duration() as f64 * a.chars().count() as f64 / (a.chars().count() + b.chars().count()) as f64).round() as i64;
+        out.push(Entry::Dialogue(Dialogue { text: a, end_time: t, ..d.clone() }));
+        out.push(Entry::Dialogue(Dialogue { text: b, start_time: t, ..d.clone() }));
+        n += 1;
+    }
+    script.entries = out;
+    n
 }
 
 fn upper_first_in_text(t: &str) -> String {
@@ -380,6 +424,19 @@ mod tests {
         let v: Vec<&str> = sc.dialogues().map(|d| d.text.as_str()).collect();
         assert_eq!(v[0], "Merhaba. Işık yandı.");
         assert!(v[1].starts_with('İ') || v[1].starts_with('I'), "{}", v[1]);
+    }
+
+    #[test]
+    fn split_long() {
+        let mut sc = s(&["Bu çok uzun bir cümle. Ve ikincisi de en az onun kadar uzun olmalı ki bölünsün.", "kısa"]);
+        let f = Fixes { split_long: Some(40), mojibake: false, ..Default::default() };
+        let r = apply(&mut sc, &f);
+        assert_eq!(r.split_lines, 1);
+        let v: Vec<(i64, i64, &str)> = sc.dialogues().map(|d| (d.start_time, d.end_time, d.text.as_str())).collect();
+        assert_eq!(v.len(), 3);
+        assert_eq!(v[0].2, "Bu çok uzun bir cümle.");
+        assert_eq!(v[0].1, v[1].0, "ardışık");
+        assert_eq!(v[1].1, 2000);
     }
 
     #[test]

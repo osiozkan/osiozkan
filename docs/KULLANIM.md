@@ -11,7 +11,7 @@ Gereken harici araçlar: **ffmpeg/ffprobe** (video önizleme, ses dalga formu, a
 
 ## İş akışları
 
-**Çeviri.** Altyazıyı aç → *Dosya → Referans altyazı aç…* ile İngilizce kaynağı yükle (ızgarada ve düzenleme panelinde eşleşen satır görünür). Metni yaz: yazım hataları kırmızı altçizgiyle görünür, karakter/okuma hızı sayacı canlıdır. `Ctrl+Enter` yeni satır, `Alt+↑/↓` satırlar arası gezinme.
+**Çeviri.** *Çeviri* sekmesi: referans büyük gösterilir, çeviri kutusunda Enter kaydedip sonraki satıra geçer, "Sonraki boş satır" sesten oluşturulan boş satırlara atlar. Altyazıyı aç → *Dosya → Referans altyazı aç…* ile İngilizce kaynağı yükle (ızgarada ve düzenleme panelinde eşleşen satır görünür). Metni yaz: yazım hataları kırmızı altçizgiyle görünür, karakter/okuma hızı sayacı canlıdır. `Ctrl+Enter` yeni satır, `Alt+↑/↓` satırlar arası gezinme.
 
 **Zamanlama.** *Video → Video / ses aç…* Dalga formunda başlangıç/bitiş tutamaçlarını sürükle (kareye ve anahtar kareye yapışır), sağ tık = bitiş, Shift+tık = başlangıç; `F5` satırı video+sesle oynatır, `F6/F7` playhead'i başlangıç/bitiş yapar. Sıfırdan başlıyorsan *Zamanlama → Sesten satır oluştur…* konuşma bölgelerini boş satır olarak çıkarır. Toplu düzeltme: *Zamanlama → Son-işleyici* (lead-in/out, bitişik satırlar, anahtar kare).
 
