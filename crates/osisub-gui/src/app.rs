@@ -81,6 +81,7 @@ pub struct App {
     post_selection_only: bool,
     last_autosave: std::time::Instant,
     recovery: Vec<Recovery>,
+    guard: Option<Guarded>,
     settings: Settings,
     reference: Option<osisub_core::Script>,
     ref_lines: Vec<(i64, i64, String)>,
@@ -121,6 +122,14 @@ pub struct App {
     min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+}
+
+/// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
+#[derive(Clone)]
+enum Guarded {
+    New,
+    OpenDialog,
+    OpenPath(PathBuf),
 }
 
 /// Bulunan otomatik kayıt dosyası.
@@ -285,6 +294,7 @@ impl App {
             post_selection_only: true,
             last_autosave: std::time::Instant::now(),
             recovery: vec![],
+            guard: None,
             settings: Settings::load(),
             reference: None,
             ref_lines: vec![],
@@ -408,6 +418,42 @@ impl App {
     }
 
     // ------------------------------------------------------------ dosya
+
+    /// Değişiklik varsa onay iste, yoksa işlemi hemen yap.
+    fn request(&mut self, g: Guarded) {
+        if self.doc.is_dirty() { self.guard = Some(g); } else { self.run_guarded(g); }
+    }
+
+    fn run_guarded(&mut self, g: Guarded) {
+        match g {
+            Guarded::New => {
+                self.doc = Document::new(osisub_core::Script::new_default());
+                self.tap = None;
+                self.status = "Yeni belge".into();
+            }
+            Guarded::OpenDialog => self.open_dialog(),
+            Guarded::OpenPath(p) => self.open_path(p),
+        }
+    }
+
+    fn guard_window(&mut self, ctx: &egui::Context) {
+        let Some(g) = self.guard.clone() else { return };
+        let mut choice: Option<u8> = None;
+        egui::Window::new("Kaydedilmemiş değişiklikler").collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.label("Kaydedilmemiş değişiklikler var. Devam etmeden önce ne yapılsın?");
+            ui.horizontal(|ui| {
+                if ui.button("Kaydet ve devam").clicked() { choice = Some(0); }
+                if ui.button("Kaydetmeden devam").clicked() { choice = Some(1); }
+                if ui.button("İptal").clicked() { choice = Some(2); }
+            });
+        });
+        match choice {
+            Some(0) => { self.save(false); if !self.doc.is_dirty() { self.guard = None; self.run_guarded(g); } }
+            Some(1) => { self.guard = None; self.run_guarded(g); }
+            Some(2) => self.guard = None,
+            _ => {}
+        }
+    }
 
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
@@ -663,7 +709,7 @@ impl App {
         for p in dropped {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
-                "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { if self.doc.is_dirty() { self.status = "Kaydedilmemiş değişiklik var; önce kaydedin".into(); } else { self.open_path(p); } }
+                "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { self.request(Guarded::OpenPath(p)); }
                 "lua" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
@@ -704,7 +750,7 @@ impl App {
             let (prev, next) = ctx.input_mut(|i| (i.consume_key(Modifiers::NONE, Key::Comma), i.consume_key(Modifiers::NONE, Key::Period)));
             if prev || next { self.media.step_frames(if next { 1 } else { -1 }); }
         }
-        if open { self.open_dialog(); }
+        if open { self.request(Guarded::OpenDialog); }
         if save_as { self.save(true); } else if save { self.save(false); }
         if undo || redo || redo2 {
             if undo { self.doc.undo(); } else { self.doc.redo(); }
@@ -743,16 +789,13 @@ impl App {
     fn menu(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Dosya", |ui| {
-                if ui.add(egui::Button::new("Yeni").shortcut_text("")).clicked() {
-                    self.doc = Document::new(osisub_core::Script::new_default());
-                    ui.close();
-                }
-                if ui.add(egui::Button::new("Aç…").shortcut_text("Ctrl+O")).clicked() { ui.close(); self.open_dialog(); }
+                if ui.add(egui::Button::new("Yeni").shortcut_text("")).clicked() { ui.close(); self.request(Guarded::New); }
+                if ui.add(egui::Button::new("Aç…").shortcut_text("Ctrl+O")).clicked() { ui.close(); self.request(Guarded::OpenDialog); }
                 ui.menu_button("Son açılanlar", |ui| {
                     let recent = self.settings.recent.clone();
                     if recent.is_empty() { ui.label(RichText::new("Yok").weak()); }
                     for r in recent {
-                        if ui.button(&r).clicked() { ui.close(); self.open_path(PathBuf::from(&r)); }
+                        if ui.button(&r).clicked() { ui.close(); self.request(Guarded::OpenPath(PathBuf::from(&r))); }
                     }
                 });
                 if ui.button("Referans altyazı aç…").clicked() {
@@ -1014,6 +1057,7 @@ impl eframe::App for App {
         self.fixes_window(&ctx);
         self.stats_window(&ctx);
         self.recovery_window(&ctx);
+        self.guard_window(&ctx);
         self.export_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
