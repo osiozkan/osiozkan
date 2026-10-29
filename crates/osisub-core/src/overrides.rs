@@ -237,6 +237,25 @@ mod tests {
         }
     }
 
+    /// Rastgele (kapanmamış parantez, ters bölü, iç içe ()) metinlerde ayrıştır→yaz birebir olmalı.
+    #[test]
+    fn fuzz_parse_roundtrip() {
+        let mut seed: u64 = 0x1234ABCD5678EF01;
+        let mut rnd = move |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n.max(1)
+        };
+        let frags = ["{", "}", "\\", "\\an8", "\\pos(1,2)", "\\t(0,5,\\fs3)", "(", ")", ",", "a", "ş", "日", " ", "\\N", "\\k20", "\\fn Arial", "\\1c&HFF&", "\\clip(", "m 0 0 l 1 1"];
+        for round in 0..2000 {
+            let n = rnd(14);
+            let t: String = (0..n).map(|_| frags[rnd(frags.len())]).collect();
+            assert_eq!(to_string(&parse(&t)), t, "tur {} metin {:?}", round, t);
+            // clean() yok etmemeli: görünür metin korunur
+            let cleaned = clean(&t);
+            assert_eq!(crate::tags::strip_tags(&cleaned).replace(' ', ""), crate::tags::strip_tags(&t).replace(' ', "").replace("", ""), "tur {} metin {:?} temiz {:?}", round, t, cleaned);
+        }
+    }
+
     #[test]
     fn names() {
         let t = parse_block("\\fscx120\\fs40\\fade(1,2)\\frz30\\1a&H80&\\an5");

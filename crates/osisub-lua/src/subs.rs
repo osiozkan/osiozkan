@@ -283,3 +283,24 @@ impl UserData for Subs {
         methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.0.borrow().entries.len() as i64));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entry_table_roundtrip() {
+        let lua = Lua::new();
+        let entries = vec![
+            Entry::Info { key: "Title".into(), value: "x: y".into() },
+            Entry::Style(Style { name: "A b".into(), fontname: "Noto".into(), fontsize: 22.5, bold: true, align: 7, margin_l: 3, margin_r: 4, margin_t: 5, margin_b: 5, outline: 1.25, ..Default::default() }),
+            Entry::Dialogue(Dialogue { comment: true, layer: 2, start_time: 1230, end_time: 4560, style: "A b".into(), actor: "Ali".into(), margin_l: 1, margin_r: 2, margin_t: 3, margin_b: 3, effect: "karaoke".into(), text: "{\\k10}a, b\\Nç".into() }),
+            Entry::Unknown { section: "Aegisub Project Garbage".into(), raw: "Video File: x.mkv".into() },
+        ];
+        for e in entries {
+            let t = entry_to_table(&lua, &e).unwrap();
+            let back = table_to_entry(&t, e.section()).unwrap();
+            assert_eq!(back, e);
+        }
+    }
+}

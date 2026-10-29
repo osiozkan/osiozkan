@@ -314,6 +314,7 @@ impl Script {
                 }
                 continue;
             }
+            let lead = line.trim_start(); // metin sonundaki boşluklar korunur (yalnızca baştaki atılır)
             let known = matches!(section.as_str(), SEC_INFO | SEC_STYLES | SEC_EVENTS);
             if !known && pending_blank > 0 && !section.is_empty() {
                 for _ in 0..pending_blank {
@@ -332,9 +333,9 @@ impl Script {
                     }
                 }
                 SEC_STYLES => {
-                    if let Some(f) = strip_key(trimmed, "Format") {
+                    if let Some(f) = strip_key(lead, "Format") {
                         style_fmt = f.split(',').map(|x| x.trim().to_ascii_lowercase()).collect();
-                    } else if let Some(v) = strip_key(trimmed, "Style") {
+                    } else if let Some(v) = strip_key(lead, "Style") {
                         if let Some(st) = parse_style(v, &style_fmt, ssa) {
                             entries.push(Entry::Style(st));
                         }
@@ -343,13 +344,13 @@ impl Script {
                     }
                 }
                 SEC_EVENTS => {
-                    if let Some(f) = strip_key(trimmed, "Format") {
+                    if let Some(f) = strip_key(lead, "Format") {
                         event_fmt = f.split(',').map(|x| x.trim().to_ascii_lowercase()).collect();
-                    } else if let Some(v) = strip_key(trimmed, "Dialogue") {
+                    } else if let Some(v) = strip_key(lead, "Dialogue") {
                         if let Some(d) = parse_event(v, &event_fmt, false) {
                             entries.push(Entry::Dialogue(d));
                         }
-                    } else if let Some(v) = strip_key(trimmed, "Comment") {
+                    } else if let Some(v) = strip_key(lead, "Comment") {
                         if let Some(d) = parse_event(v, &event_fmt, true) {
                             entries.push(Entry::Dialogue(d));
                         }
@@ -695,6 +696,63 @@ mod roundtrip_tests {
         let s2 = Script::parse(&crlf);
         assert!(s2.crlf);
         assert_eq!(s2.to_ass_string(), crlf);
+    }
+
+    /// Rastgele (virgül, süslü parantez, Unicode, boşluk içeren) alanlarla yaz→oku gidiş-dönüşü.
+    #[test]
+    fn fuzz_roundtrip() {
+        let mut seed: u64 = 0xDEADBEEFCAFEF00D;
+        let mut rnd = move |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n.max(1)
+        };
+        let alphabet: Vec<char> = "abcçdefgğhıijklmnoöprsştuüvyzABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ0123456789 ,.;:!?-_(){}[]\\/|\"'日本語ｶﾅ♪…".chars().collect();
+        for round in 0..200 {
+            let mut sc = Script::new_default();
+            sc.entries.retain(|e| !matches!(e, Entry::Style(_)));
+            let n_styles = 1 + rnd(3);
+            for i in 0..n_styles {
+                let name: String = (0..1 + rnd(8)).map(|_| alphabet[rnd(alphabet.len())]).filter(|c| *c != ',' && *c != '\n').collect::<String>().trim().to_string();
+                let name = if name.is_empty() { format!("S{}", i) } else { name };
+                let mut st = Style::default();
+                st.name = name;
+                st.fontname = ["Arial", "Noto Sans CJK JP", "MS Gothic"][rnd(3)].into();
+                st.fontsize = (10 + rnd(90)) as f64 / if rnd(2) == 0 { 1.0 } else { 4.0 };
+                st.bold = rnd(2) == 0;
+                st.align = 1 + rnd(9) as i32;
+                sc.entries.push(Entry::Style(st));
+            }
+            for _ in 0..rnd(20) {
+                let text: String = (0..rnd(60)).map(|_| alphabet[rnd(alphabet.len())]).collect();
+                let text = text.replace('\n', " ");
+                let start = (rnd(100_000) / 10 * 10) as i64;
+                let first_style = sc.styles().next().unwrap().name.clone();
+                sc.entries.push(Entry::Dialogue(Dialogue {
+                    comment: rnd(5) == 0,
+                    layer: rnd(4) as i32,
+                    start_time: start,
+                    end_time: start + (rnd(5000) / 10 * 10) as i64,
+                    style: first_style,
+                    actor: (0..rnd(6)).map(|_| alphabet[rnd(alphabet.len())]).filter(|c| *c != ',').collect::<String>().trim().to_string(),
+                    margin_l: rnd(50) as i32,
+                    margin_r: rnd(50) as i32,
+                    margin_t: rnd(50) as i32,
+                    margin_b: 0,
+                    effect: String::new(),
+                    text,
+                }));
+            }
+            // margin_b yazımda margin_t ile aynıdır (tek MarginV) — beklenen durumu eşitle
+            for e in sc.entries.iter_mut() {
+                if let Entry::Dialogue(d) = e {
+                    d.margin_b = d.margin_t;
+                }
+            }
+            let out = sc.to_ass_string();
+            let back = Script::parse(&out);
+            assert_eq!(back.entries, sc.entries, "tur {}", round);
+            assert_eq!(back.to_ass_string(), out, "ikinci yazım kararlı olmalı (tur {})", round);
+        }
     }
 
     #[test]
