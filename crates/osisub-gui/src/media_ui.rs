@@ -43,6 +43,7 @@ pub struct Media {
     tex: Option<TextureHandle>,
     frame_busy: bool,
     frame_shown: (i64, u64),
+    frame_cache: std::collections::VecDeque<((i64, u64), TextureHandle)>,
     rev_seen: u64,
     rev_changed_at: std::time::Instant,
     pub playhead: i64,
@@ -85,6 +86,7 @@ impl Media {
             tex: None,
             frame_busy: false,
             frame_shown: (-1, u64::MAX),
+            frame_cache: Default::default(),
             rev_seen: u64::MAX,
             rev_changed_at: std::time::Instant::now(),
             playhead: 0,
@@ -149,6 +151,7 @@ impl Media {
         self.wave = None;
         self.keyframes.clear();
         self.tex = None;
+        self.frame_cache.clear();
         self.frame_shown = (-1, u64::MAX);
         self.view_start = 0.0;
         self.status = "Ortam çözümleniyor…".into();
@@ -310,7 +313,12 @@ impl Media {
                     match res {
                         Ok(f) => {
                             let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
-                            self.tex = Some(ctx.load_texture("frame", img, egui::TextureOptions::LINEAR));
+                            let tex = ctx.load_texture("frame", img, egui::TextureOptions::LINEAR);
+                            self.frame_cache.push_back(((time, rev), tex.clone()));
+                            if self.frame_cache.len() > 24 {
+                                self.frame_cache.pop_front();
+                            }
+                            self.tex = Some(tex);
                             self.frame_shown = (time, rev);
                         }
                         Err(e) => {
@@ -329,6 +337,13 @@ impl Media {
         let settling = self.frame_shown.1 != doc.rev && self.rev_changed_at.elapsed() < std::time::Duration::from_millis(150);
         if settling {
             ctx.request_repaint_after(std::time::Duration::from_millis(60));
+        }
+        // Önbellekte varsa ffmpeg çalıştırmadan göster.
+        if !settling && self.frame_shown != (self.playhead, doc.rev) && !self.is_playing() {
+            if let Some((_, t)) = self.frame_cache.iter().find(|(k, _)| *k == (self.playhead, doc.rev)) {
+                self.tex = Some(t.clone());
+                self.frame_shown = (self.playhead, doc.rev);
+            }
         }
         if let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) {
             if info.has_video && !self.frame_busy && !settling && !self.is_playing() && self.frame_shown != (self.playhead, doc.rev) {
