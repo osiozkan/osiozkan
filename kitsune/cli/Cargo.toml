@@ -1,0 +1,8 @@
+[package]
+name = "kitsune"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kitsune_core = { path = "../core" }
+kitsune_lua = { path = "../lua" }

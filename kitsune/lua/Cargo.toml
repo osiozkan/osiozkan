@@ -1,0 +1,8 @@
+[package]
+name = "kitsune_lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kitsune_core = { path = "../core" }
+mlua = { version = "0.12", features = ["lua51", "vendored"] }
