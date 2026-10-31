@@ -1,0 +1,20 @@
+[project]
+name = "yorusub"
+version = "0.1.0"
+description = "Anime altyazı stüdyosu: Aegisub uyumlu Lua otomasyonu + Subtitle Edit özellikleri"
+requires-python = ">=3.10"
+dependencies = ["lupa>=2.0", "PySide6-Essentials>=6.6"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+yorusub = "yorusub.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["yorusub*"]
+[tool.setuptools.package-data]
+"yorusub.lua" = ["*.lua", "lib/*.lua"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
