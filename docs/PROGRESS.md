@@ -39,7 +39,7 @@ Bkz. `docs/ROADMAP.md`.
 
 ## Tur günlüğü
 ### Tur 1 (ilk gece) — v0.2.0
-- Sıfırdan: çekirdek + Lua motoru + Qt arayüz + CLI + 57 test (hepsi geçiyor)
+- Sıfırdan: çekirdek + Lua motoru + Qt arayüz + CLI + 68 test (hepsi geçiyor)
 - Aegisub'ın gerçek karaskel/utils/kara-templater/cleantags betikleri dahil ve doğrulandı
 - Bilinmeyenler: kullanıcının kendi Lua betikleri depoda yok → uyumluluk onlarla sınanmadı. Önceki sohbet geçmişi (karşılaşılan sorunlar) erişilemedi → `docs/SORUNLAR.md` genel Türkçe/anime sorunlarından derlendi.
 - Sonraki tur: `docs/ROADMAP.md` > "Sonraki turlar için öneri".
