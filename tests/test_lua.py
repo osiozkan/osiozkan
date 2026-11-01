@@ -97,3 +97,32 @@ aegisub.register_macro("m","",function(subs, sel)
     st = h.doc.styles[0]
     assert st.fontsize == 55 and st.bold and st.color1 == "&H0000FFFF"
     assert h.doc.get_info("Title") == "new"
+
+
+def test_byte_level_strings_and_unicode_roundtrip(tmp_path):
+    h = run(tmp_path, '''
+aegisub.register_macro("m","",function(subs, sel)
+  local l = subs[6]
+  l.text = "ğüşiçö İıÖ 日本語"
+  -- byte-slicing through a multibyte char must not crash; reassembly must be lossless
+  local cut = l.text:sub(1, 3) .. l.text:sub(4)
+  l.actor = cut == l.text and "same" or "diff"
+  l.effect = tostring(#l.text)
+  subs[6] = l
+  local bad = subs[7]
+  bad.text = l.text:sub(1, 1)  -- invalid utf-8 fragment
+  subs[7] = bad
+  aegisub.log("başarılı ✓\\n")
+end)''', [6])
+    e = h.doc.lines[5]
+    assert e.text == "ğüşiçö İıÖ 日本語" and e.actor == "same"
+    assert e.effect == str(len(e.text.encode("utf-8")))
+
+
+def test_non_ascii_script_path_and_name(tmp_path):
+    d = tmp_path / "betikler ğü"
+    d.mkdir()
+    p = d / "özel.lua"
+    p.write_text('script_name="Özel Betik"\naegisub.register_macro("Türkçe/Makro","açıklama",function() end)', encoding="utf-8")
+    s = AutomationScript(str(p))
+    assert s.error is None and s.name == "Özel Betik" and s.macros[0].name == "Türkçe/Makro"

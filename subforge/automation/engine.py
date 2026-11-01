@@ -21,6 +21,26 @@ SECTION_BRACKET = {S_INFO: "[Script Info]", S_STYLES: "[V4+ Styles]", S_EVENTS: 
                    S_FONTS: "[Fonts]", S_GRAPHICS: "[Graphics]"}
 
 
+def enc(s):
+    """Python text -> byte-transparent Lua string (UTF-8 bytes carried as latin-1 chars)."""
+    return s.encode("utf-8", "replace").decode("latin-1") if isinstance(s, str) else s
+
+
+def dec(s):
+    """Lua byte-string (latin-1 view) -> real text; invalid UTF-8 becomes U+FFFD."""
+    return s.encode("latin-1", "replace").decode("utf-8", "replace") if isinstance(s, str) else s
+
+
+def _enc_deep(o):
+    if isinstance(o, str):
+        return enc(o)
+    if isinstance(o, dict):
+        return {_enc_deep(k): _enc_deep(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_enc_deep(v) for v in o]
+    return o
+
+
 class ScriptError(Exception):
     pass
 
@@ -159,7 +179,7 @@ def _int(v, default=0) -> int:
 def _str(v, default="") -> str:
     if v is None:
         return default
-    return str(v)
+    return dec(v) if isinstance(v, str) else str(v)
 
 
 def _is_lua_table(o) -> bool:
@@ -167,14 +187,16 @@ def _is_lua_table(o) -> bool:
 
 
 def lua_to_py(o):
-    """Recursively convert Lua tables (array-like -> list, else dict)."""
+    """Recursively convert Lua tables (array-like -> list, else dict); strings are decoded."""
+    if isinstance(o, str):
+        return dec(o)
     if _is_lua_table(o):
         keys = list(o.keys())
         if keys and all(isinstance(k, (int, float)) for k in keys):
             ks = sorted(keys)
             if ks == list(range(1, len(ks) + 1)):
                 return [lua_to_py(o[k]) for k in ks]
-        return {k: lua_to_py(o[k]) for k in keys}
+        return {lua_to_py(k): lua_to_py(o[k]) for k in keys}
     return o
 
 
@@ -192,13 +214,14 @@ class AutomationScript:
         self.error: str | None = None
         self.host: Host | None = None
         self._cancel_flag = False
-        self.lua = LuaRuntime(unpack_returned_tuples=True, register_eval=False, register_builtins=False)
+        self.lua = LuaRuntime(unpack_returned_tuples=True, register_eval=False, register_builtins=False,
+                               encoding="latin-1", source_encoding="latin-1")
         self._load()
 
     # ---------------------------------------------------------------- bridge
     def _bridge(self):
         L = self.lua
-        tf = L.table_from
+        tf = lambda o: L.table_from(_enc_deep(o))
 
         def h() -> Host:
             if self.host is None:
@@ -206,10 +229,10 @@ class AutomationScript:
             return self.host
 
         def log(level, msg):
-            h().ui.log(int(level), str(msg))
+            h().ui.log(int(level), dec(msg) if isinstance(msg, str) else str(msg))
 
         def progress(kind, value):
-            h().ui.progress(kind, value)
+            h().ui.progress(kind, dec(value))
 
         def progress_cancelled():
             return bool(h().ui.cancelled())
@@ -218,7 +241,7 @@ class AutomationScript:
             st = lua_to_py(style) if style is not None else {}
             if not isinstance(st, dict):
                 raise RuntimeError("text_extents: style must be a table")
-            return metrics.text_extents(st, text or "")
+            return metrics.text_extents(st, dec(text) or "")
 
         def frame_from_ms(ms):
             fps = h().project.fps
@@ -244,11 +267,11 @@ class AutomationScript:
             return tf(list(h().project.keyframes))
 
         def decode_path(p):
-            p = str(p)
+            p = dec(str(p))
             pr = h().project
             m = _re.match(r"^\?(script|data|user|temp|video|audio|local|dialog)(.*)$", p)
             if not m:
-                return p
+                return enc(p)
             kind, rest = m.groups()
             base = {
                 "script": os.path.dirname(pr.script_path) if pr.script_path else "",
@@ -260,7 +283,7 @@ class AutomationScript:
                 "local": os.path.expanduser("~/.subforge"),
                 "dialog": os.getcwd(),
             }[kind]
-            return base + rest
+            return enc(base + rest)
 
         def project_properties():
             pr = h().project
@@ -278,17 +301,18 @@ class AutomationScript:
             btns = lua_to_py(buttons) if buttons is not None else None
             idd = lua_to_py(ids) if ids is not None else None
             btn, results = h().ui.dialog(controls or [], btns, idd)
-            return (False if btn is None else btn), tf(results or {})
+            return (False if btn is None else enc(btn)), tf(results or {})
 
         def file_dialog(kind, *args):
             a = [lua_to_py(x) for x in args]
-            return h().ui.file_dialog(kind, *a)
+            r = h().ui.file_dialog(kind, *a)
+            return tf(r) if isinstance(r, list) else enc(r)
 
         def clipboard_get():
-            return h().ui.clipboard_get()
+            return enc(h().ui.clipboard_get())
 
         def clipboard_set(s):
-            return h().ui.clipboard_set(str(s))
+            return h().ui.clipboard_set(dec(str(s)))
 
         def include_dirs():
             return tf(self.include_dirs)
@@ -296,6 +320,7 @@ class AutomationScript:
         _cache: dict = {}
 
         def compile_re(pat, flags):
+            pat = dec(pat)
             key = (pat, int(flags or 0))
             r = _cache.get(key)
             if r is None:
@@ -330,20 +355,24 @@ class AutomationScript:
             return tf(res)
 
         def re_find(s, pat, flags=0, init=0):
+            s = dec(s)
             r = compile_re(pat, flags)
             m = r.search(s)
             return match_tables(s, m, bool(int(flags or 0) & 2)) if m else None
 
         def re_match(s, pat, flags=0):
+            s = dec(s)
             r = compile_re(pat, flags)
             m = r.fullmatch(s)
             return match_tables(s, m, bool(int(flags or 0) & 2)) if m else None
 
         def re_all(s, pat, flags=0):
+            s = dec(s)
             r = compile_re(pat, flags)
             return tf([match_tables(s, m, bool(int(flags or 0) & 2)) for m in r.finditer(s)])
 
         def re_sub(s, pat, repl, flags=0, count=0):
+            s, repl = dec(s), dec(repl)
             r = compile_re(pat, flags)
 
             def rep(m):
@@ -366,9 +395,10 @@ class AutomationScript:
                     i += 1
                 return "".join(out)
             res, n = r.subn(rep, s, count=int(count or 0))
-            return res, n
+            return enc(res), n
 
         def re_split(s, pat, flags=0):
+            s = dec(s)
             r = compile_re(pat, flags)
             return tf(r.split(s))
 
@@ -376,19 +406,22 @@ class AutomationScript:
 
         def make_unicode():
             def chars(s):
-                return tf(list(s))
+                return tf(list(dec(s)))
 
             def width(c):
+                c = dec(c)
                 if not c:
                     return 0
                 return 2 if unicodedata.east_asian_width(c[0]) in ("W", "F") else 1
-            return tf({"codepoint": lambda c: ord(c[0]) if c else 0, "chars_list": chars, "len": lambda s: len(s),
-                       "charwidth": width, "to_upper": lambda s: s.upper(), "to_lower": lambda s: s.lower(),
-                       "to_fold": lambda s: s.casefold(), "to_title": lambda s: s.title(),
-                       "normalize": lambda s, f="NFC": unicodedata.normalize(f, s)})
+            return tf({"codepoint": lambda c: ord(dec(c)[0]) if c else 0, "chars_list": chars,
+                       "len": lambda s: len(dec(s)), "charwidth": width,
+                       "to_upper": lambda s: enc(dec(s).upper()), "to_lower": lambda s: enc(dec(s).lower()),
+                       "to_fold": lambda s: enc(dec(s).casefold()), "to_title": lambda s: enc(dec(s).title()),
+                       "normalize": lambda s, f="NFC": enc(unicodedata.normalize(f, dec(s)))})
 
         def lfs_module():
             def attributes(p, a=None):
+                p = dec(p)
                 try:
                     st = os.stat(p)
                 except OSError:
@@ -397,9 +430,9 @@ class AutomationScript:
                 d = {"mode": "directory" if S.S_ISDIR(st.st_mode) else "file", "size": st.st_size,
                      "modification": int(st.st_mtime), "access": int(st.st_atime), "change": int(st.st_ctime)}
                 return d[a] if a else tf(d)
-            return tf({"attributes": attributes, "currentdir": os.getcwd,
-                       "mkdir": lambda p: (os.makedirs(p, exist_ok=True) or True),
-                       "dir_list": lambda p: tf(sorted(os.listdir(p)))})
+            return tf({"attributes": attributes, "currentdir": lambda: enc(os.getcwd()),
+                       "mkdir": lambda p: (os.makedirs(dec(p), exist_ok=True) or True),
+                       "dir_list": lambda p: tf(sorted(os.listdir(dec(p))))})
 
         return tf({
             "log": log, "progress": progress, "progress_cancelled": progress_cancelled,
@@ -423,13 +456,13 @@ class AutomationScript:
             chunk = L.eval("function(src, B) return loadstring(src, '=bootstrap')(B) end")
             chunk(fh.read(), bridge)
         g = L.globals()
-        g["script_dir"] = os.path.dirname(self.path)
+        g["script_dir"] = enc(os.path.dirname(self.path))
         loader = L.eval(
             "function(path) local f, err = loadfile(path) if not f then error(err, 0) end return f() end")
         # scripts may call aegisub.* at load time (e.g. text_extents) -> provide a neutral host
         self.host = Host(ASSFile.new())
         try:
-            loader(self.path)
+            loader(enc(self.path))
         except LuaError as e:
             self.error = _clean_err(e)
             self.host = None
@@ -449,7 +482,7 @@ class AutomationScript:
     # ---------------------------------------------------------------- subtitles proxy
     def _make_proxy(self, host: Host):
         L = self.lua
-        tf = L.table_from
+        tf = lambda o: L.table_from(_enc_deep(o))
         doc = host.doc
 
         def to_lua(obj):
@@ -670,7 +703,7 @@ class AutomationScript:
 
 
 def _clean_err(e) -> str:
-    s = str(e)
+    s = dec(str(e))
     return s.replace("\r", "")
 
 
