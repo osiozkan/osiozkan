@@ -36,3 +36,15 @@ Bkz. `CHANGELOG.md`.
 
 ## Bilinen eksikler / sıradaki işler (öncelik sırasıyla)
 Bkz. `docs/ROADMAP.md`.
+
+## Tur günlüğü
+### Tur 1 (ilk gece) — v0.2.0
+- Sıfırdan: çekirdek + Lua motoru + Qt arayüz + CLI + 57 test (hepsi geçiyor)
+- Aegisub'ın gerçek karaskel/utils/kara-templater/cleantags betikleri dahil ve doğrulandı
+- Bilinmeyenler: kullanıcının kendi Lua betikleri depoda yok → uyumluluk onlarla sınanmadı. Önceki sohbet geçmişi (karşılaşılan sorunlar) erişilemedi → `docs/SORUNLAR.md` genel Türkçe/anime sorunlarından derlendi.
+- Sonraki tur: `docs/ROADMAP.md` > "Sonraki turlar için öneri".
+
+### Her tur başında yapılacaklar
+1. `git pull`, `python -m pytest tests -q` (hepsi geçmeli)
+2. `scripts/` ve `docs/SORUNLAR.md` içinde yeni madde var mı bak → önce onları çöz
+3. ROADMAP'ten en üstteki maddeyi al, test yaz, uygula, CHANGELOG + bu dosyayı güncelle, commit + push

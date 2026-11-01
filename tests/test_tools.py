@@ -70,3 +70,15 @@ def test_balance():
     e = [ev(0, 1, "word " * 12)]
     tools.balance_lines(e, 30)
     assert "\\N" in e[0].text
+
+
+def test_mojibake():
+    from subforge.core.textutil import fix_mojibake, looks_mojibake
+    bad = "Ã§ocuk Ã¶ÄŸretmen ÅŸimdi Ä°stanbul".encode("utf-8").decode("latin-1")
+    assert fix_mojibake("Merhaba dünya çalışıyor") == "Merhaba dünya çalışıyor"
+    turkish = "çocuk öğretmen şimdi İstanbul ığ"
+    broken = turkish.encode("utf-8").decode("cp1252", errors="replace")
+    assert looks_mojibake(turkish.encode("utf-8").decode("latin-1"))
+    assert fix_mojibake(turkish.encode("utf-8").decode("latin-1")) == turkish
+    e = [ev(0, 1000, turkish.encode("utf-8").decode("latin-1"))]
+    assert tools.repair_mojibake(e) == 1 and e[0].text == turkish

@@ -31,6 +31,7 @@ class Project(QObject):
         super().__init__()
         self.doc = ASSFile.new()
         self.path: str | None = None
+        self.source: str | None = None   # file originally opened (may be non-ASS)
         self.format = "ass"
         self.encoding = "utf-8"
         self.dirty = False
@@ -60,6 +61,7 @@ class Project(QObject):
         doc, fmt, enc = load_file(path, encoding)
         self.doc = doc
         self.path = path if fmt == "ass" else None
+        self.source = path
         self.format = fmt
         self.encoding = enc
         self._undo.clear(); self._redo.clear()
@@ -155,7 +157,8 @@ class Project(QObject):
 
     @property
     def title(self) -> str:
-        return os.path.basename(self.path) if self.path else "Untitled"
+        p = self.path or self.source
+        return os.path.basename(p) if p else "Untitled"
 
     @property
     def fps(self) -> float | None:

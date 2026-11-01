@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .ass import ASSFile, Event
 from .tags import plain_text, split_blocks
+from .textutil import looks_mojibake
 
 
 @dataclass
@@ -76,6 +77,8 @@ def check(doc: ASSFile, s: QCSettings | None = None) -> list[Issue]:
                 out.append(Issue(i, "dblspace", "info", "Çift boşluk"))
             if txt != txt.strip(" ") and txt.strip():
                 out.append(Issue(i, "trimspace", "info", "Baş/son boşluk"))
+        if looks_mojibake(e.text):
+            out.append(Issue(i, "mojibake", "error", "Bozuk karakterler (UTF-8 yanlış kodlamayla okunmuş) — Araçlar > Bozuk karakterleri onar"))
         if s.check_tags:
             depth = 0
             bad = False

@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
         self.grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.grid.customContextMenuRequested.connect(self._grid_menu)
         self.setCentralWidget(self.grid)
+        self.setAcceptDrops(True)
 
         self.video = VideoPanel(self.project)
         self.wave = WaveformWidget(self.project)
@@ -139,10 +140,31 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.docks["dock_video"], self.docks["dock_edit"]], [680, 820], Qt.Orientation.Horizontal)
         self.resizeDocks([self.docks["dock_video"], self.docks["dock_audio"]], [420, 190], Qt.Orientation.Vertical)
 
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for url in e.mimeData().urls():
+            f = url.toLocalFile()
+            ext = os.path.splitext(f)[1].lower()
+            if ext in (".ass", ".ssa", ".srt", ".vtt", ".sub", ".lrc"):
+                self.open_path(f)
+            elif ext == ".lua":
+                import shutil
+                os.makedirs(os.path.join(USER_DIR, "automation", "autoload"), exist_ok=True)
+                shutil.copy2(f, os.path.join(USER_DIR, "automation", "autoload"))
+                self.reload_scripts()
+                self.statusBar().showMessage(f"Betik yüklendi: {os.path.basename(f)}", 5000)
+            elif ext:
+                self.open_video(f)
+
     def closeEvent(self, e):
         if not self._confirm_discard():
             e.ignore()
             return
+        for w in list(self._workers):
+            w.wait(3000)
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("state", self.saveState())
         e.accept()
@@ -202,6 +224,7 @@ class MainWindow(QMainWindow):
         self.a_karaoke = A("Karaoke zamanlayıcı…", self.show_karaoke, "Ctrl+K")
         self.a_select = A("Satır seç…", self.show_select, "Ctrl+Shift+F")
         self.a_qc = A("Kalite kontrol…", self.show_qc, "Ctrl+Shift+Q")
+        self.a_moji = A("Bozuk karakterleri onar (Ã§ → ç)", lambda: self._tool("Bozuk karakter onar", tools.repair_mojibake))
         self.a_fix = A("Yaygın hataları düzelt", lambda: self._tool("Yaygın hatalar", tools.fix_common_errors))
         self.a_balance = A("Satırları dengele (42)", lambda: self._tool("Dengele", lambda ev: tools.balance_lines(ev, 42)))
         self.a_hi = A("İşitme engelli notlarını sil", lambda: self._do("İE sil", lambda d: tools.remove_hearing_impaired(d)))
@@ -336,7 +359,7 @@ class MainWindow(QMainWindow):
                   None, self.a_set_start, self.a_set_end, self.a_apply_range, self.a_new_range):
             m.addAction(a) if a else m.addSeparator()
         m = mb.addMenu("A&raçlar")
-        for a in (self.a_qc, self.a_stats, self.a_karaoke, self.a_select, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
+        for a in (self.a_qc, self.a_stats, self.a_karaoke, self.a_select, self.a_moji, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
             m.addAction(a)
         mc = m.addMenu("Harf büyüklüğü")
         for a in (self.a_up, self.a_low, self.a_sent):
@@ -918,7 +941,8 @@ class MainWindow(QMainWindow):
         return self._write(self.project.path)
 
     def save_as(self) -> bool:
-        p, _ = QFileDialog.getSaveFileName(self, "Farklı kaydet", self.project.path or "untitled.ass", "ASS (*.ass)")
+        src = self.project.path or (os.path.splitext(self.project.source)[0] + ".ass" if self.project.source else "untitled.ass")
+        p, _ = QFileDialog.getSaveFileName(self, "Farklı kaydet", src, "ASS (*.ass)")
         if not p:
             return False
         if not p.lower().endswith((".ass", ".ssa")):

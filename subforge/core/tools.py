@@ -11,7 +11,7 @@ from typing import Iterable, Sequence
 
 from .ass import ASSFile, Event, Style
 from .tags import plain_text, split_blocks
-from .textutil import tr_upper, tr_lower
+from .textutil import tr_upper, tr_lower, fix_mojibake, looks_mojibake
 
 
 # ------------------------------------------------------------------ timing
@@ -379,3 +379,18 @@ def _scale_tags(text: str, fx: float, fy: float) -> str:
         b = re.sub(r"\\fsp(-?[\d.]+)", lambda k: "\\fsp" + _fmt(float(k.group(1)) * fx), b)
         return b
     return re.sub(r"\{[^}]*\}", blk, text)
+
+
+def repair_mojibake(events: Iterable[Event]) -> int:
+    """Fix 'Ã§ Ä± ÅŸ' style broken Turkish/Latin characters in text, actor, effect."""
+    n = 0
+    for e in events:
+        ch = False
+        for fld in ("text", "actor", "effect"):
+            old = getattr(e, fld)
+            new = fix_mojibake(old)
+            if new != old:
+                setattr(e, fld, new)
+                ch = True
+        n += ch
+    return n
