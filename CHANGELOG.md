@@ -1,6 +1,6 @@
 # Değişiklik Günlüğü
 
-## 0.1.1 — aynı gece
+## 0.2.0 — ilk gece (son hal)
 - Aegisub'ın gerçek `karaskel`/`utils`/`kara-templater`/`cleantags`/… betikleri pakete eklendi ve testlerde çalışıyor
 - Auto4: `parse_karaoke_data`, `set_undo_point`, `script_resolution`, negatif indeks, `ipairs(subs)`, bayt-şeffaf dizeler
 - VFR zaman kodları (v1/v2, videodan algılama), karaoke zamanlayıcı (dokunarak zamanla), satır seç, referans/çeviri paneli

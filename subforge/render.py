@@ -27,6 +27,9 @@ _ASS_Image._fields_ = [("w", ctypes.c_int), ("h", ctypes.c_int), ("stride", ctyp
 
 def _load_lib():
     names = list(_CANDIDATES)
+    here = os.path.join(os.path.dirname(__file__), "bin")
+    if os.path.isdir(here):
+        names = [os.path.join(here, n) for n in _CANDIDATES] + names
     found = ctypes.util.find_library("ass")
     if found:
         names.insert(0, found)
@@ -138,3 +141,64 @@ class LibassRenderer:
 
 def make_renderer():
     return LibassRenderer() if available() else None
+
+
+def fallback_paint(painter, rect, doc, t_ms: int):
+    """Approximate preview (no libass): styled text with outline, alignment and margins. Tags ignored."""
+    from PySide6.QtCore import Qt, QRectF, QPointF
+    from PySide6.QtGui import QColor, QFont, QPainterPath, QFontMetricsF
+    from .core.ass import Event
+    from .core.tags import plain_text
+    px, py = doc.play_res
+    k = rect.height() / py
+    smap = doc.style_map()
+    painter.save()
+    painter.setRenderHint(painter.RenderHint.Antialiasing)
+
+    def qcol(c):
+        c = c[2:]
+        a, b, g, r = (int(c[i:i + 2], 16) for i in (0, 2, 4, 6))
+        return QColor(r, g, b, 255 - a)
+    for e in doc.events:
+        if e.comment or not (e.start_time <= t_ms < e.end_time):
+            continue
+        st = smap.get(e.style) or (doc.styles[0] if doc.styles else None)
+        if st is None:
+            continue
+        text = plain_text(e.text)
+        if not text.strip():
+            continue
+        f = QFont(st.fontname)
+        f.setPixelSize(max(4, int(st.fontsize * k)))
+        f.setBold(st.bold); f.setItalic(st.italic); f.setUnderline(st.underline)
+        fm = QFontMetricsF(f)
+        lines = text.split("\n")
+        lh = fm.height()
+        total = lh * len(lines)
+        ml = (e.margin_l or st.margin_l) * k
+        mr = (e.margin_r or st.margin_r) * k
+        mv = (e.margin_t or st.margin_t) * k
+        a = st.align
+        if a in (7, 8, 9):
+            y0 = rect.top() + mv
+        elif a in (4, 5, 6):
+            y0 = rect.top() + (rect.height() - total) / 2
+        else:
+            y0 = rect.bottom() - mv - total
+        for i, ln in enumerate(lines):
+            w = fm.horizontalAdvance(ln)
+            if a % 3 == 1:
+                x = rect.left() + ml
+            elif a % 3 == 0:
+                x = rect.right() - mr - w
+            else:
+                x = rect.left() + ml + (rect.width() - ml - mr - w) / 2
+            path = QPainterPath()
+            path.addText(QPointF(x, y0 + i * lh + fm.ascent()), f, ln)
+            if st.outline > 0:
+                from PySide6.QtGui import QPen
+                painter.setPen(QPen(qcol(st.color3), max(1.0, st.outline * k * 2)))
+                painter.drawPath(path)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.fillPath(path, qcol(st.color1))
+    painter.restore()

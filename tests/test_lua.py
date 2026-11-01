@@ -141,3 +141,11 @@ aegisub.register_filter("Mark", "d", 5,
     assert cfg == {"tag": "ZZ"}
     f.run(h, cfg)
     assert all(e.effect == "ZZ" for e in h.doc.events)
+
+
+def test_trace_level_filters_debug(tmp_path):
+    s = make(tmp_path, '''aegisub.register_macro("m","",function()
+  aegisub.log("shown\\n") aegisub.debug.out(5, "hidden\\n") aegisub.log(1, "also shown\\n") end)''')
+    ui = HeadlessUI()
+    s.macros[0].run(Host(parse_ass(SAMPLE), [], ui=ui))
+    assert [m for _, m in ui.logs] == ["shown\n", "also shown\n"]

@@ -54,6 +54,8 @@ class CancelledError(Exception):
 class HeadlessUI:
     """Non-interactive UI: dialogs auto-accept using control defaults (or `answers`)."""
 
+    trace_level = 3
+
     def __init__(self, answers: dict | None = None, button: str | None = None):
         self.answers = answers or {}
         self.button = button
@@ -237,7 +239,10 @@ class AutomationScript:
             return self.host
 
         def log(level, msg):
-            h().ui.log(int(level), dec(msg) if isinstance(msg, str) else str(msg))
+            ui = h().ui
+            if int(level) > getattr(ui, "trace_level", 3):
+                return   # like Aegisub's "Automation Trace Level": hide chatty debug output
+            ui.log(int(level), dec(msg) if isinstance(msg, str) else str(msg))
 
         def progress(kind, value):
             h().ui.progress(kind, dec(value))

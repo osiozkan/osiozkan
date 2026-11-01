@@ -103,6 +103,8 @@ class VideoCanvas(QWidget):
         ov = pan.overlay_for(int(r.width()), int(r.height()))
         if ov is not None:
             p.drawImage(r.topLeft(), ov)
+        elif not render.available():
+            render.fallback_paint(p, r, pan.project.doc, pan._pos)
         if self.tool == "clip" and self._press is not None and self._cur:
             a = self.from_script(self._press[0], self._press[1]); b = self.from_script(*self._cur)
             p.setPen(QColor("#ffd166")); p.drawRect(QRectF(a, b).normalized())
@@ -115,8 +117,9 @@ class VideoCanvas(QWidget):
             c = self.from_script(ax, ay)
             p.setPen(QColor("#ffd166")); p.drawEllipse(c, 6, 6)
         if ov is None and not render.available():
-            p.setPen(QColor("#ffffff"))
-            p.drawText(r, Qt.AlignmentFlag.AlignCenter, "libass bulunamadı — altyazı önizlemesi kapalı")
+            p.setPen(QColor("#ffd166"))
+            p.drawText(QRectF(r.left() + 6, r.top() + 4, r.width(), 16), Qt.AlignmentFlag.AlignLeft,
+                       "libass yok — yaklaşık önizleme (etiketler yok sayılır)")
         p.end()
 
 
