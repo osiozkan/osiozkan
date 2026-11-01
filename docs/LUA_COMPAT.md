@@ -20,11 +20,13 @@ Motor: **LuaJIT 2.1** (Aegisub ile aynı Lua 5.1 anlambilimi; `bit`, `ffi`, `unp
 | `aegisub.frame_from_ms/ms_from_frame/video_size/keyframes/project_properties/decode_path` | ✅ (CFR; VFR ⬜) |
 | `aegisub.clipboard` / `require "aegisub.clipboard"` | ✅ |
 | `include("karaskel.lua")`, `include("utils.lua")`, `require "aegisub.util"`, `require "re"`, `require "unicode"`, `lfs` | ✅ |
-| `karaskel.collect_head/preproc_line(+_text/_size/_pos)/parse_syllables` | ✅ (kendi uygulamamız; Aegisub çıktısıyla birebir doğrulanmadı) |
+| `karaskel` (+furigana), `utils` | ✅ **Aegisub'ın kendi dosyaları** (BSD) kullanılıyor — davranış birebir |
+| `aegisub.parse_karaoke_data`, `aegisub.set_undo_point`, `subs.script_resolution()`, `subs[-n]=line`, `ipairs(subs)`, `unicode.charwidth(s,i)` | ✅ (gerçek karaskel'in ihtiyaç duyduğu API'ler) |
+| Aegisub'ın paket betikleri: Karaoke Templater (makro + dışa aktarma filtresi), Clean Tags, Auto Lead-in, Edgeblur, Fullwidth, Strip Tags | ✅ testlerde çalıştırılıyor (`tests/test_aegisub_scripts.py`) |
 | Lua dizeleri bayt düzeyinde (geçersiz UTF-8 parçaları dahil) | ✅ |
 | `aegisub.re` (Boost yerine Python `re`; `find/gfind/match/sub/split/compile`) | 🟡 Perl söz dizimi farkları olabilir |
 | MoonScript (`.moon`) | ⬜ |
 | `lpeg`, `lua-cjson` dış modüller | ⬜ |
 
 Doğrulanmamış varsayımlar (kullanıcının betikleriyle test edilmeli):
-`util.HSV_to_RGB` aralıkları (H derece, S/V 0–1), `karaskel` alan adları, `re.match` anlambilimi.
+`aegisub.util` (HSV_to_RGB aralıkları: H derece, S/V 0–1), `re.match` anlambilimi, `syl.tag` biçimi (`\\k`, `\\kf`), `aegisub.text_extents` ölçüleri (Qt vs. GDI/Pango farkı → şablonlarda ±birkaç piksel).

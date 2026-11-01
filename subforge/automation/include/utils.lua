@@ -1,29 +1,30 @@
--- Legacy global helper library (Auto3/Auto4 'utils.lua')
-local util = require("aegisub.util")
+﻿--[[
+ Copyright (c) 2005-2006, Niels Martin Hansen, Rodrigo Braz Monteiro
+ All rights reserved.
 
-for _, n in ipairs({"interpolate", "interpolate_color", "interpolate_alpha", "ass_color", "ass_alpha",
-                    "ass_style_color", "extract_color", "alpha_from_style", "color_from_style",
-                    "HSV_to_RGB", "RGB_to_HSV", "HSL_to_RGB", "RGB_to_HSL"}) do
-  _G[n] = util[n]
-end
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
 
-function math.round(n, dec)
-  dec = dec or 0
-  local m = 10 ^ dec
-  return math.floor(n * m + 0.5) / m
-end
-function math.clamp(v, lo, hi) return util.clamp(v, lo, hi) end
-function string.trim(s) return util.trim(s) end
-function string.headtail(s) return util.headtail(s) end
-function string.words(s) return util.words(s) end
-function table.copy(t) return util.copy(t) end
-function table.copy_deep(t) return util.deep_copy(t) end
-function table.append(a, b) for _, v in ipairs(b) do a[#a+1] = v end return a end
-function table.indexof(t, v) for i, x in ipairs(t) do if x == v then return i end end end
-function string.startswith(s, p) return s:sub(1, #p) == p end
-function string.endswith(s, p) return p == "" or s:sub(-#p) == p end
-function string.split(s, sep)
-  local r = {}
-  for piece in (s .. sep):gmatch("(.-)" .. sep:gsub("%p", "%%%0")) do r[#r+1] = piece end
-  return r
-end
+   * Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above copyright notice,
+     this list of conditions and the following disclaimer in the documentation
+     and/or other materials provided with the distribution.
+   * Neither the name of the Aegisub Group nor the names of its contributors
+     may be used to endorse or promote products derived from this software
+     without specific prior written permission.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+]]
+
+include "utils-auto4.lua"

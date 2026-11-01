@@ -1121,7 +1121,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ automation
     def script_dirs(self) -> list[str]:
-        dirs = [os.path.join(USER_DIR, "automation", "autoload"), REPO_SCRIPTS]
+        bundled = os.path.join(os.path.dirname(os.path.dirname(__file__)), "automation", "autoload")
+        dirs = [bundled, os.path.join(USER_DIR, "automation", "autoload"), REPO_SCRIPTS]
         dirs += [d for d in self.settings.value("script_dirs", [], type=list) if d]
         return dirs
 

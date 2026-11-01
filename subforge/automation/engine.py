@@ -100,6 +100,9 @@ class HeadlessUI:
     def clipboard_set(self, s):
         return True
 
+    def undo_point(self, desc: str):
+        pass
+
     def log(self, level: int, msg: str):
         self.logs.append((level, msg))
 
@@ -272,6 +275,13 @@ class AutomationScript:
                 return None
             return vs[0], vs[1], 0, 0
 
+        def set_undo_point(desc):
+            h().ui.undo_point(dec(desc) if isinstance(desc, str) else "")
+
+        def parse_karaoke_data(line):
+            text = _str(line["text"]) if _is_lua_table(line) else ""
+            return tf(_parse_karaoke(text))
+
         def keyframes():
             return tf(list(h().project.keyframes))
 
@@ -417,11 +427,15 @@ class AutomationScript:
             def chars(s):
                 return tf(list(dec(s)))
 
-            def width(c):
-                c = dec(c)
-                if not c:
+            def width(s, i=1):
+                """Byte length of the UTF-8 character starting at byte offset i (1-based)."""
+                b = s.encode("latin-1", "replace")
+                i = int(i) - 1
+                if i < 0 or i >= len(b):
                     return 0
-                return 2 if unicodedata.east_asian_width(c[0]) in ("W", "F") else 1
+                lead = b[i]
+                n = 1 if lead < 0x80 else 2 if lead >> 5 == 0b110 else 3 if lead >> 4 == 0b1110 else 4 if lead >> 3 == 0b11110 else 1
+                return min(n, len(b) - i)
             return tf({"codepoint": lambda c: ord(dec(c)[0]) if c else 0, "chars_list": chars,
                        "len": lambda s: len(dec(s)), "charwidth": width,
                        "to_upper": lambda s: enc(dec(s).upper()), "to_lower": lambda s: enc(dec(s).lower()),
@@ -449,6 +463,7 @@ class AutomationScript:
             "video_size": video_size, "keyframes": keyframes, "decode_path": decode_path,
             "project_properties": project_properties, "dialog": dialog, "file_dialog": file_dialog,
             "clipboard_get": clipboard_get, "clipboard_set": clipboard_set, "include_dirs": include_dirs,
+            "set_undo_point": set_undo_point, "parse_karaoke_data": parse_karaoke_data,
             "re_raw": re_mod, "unicode_raw": make_unicode(), "lfs_module": lfs_module,
             "re_module": lambda: None, "unicode_module": lambda: None,
         })
@@ -652,7 +667,11 @@ class AutomationScript:
             remap_delete(a, b)
             host.modified = True
 
+        def script_resolution():
+            return doc.play_res
+
         return tf({"get": get, "set": set_, "count": count, "insert": insert, "append": append,
+                   "script_resolution": script_resolution,
                    "delete": delete, "deleterange": deleterange})
 
     # ---------------------------------------------------------------- running
@@ -729,6 +748,50 @@ class AutomationScript:
             self._fail(e)
         finally:
             self.host = None
+
+
+def _parse_karaoke(text: str) -> dict:
+    """Port of Aegisub's AssKaraoke syllable parsing for aegisub.parse_karaoke_data (index 0 = pre-tag text)."""
+    syls = []
+
+    def new(dur=0, tag="\\k"):
+        syls.append({"dur": dur * 10, "tag": tag, "text": "", "ovr": {}})
+        return syls[-1]
+    cur = new()
+    pos = 0
+    for m in _re.finditer(r"\{([^}]*)\}|([^{]+|\{)", text):
+        if m.group(2) is not None:
+            cur["text"] += m.group(2)
+            continue
+        inner = m.group(1)
+        pending = ""
+        for tm in _re.finditer(r"\\(?:kf|ko|kt|k|K)(-?\d+(?:\.\d+)?)|\\(?:[^\\(]|\([^)]*\))*", inner):
+            piece = tm.group(0)
+            km = _re.match(r"\\(kf|ko|k|K)(-?\d+(?:\.\d+)?)$", piece)
+            if km:
+                if pending:
+                    cur["ovr"][len(cur["text"])] = cur["ovr"].get(len(cur["text"]), "") + pending
+                    pending = ""
+                name = {"K": "kf"}.get(km.group(1), km.group(1))
+                cur = new(int(float(km.group(2))), "\\" + name)
+            else:
+                pending += piece
+        if pending:
+            cur["ovr"][len(cur["text"])] = cur["ovr"].get(len(cur["text"]), "") + pending
+    out = {}
+    t = 0
+    for i, s in enumerate(syls):
+        txt, stripped = s["text"], s["text"]
+        built, last = [], 0
+        for off in sorted(s["ovr"]):
+            built.append(txt[last:off])
+            built.append("{" + s["ovr"][off] + "}")
+            last = off
+        built.append(txt[last:])
+        out[i] = {"duration": s["dur"], "start_time": t, "end_time": t + s["dur"], "tag": s["tag"],
+                  "text": "".join(built), "text_stripped": stripped}
+        t += s["dur"]
+    return out
 
 
 def _clean_err(e) -> str:

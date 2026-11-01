@@ -20,6 +20,22 @@ end
 
 function aegisub.cancel() error(CANCEL, 0) end
 
+-- ipairs() must also walk the userdata subtitle collection (Aegisub scripts do `for i,l in ipairs(subs)`)
+local raw_ipairs = ipairs
+function ipairs(t)
+  if type(t) == "userdata" then
+    return function(_, i)
+      i = i + 1
+      local v = t[i]
+      if v ~= nil then return i, v end
+    end, t, 0
+  end
+  return raw_ipairs(t)
+end
+
+function aegisub.set_undo_point(desc) B.set_undo_point(desc) end
+function aegisub.parse_karaoke_data(line) return B.parse_karaoke_data(line) end
+
 function aegisub.log(a, ...)
   local level, rest
   if type(a) == "number" then
@@ -139,6 +155,7 @@ function __make_subs(P)
     return P.deleterange(strip(...))
   end
   function methods.n() return P.count() end
+  function methods.script_resolution(...) return P.script_resolution() end
   mt.__index = function(_, k)
     if type(k) == "number" then
       return P.get(k)
@@ -149,7 +166,9 @@ function __make_subs(P)
   end
   mt.__newindex = function(_, k, v)
     if type(k) ~= "number" then error("cannot set non-numeric key on subtitles", 2) end
-    if k == 0 then P.append(v) else P.set(k, v) end
+    if k == 0 then P.append(v)
+    elseif k < 0 then P.insert(-k, v)
+    else P.set(k, v) end
   end
   mt.__len = function() return P.count() end
   mt.__tostring = function() return "subtitles" end
