@@ -88,3 +88,44 @@ def test_karaoke_dialog_and_select(win):
     s = SelectDialog(win)
     s.pat.setText("selam"); s.run()
     assert 2 in win.selected_rows()
+
+
+def test_visual_tools(win):
+    from PySide6.QtCore import QPointF
+    win.select_row(0)
+    win.video.set_tool("pos")
+    win.video.tagEdit.emit("pos", "(100,200)", False)
+    win.video.tagEdit.emit("clip", "(1,2,3,4)", False)
+    t = win.project.events[0].text
+    assert t.startswith("{\\clip(1,2,3,4)\\pos(100,200)") or "\\pos(100,200)" in t
+    win.project.undo(); win.project.undo()
+    assert win.project.events[0].text.startswith("{\\k20}")
+
+
+def test_all_dialogs_construct(win):
+    from subforge.gui import dialogs as D, misc_dialogs as M, manager
+    win.select_row(0)
+    for mk in (lambda: M.FontsDialog(win), lambda: M.AttachmentsDialog(win), lambda: M.StatsDialog(win.project, win),
+               lambda: M.ShortcutsDialog(win), lambda: M.ExportFiltersDialog(win), lambda: D.StylesDialog(win.project, win),
+               lambda: D.PropertiesDialog(win.project, win), lambda: manager.ManagerDialog(win),
+               lambda: D.ShiftDialog(win, 24, 1), lambda: D.TimingDialog(win, 1, False), lambda: D.SyncDialog(win, 0, 1000),
+               lambda: D.FpsDialog(win), lambda: D.QCDialog(win.project, win), lambda: D.FindReplaceDialog(win)):
+        d = mk(); d.close()
+
+
+def test_shortcut_persistence(win):
+    win.set_shortcut("a_dup", "Ctrl+Alt+D")
+    assert win.a_dup.shortcut().toString() == "Ctrl+Alt+D"
+    assert win.settings.value("shortcut/a_dup") == "Ctrl+Alt+D"
+    win.set_shortcut("a_dup", win.default_shortcuts["a_dup"])
+    win.settings.remove("shortcut/a_dup")
+
+
+def test_properties_resample(win):
+    from subforge.gui.dialogs import PropertiesDialog
+    d = PropertiesDialog(win.project, win)
+    d.rx.setValue(1920); d.ry.setValue(1080)
+    d.apply()
+    assert win.project.doc.play_res == (1920, 1080)
+    win.project.undo()
+    assert win.project.doc.play_res == (1280, 720)

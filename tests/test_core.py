@@ -44,3 +44,12 @@ def test_ssa_upgrade():
     d = parse_ass(ssa)
     assert d.styles[0].align == 8 and d.styles[0].bold
     assert "V4+ Styles" in write_ass(d)
+
+
+def test_set_override():
+    from subforge.core.tags import set_override, get_override
+    assert set_override("abc", "pos", "(1,2)") == "{\\pos(1,2)}abc"
+    assert set_override("{\\an8\\pos(5,5)\\b1}abc", "pos", "(1,2)") == "{\\pos(1,2)\\an8\\b1}abc"
+    assert get_override("{\\an8\\frz12.5}x", "frz") == "12.5"
+    assert get_override("{\\pos(3,4)}x", "pos") == "(3,4)"
+    assert set_override("{\\clip(1,1,2,2)\\i1}x", "clip", "(0,0,9,9)") == "{\\clip(0,0,9,9)\\i1}x"

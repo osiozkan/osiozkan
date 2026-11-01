@@ -16,7 +16,7 @@ from ..automation import (AutomationScript, CancelledError, Host, ProjectInfo, S
 from ..core import checks, tools
 from ..core.ass import Event, Style
 from ..core.formats import export_text
-from ..core.tags import plain_text
+from ..core.tags import plain_text, set_override, get_override
 from ..core.timecode import ms_to_ass
 from ..project import Project
 from .dialogs import (FindReplaceDialog, FpsDialog, PropertiesDialog, QCDialog, ShiftDialog, StylesDialog, SyncDialog,
@@ -25,6 +25,7 @@ from .editpanel import EditPanel
 from .lua_ui import LogWindow, QtUI
 from .model import EventModel, COLS
 from .video import VideoPanel
+from .misc_dialogs import FontsDialog, AttachmentsDialog, StatsDialog, ShortcutsDialog, ExportFiltersDialog
 from .tools_dialogs import KaraokeDialog, SelectDialog, ReferencePanel
 from .waveform import WaveformWidget
 from .widgets import apply_theme
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.lbl_media)
 
         self._build_actions()
+        self._init_shortcuts()
         self._build_menus()
         self._wire()
         apply_theme(QApplication.instance(), self.dark)
@@ -229,6 +231,11 @@ class MainWindow(QMainWindow):
         self.a_manager = A("Otomasyon yöneticisi…", self.show_manager)
         self.a_adddir = A("Betik klasörü ekle…", self.add_script_dir)
         self.a_about = A("SubForge hakkında", self.about)
+        self.a_fonts = A("Yazı tipleri / topla / göm…", lambda: FontsDialog(self).exec())
+        self.a_attach = A("Ekler…", lambda: AttachmentsDialog(self).exec())
+        self.a_stats = A("İstatistikler…", lambda: StatsDialog(self.project, self).exec())
+        self.a_shortcuts = A("Kısayol tuşları…", lambda: ShortcutsDialog(self).exec())
+        self.a_export_filters = A("Filtreli dışa aktar (Auto4)…", self.export_with_filters)
         self.a_goto = A("Satıra git…", self.goto_dialog, "Ctrl+G")
         # global typing-safe shortcuts
         for key, fn in (("Space", self._space), (",", lambda: self._if_not_typing(lambda: self.video.step(-1))),
@@ -239,6 +246,59 @@ class MainWindow(QMainWindow):
         sc.activated.connect(self.apply_range)
         sc = QShortcut(QKeySequence("Shift+Return"), self.wave, context=Qt.ShortcutContext.WidgetShortcut)
         sc.activated.connect(self.new_from_range)
+
+    def shortcut_actions(self) -> dict:
+        return {k: a for k, a in self._named_actions.items()}
+
+    def _init_shortcuts(self):
+        self._named_actions = {}
+        for k, a in vars(self).items():
+            if k.startswith("a_") and isinstance(a, QAction):
+                a.setObjectName(k)
+                self._named_actions[k] = a
+        self.default_shortcuts = {k: a.shortcut().toString() for k, a in self._named_actions.items()}
+        for k, a in self._named_actions.items():
+            v = self.settings.value("shortcut/" + k, None)
+            if v is not None:
+                a.setShortcut(QKeySequence(v))
+
+    def set_shortcut(self, key, seq):
+        a = self._named_actions.get(key)
+        if a is not None:
+            a.setShortcut(QKeySequence(seq))
+            self.settings.setValue("shortcut/" + key, seq)
+
+    def export_with_filters(self):
+        d = ExportFiltersDialog(self)
+        if not d.exec():
+            return
+        chosen = d.chosen()
+        p, _ = QFileDialog.getSaveFileName(self, "Filtreli dışa aktar", (os.path.splitext(self.project.path or "out")[0]) + "_export.ass",
+                                           "ASS (*.ass)")
+        if not p:
+            return
+        import copy, dataclasses
+        from ..core.ass import ASSFile
+        doc = ASSFile(lines=[dataclasses.replace(l) for l in self.project.doc.lines])
+        pr = self.project
+        info = ProjectInfo(fps=pr.fps, timecodes=pr.timecodes, video_size=pr.video_size, video_file=pr.video_path,
+                           audio_file=pr.audio_path, script_path=pr.path or "")
+        ui = QtUI(self, "Dışa aktar")
+        host = Host(doc, [], 0, ui, info)
+        try:
+            for f in chosen:
+                cfg = f.get_config(host)
+                if cfg is None:
+                    return
+                f.run(host, cfg)
+        except (ScriptError, CancelledError) as e:
+            QMessageBox.warning(self, "Filtre", str(e) or "İptal edildi")
+            return
+        finally:
+            ui.finish()
+        with open(p, "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write(doc.to_string())
+        self.statusBar().showMessage(f"Dışa aktarıldı: {p}", 5000)
 
     def _typing(self):
         w = QApplication.focusWidget()
@@ -261,6 +321,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         for a in (self.a_save, self.a_saveas, self.a_export):
             m.addAction(a)
+        m.addAction(self.a_export_filters)
         m.addSeparator(); m.addAction(self.a_quit)
         m = mb.addMenu("D&üzen")
         for a in (self.a_undo, self.a_redo, None, self.a_cut, self.a_copy, self.a_paste, self.a_selall, None, self.a_ins_b,
@@ -268,14 +329,14 @@ class MainWindow(QMainWindow):
                   self.a_find, self.a_sort):
             m.addAction(a) if a else m.addSeparator()
         m = mb.addMenu("&Altyazı")
-        for a in (self.a_styles, self.a_props):
+        for a in (self.a_styles, self.a_props, self.a_fonts, self.a_attach):
             m.addAction(a)
         m = mb.addMenu("&Zamanlama")
         for a in (self.a_shift, self.a_timing, self.a_sync, self.a_fpschg, None, self.a_bridge, self.a_overlap, self.a_snap,
                   None, self.a_set_start, self.a_set_end, self.a_apply_range, self.a_new_range):
             m.addAction(a) if a else m.addSeparator()
         m = mb.addMenu("A&raçlar")
-        for a in (self.a_qc, self.a_karaoke, self.a_select, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
+        for a in (self.a_qc, self.a_stats, self.a_karaoke, self.a_select, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
             m.addAction(a)
         mc = m.addMenu("Harf büyüklüğü")
         for a in (self.a_up, self.a_low, self.a_sent):
@@ -287,7 +348,7 @@ class MainWindow(QMainWindow):
             m.addAction(a) if a else m.addSeparator()
         self.auto_menu = mb.addMenu("&Otomasyon")
         m = mb.addMenu("&Görünüm")
-        for a in (self.a_spectrum, self.a_snap_opt, self.a_follow, self.a_plain, self.a_dark):
+        for a in (self.a_spectrum, self.a_snap_opt, self.a_follow, self.a_plain, self.a_dark, self.a_shortcuts):
             m.addAction(a)
         m.addSeparator()
         for d in self.docks.values():
@@ -314,6 +375,9 @@ class MainWindow(QMainWindow):
         self.edit.fieldChanged.connect(self._field_edited)
         self.edit.timeEdited.connect(self._time_edited)
         self.edit.nextLine.connect(lambda: self.move_row(1, focus_text=True))
+        self.video.tagEdit.connect(self._tag_edit)
+        self.video.tagEditDone.connect(self._load_active)
+        self.video.anchor_provider = self._anchor
         self.video.positionChanged.connect(self.wave.set_play_ms)
         self.video.positionChanged.connect(lambda ms: self.lbl_info.setText(self._info_text(ms)))
         self.video.loaded.connect(lambda path: None)
@@ -449,6 +513,30 @@ class MainWindow(QMainWindow):
             ev[r].text = txt
         self.project.rowsChanged.emit(r, r)
         self.edit._update_info(ev[r])
+
+    def _anchor(self):
+        e = self.active_event()
+        px, py = self.project.doc.play_res
+        if e is not None:
+            pos = get_override(e.text, "pos")
+            frz = get_override(e.text, "frz") or get_override(e.text, "fr") or "0"
+            try:
+                x, y = [float(v) for v in pos.strip("()").split(",")[:2]] if pos else (px / 2, py * 0.9)
+                return x, y, float(frz)
+            except ValueError:
+                pass
+        return px / 2, py * 0.9, 0.0
+
+    def _tag_edit(self, tag, value, final):
+        rows = self.selected_rows() or ([self.active_row()] if self.active_row() >= 0 else [])
+        ev = self.project.events
+        rows = [r for r in rows if 0 <= r < len(ev)]
+        if not rows:
+            return
+        with self.project.edit("Görsel dizgi", merge_key=("vis", tag, tuple(rows)), structural=False):
+            for r in rows:
+                ev[r].text = set_override(ev[r].text, tag, value)
+        self.project.rowsChanged.emit(min(rows), max(rows))
 
     def _field_edited(self, name, value):
         rows = self.selected_rows() or ([self.active_row()] if self.active_row() >= 0 else [])

@@ -101,3 +101,37 @@ def parse_karaoke(text: str) -> list[Syllable]:
 
 def has_override(text: str, tag: str) -> bool:
     return bool(re.search(r"\{[^}]*\\" + re.escape(tag), text))
+
+
+def set_override(text: str, tag: str, value: str) -> str:
+    """Set/replace an override tag (e.g. 'pos', '(100,200)') in the first {} block of `text`.
+
+    The tag is removed from every leading block position it already exists in (outside \\t(...)),
+    then inserted at the start of the first block (creating one if the text has none at offset 0)."""
+    m = re.match(r"\{([^}]*)\}", text)
+    new = "\\" + tag + value
+    if not m:
+        return "{" + new + "}" + text
+    inner = m.group(1)
+    # strip existing occurrence at top level (not inside parentheses)
+    out, depth, i = [], 0, 0
+    parts = re.split(r"(?=\\)", inner)
+    keep = []
+    depth = 0
+    for p in parts:
+        if depth == 0 and re.match(r"\\" + re.escape(tag) + r"(?![a-zA-Z])", p):
+            # drop it unless it opened a paren group we must balance
+            depth += p.count("(") - p.count(")")
+            continue
+        depth += p.count("(") - p.count(")")
+        keep.append(p)
+    inner = "".join(keep)
+    return "{" + new + inner + "}" + text[m.end():]
+
+
+def get_override(text: str, tag: str):
+    m = re.match(r"\{([^}]*)\}", text)
+    if not m:
+        return None
+    mm = re.search(r"\\" + re.escape(tag) + r"(?![a-zA-Z])(\([^)]*\)|[^\\}]*)", m.group(1))
+    return mm.group(1) if mm else None

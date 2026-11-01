@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QRectF, QPointF, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QFont
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget,
                                QDoubleSpinBox, QCheckBox)
@@ -23,6 +23,63 @@ class VideoCanvas(QWidget):
         self.panel = panel
         self.setMinimumSize(320, 180)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.tool = "none"           # none | pos | clip | rot
+        self._press = None           # (sx, sy, button)
+        self._cur = None
+        self._rot0 = None
+
+    def to_script(self, pt):
+        """Widget point -> script (PlayRes) coordinates."""
+        r = self._video_rect()
+        px, py = self.panel.project.doc.play_res
+        return ((pt.x() - r.x()) / max(1.0, r.width()) * px, (pt.y() - r.y()) / max(1.0, r.height()) * py)
+
+    def from_script(self, x, y):
+        r = self._video_rect()
+        px, py = self.panel.project.doc.play_res
+        return QPointF(r.x() + x / px * r.width(), r.y() + y / py * r.height())
+
+    def mousePressEvent(self, e):
+        if self.tool == "none":
+            return super().mousePressEvent(e)
+        x, y = self.to_script(e.position())
+        self._press = (x, y, e.button())
+        self._cur = (x, y)
+        if self.tool == "pos":
+            self.panel.tagEdit.emit("pos", "(%d,%d)" % (round(x), round(y)), False)
+        elif self.tool == "rot":
+            ax, ay, frz = self.panel.anchor_provider()
+            import math
+            self._rot0 = (math.degrees(math.atan2(y - ay, x - ax)), frz)
+        self.update()
+
+    def mouseMoveEvent(self, e):
+        if self.tool == "none" or self._press is None:
+            return super().mouseMoveEvent(e)
+        x, y = self.to_script(e.position())
+        self._cur = (x, y)
+        if self.tool == "pos":
+            self.panel.tagEdit.emit("pos", "(%d,%d)" % (round(x), round(y)), False)
+        elif self.tool == "clip":
+            x0, y0, btn = self._press
+            tag = "iclip" if btn == Qt.MouseButton.RightButton else "clip"
+            self.panel.tagEdit.emit(tag, "(%d,%d,%d,%d)" % (round(min(x0, x)), round(min(y0, y)), round(max(x0, x)),
+                                                           round(max(y0, y))), False)
+        elif self.tool == "rot" and self._rot0:
+            import math
+            ax, ay, _ = self.panel.anchor_provider()
+            a = math.degrees(math.atan2(y - ay, x - ax))
+            frz = self._rot0[1] - (a - self._rot0[0])
+            frz = round(((frz + 180) % 360) - 180, 1)
+            self.panel.tagEdit.emit("frz", ("%g" % frz), False)
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        if self.tool != "none" and self._press is not None:
+            self.panel.tagEditDone.emit()
+        self._press = None
+        self._rot0 = None
+        self.update()
 
     def _video_rect(self) -> QRectF:
         p = self.panel
@@ -46,7 +103,18 @@ class VideoCanvas(QWidget):
         ov = pan.overlay_for(int(r.width()), int(r.height()))
         if ov is not None:
             p.drawImage(r.topLeft(), ov)
-        elif not render.available():
+        if self.tool == "clip" and self._press is not None and self._cur:
+            a = self.from_script(self._press[0], self._press[1]); b = self.from_script(*self._cur)
+            p.setPen(QColor("#ffd166")); p.drawRect(QRectF(a, b).normalized())
+        elif self.tool == "pos" and self._cur and self._press is not None:
+            c = self.from_script(*self._cur)
+            p.setPen(QColor("#ffd166")); p.drawLine(int(c.x()) - 10, int(c.y()), int(c.x()) + 10, int(c.y()))
+            p.drawLine(int(c.x()), int(c.y()) - 10, int(c.x()), int(c.y()) + 10)
+        elif self.tool == "rot":
+            ax, ay, _ = pan.anchor_provider()
+            c = self.from_script(ax, ay)
+            p.setPen(QColor("#ffd166")); p.drawEllipse(c, 6, 6)
+        if ov is None and not render.available():
             p.setPen(QColor("#ffffff"))
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, "libass bulunamadı — altyazı önizlemesi kapalı")
         p.end()
@@ -56,6 +124,8 @@ class VideoPanel(QWidget):
     positionChanged = Signal(int)
     durationChanged = Signal(int)
     loaded = Signal(str)
+    tagEdit = Signal(str, str, bool)     # tag, value, final
+    tagEditDone = Signal()
 
     def __init__(self, project, parent=None):
         super().__init__(parent)
@@ -68,6 +138,7 @@ class VideoPanel(QWidget):
         self._renderer = render.make_renderer()
         self._doc_dirty = True
         self._seeking = False
+        self.anchor_provider = lambda: (self.project.doc.play_res[0] / 2, self.project.doc.play_res[1] * 0.9, 0.0)
         self.canvas = VideoCanvas(self)
 
         self.player = None
@@ -110,8 +181,19 @@ class VideoPanel(QWidget):
         bar.addWidget(self.time_lbl)
         bar.addWidget(self.speed)
         bar.addWidget(QLabel("🔊")); bar.addWidget(self.vol)
+        tools = QHBoxLayout()
+        from PySide6.QtWidgets import QButtonGroup
+        self.tool_group = QButtonGroup(self)
+        for key, label, tip in (("none", "🖱", "Gezin (araç yok)"), ("pos", "✥", "Konum \\pos — tıkla/sürükle"),
+                                ("clip", "▭", "Dikdörtgen kırp \\clip (sağ tuş: \\iclip)"),
+                                ("rot", "⟳", "Döndür \\frz — konum etrafında sürükle")):
+            b = QToolButton(); b.setText(label); b.setToolTip(tip); b.setCheckable(True); b.setChecked(key == "none")
+            b.clicked.connect(lambda _=False, k=key: self.set_tool(k))
+            self.tool_group.addButton(b); tools.addWidget(b)
+        tools.addStretch(1)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(tools)
         lay.addWidget(self.canvas, 1)
         lay.addLayout(bar)
         lay.addWidget(self.status)
@@ -120,6 +202,11 @@ class VideoPanel(QWidget):
         self._debounce.timeout.connect(self._rebuild_doc)
         project.reset.connect(self.mark_doc_dirty)
         project.rowsChanged.connect(lambda a, b: self.mark_doc_dirty())
+
+    def set_tool(self, key: str):
+        self.canvas.tool = key
+        self.canvas.setCursor(Qt.CursorShape.ArrowCursor if key == "none" else Qt.CursorShape.CrossCursor)
+        self.canvas.update()
 
     # ------------------------------------------------------------ media
     def load(self, path: str):

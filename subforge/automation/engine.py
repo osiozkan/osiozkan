@@ -167,6 +167,10 @@ class Filter:
     def run(self, host: Host, config: dict | None = None):
         return self.script._run_filter(self, host, config or {})
 
+    def get_config(self, host: Host):
+        """Run the filter's config dialog (if any). Returns a dict, {} when none, None if cancelled."""
+        return self.script._filter_config(self, host)
+
 
 # ----------------------------------------------------------------------------- conversions
 
@@ -689,6 +693,26 @@ class AutomationScript:
             elif host.selection and (host.active < 1 or host.active > len(host.doc.lines)):
                 host.active = host.selection[0]
             return host
+        except LuaError as e:
+            self._fail(e)
+        finally:
+            self.host = None
+
+    def _filter_config(self, flt: Filter, host: Host):
+        self.host = host
+        try:
+            f = self.lua.globals()["aegisub"]["__filters"][flt.index]
+            if f["config"] is None:
+                return {}
+            proxy = self._make_proxy(host)
+            dlg = self.lua.eval("function(f, P) return f.config(__make_subs(P), {}) end")(f, proxy)
+            if dlg is None:
+                return {}
+            controls = lua_to_py(dlg)
+            if isinstance(controls, dict):
+                controls = list(controls.values())
+            btn, res = host.ui.dialog(controls, None, None)
+            return None if not btn else (res or {})
         except LuaError as e:
             self._fail(e)
         finally:

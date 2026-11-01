@@ -126,3 +126,18 @@ def test_non_ascii_script_path_and_name(tmp_path):
     p.write_text('script_name="Özel Betik"\naegisub.register_macro("Türkçe/Makro","açıklama",function() end)', encoding="utf-8")
     s = AutomationScript(str(p))
     assert s.error is None and s.name == "Özel Betik" and s.macros[0].name == "Türkçe/Makro"
+
+
+def test_filter_run_with_config(tmp_path):
+    p = tmp_path / "f.lua"
+    p.write_text('''
+aegisub.register_filter("Mark", "d", 5,
+  function(subs, cfg) for i=1,#subs do local l=subs[i]; if l.class=="dialogue" then l.effect=cfg.tag; subs[i]=l end end end,
+  function(subs, old) return {{class="edit", name="tag", text="X"}} end)''')
+    s = AutomationScript(str(p))
+    f = s.filters[0]
+    h = Host(parse_ass(SAMPLE), [], ui=HeadlessUI({"tag": "ZZ"}))
+    cfg = f.get_config(h)
+    assert cfg == {"tag": "ZZ"}
+    f.run(h, cfg)
+    assert all(e.effect == "ZZ" for e in h.doc.events)
