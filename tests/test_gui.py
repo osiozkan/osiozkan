@@ -129,3 +129,75 @@ def test_properties_resample(win):
     assert win.project.doc.play_res == (1920, 1080)
     win.project.undo()
     assert win.project.doc.play_res == (1280, 720)
+
+
+def _macro(tmp_path, code):
+    from subforge.automation import AutomationScript
+    p = tmp_path / "x.lua"
+    p.write_text(code)
+    s = AutomationScript(str(p))
+    assert s.error is None, s.error
+    return s.macros[0]
+
+
+def test_failed_macro_restores_document(win, tmp_path):
+    before = win.project.doc.to_string()
+    m = _macro(tmp_path, '''aegisub.register_macro("bad","",function(subs, sel)
+      local l = subs[6]; l.text = "CHANGED"; subs[6] = l
+      subs.append({class="dialogue", section="[Events]", start_time=0,end_time=1,style="Default",text="x"})
+      error("kaboom") end)''')
+    import subforge.gui.lua_ui as L
+    L.LogWindow.exec = lambda self: 0     # don't block on the modal log window
+    win.set_selection([0]); win.select_row(0)
+    win.run_macro(m)
+    assert win.project.doc.to_string() == before
+    assert not win.project.can_undo()
+
+
+def test_macro_new_selection_and_single_undo(win, tmp_path):
+    import subforge.gui.lua_ui as L
+    L.LogWindow.exec = lambda self: 0
+    m = _macro(tmp_path, '''aegisub.register_macro("dup","",function(subs, sel)
+      local out = {}
+      for i = #sel, 1, -1 do
+        local l = subs[sel[i]]; l.text = l.text .. "!"; subs.insert(sel[i] + 1, l)
+      end
+      return {sel[1] + 1} end)''')
+    n = win.model.rowCount()
+    win.set_selection([0]); win.select_row(0)
+    win.run_macro(m)
+    assert win.model.rowCount() == n + 1 and win.selected_rows() == [1]
+    win.project.undo()
+    assert win.model.rowCount() == n
+
+
+def test_style_rename_updates_events(win):
+    from subforge.gui.dialogs import StylesDialog
+    d = StylesDialog(win.project, win)
+    d.items[0][1].name = "Ana"
+    assert d.apply()
+    assert all(e.style == "Ana" for e in win.project.events)
+    assert win.project.doc.styles[0].name == "Ana"
+    win.project.undo()
+    assert win.project.doc.styles[0].name == "Default"
+
+
+def test_waveform_drag_commit_is_one_undo(win):
+    win.wave._drag = None
+    win._boundary_drag(0, "end", 4000)
+    win._boundary_drag(0, "end", 4200)
+    win._boundary_commit(0, "end", 4300)
+    assert win.project.events[0].end_time == 4300
+    win.project.undo()
+    assert win.project.events[0].end_time == 3500
+
+
+def test_save_roundtrip_and_srt_default_name(win, tmp_path):
+    out = tmp_path / "o.ass"
+    win.project.save(str(out))
+    from subforge.core import parse_ass
+    assert [e.text for e in parse_ass(out.read_text(encoding="utf-8-sig")).events] == [e.text for e in win.project.events]
+    srt = tmp_path / "a.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nmerhaba\n", encoding="utf-8")
+    win.project.open(str(srt))
+    assert win.project.path is None and win.project.title == "a.srt" and win.project.dirty

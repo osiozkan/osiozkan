@@ -865,7 +865,9 @@ class MainWindow(QMainWindow):
         self._qc_dlg.run()
 
     def _live_qc(self):
-        if len(self.project.events) > 30000:
+        # QC is O(n log n) (~0.7 s at 50k lines): keep typing smooth on huge files
+        if len(self.project.events) > 12000 and not (self._qc_dlg and self._qc_dlg.isVisible()):
+            self.lbl_qc.setText("QC: büyük dosya — Araçlar > Kalite kontrol")
             return
         s = self._qc_dlg.settings() if self._qc_dlg else checks.QCSettings()
         issues = checks.check(self.project.doc, s)

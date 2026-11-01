@@ -1,0 +1,19 @@
+name: subforge-tests
+on:
+  push:
+    branches: ["claude/**", "main"]
+    paths: ["subforge/**", "tests/**", "scripts/**", "requirements.txt", ".github/workflows/subforge-tests.yml"]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: System libs (Qt offscreen, libass, ffmpeg)
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libass9 ffmpeg fonts-liberation fontconfig
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests -q
+        env:
+          QT_QPA_PLATFORM: offscreen

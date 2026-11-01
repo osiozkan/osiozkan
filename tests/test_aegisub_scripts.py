@@ -77,3 +77,17 @@ aegisub.register_macro("m","",function(subs, sel)
     doc = parse_ass(KARA)
     s.macros[0].run(Host(doc, [6], 6, HeadlessUI()))
     assert doc.lines[5].actor == "2:{\\an8}:a{\\i1}b:100:cd:\\kf:100"
+
+
+def test_repo_example_script_runs():
+    root = os.path.dirname(os.path.dirname(__file__))
+    s = AutomationScript(os.path.join(root, "scripts", "ornek-makro.lua"))
+    assert s.error is None, s.error
+    assert [m.name for m in s.macros] == ["SubForge/Metin ekle", "SubForge/Satır ölçüleri"]
+    doc = parse_ass(KARA)
+    ui = HeadlessUI({"bas": "[", "son": "]"}, button="Uygula")
+    h = Host(doc, [7], 7, ui)
+    s.macros[0].run(h)
+    assert doc.events[-1].text.startswith("[{\\k20}ka") and doc.events[-1].text.endswith("ke]")
+    s.macros[1].run(Host(doc, [7], 7, ui))
+    assert any("genişlik" in m for _, m in ui.logs)
