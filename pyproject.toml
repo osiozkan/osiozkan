@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subforge"
+dynamic = ["version"]
+description = "SubForge - anime subtitle studio: Aegisub-compatible Lua automation + Subtitle Edit style tools"
+requires-python = ">=3.10"
+dependencies = ["PySide6>=6.6", "lupa>=2.0", "numpy>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+subforge = "subforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["subforge*"]
+
+[tool.setuptools.package-data]
+subforge = ["automation/include/*.lua"]
+
+[tool.setuptools.dynamic]
+version = {attr = "subforge.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
