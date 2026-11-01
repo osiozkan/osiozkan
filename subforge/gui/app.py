@@ -25,6 +25,7 @@ from .editpanel import EditPanel
 from .lua_ui import LogWindow, QtUI
 from .model import EventModel, COLS
 from .video import VideoPanel
+from .tools_dialogs import KaraokeDialog, SelectDialog, ReferencePanel
 from .waveform import WaveformWidget
 from .widgets import apply_theme
 
@@ -87,6 +88,9 @@ class MainWindow(QMainWindow):
         self.edit = EditPanel()
         self._dock("Video", self.video, Qt.DockWidgetArea.TopDockWidgetArea, "dock_video")
         self._dock("Düzenleme", self.edit, Qt.DockWidgetArea.TopDockWidgetArea, "dock_edit")
+        self.reference = ReferencePanel(self)
+        self._dock("Referans (çeviri)", self.reference, Qt.DockWidgetArea.RightDockWidgetArea, "dock_ref")
+        self.docks["dock_ref"].hide()
         self._dock("Ses", self.wave, Qt.DockWidgetArea.BottomDockWidgetArea, "dock_audio")
         self.splitDockWidget(self.docks["dock_video"], self.docks["dock_edit"], Qt.Orientation.Horizontal)
 
@@ -193,6 +197,8 @@ class MainWindow(QMainWindow):
         self.a_set_end = A("Bitişi video konumuna ayarla", lambda: self._set_time("end"), "Ctrl+]")
         self.a_apply_range = A("Ses aralığını aktif satıra uygula", self.apply_range)
         self.a_new_range = A("Ses aralığından yeni satır", self.new_from_range)
+        self.a_karaoke = A("Karaoke zamanlayıcı…", self.show_karaoke, "Ctrl+K")
+        self.a_select = A("Satır seç…", self.show_select, "Ctrl+Shift+F")
         self.a_qc = A("Kalite kontrol…", self.show_qc, "Ctrl+Shift+Q")
         self.a_fix = A("Yaygın hataları düzelt", lambda: self._tool("Yaygın hatalar", tools.fix_common_errors))
         self.a_balance = A("Satırları dengele (42)", lambda: self._tool("Dengele", lambda ev: tools.balance_lines(ev, 42)))
@@ -207,6 +213,7 @@ class MainWindow(QMainWindow):
         self.a_load_kf = A("Anahtar kareleri yükle (dosya)…", self.load_keyframe_file)
         self.a_scan_kf = A("Videodan anahtar kareleri tara", self.scan_keyframes)
         self.a_fps = A("FPS ayarla…", self.set_fps_dialog)
+        self.a_tc = A("Zaman kodlarını yükle (VFR v1/v2)…", self.load_timecodes_file)
         self.a_play = A("Oynat/Duraklat", self.video.toggle, "Ctrl+Space")
         self.a_play_line = A("Aktif satırı oynat", self.play_line, "Ctrl+L")
         self.a_prev_frame = A("Önceki kare", lambda: self.video.step(-1), "Alt+Left")
@@ -268,14 +275,14 @@ class MainWindow(QMainWindow):
                   None, self.a_set_start, self.a_set_end, self.a_apply_range, self.a_new_range):
             m.addAction(a) if a else m.addSeparator()
         m = mb.addMenu("A&raçlar")
-        for a in (self.a_qc, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
+        for a in (self.a_qc, self.a_karaoke, self.a_select, self.a_fix, self.a_balance, self.a_hi, self.a_dups):
             m.addAction(a)
         mc = m.addMenu("Harf büyüklüğü")
         for a in (self.a_up, self.a_low, self.a_sent):
             mc.addAction(a)
         m = mb.addMenu("&Medya")
         for a in (self.a_open_video, self.a_open_audio, self.a_audio_from_video, None, self.a_load_kf, self.a_scan_kf,
-                  self.a_fps, None, self.a_play, self.a_play_line, self.a_prev_frame, self.a_next_frame, self.a_prev_line,
+                  self.a_fps, self.a_tc, None, self.a_play, self.a_play_line, self.a_prev_frame, self.a_next_frame, self.a_prev_line,
                   self.a_next_line):
             m.addAction(a) if a else m.addSeparator()
         self.auto_menu = mb.addMenu("&Otomasyon")
@@ -398,7 +405,7 @@ class MainWindow(QMainWindow):
 
     def _info_text(self, ms: int) -> str:
         n = len(self.project.events)
-        frame = f" · kare {int(ms / self.project.frame_ms)}" if self.project.fps else ""
+        frame = f" · kare {self.project.frame_at(ms)}" if self.project.fps else ""
         return f"{n} satır · {len(self.selected_rows())} seçili · {ms_to_ass(ms)}{frame}"
 
     def _update_media_label(self):
@@ -407,7 +414,7 @@ class MainWindow(QMainWindow):
         if p.video_path:
             bits.append(os.path.basename(p.video_path))
         if p.fps:
-            bits.append(f"{p.fps:.3f} fps")
+            bits.append(f"{p.fps:.3f} fps" + (" VFR" if p.timecodes and p.timecodes.is_vfr else ""))
         if p.keyframes:
             bits.append(f"{len(p.keyframes)} anahtar kare")
         self.lbl_media.setText(" · ".join(bits))
@@ -420,6 +427,7 @@ class MainWindow(QMainWindow):
 
     def _current_changed(self, cur, prev):
         self._load_active()
+        self.reference.refresh()
         e = self.active_event()
         if e is not None:
             self.wave.ensure_visible(e.start_time, e.end_time)
@@ -728,6 +736,16 @@ class MainWindow(QMainWindow):
             with self.project.edit("FPS değiştir"):
                 tools.change_framerate(self.project.events, a, b)
 
+    def show_karaoke(self):
+        if self.active_event() is None:
+            return
+        KaraokeDialog(self).exec()
+
+    def show_select(self):
+        d = SelectDialog(self)
+        d.show(); d.raise_()
+        self._select_dlg = d
+
     def show_qc(self):
         if not self._qc_dlg:
             self._qc_dlg = QCDialog(self.project, self)
@@ -903,9 +921,35 @@ class MainWindow(QMainWindow):
             self.load_audio(pr.audio_path)
         if media.have_ffmpeg() and pr.video_size:
             self.scan_keyframes()
+            self._detect_vfr(path)
         # offer to match script resolution
         if pr.video_size and pr.doc.play_res != pr.video_size and not any(isinstance(l, Event) for l in pr.doc.lines):
             pr.doc.set_info("PlayResX", pr.video_size[0]); pr.doc.set_info("PlayResY", pr.video_size[1])
+
+    def _detect_vfr(self, path):
+        def work():
+            ts = media.video_timecodes(path)
+            return ts if media.is_vfr(ts) else None
+        self._run_bg(work, self._vfr_ready, "Kare zamanları inceleniyor…")
+
+    def _vfr_ready(self, ts):
+        if ts:
+            from ..core.timecodes import Timecodes
+            self.project.set_timecodes(Timecodes.from_v2(ts))
+            self.statusBar().showMessage("Değişken kare hızı (VFR) algılandı — zaman kodları kullanılıyor", 6000)
+            self._update_media_label()
+
+    def load_timecodes_file(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Zaman kodu dosyası (v1/v2)", "", "Tümü (*)")
+        if p:
+            from ..core.timecodes import Timecodes
+            from ..core.io import read_text
+            try:
+                self.project.set_timecodes(Timecodes.from_text(read_text(p)[0]))
+            except Exception as e:
+                QMessageBox.warning(self, APP_NAME, f"Zaman kodları okunamadı: {e}")
+                return
+            self._update_media_label()
 
     def open_audio_dialog(self):
         p, _ = QFileDialog.getOpenFileName(self, "Ses aç", self.settings.value("last_media_dir", ""), VIDEO_FILTER)
@@ -960,6 +1004,10 @@ class MainWindow(QMainWindow):
         if e is None:
             return
         pos = self.video.position()
+        tc = self.project.timecodes
+        if tc is not None:
+            f = tc.frame_at(pos)
+            pos = tc.start_ms_for_frame(f) if which == "start" else tc.end_ms_for_frame(f)
         with self.project.edit("Zaman ayarla", structural=False):
             if which == "start":
                 e.start_time = pos; e.end_time = max(e.end_time, pos)
@@ -1033,9 +1081,9 @@ class MainWindow(QMainWindow):
     def run_macro(self, macro, answers=None):
         sel, act = self._flat_selection()
         pr = self.project
-        info = ProjectInfo(fps=pr.fps, keyframes=[int(k * (pr.fps or 23.976) / 1000) for k in pr.keyframes],
+        info = ProjectInfo(fps=pr.fps, timecodes=pr.timecodes, keyframes=[pr.frame_at(k) for k in pr.keyframes],
                            video_size=pr.video_size, video_file=pr.video_path, audio_file=pr.audio_path,
-                           script_path=pr.path or "", video_position=int((self.video.position()) / pr.frame_ms))
+                           script_path=pr.path or "", video_position=pr.frame_at(self.video.position()))
         ui = QtUI(self, macro.name)
         host = Host(pr.doc, sel, act, ui, info)
         try:

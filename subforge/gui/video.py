@@ -213,7 +213,12 @@ class VideoPanel(QWidget):
     def step(self, n: int):
         if self.is_playing():
             self.player.pause()
-        self.set_position(self._pos + int(round(n * self.project.frame_ms)))
+        pr = self.project
+        f = pr.frame_at(self._pos) + n
+        if f < 0:
+            f = 0
+        t0, t1 = pr.time_of_frame(f), pr.time_of_frame(f + 1)
+        self.set_position(int((t0 + t1) / 2))
 
     def _sync_btn(self):
         self.btn_play.setText("⏸" if self.is_playing() else "▶")

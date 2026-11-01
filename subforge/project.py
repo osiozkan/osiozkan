@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .core.ass import ASSFile, Event, Style
 from .core.formats import load_file, export_text
+from .core.timecodes import Timecodes
 
 
 def _clone(line):
@@ -34,7 +35,8 @@ class Project(QObject):
         self.encoding = "utf-8"
         self.dirty = False
         self.version = 0  # bumps on every change (render cache key)
-        self.fps: float | None = None
+        self._fps: float | None = None
+        self.timecodes: Timecodes | None = None
         self.keyframes: list[int] = []   # ms
         self.video_path = ""
         self.audio_path = ""
@@ -156,8 +158,31 @@ class Project(QObject):
         return os.path.basename(self.path) if self.path else "Untitled"
 
     @property
+    def fps(self) -> float | None:
+        return self._fps
+
+    @fps.setter
+    def fps(self, v):
+        self._fps = v
+        if v and not (self.timecodes and self.timecodes.is_vfr):
+            self.timecodes = Timecodes.cfr(v)
+
+    def set_timecodes(self, tc: Timecodes | None):
+        self.timecodes = tc
+        if tc is not None:
+            self._fps = tc.fps
+
+    @property
     def frame_ms(self) -> float:
         return 1000.0 / self.fps if self.fps else 1000.0 / 23.976
+
+    def frame_at(self, ms: float) -> int:
+        tc = self.timecodes or Timecodes.cfr(23.976)
+        return tc.frame_at(ms)
+
+    def time_of_frame(self, f: int) -> int:
+        tc = self.timecodes or Timecodes.cfr(23.976)
+        return tc.time_of(f)
 
     def ass_text_for_render(self) -> str:
         return self.doc.to_string()

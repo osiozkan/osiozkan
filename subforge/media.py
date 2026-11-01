@@ -179,3 +179,28 @@ def read_keyframe_file(path: str, fps: float | None = None) -> list[int]:
             continue
         ks.append(int(round(v * 1000.0 / use_fps)) if use_fps else v)
     return sorted(ks)
+
+
+def video_timecodes(path: str) -> list[float]:
+    """Presentation timestamps (ms) of every video frame, via packet pts (fast, no decoding)."""
+    p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time",
+                        "-of", "csv=p=0", path], capture_output=True, text=True)
+    ts = []
+    for ln in p.stdout.splitlines():
+        ln = ln.strip().rstrip(",")
+        if ln and ln != "N/A":
+            try:
+                ts.append(float(ln) * 1000.0)
+            except ValueError:
+                pass
+    ts.sort()
+    return ts
+
+
+def is_vfr(ts: list[float], tol_ms: float = 2.5) -> bool:
+    if len(ts) < 3:
+        return False
+    d = [b - a for a, b in zip(ts, ts[1:])]
+    med = sorted(d)[len(d) // 2]
+    # allow rounding jitter of container timestamps (ms resolution)
+    return sum(1 for x in d if abs(x - med) > tol_ms) > max(2, len(d) // 200)

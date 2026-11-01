@@ -74,3 +74,17 @@ def test_video_audio(win, tmp_path):
     assert win.wave.audio is not None and win.project.keyframes
     assert win.project.fps and abs(win.project.fps - 24) < 0.01
     win.wave.grab()
+
+
+def test_karaoke_dialog_and_select(win):
+    from subforge.gui.tools_dialogs import KaraokeDialog, SelectDialog
+    win.select_row(1)
+    win.project.events[1].comment = False
+    d = KaraokeDialog(win)
+    assert d.syls and sum(x for _, x in d.syls) == d._total()
+    d.mode.setCurrentIndex(1); d._resplit()
+    d.accept()
+    assert "{\\k" in win.project.events[1].text
+    s = SelectDialog(win)
+    s.pat.setText("selam"); s.run()
+    assert 2 in win.selected_rows()

@@ -113,6 +113,7 @@ class HeadlessUI:
 @dataclass
 class ProjectInfo:
     fps: float | None = None
+    timecodes: object = None   # core.timecodes.Timecodes (optional, for VFR)
     keyframes: list[int] = field(default_factory=list)  # frame numbers
     video_size: tuple[int, int] | None = None
     video_file: str = ""
@@ -244,18 +245,22 @@ class AutomationScript:
             return metrics.text_extents(st, dec(text) or "")
 
         def frame_from_ms(ms):
-            fps = h().project.fps
+            pr = h().project
+            if pr.timecodes is not None:
+                return pr.timecodes.frame_at(float(ms))
+            fps = pr.fps
             if not fps:
                 return None
             return int(float(ms) * fps / 1000.0 + 1e-9)
 
         def ms_from_frame(fr):
-            fps = h().project.fps
-            if not fps:
-                return None
+            pr = h().project
             fr = int(fr)
-            # Aegisub semantic: a time in the middle of the frame's display window
-            return int(round(fr * 1000.0 / fps))
+            if pr.timecodes is not None:
+                return pr.timecodes.time_of(fr)
+            if not pr.fps:
+                return None
+            return int(round(fr * 1000.0 / pr.fps))
 
         def video_size():
             vs = h().project.video_size
