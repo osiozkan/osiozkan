@@ -109,8 +109,13 @@ return function(K, libdir)
 
   -- ---------------------------------------------------------------- includes
   local sep = package.config:sub(1, 1)
-  package.path = table.concat({ libdir .. "/?.lua", K.script_dir() .. "/?.lua", K.script_dir() .. "/include/?.lua",
-    K.user_include() .. "/?.lua", package.path }, ";")
+  local paths = { libdir .. "/?.lua", libdir .. "/?/init.lua", K.script_dir() .. "/?.lua", K.script_dir() .. "/include/?.lua" }
+  for d in (K.include_dirs() or ""):gmatch("[^;]+") do
+    paths[#paths + 1] = d .. "/?.lua"; paths[#paths + 1] = d .. "/?/init.lua"
+  end
+  paths[#paths + 1] = package.path
+  package.path = table.concat(paths, ";")
+  package.loaded["lfs"] = K.lfs
   function include(name)
     local fn = package.searchpath and package.searchpath((name:gsub("%.lua$", "")), package.path)
     if not fn then error("Lua include not found: " .. tostring(name), 2) end

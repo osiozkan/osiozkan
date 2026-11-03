@@ -344,6 +344,8 @@ class ScriptRunner:
             "script_dir": lambda: os.path.dirname(script.path),
             "user_include": lambda: os.path.join(host.user_dir, "include"),
         })
+        K["lfs"] = _make_lfs(rt)
+        K["include_dirs"] = lambda: ";".join(_include_dirs(host))
         K["re"] = _make_re(rt)
         K["unicode"] = _make_unicode(rt)
         setup = rt.execute(open(os.path.join(LIBDIR, "prelude.lua"), encoding="utf-8").read())
@@ -370,8 +372,9 @@ class ScriptRunner:
         """Run fn(subs, selection, active) over a working copy of doc."""
         self.items = _Items(doc)
         subs = self.wrap_subs()
-        sel_flat = [self.items.event_to_flat(i) for i in selection]
-        act_flat = self.items.event_to_flat(active) if active is not None and active >= 0 else 0
+        base = self.items.n_before_events()
+        sel_flat = [base + i + 1 for i in selection]
+        act_flat = base + active + 1 if active is not None and active >= 0 else 0
         sel_t = self.rt.table_from(sel_flat)
         try:
             res = fn(subs, sel_t, act_flat, *extra) if not extra else fn(subs, *extra)
@@ -566,6 +569,54 @@ def _make_re(rt):
       end
       return re end""")
     return mk(mod)
+
+
+def _include_dirs(host) -> list[str]:
+    """Search paths for include()/require: Kaede user dir, KAEDE_INCLUDE env, and existing Aegisub dirs."""
+    home = os.path.expanduser("~")
+    cands = [os.path.join(host.user_dir, "automation", "include"), os.path.join(host.user_dir, "include")]
+    cands += [p for p in os.environ.get("KAEDE_INCLUDE", "").split(os.pathsep) if p]
+    cands += [os.path.join(home, ".aegisub", "automation", "include"),
+              os.path.join(home, "Library", "Application Support", "Aegisub", "automation", "include")]
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        cands.append(os.path.join(appdata, "Aegisub", "automation", "include"))
+    cands += getattr(host, "extra_include_dirs", [])
+    return [c for c in cands if os.path.isdir(c)]
+
+
+def _make_lfs(rt):
+    import time as _t
+    def attributes(path, attr=None):
+        try:
+            st = os.stat(path)
+        except OSError as e:
+            return None, str(e), e.errno
+        d = {"mode": "directory" if os.path.isdir(path) else "file" if os.path.isfile(path) else "other",
+             "size": st.st_size, "modification": int(st.st_mtime), "access": int(st.st_atime),
+             "change": int(st.st_ctime), "nlink": st.st_nlink, "dev": st.st_dev, "ino": st.st_ino,
+             "uid": st.st_uid, "gid": st.st_gid, "permissions": "rwxrwxrwx"}
+        return d[attr] if attr else rt.table_from(d)
+    def mkdir(p):
+        try: os.mkdir(p); return True
+        except OSError as e: return None, str(e), e.errno
+    def rmdir(p):
+        try: os.rmdir(p); return True
+        except OSError as e: return None, str(e), e.errno
+    def chdir(p):
+        try: os.chdir(p); return True
+        except OSError as e: return None, str(e), e.errno
+    def dir_(p):
+        names = [".", ".."] + sorted(os.listdir(p))
+        it = iter(names)
+        return lambda *a: next(it, None)
+    def touch(p, atime=None, mtime=None):
+        try:
+            os.utime(p, None if atime is None else (atime, mtime or atime)); return True
+        except OSError as e: return None, str(e), e.errno
+    return rt.table_from({"attributes": attributes, "mkdir": mkdir, "rmdir": rmdir, "chdir": chdir,
+                          "currentdir": lambda: os.getcwd(), "dir": dir_, "touch": touch,
+                          "_VERSION": "LuaFileSystem 1.8.0 (kaede)"})
 
 
 def _make_unicode(rt):

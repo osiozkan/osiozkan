@@ -254,6 +254,12 @@ class MainWindow(QMainWindow):
         self._act(m, "Başlangıcı videoya ayarla", lambda: self.set_from_video("start"), "Ctrl+Shift+Left")
         self._act(m, "Bitişi videoya ayarla", lambda: self.set_from_video("end"), "Ctrl+Shift+Right")
         self._act(m, "Sesten konuşma tespiti (satır oluştur)", self.auto_vad)
+        m.addSeparator()
+        self._act(m, "İki noktalı senkron…", self.point_sync_dialog)
+        self._act(m, "FPS dönüştür (zamanları ölçekle)…", self.change_fps_dialog)
+        self._act(m, "Zaman kodu dosyası (VFR) yükle…", self.load_timecodes)
+        self._act(m, "Keyframe dosyası yükle…", self.load_keyframes)
+        self._act(m, "Keyframe dosyası kaydet…", self.save_keyframes)
 
         m = mb.addMenu("&Video")
         self._act(m, "Video/ses aç…", self.open_video_dialog, "Ctrl+Shift+O")
@@ -273,6 +279,16 @@ class MainWindow(QMainWindow):
         self._act(m, "Metni temizle (boşluk/noktalama)", lambda: self.mutate("Metni temizle", lambda d, s: tools.normalize_text(d, s or None)))
         self._act(m, "Boş satırları sil", lambda: self.mutate("Boş satırları sil", lambda d, s: tools.remove_empty(d)))
         self._act(m, "Etiketleri sil", lambda: self.mutate("Etiketleri sil", lambda d, s: tools.strip_all_tags(d, s or None)))
+        m.addSeparator()
+        self._act(m, "Satırları dengele (otomatik \\N)…", self.auto_balance_dialog)
+        self._act(m, "Satır sonlarını kaldır", lambda: self.mutate("Satır sonlarını kaldır", lambda d, s: tools.unbreak(d, s or None)))
+        self._act(m, "İşitme engelli metnini sil ([..] (..) AD:)", lambda: self.mutate("İE metni sil", lambda d, s: tools.remove_hi(d, s or None)))
+        self._act(m, "Kısa ardışık satırları birleştir", lambda: self.mutate("Kısa satırları birleştir", lambda d, s: tools.merge_short(d, 250, 40, s or None), select_after=[]))
+        self._act(m, "Yinelenen satırları sil", lambda: self.mutate("Yinelenenleri sil", lambda d, s: tools.remove_duplicates(d), select_after=[]))
+        self._act(m, "İstatistikler…", self.show_stats)
+        self._act(m, "Yazı tiplerini denetle / topla…", self.fonts_dialog)
+        self._act(m, "Satıra git…", self.goto_dialog, "Ctrl+G")
+        m.addSeparator()
         self._act(m, "Uygulama ayarları: varsayılan fps…", self.set_default_fps)
 
         self.auto_menu = mb.addMenu("&Otomasyon")
@@ -746,6 +762,86 @@ class MainWindow(QMainWindow):
         v, ok = QInputDialog.getDouble(self, "Varsayılan FPS", "FPS:", self.fr.fps, 1, 240, 3)
         if ok: self.settings.setValue("default_fps", v); self.fr = FrameRate(v); self.host.fps = self.fr
 
+    # ---- extra tools
+    def point_sync_dialog(self):
+        sel = self.sel_rows()
+        if len(sel) < 2:
+            QMessageBox.information(self, APP, "İki noktalı senkron için tablo içinde iki satır seçin (ilk ve son referans satır)."); return
+        a, b = sel[0], sel[-1]
+        ea, eb = self.doc.events[a], self.doc.events[b]
+        t1, ok = QInputDialog.getText(self, "Senkron", f"Satır {a + 1} yeni başlangıç (h:mm:ss.cc):", text=ass_time(ea.start))
+        if not ok: return
+        t2, ok = QInputDialog.getText(self, "Senkron", f"Satır {b + 1} yeni başlangıç (h:mm:ss.cc):", text=ass_time(eb.start))
+        if not ok: return
+        from ..core.timeutil import parse_ass_time
+        try:
+            n1, n2 = parse_ass_time(t1), parse_ass_time(t2)
+        except ValueError:
+            QMessageBox.warning(self, APP, "Geçersiz zaman"); return
+        self.mutate("İki noktalı senkron", lambda d, s: tools.point_sync_lines(d, a, n1, b, n2))
+
+    def change_fps_dialog(self):
+        src, ok = QInputDialog.getDouble(self, "FPS dönüştür", "Kaynak FPS:", 23.976, 1, 240, 3)
+        if not ok: return
+        dst, ok = QInputDialog.getDouble(self, "FPS dönüştür", "Hedef FPS:", 25.0, 1, 240, 3)
+        if ok: self.mutate("FPS dönüştür", lambda d, s: tools.change_fps(d, src, dst, s if len(s) > 1 else None))
+
+    def auto_balance_dialog(self):
+        v, ok = QInputDialog.getInt(self, "Satırları dengele", "Satır başına en çok karakter:", 42, 10, 100)
+        if ok: self.mutate("Satırları dengele", lambda d, s: tools.auto_balance(d, v, s or None))
+
+    def show_stats(self):
+        st = tools.statistics(self.doc)
+        if not st.get("lines"): QMessageBox.information(self, APP, "Satır yok"); return
+        txt = (f"Satır: {st['lines']}  (yorum: {st['comments']})\nSözcük: {st['words']}  Karakter: {st['chars']}\n"
+               f"Ort. CPS: {st['avg_cps']:.1f}  Maks CPS: {st['max_cps']:.1f}  >20 cps: {st['over_20cps']}\n"
+               f"Süre ort/min/maks: {st['avg_duration_ms']:.0f} / {st['min_duration_ms']} / {st['max_duration_ms']} ms\n"
+               f"Toplam: {ass_time(st['total_ms'])}\n\nStiller:\n" + "\n".join(f"  {k}: {v}" for k, v in st["styles"].items()))
+        TextDialog(self, "İstatistikler", txt).exec()
+
+    def fonts_dialog(self):
+        from ..core import fonts
+        uses = fonts.check(self.doc)
+        lines = [f"{'✔' if u.installed else '✘ EKSİK'}  {u.family}{' (kalın)' if u.bold else ''}{' (italik)' if u.italic else ''}  — {u.lines} satır  {u.path or ''}" for u in uses]
+        miss = [u for u in uses if not u.installed]
+        txt = "\n".join(lines) + (f"\n\n{len(miss)} yazı tipi sistemde yok." if miss else "\n\nTüm yazı tipleri kurulu.")
+        TextDialog(self, "Yazı tipleri", txt).exec()
+        if uses and QMessageBox.question(self, APP, "Kurulu yazı tiplerini bir klasöre/zip'e toplayayım mı?") == QMessageBox.Yes:
+            p, _ = QFileDialog.getSaveFileName(self, "Zip olarak kaydet", "yazitipleri.zip", "*.zip")
+            if p:
+                copied, missing = fonts.collect(self.doc, p, as_zip=True)
+                self.statusBar().showMessage(f"{len(copied)} dosya toplandı, {len(missing)} eksik", 6000)
+
+    def goto_dialog(self):
+        v, ok = QInputDialog.getInt(self, "Satıra git", "Satır no:", self.cur_row() + 1, 1, max(1, len(self.doc.events)))
+        if ok: self.goto_row(v - 1)
+
+    def load_timecodes(self):
+        from ..core import timecodes
+        p, _ = QFileDialog.getOpenFileName(self, "Zaman kodu dosyası", "", "Zaman kodları (*.txt *.tc *.tcv2);;Hepsi (*)")
+        if not p: return
+        try:
+            self.fr = timecodes.parse_timecodes(formats.read_text(p)); self.host.fps = self.fr
+            self.statusBar().showMessage("VFR zaman kodları yüklendi", 4000)
+        except Exception as e:
+            QMessageBox.warning(self, APP, f"Geçersiz zaman kodu dosyası: {e}")
+
+    def load_keyframes(self):
+        from ..core import timecodes
+        p, _ = QFileDialog.getOpenFileName(self, "Keyframe dosyası", "", "Hepsi (*)")
+        if not p: return
+        frames = timecodes.parse_keyframes(formats.read_text(p))
+        self.keyframes = [self.fr.time_at(f) for f in frames]; self.host.keyframes = self.keyframes
+        self.wave.keyframes = self.keyframes; self.wave.update()
+        self.statusBar().showMessage(f"{len(frames)} keyframe yüklendi", 4000)
+
+    def save_keyframes(self):
+        from ..core import timecodes
+        if not self.keyframes: return
+        p, _ = QFileDialog.getSaveFileName(self, "Keyframe kaydet", "keyframes.txt", "*.txt")
+        if p:
+            open(p, "w").write(timecodes.write_keyframes([self.fr.frame_at(k) for k in self.keyframes], self.fr.fps))
+
     def show_shortcuts(self):
         TextDialog(self, "Klavye kısayolları", SHORTCUTS).exec()
 
@@ -873,12 +969,13 @@ class MainWindow(QMainWindow):
     def _refresh_overlay(self):
         if not self.renderer: return
         try:
-            self.renderer.set_script(self.doc.dump())
+            t = self._cur_ms() if self.video_path else self._preview_ms()
+            self.renderer.set_script(self.doc.dump_window(t - 500, t + 500) if len(self.doc.events) > 400 else self.doc.dump())
             bg = None
             if not self.video_path:
                 w, h = self._overlay_size
                 bg = np.zeros((h, w, 4), np.uint8); bg[..., :3] = 24; bg[..., 3] = 255
-            frame = self.renderer.render(self._cur_ms() if self.video_path else self._preview_ms(), bg)
+            frame = self.renderer.render(t, bg)
             self.video.set_overlay(frame)
             if self.video_path:
                 self.video.sub_pix.setScale(self.video.vw / frame.shape[1])
@@ -895,7 +992,15 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ automation
     def script_dirs(self):
-        return [os.path.expanduser("~/.kaede/automation/autoload"), os.path.join(os.path.dirname(__file__), "..", "..", "scripts")]
+        home = os.path.expanduser("~")
+        dirs = [os.path.join(home, ".kaede", "automation", "autoload"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "scripts"),
+                os.path.join(home, ".aegisub", "automation", "autoload"),
+                os.path.join(home, "Library", "Application Support", "Aegisub", "automation", "autoload")]
+        if os.environ.get("APPDATA"):
+            dirs.append(os.path.join(os.environ["APPDATA"], "Aegisub", "automation", "autoload"))
+        dirs += list(self.settings.value("script_dirs", []) or [])
+        return [d for d in dirs if os.path.isdir(os.path.abspath(d))] or dirs[:2]
 
     def reload_scripts(self):
         extra = [s.path for s in self.engine.scripts if not any(s.path.startswith(os.path.abspath(d)) for d in self.script_dirs())]

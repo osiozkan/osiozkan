@@ -147,3 +147,30 @@ def test_validate_and_filter(tmp_path):
     assert eng.validate(s.macros[0], DOC, [0, 1], 0)
     r = eng.run_filter(s.filters[0], DOC)
     assert all(e.text == "F" for e in r.doc.events)
+
+
+def test_lfs_utils_clipboard(tmp_path):
+    eng, s, r = run(tmp_path, '''
+        local lfs = require "lfs"
+        require "utils"
+        local clip = require "clipboard"
+        function f(subs, sel)
+          assert(lfs.attributes(lfs.currentdir(), "mode") == "directory")
+          assert(("  x  "):trim() == "x")
+          assert(math.round(2.5) == 3)
+          clip.set("abc"); assert(clip.get() == "abc")
+          local d = aegisub.decode_path("?script")
+          assert(type(d) == "string")
+        end
+        aegisub.register_macro("U", "", f)
+    ''')
+
+
+def test_script_dir_include(tmp_path):
+    (tmp_path / "mylib.lua").write_text("local M = {} function M.hi() return 'hi' end return M")
+    eng, s, r = run(tmp_path, '''
+        local m = require "mylib"
+        function f(subs, sel) local l = subs[sel[1]]; l.text = m.hi(); subs[sel[1]] = l end
+        aegisub.register_macro("I", "", f)
+    ''')
+    assert r.doc.events[0].text == "hi"

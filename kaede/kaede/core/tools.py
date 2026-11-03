@@ -346,3 +346,137 @@ def run_qc(doc: Document, cfg: Optional[QCConfig] = None, fr: Optional[FrameRate
                 out.append(Issue(b, "gap", f"Önceki satırla boşluk {y.start - x.end} ms", "info"))
     out.sort(key=lambda s: (s.index, s.code))
     return out
+
+
+# ------------------------------------------------------------------ Subtitle Edit style tools
+def linear_sync(doc: Document, a_old: int, a_new: int, b_old: int, b_new: int, sel=None) -> None:
+    """Two-point sync: map time so that a_old->a_new and b_old->b_new (fixes drift and offset)."""
+    if b_old == a_old:
+        raise ValueError("anchor times must differ")
+    k = (b_new - a_new) / (b_old - a_old)
+    f = lambda t: max(0, int(round(a_new + (t - a_old) * k)))
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        e.start, e.end = f(e.start), f(e.end)
+
+
+def point_sync_lines(doc: Document, i1: int, new1: int, i2: int, new2: int, sel=None) -> None:
+    """Point sync using two lines (by index) and their new start times."""
+    linear_sync(doc, doc.events[i1].start, new1, doc.events[i2].start, new2, sel)
+
+
+def change_fps(doc: Document, src: float, dst: float, sel=None) -> None:
+    """Convert timing from one frame rate to another (e.g. 23.976 -> 25)."""
+    k = src / dst
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        e.start, e.end = int(round(e.start * k)), int(round(e.end * k))
+
+
+def balance_lines(text: str, max_cpl: int = 42, min_len: int = 0) -> str:
+    """Re-break a single-line text into up to two balanced lines (\\N). Tags are kept in place."""
+    vis = strip_tags(text).replace("\\N", " ").replace("\\n", " ")
+    if len(vis) <= max_cpl and not min_len:
+        return text.replace("\\N", " ").replace("\\n", " ")
+    flat = re.sub(r"\s*\\[Nn]\s*", " ", text)
+    plain = strip_tags(flat)
+    if len(plain) <= min_len:
+        return flat
+    # find the space nearest to the middle of visible text, prefer after punctuation
+    spaces = [m.start() for m in re.finditer(r" ", plain)]
+    if not spaces:
+        return flat
+    mid = len(plain) / 2
+    def score(p):
+        s = abs(p - mid)
+        if plain[p - 1] in ",;:.!?…-–—": s -= 4
+        if plain[p + 1:p + 4].lower() in ("ve ", "ama", "ki ", "de ", "da ", "ile") : s += 3
+        return s
+    best = min(spaces, key=score)
+    # map visible index to raw index
+    raw, seen = 0, 0
+    while raw < len(flat):
+        m = BLOCK.match(flat, raw)
+        if m: raw = m.end(); continue
+        if seen == best: break
+        raw += 1; seen += 1
+    return flat[:raw] + "\\N" + flat[raw + 1:]
+
+
+def auto_balance(doc: Document, max_cpl: int = 42, sel=None) -> int:
+    n = 0
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        if e.comment or has_drawing(e.text): continue
+        new = balance_lines(e.text, max_cpl)
+        if new != e.text: e.text = new; n += 1
+    return n
+
+
+def unbreak(doc: Document, sel=None) -> int:
+    n = 0
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        new = re.sub(r"\s*\\[Nn]\s*", " ", e.text)
+        if new != e.text: e.text = new; n += 1
+    return n
+
+
+_HI = [re.compile(r"\[[^\]]*\]"), re.compile(r"\([^)]*\)"), re.compile(r"♪[^♪]*♪?"), re.compile(r"^[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ ]{1,20}:\s*", re.M)]
+
+
+def remove_hi(doc: Document, sel=None, brackets=True, parens=True, music=False, speaker=True) -> int:
+    """Remove text for hearing impaired: [..], (..), speaker labels like 'AYŞE:'."""
+    rules = [r for r, on in zip(_HI, (brackets, parens, music, speaker)) if on]
+    n = 0
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        t = e.text
+        for r in rules: t = r.sub("", t)
+        t = re.sub(r"^\s*(\\N)+|(\\N)+\s*$", "", t.strip()); t = re.sub(r"(\\N){2,}", r"\\N", t).strip()
+        if t != e.text: e.text = t; n += 1
+    return n
+
+
+def merge_short(doc: Document, max_gap: int = 250, max_len: int = 40, sel=None) -> int:
+    """Merge consecutive same-style lines if both short and close together."""
+    idx = [i for i in _sel(doc, sel) if not doc.events[i].comment]
+    idx.sort(key=lambda i: doc.events[i].start)
+    merged, n = set(), 0
+    k = 0
+    while k + 1 < len(idx):
+        a, b = doc.events[idx[k]], doc.events[idx[k + 1]]
+        if a.style == b.style and 0 <= b.start - a.end <= max_gap and \
+                len(strip_tags(a.text)) + len(strip_tags(b.text)) <= max_len and "\\N" not in a.text + b.text:
+            a.text = a.text + " " + b.text; a.end = b.end; merged.add(idx[k + 1]); n += 1
+            del idx[k + 1]
+        else:
+            k += 1
+    doc.events = [e for i, e in enumerate(doc.events) if i not in merged]
+    return n
+
+
+def remove_duplicates(doc: Document) -> int:
+    seen, out = set(), []
+    for e in doc.events:
+        key = (e.start, e.end, e.style, e.text, e.layer, e.comment)
+        if key in seen: continue
+        seen.add(key); out.append(e)
+    n = len(doc.events) - len(out); doc.events = out; return n
+
+
+def statistics(doc: Document) -> dict:
+    evs = [e for e in doc.events if not e.comment and not has_drawing(e.text)]
+    if not evs:
+        return {"lines": 0}
+    cps = [char_count(e.text) / max(0.001, e.duration / 1000) for e in evs]
+    dur = [e.duration for e in evs]
+    chars = [char_count(e.text) for e in evs]
+    words = sum(len(strip_tags(e.text).replace("\\N", " ").split()) for e in evs)
+    from collections import Counter
+    styles = Counter(e.style for e in evs)
+    return {"lines": len(evs), "comments": sum(1 for e in doc.events if e.comment), "words": words,
+            "chars": sum(chars), "avg_cps": sum(cps) / len(cps), "max_cps": max(cps),
+            "avg_duration_ms": sum(dur) / len(dur), "min_duration_ms": min(dur), "max_duration_ms": max(dur),
+            "total_ms": max(e.end for e in evs) - min(e.start for e in evs), "styles": dict(styles),
+            "over_20cps": sum(1 for c in cps if c > 20)}

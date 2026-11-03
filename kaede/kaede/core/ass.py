@@ -272,6 +272,15 @@ class Document:
         return doc
 
     # -- write -------------------------------------------------------------
+    def dump_window(self, t0: int, t1: int) -> str:
+        """Dump only events overlapping [t0, t1] ms (fast preview script for large documents)."""
+        saved = self.events
+        try:
+            self.events = [e for e in saved if e.end >= t0 and e.start <= t1]
+            return self.dump()
+        finally:
+            self.events = saved
+
     def dump(self) -> str:
         out = ["[Script Info]"]
         for k, v in self.info:

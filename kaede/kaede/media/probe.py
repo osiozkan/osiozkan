@@ -95,7 +95,9 @@ def detect_speech(samples: np.ndarray, rate: int, threshold: float = 0.02, min_l
     if n == 0:
         return []
     e = np.sqrt((samples[: n * hop].reshape(n, hop) ** 2).mean(axis=1))
-    on = e > max(threshold, float(np.percentile(e, 20)) * 3)
+    noise = float(np.percentile(e, 15)) * 3
+    cap = 0.5 * float(np.percentile(e, 95))
+    on = e > max(threshold, min(noise, cap))
     segs, start = [], None
     for i, v in enumerate(on):
         if v and start is None:

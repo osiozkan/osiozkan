@@ -57,3 +57,35 @@ def test_history():
 def test_resample():
     d = mk((0, 1, "{\\pos(100,50)\\fs20}x")); d.set_info("PlayResX", "100"); d.set_info("PlayResY", "100")
     tools.resample(d, 200, 200); assert "\\pos(200,100)" in d.events[0].text and "\\fs40" in d.events[0].text
+
+
+def test_linear_sync():
+    d = mk((1000, 2000, "a"), (11000, 12000, "b"))
+    tools.linear_sync(d, 1000, 2000, 11000, 22000)
+    assert (d.events[0].start, d.events[1].start) == (2000, 22000)
+    assert d.events[1].end == 24000
+
+
+def test_balance_and_hi():
+    t = tools.balance_lines("Bu çok uzun bir cümle ve ortasından bölünmesi gerekiyor evet", 30)
+    assert "\\N" in t and abs(t.index("\\N") - len(t) / 2) < 12
+    d = mk((0, 1000, "[kapı çarpar]\\NMerhaba"), (1, 2, "AYŞE: Selam"), (2, 3, "(gülüyor)"))
+    tools.remove_hi(d)
+    assert d.events[0].text == "Merhaba" and d.events[1].text == "Selam" and d.events[2].text == ""
+
+
+def test_merge_short_stats():
+    d = mk((0, 500, "a"), (600, 900, "b"), (5000, 6000, "c"))
+    assert tools.merge_short(d) == 1 and len(d.events) == 2 and d.events[0].text == "a b"
+    assert tools.statistics(d)["lines"] == 2
+
+
+def test_fonts_and_timecodes():
+    from kaede.core import fonts, timecodes
+    d = Document.parse("[V4+ Styles]\nFormat: Name, Fontname, Bold\nStyle: Default,Foo Bar,-1\n[Events]\n"
+                       "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\fnBaz}x")
+    names = {u.family for u in fonts.used_fonts(d)}
+    assert names == {"Foo Bar", "Baz"}
+    tc = timecodes.parse_timecodes("# timecode format v2\n0\n42\n84\n125\n")
+    assert tc.frame_at(84) == 2 and tc.time_at(3) == 125
+    assert timecodes.parse_keyframes("# keyframe format v1\nfps 23.976\n0\n240\n") == [0, 240]
