@@ -1,0 +1,22 @@
+[project]
+name = "kaede"
+version = "0.1.0"
+description = "Kaede - anime subtitle editor (Aegisub-compatible, Lua automation, Subtitle Edit style tools)"
+requires-python = ">=3.10"
+dependencies = ["lupa>=2.2", "PySide6-Essentials>=6.6"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+kaede = "kaede.gui.app:main"
+kaede-cli = "kaede.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["kaede*"]
+
+[tool.setuptools.package-data]
+kaede = ["lua/lib/*.lua"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
