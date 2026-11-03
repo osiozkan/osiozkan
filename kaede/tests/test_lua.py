@@ -174,3 +174,18 @@ def test_script_dir_include(tmp_path):
         aegisub.register_macro("I", "", f)
     ''')
     assert r.doc.events[0].text == "hi"
+
+
+def test_bundled_scripts_and_kaede_module():
+    here = os.path.join(os.path.dirname(__file__), "..", "scripts", "kaede_turkce.lua")
+    eng = Engine(Host()); s = eng.load_script(here)
+    assert not s.error, s.error
+    names = {m.name: m for m in s.macros}
+    d = Document.parse("[Events]\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\i1}iyi ışık{\\i0}...\n")
+    r = eng.run_macro(names["Kaede/Türkçe/BÜYÜK HARF"], d, [0], 0)
+    assert r.doc.events[0].text == "{\\i1}İYİ IŞIK{\\i0}..."
+    r = eng.run_macro(names["Kaede/Metin/Üç noktayı … yap"], d, [0], 0)
+    assert r.doc.events[0].text.endswith("…")
+    d2 = Document.parse("[Events]\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Bu çok uzun bir cümle ve ortasından bölünmesi gerekiyor evet\n")
+    r = eng.run_macro(names["Kaede/Metin/Satırları dengele"], d2, [0], 0)
+    assert "\\N" in r.doc.events[0].text

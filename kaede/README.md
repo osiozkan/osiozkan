@@ -9,7 +9,7 @@ birleştirir. Türkçe için baştan tasarlandı (I/İ ı/I, cp1254 kodlama alg�
 ```bash
 cd kaede
 python3 -m pip install -e ".[dev]"     # lupa (LuaJIT), PySide6, numpy
-ffmpeg ve libass sistemde kurulu olmalı (video/ses/önizleme için)
+# ffmpeg ve libass sistemde kurulu olmalı (video/ses/önizleme için)
 python3 -m kaede.gui.app [dosya.ass]    # GUI   (veya: kaede)
 python3 -m kaede.cli --help             # komut satırı (convert, qc, shift, run)
 python3 -m pytest -q                    # testler (GUI testleri için QT_QPA_PLATFORM=offscreen)

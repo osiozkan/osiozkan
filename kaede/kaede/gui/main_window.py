@@ -26,6 +26,7 @@ from .dialogs import (ShiftDialog, FindReplaceDialog, StylesManager, PropertiesD
 from .host import GuiHost
 from .model import SubsModel, COLS
 from .widgets import TimeEdit, WaveformWidget, VideoView
+from .visual import VisualTools, TOOLS
 
 try:
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -141,7 +142,18 @@ class MainWindow(QMainWindow):
         vc = QHBoxLayout(); vc.setContentsMargins(0, 0, 0, 0)
         for w in (step_b, self.play_btn, step_f): vc.addWidget(w)
         vc.addWidget(self.seek_slider, 1); vc.addWidget(self.pos_label)
-        vbox = QWidget(); vl = QVBoxLayout(vbox); vl.setContentsMargins(0, 0, 0, 0); vl.addWidget(self.video, 1); vl.addLayout(vc)
+        self.visual = VisualTools(self)
+        self.video.toolPress.connect(self.visual.press); self.video.toolMove.connect(self.visual.move)
+        self.video.toolRelease.connect(self.visual.release)
+        tb = QHBoxLayout(); tb.setContentsMargins(0, 0, 0, 0)
+        from PySide6.QtWidgets import QButtonGroup
+        self.tool_group = QButtonGroup(self)
+        for key, label in TOOLS:
+            b = QPushButton(label); b.setCheckable(True); b.setChecked(key == "none")
+            b.setToolTip("Videoda sürükleyerek yazı dizgisi (Shift: kısıtla)")
+            b.clicked.connect(lambda _=False, k=key: self.visual.set_mode(k)); self.tool_group.addButton(b); tb.addWidget(b)
+        tb.addStretch(1)
+        vbox = QWidget(); vl = QVBoxLayout(vbox); vl.setContentsMargins(0, 0, 0, 0); vl.addLayout(tb); vl.addWidget(self.video, 1); vl.addLayout(vc)
 
         # edit panel
         self.edit_text = QPlainTextEdit(); self.edit_text.setFont(QFont("Sans", 12))
@@ -485,6 +497,7 @@ class MainWindow(QMainWindow):
             e = self.doc.events[r]
             self.wave.set_active(e.start, e.end)
             self._update_waveform_spans()
+            self.visual.redraw()
 
     def _load_edit_panel(self):
         r = self.cur_row()

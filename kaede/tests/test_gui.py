@@ -55,3 +55,22 @@ def test_macro_from_gui(app, tmp_path):
     assert w.doc.events[0].text.startswith("MERHABA")
     w.undo(); assert w.doc.events[0].text.startswith("Merhaba")
     w.dirty = False; w.close()
+
+
+def test_visual_tools(app):
+    from kaede.gui.main_window import MainWindow
+    w = MainWindow(SAMPLE); w.goto_row(0); w.show()
+    w.visual.set_mode("pos")
+    vw, vh = w.video.vw, w.video.vh
+    w.visual.press(vw / 2, vh / 2, 1); w.visual.release(vw / 2 + 100, vh / 2 + 50)
+    t = w.doc.events[0].text
+    assert t.startswith("{\\pos(") and "Merhaba" in t
+    x0 = w.visual.to_script(vw / 2, vh / 2)
+    assert w.undo() is None
+    assert "\\pos" not in w.doc.events[0].text
+    w.visual.set_mode("clip")
+    w.visual.press(10, 10, 1); w.visual.release(200, 100)
+    assert "\\clip(" in w.doc.events[0].text
+    w.visual.set_mode("rotz"); w.visual.press(vw / 2 + 50, vh / 2, 1); w.visual.release(vw / 2, vh / 2 + 50)
+    assert "\\frz" in w.doc.events[0].text
+    w.dirty = False; w.close()

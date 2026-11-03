@@ -24,8 +24,8 @@ return function(K, libdir)
   aegisub.cancel = function() error("__AEGISUB_CANCEL__", 0) end
   aegisub.progress = {
     set = function(n) K.progress("set", n) end,
-    task = function(...) K.progress("task", string.format(...)) end,
-    title = function(...) K.progress("title", string.format(...)) end,
+    task = function(...) local a = {...}; K.progress("task", #a > 1 and string.format(...) or tostring(a[1])) end,
+    title = function(...) local a = {...}; K.progress("title", #a > 1 and string.format(...) or tostring(a[1])) end,
     is_cancelled = function() return K.progress("cancelled") and true or false end,
   }
 
@@ -136,6 +136,8 @@ return function(K, libdir)
   package.loaded["aegisub.util"] = nil
   package.preload["aegisub.util"] = function() return require("util") end
   package.preload["aegisub"] = function() return aegisub end
+  package.loaded["kaede"] = K.kaede
+  kaede = K.kaede
   re = K.re
   unicode = K.unicode
   return aegisub

@@ -344,6 +344,13 @@ class ScriptRunner:
             "script_dir": lambda: os.path.dirname(script.path),
             "user_include": lambda: os.path.join(host.user_dir, "include"),
         })
+        from ..core import tools as _tools, tags as _tags
+        K["kaede"] = rt.table_from({
+            "tr_upper": _tools.tr_upper, "tr_lower": _tools.tr_lower, "tr_title": _tools.tr_title,
+            "tr_sentence": _tools.tr_sentence, "apply_case": lambda t, m: _tools.apply_case(t, m),
+            "strip_tags": _tags.strip_tags, "char_count": lambda t: _tags.char_count(t),
+            "balance_lines": lambda t, n=42: _tools.balance_lines(t, int(n)),
+            "version": "0.1.0"})
         K["lfs"] = _make_lfs(rt)
         K["include_dirs"] = lambda: ";".join(_include_dirs(host))
         K["re"] = _make_re(rt)

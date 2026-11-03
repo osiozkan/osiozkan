@@ -175,6 +175,25 @@ class WaveformWidget(QWidget):
 class VideoView(QGraphicsView):
     """Shows frames (QImage) with libass overlay. Backend-agnostic: gets composited RGBA frames or video item."""
     clicked = Signal()
+    toolPress = Signal(float, float, object)
+    toolMove = Signal(float, float)
+    toolRelease = Signal(float, float)
+    tool_active = False
+
+    def mousePressEvent(self, e):
+        if self.tool_active:
+            p = self.mapToScene(e.position().toPoint()); self.toolPress.emit(p.x(), p.y(), e.button()); return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self.tool_active and e.buttons():
+            p = self.mapToScene(e.position().toPoint()); self.toolMove.emit(p.x(), p.y()); return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if self.tool_active:
+            p = self.mapToScene(e.position().toPoint()); self.toolRelease.emit(p.x(), p.y()); return
+        super().mouseReleaseEvent(e)
 
     def __init__(self, parent=None):
         super().__init__(parent)

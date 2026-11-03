@@ -89,3 +89,19 @@ def test_fonts_and_timecodes():
     tc = timecodes.parse_timecodes("# timecode format v2\n0\n42\n84\n125\n")
     assert tc.frame_at(84) == 2 and tc.time_at(3) == 125
     assert timecodes.parse_keyframes("# keyframe format v1\nfps 23.976\n0\n240\n") == [0, 240]
+
+
+def test_tag_editing():
+    from kaede.core import tags
+    t = tags.set_tag("Merhaba", "pos", "(100,50)")
+    assert t == "{\\pos(100,50)}Merhaba"
+    t = tags.set_tag(t, "pos", "(1,2)"); assert t == "{\\pos(1,2)}Merhaba"
+    t = tags.set_tag(t, "frz", "30"); assert t == "{\\pos(1,2)\\frz30}Merhaba"
+    t = tags.set_tag(t, "fs", "40"); assert "\\fs40" in t
+    t2 = tags.set_tag("{\\fscx50\\fs20}x", "fs", "99"); assert t2 == "{\\fscx50\\fs99}x"
+    assert tags.get_pos(t) == (1.0, 2.0) and tags.get_first_tag(t, "frz") == "30"
+    assert tags.remove_tag(t, "frz") == "{\\pos(1,2)\\fs40}Merhaba"
+    assert tags.remove_tag("{\\pos(1,2)}x", "pos") == "x"
+    from kaede.core.ass import Style
+    assert tags.default_position(Style(align=2, margin_t=50), (1920, 1080)) == (960.0, 1030)
+    assert tags.default_position(Style(align=7, margin_l=10, margin_t=20), (1920, 1080)) == (10, 20)
