@@ -3,7 +3,7 @@ name = "kaede"
 version = "0.1.0"
 description = "Kaede - anime subtitle editor (Aegisub-compatible, Lua automation, Subtitle Edit style tools)"
 requires-python = ">=3.10"
-dependencies = ["lupa>=2.2", "PySide6-Essentials>=6.6"]
+dependencies = ["lupa>=2.2", "PySide6>=6.6", "numpy>=1.24"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
