@@ -74,3 +74,19 @@ def test_visual_tools(app):
     w.visual.set_mode("rotz"); w.visual.press(vw / 2 + 50, vh / 2, 1); w.visual.release(vw / 2, vh / 2 + 50)
     assert "\\frz" in w.doc.events[0].text
     w.dirty = False; w.close()
+
+
+def test_reference_and_spectrogram(app, tmp_path):
+    import numpy as np
+    from kaede.gui.main_window import MainWindow
+    ref = tmp_path / "ref.srt"
+    ref.write_text("1\n00:00:01,000 --> 00:00:03,000\nHello world\n\n2\n00:00:03,500 --> 00:00:05,000\nRain\n", encoding="utf-8")
+    w = MainWindow(SAMPLE); w.show()
+    w.ref_doc = __import__("kaede.core.formats", fromlist=["x"]).load_document(str(ref)); w._update_reference()
+    assert w.model.ref[0] == "Hello world" and w.model.columnCount() == 10
+    w.goto_row(0); assert "Hello world" in w.ref_label.text()
+    w.close_reference(); assert w.model.columnCount() == 9
+    w.audio_samples = np.random.randn(16000 * 3).astype(np.float32) * 0.1
+    w.toggle_spectrogram(); assert w.wave.show_spec and w.wave.spec_img is not None
+    w.wave.grab()
+    w.dirty = False; w.close()

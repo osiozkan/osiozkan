@@ -22,7 +22,7 @@ from ..lua.engine import Engine, AutomationError, Cancelled
 from ..media import probe
 from ..media.assrender import AssRenderer, available as libass_available
 from .dialogs import (ShiftDialog, FindReplaceDialog, StylesManager, PropertiesDialog, TimingDialog, QCDialog,
-                      AutomationDialog, TextDialog)
+                      AutomationDialog, TextDialog, FixCommonDialog, SettingsDialog)
 from .host import GuiHost
 from .model import SubsModel, COLS
 from .widgets import TimeEdit, WaveformWidget, VideoView
@@ -85,7 +85,9 @@ class MainWindow(QMainWindow):
         self.resize(1400, 900)
         self.restoreGeometry(self.settings.value("geometry", b"") or b"")
 
-        self.autosave = QTimer(self); self.autosave.timeout.connect(self._autosave); self.autosave.start(120000)
+        self.autosave = QTimer(self); self.autosave.timeout.connect(self._autosave)
+        _m = int(self.settings.value('autosave_min', 2))
+        if _m: self.autosave.start(_m * 60000)
         self.overlay_timer = QTimer(self); self.overlay_timer.setSingleShot(True)
         self.overlay_timer.timeout.connect(self._refresh_overlay)
 
@@ -190,7 +192,10 @@ class MainWindow(QMainWindow):
         for lab, w in (("Başl.", self.t_start), ("Bitiş", self.t_end), ("Süre", self.t_dur), ("Kenar L", self.ml), ("R", self.mr), ("V", self.mv)):
             row2.addWidget(QLabel(lab)); row2.addWidget(w)
         row2.addStretch(1)
-        el.addLayout(row1); el.addLayout(row2); el.addLayout(tagbar); el.addWidget(self.edit_text, 1)
+        self.ref_label = QLabel(""); self.ref_label.setWordWrap(True); self.ref_label.setVisible(False)
+        self.ref_label.setStyleSheet("color:#8fb4ff; padding:2px 4px; border-left:3px solid #3d7eff")
+        self.ref_doc = None
+        el.addLayout(row1); el.addLayout(row2); el.addWidget(self.ref_label); el.addLayout(tagbar); el.addWidget(self.edit_text, 1)
 
         self.wave = WaveformWidget(); self.wave.dark = self.dark
         self.wave.seek.connect(self.seek_ms)
@@ -299,9 +304,13 @@ class MainWindow(QMainWindow):
         self._act(m, "Yinelenen satırları sil", lambda: self.mutate("Yinelenenleri sil", lambda d, s: tools.remove_duplicates(d), select_after=[]))
         self._act(m, "İstatistikler…", self.show_stats)
         self._act(m, "Yazı tiplerini denetle / topla…", self.fonts_dialog)
+        self._act(m, "Sık hataları düzelt…", self.fix_common_dialog)
+        self._act(m, "Çeviri modu: referans altyazı yükle…", self.load_reference)
+        self._act(m, "Çeviri modunu kapat", self.close_reference)
         self._act(m, "Satıra git…", self.goto_dialog, "Ctrl+G")
         m.addSeparator()
-        self._act(m, "Uygulama ayarları: varsayılan fps…", self.set_default_fps)
+        self._act(m, "Ayarlar…", self.settings_dialog, "Ctrl+,")
+        self._act(m, "Spektrogram göster/gizle", self.toggle_spectrogram, "Ctrl+Alt+S")
 
         self.auto_menu = mb.addMenu("&Otomasyon")
         self.auto_menu.aboutToShow.connect(self._fill_auto_menu)
@@ -434,7 +443,7 @@ class MainWindow(QMainWindow):
     def _write(self, p) -> bool:
         try:
             self._commit_pending()
-            ass_save(self.doc, p); self.dirty = False; self._refresh_title()
+            ass_save(self.doc, p, bom=self.settings.value('bom', 'true') == 'true'); self.dirty = False; self._refresh_title()
             self.statusBar().showMessage(f"Kaydedildi: {p}", 3000); return True
         except Exception as e:
             QMessageBox.critical(self, APP, f"Kaydedilemedi:\n{e}"); return False
@@ -513,6 +522,7 @@ class MainWindow(QMainWindow):
             self.comment_chk.setChecked(e.comment)
             self.t_start.set_ms(e.start); self.t_end.set_ms(e.end); self.t_dur.set_ms(e.duration)
             self._update_stats(e)
+            if self.model.ref is not None and r < len(self.model.ref): self.ref_label.setText("Referans: " + self.model.ref[r])
         finally:
             self._updating = False
 
@@ -824,6 +834,50 @@ class MainWindow(QMainWindow):
             if p:
                 copied, missing = fonts.collect(self.doc, p, as_zip=True)
                 self.statusBar().showMessage(f"{len(copied)} dosya toplandı, {len(missing)} eksik", 6000)
+
+    def fix_common_dialog(self):
+        dlg = FixCommonDialog(self)
+        if not dlg.exec(): return
+        opts = dlg.options(); cnt = [0]
+        self.mutate("Sık hataları düzelt", lambda d, s: cnt.__setitem__(0, tools.fix_common(d, opts, s if dlg.sel.isChecked() and s else None)))
+        self.statusBar().showMessage(f"{cnt[0]} satır düzeltildi", 5000)
+
+    def load_reference(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Referans (orijinal) altyazı", self.settings.value("last_dir", ""), SUPPORTED)
+        if not p: return
+        try: self.ref_doc = formats.load_document(p)
+        except Exception as e: QMessageBox.warning(self, APP, f"Açılamadı: {e}"); return
+        self._update_reference(); self.statusBar().showMessage(f"Referans: {os.path.basename(p)} ({len(self.ref_doc.events)} satır)", 5000)
+
+    def close_reference(self):
+        self.ref_doc = None; self._update_reference()
+
+    def _update_reference(self):
+        rd = getattr(self, "ref_doc", None)
+        self.model.beginResetModel()
+        self.model.ref = tools.match_reference(self.doc, rd) if rd else None
+        self.model.endResetModel()
+        if rd: self.grid.horizontalHeader().setSectionResizeMode(len(COLS), QHeaderView.Stretch); self.grid.horizontalHeader().setSectionResizeMode(8, QHeaderView.Interactive); self.grid.setColumnWidth(8, 420)
+        else: self.grid.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
+        self.ref_label.setVisible(bool(rd)); self._load_edit_panel()
+
+    def settings_dialog(self):
+        dlg = SettingsDialog(self, self.settings)
+        if dlg.exec():
+            dlg.save()
+            self.qc_cfg.max_cps = float(self.settings.value("qc_cps", 20)); self.qc_cfg.max_cpl = int(self.settings.value("qc_cpl", 42))
+            self.dark = self.settings.value("dark", "true") == "true"; self.theme()
+            m = int(self.settings.value("autosave_min", 2)); self.autosave.stop()
+            if m: self.autosave.start(m * 60000)
+            self.reload_scripts()
+
+    def toggle_spectrogram(self):
+        if self.audio_samples is None: self.statusBar().showMessage("Önce ses yükleyin", 3000); return
+        if self.wave.spec_img is None:
+            self.statusBar().showMessage("Spektrogram hesaplanıyor…"); QApplication.processEvents()
+            spec = probe.spectrogram(self.audio_samples, 8000, 512, 128)
+            self.wave.set_spectrogram(spec, 128 / 8000 * 1000)
+        self.wave.show_spec = not self.wave.show_spec; self.wave.update(); self.statusBar().clearMessage()
 
     def goto_dialog(self):
         v, ok = QInputDialog.getInt(self, "Satıra git", "Satır no:", self.cur_row() + 1, 1, max(1, len(self.doc.events)))

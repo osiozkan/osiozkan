@@ -7,6 +7,7 @@ from ..core.tags import strip_tags, char_count
 from ..core.timeutil import ass_time
 
 COLS = ["#", "Katman", "Başlangıç", "Bitiş", "Süre", "CPS", "Stil", "Aktör", "Metin"]
+REF_COL = "Referans"
 
 
 class SubsModel(QAbstractTableModel):
@@ -16,6 +17,7 @@ class SubsModel(QAbstractTableModel):
         self.issues: dict[int, str] = {}
         self.dark = True
         self.show_tags = True
+        self.ref: list[str] | None = None
 
     def set_doc(self, doc: Document):
         self.beginResetModel(); self.doc = doc; self.endResetModel()
@@ -25,19 +27,25 @@ class SubsModel(QAbstractTableModel):
 
     def refresh_rows(self, a: int, b: int):
         if self.doc.events:
-            self.dataChanged.emit(self.index(a, 0), self.index(min(b, len(self.doc.events) - 1), len(COLS) - 1))
+            self.dataChanged.emit(self.index(a, 0), self.index(min(b, len(self.doc.events) - 1), self.columnCount() - 1))
 
     def rowCount(self, parent=QModelIndex()): return 0 if parent.isValid() else len(self.doc.events)
-    def columnCount(self, parent=QModelIndex()): return len(COLS)
+    def columnCount(self, parent=QModelIndex()): return len(COLS) + (1 if self.ref is not None else 0)
 
     def headerData(self, s, o, role=Qt.DisplayRole):
         if o == Qt.Horizontal and role == Qt.DisplayRole:
-            return COLS[s]
+            return COLS[s] if s < len(COLS) else REF_COL
         return None
 
     def data(self, idx, role=Qt.DisplayRole):
         e = self.doc.events[idx.row()]
         c = idx.column()
+        if c >= len(COLS):
+            if role == Qt.DisplayRole and self.ref is not None and idx.row() < len(self.ref):
+                return self.ref[idx.row()]
+            if role == Qt.ForegroundRole:
+                return QBrush(QColor("#8fb4ff" if self.dark else "#1a4fb5"))
+            return None
         if role == Qt.DisplayRole:
             if c == 0: return idx.row() + 1
             if c == 1: return e.layer

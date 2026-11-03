@@ -338,3 +338,54 @@ class TextDialog(QDialog):
         super().__init__(parent); self.setWindowTitle(title); self.resize(560, 360)
         l = QVBoxLayout(self); t = QPlainTextEdit(text); t.setReadOnly(True); l.addWidget(t)
         b = QPushButton("Kapat"); b.clicked.connect(self.accept); l.addWidget(b)
+
+
+class FixCommonDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent); self.setWindowTitle("Sık hataları düzelt")
+        f = QFormLayout(self)
+        self.opts = {}
+        for key, label, on in (("ellipsis", "“...” → “…” (üç nokta)", True), ("spaces", "Boşluk/noktalama düzeni (çift boşluk, noktalamadan önceki boşluk)", True),
+                               ("dialog_dash", "Diyalog çizgisi: “-Evet” → “- Evet”", True), ("tr_i", "BÜYÜK HARFLİ sözcüklerde I/İ düzelt", True),
+                               ("capital_after_stop", "Nokta sonrası küçük harfi büyüt", False), ("quotes", "Düz tırnak → “ ” (etiketsiz satırlarda)", False)):
+            c = QCheckBox(label); c.setChecked(on); self.opts[key] = c; f.addRow(c)
+        self.sel = QCheckBox("Yalnız seçili satırlar"); f.addRow(self.sel); f.addRow(_buttons(self))
+
+    def options(self):
+        return tools.FixOptions(**{k: c.isChecked() for k, c in self.opts.items()})
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent, settings):
+        super().__init__(parent); self.setWindowTitle("Ayarlar"); self.resize(560, 420)
+        self.s = settings
+        lay = QVBoxLayout(self)
+        f = QFormLayout()
+        self.fps = QDoubleSpinBox(); self.fps.setDecimals(3); self.fps.setRange(1, 240); self.fps.setValue(float(settings.value("default_fps", 23.976)))
+        self.cps = QDoubleSpinBox(); self.cps.setValue(float(settings.value("qc_cps", 20)))
+        self.cpl = QSpinBox(); self.cpl.setRange(10, 200); self.cpl.setValue(int(settings.value("qc_cpl", 42)))
+        self.auto = QSpinBox(); self.auto.setRange(0, 60); self.auto.setValue(int(settings.value("autosave_min", 2)))
+        self.auto.setSpecialValueText("kapalı"); self.dark = QCheckBox("Koyu tema"); self.dark.setChecked(settings.value("dark", "true") == "true")
+        self.bom = QCheckBox("ASS dosyalarını UTF-8 BOM ile kaydet"); self.bom.setChecked(settings.value("bom", "true") == "true")
+        for lab, w in (("Varsayılan FPS:", self.fps), ("QC maks CPS:", self.cps), ("QC maks CPL:", self.cpl), ("Otomatik yedek (dk):", self.auto)):
+            f.addRow(lab, w)
+        f.addRow(self.dark); f.addRow(self.bom)
+        lay.addLayout(f)
+        lay.addWidget(QLabel("Ek Lua betik klasörleri (açılışta yüklenir):"))
+        self.dirs = QListWidget(); self.dirs.addItems([str(x) for x in (settings.value("script_dirs", []) or [])]); lay.addWidget(self.dirs)
+        row = QHBoxLayout()
+        add = QPushButton("Klasör ekle…"); rem = QPushButton("Seçileni kaldır")
+        add.clicked.connect(self._add); rem.clicked.connect(lambda: [self.dirs.takeItem(self.dirs.row(i)) for i in self.dirs.selectedItems()])
+        row.addWidget(add); row.addWidget(rem); row.addStretch(1); lay.addLayout(row)
+        lay.addWidget(_buttons(self))
+
+    def _add(self):
+        d = QFileDialog.getExistingDirectory(self, "Betik klasörü")
+        if d: self.dirs.addItem(d)
+
+    def save(self):
+        s = self.s
+        s.setValue("default_fps", self.fps.value()); s.setValue("qc_cps", self.cps.value()); s.setValue("qc_cpl", self.cpl.value())
+        s.setValue("autosave_min", self.auto.value()); s.setValue("dark", "true" if self.dark.isChecked() else "false")
+        s.setValue("bom", "true" if self.bom.isChecked() else "false")
+        s.setValue("script_dirs", [self.dirs.item(i).text() for i in range(self.dirs.count())])

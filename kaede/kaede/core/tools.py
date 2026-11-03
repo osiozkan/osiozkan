@@ -480,3 +480,78 @@ def statistics(doc: Document) -> dict:
             "avg_duration_ms": sum(dur) / len(dur), "min_duration_ms": min(dur), "max_duration_ms": max(dur),
             "total_ms": max(e.end for e in evs) - min(e.start for e in evs), "styles": dict(styles),
             "over_20cps": sum(1 for c in cps if c > 20)}
+
+
+# ------------------------------------------------------------------ fix common errors
+@dataclass
+class FixOptions:
+    ellipsis: bool = True          # "..." -> "…"
+    spaces: bool = True            # double spaces, space before punctuation, trim
+    dialog_dash: bool = True       # "-Merhaba" -> "- Merhaba" on each line when 2+ lines start with dash
+    capital_after_stop: bool = False
+    tr_i: bool = True              # İ/ı fixes in obviously upper/lower context
+    quotes: bool = True            # straight " pairs -> “ ”  (off by default for ass typesetting)
+    ellipsis_char: str = "…"
+
+
+def fix_common(doc: Document, opts: Optional[FixOptions] = None, sel=None) -> int:
+    o = opts or FixOptions()
+    n = 0
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        if e.comment or has_drawing(e.text):
+            continue
+        t = e.text
+        if o.ellipsis:
+            t = re.sub(r"\.{3,}", o.ellipsis_char, t)
+            t = t.replace("…", o.ellipsis_char) if o.ellipsis_char != "…" else t
+        if o.spaces:
+            t = re.sub(r"(?<![\\{]) {2,}", " ", t)
+            t = re.sub(r"\s+(\\N)", r"\1", t)
+            t = re.sub(r"(\\N)\s+", r"\1", t)
+            t = re.sub(r" +([,.!?;:…])(?![.\d])", r"\1", t)
+            t = re.sub(r"([,;:])(?=[^\s\d\\{\"'”’)\]}])", r"\1 ", t) if "{" not in t else t
+            t = t.strip()
+        if o.dialog_dash:
+            parts = t.split("\\N")
+            if len(parts) >= 2 and sum(1 for p in parts if re.match(r"^(\{[^}]*\})*[-–—]\S", p)) >= 1:
+                parts = [re.sub(r"^((?:\{[^}]*\})*)[-–]\s*(\S)", r"\1- \2", p) for p in parts]
+                t = "\\N".join(parts)
+        if o.capital_after_stop:
+            t = re.sub(r"([.!?…]\s+)([a-zçğıöşü])", lambda m: m.group(1) + tr_upper(m.group(2)), t)
+        if o.tr_i:
+            # words fully upper-case with a stray lowercase i/ı  ->  İ / I
+            def fix_word(m):
+                w = m.group(0)
+                if len(w) > 2 and sum(c.isupper() for c in w) >= len(w) - 1 and any(c in "iı" for c in w):
+                    return tr_upper(w)
+                return w
+            t = re.sub(r"[A-ZÇĞİÖŞÜIıi]{3,}", fix_word, t)
+        if o.quotes and "{" not in t:
+            q = t.count('"')
+            if q and q % 2 == 0:
+                parts = t.split('"'); out = parts[0]
+                for k, p in enumerate(parts[1:]):
+                    out += ("“" if k % 2 == 0 else "”") + p
+                t = out
+        if t != e.text:
+            e.text = t; n += 1
+    return n
+
+
+def match_reference(doc: Document, ref: Document) -> list[str]:
+    """For each event in doc, text of the reference event with the greatest time overlap ('' if none)."""
+    revs = sorted((e for e in ref.events if not e.comment), key=lambda e: e.start)
+    starts = [e.start for e in revs]
+    import bisect
+    out = []
+    for e in doc.events:
+        best, bo = "", 0
+        j = max(0, bisect.bisect_left(starts, e.start - 10000))
+        while j < len(revs) and revs[j].start < e.end:
+            r = revs[j]
+            ov = min(e.end, r.end) - max(e.start, r.start)
+            if ov > bo: bo, best = ov, strip_tags(r.text).replace("\\N", " ")
+            j += 1
+        out.append(best)
+    return out

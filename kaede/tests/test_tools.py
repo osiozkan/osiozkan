@@ -105,3 +105,12 @@ def test_tag_editing():
     from kaede.core.ass import Style
     assert tags.default_position(Style(align=2, margin_t=50), (1920, 1080)) == (960.0, 1030)
     assert tags.default_position(Style(align=7, margin_l=10, margin_t=20), (1920, 1080)) == (10, 20)
+
+
+def test_fix_common_and_reference():
+    d = mk((0, 1000, "Bekle ... ne  oldu ?\\N-Evet"), (1000, 2000, "KIRILDI MIYDI"), (2000, 3000, 'Dedi ki "merhaba"'))
+    tools.fix_common(d)
+    assert d.events[0].text == "Bekle… ne oldu?\\N- Evet"
+    assert d.events[2].text == "Dedi ki “merhaba”"
+    ref = mk((0, 900, "Wait"), (1100, 1900, "Broke"))
+    assert tools.match_reference(d, ref)[:2] == ["Wait", "Broke"]

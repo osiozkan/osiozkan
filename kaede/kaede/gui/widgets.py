@@ -47,6 +47,9 @@ class WaveformWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.spec_img: Optional[QImage] = None     # frames(w) x bins(h) image, hop in spec_hop_ms
+        self.spec_hop_ms = 16.0
+        self.show_spec = False
         self.peaks: Optional[np.ndarray] = None   # (n,2) @ pps
         self.pps = 100
         self.ms_per_px = 10.0
@@ -62,6 +65,22 @@ class WaveformWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
     # -- data
+    def set_spectrogram(self, spec: Optional[np.ndarray], hop_ms: float):
+        """spec: (frames, bins) log-magnitude; converts to a colour image (low freq at the bottom)."""
+        if spec is None or not len(spec):
+            self.spec_img = None; return
+        v = spec / max(1e-6, np.percentile(spec, 99.5))
+        v = np.clip(v, 0, 1)[:, ::-1].T                      # bins x frames, high freq on top
+        r = np.clip(v * 3 - 1, 0, 1); g = np.clip(v * 3 - 2, 0, 1) * 0.9 + np.clip(v * 2 - 0.5, 0, 1) * 0.2
+        b = np.clip(v * 2.2, 0, 1) * (1 - np.clip(v * 3 - 2, 0, 1))
+        rgb = (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
+        rgb = np.ascontiguousarray(rgb)
+        h, wd, _ = rgb.shape
+        self._spec_buf = rgb
+        self.spec_img = QImage(rgb.data, wd, h, wd * 3, QImage.Format_RGB888)
+        self.spec_hop_ms = hop_ms
+        self.update()
+
     def set_peaks(self, peaks, pps=100):
         self.peaks, self.pps = peaks, pps; self.update()
 
@@ -101,8 +120,13 @@ class WaveformWidget(QWidget):
             p.setPen(QPen(QColor("#ffa500"), 2)); p.drawLine(a0, 0, a0, h)
             p.setPen(QPen(QColor("#ff5a5a"), 2)); p.drawLine(a1, 0, a1, h)
         p.setPen(QPen(mid)); p.drawLine(0, cy, w, cy)
+        # spectrogram background
+        if self.show_spec and self.spec_img is not None:
+            src_x = self.left_ms / self.spec_hop_ms
+            src_w = w * self.ms_per_px / self.spec_hop_ms
+            p.drawImage(QRectF(0, 0, w, h), self.spec_img, QRectF(src_x, 0, src_w, self.spec_img.height()))
         # waveform
-        if self.peaks is not None and len(self.peaks):
+        if self.peaks is not None and len(self.peaks) and not (self.show_spec and self.spec_img is not None):
             p.setPen(QPen(fg))
             for x in range(w):
                 i0 = int((self.left_ms + x * self.ms_per_px) * self.pps / 1000)

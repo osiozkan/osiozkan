@@ -14,12 +14,15 @@ Qt GUI (tablo, düzenleme paneli, dalga formu, libass önizleme, video oynatıc�
 Not: depoda önceki bir Kaede/altyazı geliştirmesi bulunmuyordu (sadece profil README'si); önceki sohbetlerdeki
 sorun listesi bu oturuma aktarılmadığı için bilinen sorunlar aşağıya "Kullanıcı sorunları" olarak eklenmeli.
 
+## Gece 1'de tamamlananlar (ek)
+Görsel araçlar (konum/Z döndür/ölçek/orijin/kırp), spektrogram, çeviri modu (referans sütunu), ayarlar penceresi,
+"sık hataları düzelt", ASS round-trip testleri, performans düzeltmeleri (20k satırlık Lua geçişi 0.75 sn).
+
 ## Sıradaki işler (öncelik sırasıyla)
-1. **Görsel yazı-dizgi araçları** (videoda `\pos`/`\an`/`\frz`/`\fscx` sürükle, `\clip`, `\org`, çizim) — Aegisub'ın en büyük eksik parçası
-2. Ses **spektrogram** görünümü + ses oynatma/seçim oynatma, dalga formunda ekleme/bölme kısayolları (Aegisub ses kutusu iş akışı)
-3. **Çeviri modu**: orijinal/çeviri iki sütun, referans altyazı yükle, otomatik aynı zaman eşleme
-4. **Ayarlar penceresi** (betik klasörleri, QC varsayılanları, kısayol özelleştirme, autosave aralığı, dil)
-5. Yazım denetimi (Türkçe hunspell/`spylls`), sık hatalar düzeltici (SE "Fix common errors": "..." → "…", tırnaklar, `-` diyalog çizgisi)
+1. Görsel araçlar: `\move`, vektör `\clip` (çizim), `\frx/\fry`, sürükle-tutamaçlar (şu an yalnız tek tıkla-sürükle); `\t` canlı doğrulama
+2. Ses oynatma / seçim oynatma, dalga formunda ekleme/bölme kısayolları (Aegisub ses kutusu iş akışı: Enter=uygula, G=ses seçimini satıra ata…)
+3. Çeviri modu: iki belge arasında satır eşleme düzenleme, "orijinali kopyala" kısayolu
+4. Kısayol özelleştirme, çoklu dil (TR/EN) arayüz, yazım denetimi (Türkçe hunspell/`spylls`)
 6. Lua: MoonScript (.moon) desteği, `re` için Boost'a daha yakın davranış, furigana ayrıştırma, `aegisub.get_audio_selection`
 7. Karaoke araçları (şablon çalıştırıcı için Aegisub `kara-templater` ile uyum testi, yerleşik basit karaoke zamanlayıcı)
 8. Paketleme: PyInstaller (Windows .exe / Linux AppImage), GitHub Actions
