@@ -201,6 +201,8 @@ class MainWindow(QMainWindow):
         self.wave.seek.connect(self.seek_ms)
         self.wave.activeRetimed.connect(self._wave_retimed)
         self.wave.createRange.connect(self._wave_create)
+        self.wave.setStart.connect(lambda ms: self._set_time_at("start", ms))
+        self.wave.setEnd.connect(lambda ms: self._set_time_at("end", ms))
 
         top = QSplitter(Qt.Horizontal); top.addWidget(vbox); top.addWidget(ep); top.setSizes([620, 780])
         mid = QSplitter(Qt.Vertical); mid.addWidget(top); mid.addWidget(self.wave); mid.addWidget(self.grid)
@@ -284,6 +286,8 @@ class MainWindow(QMainWindow):
         self._act(m, "Kare hızını ayarla…", self.set_fps_dialog)
         self._act(m, "Oynat/Duraklat", self.toggle_play, "Ctrl+Space")
         self._act(m, "Satırı oynat", self.play_line, "Ctrl+L")
+        self._act(m, "Başlangıç civarını oynat (±500 ms)", self.play_before_start, "Ctrl+Alt+Left")
+        self._act(m, "Bitiş civarını oynat (±500 ms)", self.play_after_end, "Ctrl+Alt+Right")
         self._act(m, "Önceki kare", lambda: self.step_frame(-1), "Alt+Left")
         self._act(m, "Sonraki kare", lambda: self.step_frame(1), "Alt+Right")
         self._act(m, "Önceki satır", lambda: self.goto_row(self.cur_row() - 1), "Alt+Up")
@@ -733,6 +737,28 @@ class MainWindow(QMainWindow):
             else: e.end = max(t, e.start + 1)
         self.mutate("Zamanı videodan ayarla", f)
 
+    def _set_time_at(self, which, ms):
+        r = self.cur_row()
+        if r < 0: return
+        def f(d, sel):
+            e = d.events[r]
+            if which == "start": e.start = ms; e.end = max(e.end, ms + 100)
+            else: e.end = max(ms, e.start + 1)
+        self.mutate("Zamanı ayarla", f)
+        self.wave.set_active(self.doc.events[r].start, self.doc.events[r].end)
+
+    def play_range(self, a, b):
+        if not self.player or not self.video_path: return
+        self.seek_ms(max(0, a)); self._stop_at = b; self.player.play()
+
+    def play_before_start(self):
+        r = self.cur_row()
+        if r >= 0: e = self.doc.events[r]; self.play_range(e.start - 500, e.start + 500)
+
+    def play_after_end(self):
+        r = self.cur_row()
+        if r >= 0: e = self.doc.events[r]; self.play_range(e.end - 500, e.end + 500)
+
     def _wave_retimed(self, s, e):
         r = self.cur_row()
         if r < 0: return
@@ -1148,6 +1174,6 @@ Düzen: Ctrl+Z/Shift+Z Geri al/yinele · Ctrl+Ins satır ekle · Ctrl+D çoğalt
 Metin: Ctrl+Enter uygula+sonraki · Shift+Enter \\N · Ctrl+B/I/U etiketler
 Video: Ctrl+Space oynat · Ctrl+L satırı oynat · Alt+←/→ kare · Alt+↑/↓ satır
 Zaman: Ctrl+Shift+T kaydır · Ctrl+Shift+←/→ başlangıç/bitişi videodan ata
-Dalga formu: tıkla=atla · kenarları sürükle=zamanla · Ctrl+sürükle=yeni satır · Ctrl+tekerlek=yakınlaştır
+Dalga formu: tıkla=atla · Shift+tık=başlangıç · sağ tık=bitiş · kenarları sürükle=zamanla · Ctrl+sürükle=yeni satır · Ctrl+tekerlek=yakınlaştır
 Araçlar: F5 özellikler · F6 stiller · F7 QC · Ctrl+Alt+R betikleri yenile
 """

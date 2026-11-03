@@ -90,3 +90,12 @@ def test_reference_and_spectrogram(app, tmp_path):
     w.toggle_spectrogram(); assert w.wave.show_spec and w.wave.spec_img is not None
     w.wave.grab()
     w.dirty = False; w.close()
+
+
+def test_wave_set_times(app):
+    from kaede.gui.main_window import MainWindow
+    w = MainWindow(SAMPLE); w.goto_row(0); w.show()
+    w._set_time_at("end", 4000); assert w.doc.events[0].end == 4000
+    w._set_time_at("start", 500); assert w.doc.events[0].start == 500
+    w.undo(); assert w.doc.events[0].start == 1000
+    w.dirty = False; w.close()

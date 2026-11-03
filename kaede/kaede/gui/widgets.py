@@ -44,6 +44,8 @@ class WaveformWidget(QWidget):
     seek = Signal(int)
     activeRetimed = Signal(int, int)   # start, end (ms)
     createRange = Signal(int, int)     # drag in empty area with ctrl
+    setStart = Signal(int)             # shift+click
+    setEnd = Signal(int)               # right click
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -174,6 +176,10 @@ class WaveformWidget(QWidget):
         s, e = self.active
         if e > s and abs(x - self.x_of(s)) < 5: self._drag = "start"
         elif e > s and abs(x - self.x_of(e)) < 5: self._drag = "end"
+        elif ev.button() == Qt.RightButton:
+            self._drag = None; self.setEnd.emit(self.ms_at(x))
+        elif ev.modifiers() & Qt.ShiftModifier:
+            self._drag = None; self.setStart.emit(self.ms_at(x))
         elif ev.modifiers() & Qt.ControlModifier: self._drag = ("new", self.ms_at(x))
         else:
             self._drag = None; self.seek.emit(self.ms_at(x))
