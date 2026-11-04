@@ -2,6 +2,7 @@
 - 👀 I’m interested in fintech
 - 🌱 I’m currently learning R & Qiskit
 - 💞️ I’m looking to collaborate on ...
+- 🎬 Anime altyazı aracı projem: [Yozora](yozora/)
 - 📫 u can reach via e-mail @osmankemalozkan@gmail.com
 
 <!---

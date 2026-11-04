@@ -8,3 +8,5 @@ license.workspace = true
 yozora-core = { path = "../yozora-core" }
 mlua = { version = "0.12", features = ["luajit", "vendored"] }
 fancy-regex = "0.14"
+fontdb = "0.24.0"
+ttf-parser = "0.25.1"

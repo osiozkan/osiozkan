@@ -1,0 +1,20 @@
+name: yozora-ci
+on:
+  push:
+    paths: ["yozora/**", ".github/workflows/yozora-ci.yml"]
+  pull_request:
+    paths: ["yozora/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: yozora
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: yozora
+      - run: cargo test --workspace
+      - run: cargo build --release -p yozora-cli
