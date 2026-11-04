@@ -389,6 +389,9 @@ class ScriptRunner:
             if CANCEL in str(e):
                 raise Cancelled() from None
             raise AutomationError(_clean(str(e))) from None
+        except UnicodeDecodeError as e:
+            raise AutomationError("Betik geçersiz UTF-8 üretti (bir karakteri ortadan bölmüş olabilir; "
+                                  f"utf8.sub/unicode kullanın): {e}") from None
         return res, self.items
 
     def finish(self, res, items: _Items):

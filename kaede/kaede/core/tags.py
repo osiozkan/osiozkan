@@ -64,7 +64,7 @@ _FIRST_BLOCK = re.compile(r"^\{[^}]*\}")
 
 def _tag_pattern(name: str) -> "re.Pattern":
     # \name followed by simple value or (args); name must not be a prefix of a longer tag (e.g. fs vs fscx)
-    if name in ("pos", "org", "move", "clip", "iclip", "fad", "fade"):
+    if name in ("pos", "org", "move", "clip", "iclip", "fad", "fade", "t"):
         return re.compile(r"\\" + name + r"\([^)]*\)")
     return re.compile(r"\\" + name + r"(?![a-zA-Z])[^\\}]*")
 

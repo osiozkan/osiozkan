@@ -555,3 +555,49 @@ def match_reference(doc: Document, ref: Document) -> list[str]:
             j += 1
         out.append(best)
     return out
+
+
+# ------------------------------------------------------------------ karaoke
+def kara_strip(text: str) -> str:
+    return re.sub(r"\\[kK][fo]?-?\d+", "", text).replace("{}", "")
+
+
+def kara_split(text: str, duration_ms: int, mode: str = "char", tag: str = "kf") -> str:
+    """Insert \\k tags splitting visible text evenly by syllable guess.
+    mode: 'char' (per letter), 'word', 'syl' (vowel-based, works for romaji/Turkish)."""
+    text = kara_strip(text)
+    vis_parts = re.split(r"(\{[^}]*\}|\\[Nnh])", text)
+    plain = "".join(p for p in vis_parts if not (p.startswith("{") or p.startswith("\\")))
+    if mode == "word":
+        units = re.findall(r"\S+\s*", plain)
+    elif mode == "syl":
+        units = re.findall(r"[^aeıioöuüAEIİOÖUÜ\s]*[aeıioöuüAEIİOÖUÜ]+(?:[^aeıioöuüAEIİOÖUÜ\s](?![aeıioöuüAEIİOÖUÜ]))?\s*|\S+\s*", plain) or [plain]
+    else:
+        units = re.findall(r"\s*\S", plain) + ([] if not plain.endswith(" ") else [" "])
+    units = [u for u in units if u]
+    if not units:
+        return text
+    weights = [max(1, len(u.strip())) for u in units]
+    total = sum(weights); cs_total = max(1, duration_ms // 10)
+    out, acc = [], 0
+    for i, (u, w) in enumerate(zip(units, weights)):
+        cs = round(cs_total * w / total) if i < len(units) - 1 else cs_total - acc
+        cs = max(1, cs); acc += cs
+        out.append("{\\%s%d}%s" % (tag, cs, u))
+    # re-insert original non-kara tags/breaks at the start (simple, keeps leading tag block)
+    head = "".join(p for p in vis_parts[:1] if p.startswith("{"))
+    result = "".join(out)
+    m = re.match(r"^(\{[^}]*\})", text)
+    return (m.group(1) + result) if m else result
+
+
+def apply_karaoke(doc: Document, mode: str = "syl", tag: str = "kf", sel=None) -> int:
+    n = 0
+    for i in _sel(doc, sel):
+        e = doc.events[i]
+        if e.comment or has_drawing(e.text):
+            continue
+        new = kara_split(e.text, e.duration, mode, tag)
+        if new != e.text:
+            e.text = new; n += 1
+    return n

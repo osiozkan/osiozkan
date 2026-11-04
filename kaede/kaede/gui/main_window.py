@@ -299,6 +299,9 @@ class MainWindow(QMainWindow):
         self._act(m, "Betik Özellikleri…", self.props_dialog, "F5")
         self._act(m, "Metni temizle (boşluk/noktalama)", lambda: self.mutate("Metni temizle", lambda d, s: tools.normalize_text(d, s or None)))
         self._act(m, "Boş satırları sil", lambda: self.mutate("Boş satırları sil", lambda d, s: tools.remove_empty(d)))
+        self._act(m, "Karaoke: \\kf süreleri dağıt (hece)…", lambda: self.karaoke_dialog("syl"))
+        self._act(m, "Karaoke: \\kf dağıt (sözcük)", lambda: self.karaoke_dialog("word", ask=False))
+        self._act(m, "Karaoke: \\k etiketlerini sil", lambda: self.mutate("Karaoke sil", lambda d, s: [setattr(d.events[i], "text", tools.kara_strip(d.events[i].text)) for i in (s or range(len(d.events)))]))
         self._act(m, "Etiketleri sil", lambda: self.mutate("Etiketleri sil", lambda d, s: tools.strip_all_tags(d, s or None)))
         m.addSeparator()
         self._act(m, "Satırları dengele (otomatik \\N)…", self.auto_balance_dialog)
@@ -861,6 +864,15 @@ class MainWindow(QMainWindow):
                 copied, missing = fonts.collect(self.doc, p, as_zip=True)
                 self.statusBar().showMessage(f"{len(copied)} dosya toplandı, {len(missing)} eksik", 6000)
 
+    def karaoke_dialog(self, mode, ask=True):
+        tag = "kf"
+        if ask:
+            items = ["Hece (romaji/Türkçe)", "Sözcük", "Harf"]
+            c, ok = QInputDialog.getItem(self, "Karaoke", "Bölme türü:", items, 0, False)
+            if not ok: return
+            mode = ["syl", "word", "char"][items.index(c)]
+        self.mutate("Karaoke dağıt", lambda d, s: tools.apply_karaoke(d, mode, tag, s or None))
+
     def fix_common_dialog(self):
         dlg = FixCommonDialog(self)
         if not dlg.exec(): return
@@ -1140,6 +1152,8 @@ class MainWindow(QMainWindow):
         sel = self.sel_rows(); act = max(0, self.cur_row())
         self.host.fps = self.fr
         self.host.script_path = mac.script.path
+        r_ = self.cur_row()
+        self.host.audio_selection = (self.doc.events[r_].start, self.doc.events[r_].end) if 0 <= r_ < len(self.doc.events) else None
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             res = self.engine.run_macro(mac, self.doc, sel, act)

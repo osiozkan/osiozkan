@@ -99,3 +99,25 @@ def test_wave_set_times(app):
     w._set_time_at("start", 500); assert w.doc.events[0].start == 500
     w.undo(); assert w.doc.events[0].start == 1000
     w.dirty = False; w.close()
+
+
+def test_move_rotxy_karaoke(app):
+    from kaede.gui.main_window import MainWindow
+    w = MainWindow(SAMPLE); w.goto_row(0); w.show()
+    vw, vh = w.video.vw, w.video.vh
+    w.visual.set_mode("move"); w.visual.press(vw / 2, vh / 2, 1); w.visual.release(vw / 2 + 50, vh / 2)
+    assert "\\move(" in w.doc.events[0].text
+    w.undo()
+    w.visual.set_mode("rotxy"); w.visual.press(100, 100, 1); w.visual.release(140, 80)
+    assert "\\frx" in w.doc.events[0].text and "\\fry" in w.doc.events[0].text
+    w.undo(); w.karaoke_dialog("word", ask=False)
+    assert "\\kf" in w.doc.events[0].text
+    w.dirty = False; w.close()
+
+
+def test_batch_cli(tmp_path):
+    from kaede.cli import main
+    import shutil
+    shutil.copy(SAMPLE, tmp_path / "a.ass")
+    assert main(["batch", str(tmp_path), "--to", "srt", "--qc"]) in (0, 1)
+    assert (tmp_path / "a.srt").exists()

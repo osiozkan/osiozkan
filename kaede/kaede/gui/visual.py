@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsEll
 from ..core import tags
 from ..core.tags import set_tag, remove_tag, get_first_tag, get_pos, default_position, fmt_num
 
-TOOLS = [("none", "⌖ Yok"), ("pos", "Konum"), ("rotz", "Döndür Z"), ("scale", "Ölçek"), ("org", "Orijin"), ("clip", "Kırp")]
+TOOLS = [("none", "⌖ Yok"), ("pos", "Konum"), ("move", "Hareket"), ("rotz", "Döndür Z"), ("rotxy", "Döndür XY"), ("scale", "Ölçek"), ("org", "Orijin"), ("clip", "Kırp")]
 
 
 class VisualTools(QObject):
@@ -51,6 +51,11 @@ class VisualTools(QObject):
     def line_pos(self, ev):
         p = get_pos(ev.text)
         if p: return p
+        mv = get_first_tag(ev.text, "move")
+        if mv:
+            try:
+                a = [float(v) for v in mv.strip("()").split(",")]; return (a[0], a[1])
+            except (ValueError, IndexError): pass
         st = self.win.doc.style(ev.style)
         if not st: return (self._res()[0] / 2, self._res()[1] - 50)
         an = None
@@ -108,7 +113,7 @@ class VisualTools(QObject):
         if button == Qt.RightButton and self.mode == "clip":
             w.mutate("Kırpmayı kaldır", lambda d, s: [setattr(d.events[r], "text", remove_tag(remove_tag(d.events[r].text, "clip"), "iclip")) for r in rows])
             self.redraw(); return
-        w.history.push({"pos": "Konum sürükle", "rotz": "Z döndür", "scale": "Ölçekle", "org": "Orijin", "clip": "Kırp"}[self.mode],
+        w.history.push({"pos": "Konum sürükle", "move": "Hareket", "rotxy": "XY döndür", "rotz": "Z döndür", "scale": "Ölçekle", "org": "Orijin", "clip": "Kırp"}[self.mode],
                        w.doc, w.sel_rows())
         w._last_edit_key = (None, 0.0)
         base = {}
@@ -123,7 +128,7 @@ class VisualTools(QObject):
             if org:
                 try: ox, oy = [float(v) for v in org.strip("()").split(",")[:2]]
                 except ValueError: pass
-            base[r] = dict(text=ev.text, pos=(px, py), frz=_f(frz), fscx=_f(fx, st.scale_x if st else 100),
+            base[r] = dict(text=ev.text, pos=(px, py), frz=_f(frz), frx=_f(get_first_tag(ev.text, "frx")), fry=_f(get_first_tag(ev.text, "fry")), fscx=_f(fx, st.scale_x if st else 100),
                            fscy=_f(fy, st.scale_y if st else 100), org=(ox, oy))
         self._drag = dict(start=(x, y), base=base, rows=rows)
         self.move(sx, sy)
@@ -141,6 +146,15 @@ class VisualTools(QObject):
                     if abs(x - x0) > abs(y - y0): ny = b["pos"][1]
                     else: nx = b["pos"][0]
                 t = set_tag(t, "pos", f"({fmt_num(nx)},{fmt_num(ny)})")
+            elif self.mode == "move":
+                # drag from the line's current position to the release point: \move(x1,y1,x2,y2)
+                x1, y1 = b["pos"]
+                t = remove_tag(t, "pos")
+                t = set_tag(t, "move", f"({fmt_num(x1)},{fmt_num(y1)},{fmt_num(b['pos'][0] + x - x0)},{fmt_num(b['pos'][1] + y - y0)})")
+            elif self.mode == "rotxy":
+                fry = b["fry"] + (x - x0) * 0.5; frx = b["frx"] - (y - y0) * 0.5
+                if QApp_shift(): fry, frx = round(fry / 15) * 15, round(frx / 15) * 15
+                t = set_tag(t, "frx", fmt_num(frx)); t = set_tag(t, "fry", fmt_num(fry))
             elif self.mode == "org":
                 t = set_tag(t, "org", f"({fmt_num(x)},{fmt_num(y)})")
             elif self.mode == "rotz":

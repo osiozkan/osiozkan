@@ -114,3 +114,13 @@ def test_fix_common_and_reference():
     assert d.events[2].text == "Dedi ki “merhaba”"
     ref = mk((0, 900, "Wait"), (1100, 1900, "Broke"))
     assert tools.match_reference(d, ref)[:2] == ["Wait", "Broke"]
+
+
+def test_karaoke():
+    out = tools.kara_split("ka ra o ke", 2000, "word")
+    import re
+    cs = [int(x) for x in re.findall(r"\\kf(\d+)", out)]
+    assert len(cs) == 4 and sum(cs) == 200
+    out2 = tools.kara_split("{\\an8}sakura", 1000, "syl")
+    assert out2.startswith("{\\an8}{\\kf") and sum(int(x) for x in re.findall(r"\\kf(\d+)", out2)) == 100
+    assert tools.kara_strip("{\\kf10}a{\\k20}b") == "ab"

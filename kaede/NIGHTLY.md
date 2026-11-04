@@ -18,8 +18,12 @@ sorun listesi bu oturuma aktarılmadığı için bilinen sorunlar aşağıya "Ku
 Görsel araçlar (konum/Z döndür/ölçek/orijin/kırp), spektrogram, çeviri modu (referans sütunu), ayarlar penceresi,
 "sık hataları düzelt", ASS round-trip testleri, performans düzeltmeleri (20k satırlık Lua geçişi 0.75 sn).
 
+## Gece 2 (2026-11-04)
+Karaoke araçları (\kf dağıtma: hece/sözcük/harf, silme), görsel araçlara `\move` ve `\frx/\fry`, `aegisub.get_audio_selection`
+bağlandı, Lua geçersiz-UTF-8 hata mesajı, `kaede-cli batch` (klasör dönüştür/QC/düzelt). 43 test.
+
 ## Sıradaki işler (öncelik sırasıyla)
-1. Görsel araçlar: `\move`, vektör `\clip` (çizim), `\frx/\fry`, sürükle-tutamaçlar (şu an yalnız tek tıkla-sürükle); `\t` canlı doğrulama
+1. Görsel araçlar: vektör `\clip` (çizim), `\frx/\fry`, sürükle-tutamaçlar (şu an yalnız tek tıkla-sürükle); `\t` canlı doğrulama
 2. Ses oynatma / seçim oynatma, dalga formunda ekleme/bölme kısayolları (Aegisub ses kutusu iş akışı: Enter=uygula, G=ses seçimini satıra ata…)
 3. Çeviri modu: iki belge arasında satır eşleme düzenleme, "orijinali kopyala" kısayolu
 4. Kısayol özelleştirme, çoklu dil (TR/EN) arayüz, yazım denetimi (Türkçe hunspell/`spylls`)

@@ -22,6 +22,11 @@ def main(argv=None) -> int:
     s = sub.add_parser("shift", help="shift times by ms")
     s.add_argument("input"); s.add_argument("output"); s.add_argument("ms", type=int)
 
+    b = sub.add_parser("batch", help="convert/QC every subtitle in a folder")
+    b.add_argument("folder"); b.add_argument("--to", choices=["ass", "srt", "vtt", "sbv", "txt"])
+    b.add_argument("--qc", action="store_true"); b.add_argument("--out", help="output folder (default: next to input)")
+    b.add_argument("--fix", action="store_true", help="apply 'fix common errors' + normalize before writing")
+
     r = sub.add_parser("run", help="run a Lua macro")
     r.add_argument("input"); r.add_argument("script"); r.add_argument("output")
     r.add_argument("--macro", help="macro name (default: first)")
@@ -43,6 +48,21 @@ def main(argv=None) -> int:
     elif a.cmd == "shift":
         d = formats.load_document(a.input); tools.shift_times(d, a.ms)
         formats.save_document(d, a.output)
+    elif a.cmd == "batch":
+        import os
+        total = bad = 0
+        for fn in sorted(os.listdir(a.folder)):
+            if not fn.lower().endswith((".ass", ".ssa", ".srt", ".vtt", ".sbv")): continue
+            p = os.path.join(a.folder, fn); d = formats.load_document(p); total += 1
+            if a.fix: tools.fix_common(d)
+            if a.qc:
+                iss = tools.run_qc(d); bad += sum(1 for i in iss if i.severity == "error")
+                print(f"{fn}: {len(iss)} sorun")
+            if a.to:
+                outd = a.out or a.folder; os.makedirs(outd, exist_ok=True)
+                formats.save_document(d, os.path.join(outd, os.path.splitext(fn)[0] + "." + a.to))
+        print(f"{total} dosya işlendi")
+        return 1 if bad else 0
     elif a.cmd == "run":
         from .lua.engine import Engine, AutomationError, Cancelled
         eng = Engine()
