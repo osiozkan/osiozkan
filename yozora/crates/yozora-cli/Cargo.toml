@@ -1,0 +1,15 @@
+[package]
+name = "yozora-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "yozora"
+path = "src/main.rs"
+
+[dependencies]
+yozora-core = { path = "../yozora-core" }
+yozora-lua = { path = "../yozora-lua" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/yozora-core", "crates/yozora-lua", "crates/yozora-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+opt-level = 3

@@ -1,0 +1,10 @@
+[package]
+name = "yozora-lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+yozora-core = { path = "../yozora-core" }
+mlua = { version = "0.12", features = ["luajit", "vendored"] }
+fancy-regex = "0.14"
