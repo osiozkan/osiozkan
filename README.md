@@ -1,10 +1,15 @@
-- 👋 Hi, I’m @osiozkan
-- 👀 I’m interested in fintech
-- 🌱 I’m currently learning R & Qiskit
-- 💞️ I’m looking to collaborate on ...
-- 📫 u can reach via e-mail @osmankemalozkan@gmail.com
+# Kitsune
 
-<!---
-osiozkan/osiozkan is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-You can click the Preview link to take a look at your changes.
---->
+Aegisub uyumlu, Subtitle Edit'in kullanışlı özelliklerini içeren anime altyazı editörü (PySide6 + LuaJIT).
+
+```
+pip install -e .[dev]
+python -m kitsune gui [dosya.ass]
+python -m kitsune run bolum.ass automation/example_macros.lua --macro "Kitsune/Etiketleri temizle" --select 3,4
+python -m kitsune convert bolum.ass bolum.srt
+python -m kitsune lint bolum.ass
+pytest
+```
+
+Lua makroları (`aegisub.register_macro`) Aegisub ile aynı API'yi kullanır; `automation/` klasörüne koyun.
+Durum ve yol haritası: [ROADMAP.md](ROADMAP.md).
