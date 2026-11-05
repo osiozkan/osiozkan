@@ -16,3 +16,12 @@ def test_lint():
     sc = Script(); sc.entries.append(Event(start=0, end=300, text="x" * 60, style="Nope"))
     codes = {i.code for i in checks.lint(sc)}
     assert {"short", "style", "linelen"} <= codes
+
+def test_timing():
+    from kitsune.core import timing
+    sc = Script(); sc.entries += [Event(start=1000, end=2000, text="a"), Event(start=2100, end=3000, text="b"),
+                                   Event(start=2900, end=4000, text="c")]
+    assert timing.close_gaps(sc, 200) == 1 and sc.events[0].end == 2100
+    assert timing.fix_overlaps(sc) == 1 and sc.events[1].end == 2900
+    assert timing.snap_to_keyframes(sc, [950], 100, 100, 100, 100) == 1 and sc.events[0].start == 950
+    sc.events[2].text = "x\\Ny"; assert timing.split_lines_by_break(sc) == 1 and len(sc.events) == 4

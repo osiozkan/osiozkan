@@ -14,6 +14,7 @@ Hedef: Aegisub'ı tam kopyalayan + Subtitle Edit'in iyi özelliklerini katan, Lu
 - ASS/SSA oku-yaz (stil, bilgi, bilinmeyen bölümler korunur), SRT/VTT içe/dışa aktarma
 - Aegisub Lua API çekirdeği: subs indeksleme/insert/append/delete, register_macro/filter, dialog.display, progress, karaskel/utils alt kümesi, rollback
 - GUI: ızgara, düzenleme paneli, geri al/yinele, ekle/sil/çoğalt/birleştir, bul-değiştir, zaman kaydır, stil yöneticisi, QC paneli, Otomasyon menüsü
+- Zamanlama: kareye yapıştır, boşluk kapat, çakışma düzelt, min süre/CPS, \N ile böl (`core/timing.py`, GUI menüsüne bağlanacak)
 - QC: CPS, süre, satır uzunluğu/sayısı, çakışma, tanımsız stil, kapanmamış `{}`, boşluk
 
 ## Sıradaki işler (öncelik sırasıyla)
