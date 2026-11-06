@@ -1,0 +1,20 @@
+name: kitsune-ci
+on:
+  push:
+    paths: ["kitsune/**"]
+  pull_request:
+    paths: ["kitsune/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kitsune
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kitsune
+      - run: cargo test -p kitsune-core -p kitsune-lua
+      - run: cargo build -p kitsune-cli -p kitsune-gui

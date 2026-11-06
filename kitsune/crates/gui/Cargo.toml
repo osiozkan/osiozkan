@@ -4,5 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "kitsune-gui"
+path = "src/main.rs"
+
 [dependencies]
+eframe = "0.37.0"
+egui_extras = "0.37.0"
 kitsune-core = { path = "../core" }
+kitsune-lua = { path = "../lua" }
