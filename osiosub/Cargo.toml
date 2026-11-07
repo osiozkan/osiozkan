@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "lua", "cli"]
+members = ["core", "lua", "cli", "app"]
 # "app" (egui GUI) is added to the workspace once the core is stable; see ROADMAP.md
 
 [workspace.package]

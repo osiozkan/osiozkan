@@ -1,0 +1,16 @@
+[package]
+name = "osiosub-app"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "osiosub-app"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui = "0.36"
+egui-file-dialog = "0.15.0"
+egui_extras = "0.36"
+osiosub-core = { path = "../core" }
+osiosub-lua = { path = "../lua" }
