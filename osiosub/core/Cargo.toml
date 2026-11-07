@@ -1,0 +1,7 @@
+[package]
+name = "osiosub-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex = "1"

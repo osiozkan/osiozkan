@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["core"]
+# "app" (egui GUI) is added to the workspace once the core is stable; see ROADMAP.md
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
