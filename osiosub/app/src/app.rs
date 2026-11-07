@@ -11,13 +11,13 @@ use osiosub_core::{
     undo::History,
 };
 use osiosub_lua::{DialogResult, DialogSpec, DlgVal, MacroInfo};
-use osiosub_media::AudioPeaks;
+use osiosub_media::{AudioPeaks, VideoInfo};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{mpsc, Arc};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq)]
-enum FileAction { Open, SaveAs, Export, LoadScript, OpenAudio }
+enum FileAction { Open, SaveAs, Export, LoadScript, OpenAudio, OpenVideo }
 
 #[derive(Default)]
 struct FindState { open: bool, pattern: String, with: String, regex: bool, case: bool, word: bool, skip_tags: bool, field: u8, msg: String }
@@ -62,6 +62,12 @@ pub struct OsioApp {
     wave_mspp: f64,
     wave_follow: Option<usize>,
     drag: Option<(usize, bool)>,
+    video: Option<(PathBuf, VideoInfo)>,
+    prev_tex: Option<egui::TextureHandle>,
+    prev_rx: Option<mpsc::Receiver<Result<(i32, i32, Vec<u8>), String>>>,
+    prev_last: (u64, i64),
+    prev_ms: i64,
+    prev_err: String,
 }
 
 impl OsioApp {
@@ -75,9 +81,10 @@ impl OsioApp {
             fd: FileDialog::new(), fd_action: FileAction::Open, worker: worker::spawn(cc.egui_ctx.clone()), macros: vec![],
             running: false, dialog: None, time_buf: (None, String::new(), String::new()), scroll_to: None, export_ext: "srt",
             audio: None, audio_rx: None, audio_name: String::new(), wave_start: 0.0, wave_mspp: 20.0, wave_follow: None, drag: None,
+            video: None, prev_tex: None, prev_rx: None, prev_last: (u64::MAX, -1), prev_ms: 0, prev_err: String::new(),
         };
         if let Some(p) = arg { app.open_path(PathBuf::from(p)); }
-        if let Some(a) = std::env::args().nth(2) { app.load_audio(PathBuf::from(a), &cc.egui_ctx); }
+        if let Some(a) = std::env::args().nth(2) { let pa = PathBuf::from(a); if pa.extension().map_or(false, |e| ["mp4", "mkv", "avi", "webm", "mov"].contains(&e.to_string_lossy().to_lowercase().as_str())) { app.load_video(pa, &cc.egui_ctx); } else { app.load_audio(pa, &cc.egui_ctx); } }
         // auto-load scripts from ./automation/autoload if present
         if let Ok(rd) = std::fs::read_dir("automation/autoload") {
             for e in rd.flatten() { if e.path().extension().map_or(false, |x| x == "lua") { let _ = app.worker.tx.send(ToWorker::Load(e.path())); } }
@@ -235,6 +242,7 @@ impl OsioApp {
                 }
                 ui.separator();
                 if ui.button("Ses / video dosyasından dalga formu aç…").clicked() { self.fd_action = FileAction::OpenAudio; self.fd.pick_file(); ui.close(); }
+                if ui.button("Video aç (önizleme + ses)…").clicked() { self.fd_action = FileAction::OpenVideo; self.fd.pick_file(); ui.close(); }
                 if ui.button("Betik özellikleri…").clicked() { self.show_props = true; ui.close(); }
             });
             ui.menu_button("Düzen", |ui| {
@@ -535,6 +543,66 @@ impl OsioApp {
     }
 
 
+
+    fn load_video(&mut self, p: PathBuf, ctx: &egui::Context) {
+        match osiosub_media::probe_video(&p) {
+            Ok(info) => {
+                *self.worker.video.lock().unwrap() = Some((info.width, info.height, if info.fps > 0.0 { info.fps } else { 23.976 }));
+                if self.file.info_get("PlayResX").is_none() || self.file.events.is_empty() {
+                    self.file.info_set("PlayResX", &info.width.to_string()); self.file.info_set("PlayResY", &info.height.to_string()); self.touch();
+                }
+                self.status = format!("Video: {}x{} @ {:.3} fps", info.width, info.height, info.fps);
+                self.video = Some((p.clone(), info)); self.prev_last = (u64::MAX, -1);
+                self.load_audio(p, ctx);
+            }
+            Err(e) => self.status = format!("Video açılamadı: {e}"),
+        }
+    }
+
+    fn update_preview(&mut self, ctx: &egui::Context) {
+        let Some((path, info)) = self.video.clone() else { return };
+        if let Some(rx) = &self.prev_rx {
+            match rx.try_recv() {
+                Ok(Ok((w, h, rgba))) => {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                    self.prev_tex = Some(ctx.load_texture("preview", img, egui::TextureOptions::LINEAR));
+                    self.prev_err.clear(); self.prev_rx = None;
+                }
+                Ok(Err(e)) => { self.prev_err = e; self.prev_rx = None; }
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(_) => { self.prev_rx = None; }
+            }
+        }
+        if let Some(e) = self.active.and_then(|a| self.file.events.get(a)) { if self.prev_ms < e.start || self.prev_ms >= e.end { self.prev_ms = (e.start + e.end) / 2; } }
+        if self.prev_last == (self.rev, self.prev_ms) { return; }
+        self.prev_last = (self.rev, self.prev_ms);
+        let (tx, rx) = mpsc::channel();
+        self.prev_rx = Some(rx);
+        let ass = self.file.to_string();
+        let ms = self.prev_ms;
+        let fonts = self.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        let c = ctx.clone();
+        std::thread::spawn(move || {
+            let r = osiosub_media::render_frame(&path, &ass, ms, 960, &info, fonts.as_deref());
+            let _ = tx.send(r); c.request_repaint();
+        });
+    }
+
+    fn preview_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.strong("Önizleme");
+            ui.label(format!("{}", time::fmt_ass(self.prev_ms)));
+            if self.prev_rx.is_some() { ui.spinner(); }
+        });
+        if let Some(t) = &self.prev_tex {
+            let w = ui.available_width();
+            let ar = t.size()[1] as f32 / t.size()[0] as f32;
+            ui.add(egui::Image::new(t).fit_to_exact_size(egui::vec2(w, w * ar)));
+        }
+        if !self.prev_err.is_empty() { ui.colored_label(Color32::from_rgb(255, 120, 90), &self.prev_err); }
+        if let Some((_, info)) = &self.video { ui.label(RichText::new(format!("{}x{}  {:.3} fps", info.width, info.height, info.fps)).weak()); }
+    }
+
     fn load_audio(&mut self, p: PathBuf, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         self.audio_rx = Some(rx);
@@ -724,6 +792,7 @@ impl eframe::App for OsioApp {
                 FileAction::Export => { let mut p = p; if p.extension().is_none() { p.set_extension(self.export_ext); } self.save_to(p) }
                 FileAction::LoadScript => { let _ = self.worker.tx.send(ToWorker::Load(p)); }
                 FileAction::OpenAudio => self.load_audio(p, &ctx),
+                FileAction::OpenVideo => self.load_video(p, &ctx),
             }
         }
         // dropped files
@@ -747,6 +816,8 @@ impl eframe::App for OsioApp {
         });
         egui::Panel::bottom("editor").resizable(true).min_size(150.0).show_inside(ui, |ui| self.editor(ui));
         self.poll_audio();
+        self.update_preview(&ctx);
+        if self.video.is_some() { egui::Panel::right("preview").resizable(true).default_size(440.0).min_size(300.0).show_inside(ui, |ui| self.preview_panel(ui)); }
         if self.audio.is_some() || self.audio_rx.is_some() {
             egui::Panel::bottom("wave").resizable(true).default_size(150.0).min_size(80.0).show_inside(ui, |ui| self.waveform(ui));
         }

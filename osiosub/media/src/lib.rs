@@ -165,3 +165,74 @@ mod ffmpeg_tests {
         assert!((pk.duration_ms() - 6000).abs() < 300, "{}", pk.duration_ms());
     }
 }
+
+// ---------------------------------------------------------------- video (via ffprobe / ffmpeg+libass)
+
+#[derive(Clone, Debug, Default)]
+pub struct VideoInfo { pub width: i32, pub height: i32, pub fps: f64, pub duration_ms: i64 }
+
+pub fn probe_video(path: &Path) -> Result<VideoInfo, String> {
+    use std::process::Command;
+    let out = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate:format=duration", "-of", "default=nw=1"])
+        .arg(path).output().map_err(|e| format!("ffprobe: {e}"))?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let mut v = VideoInfo::default();
+    for l in s.lines() {
+        if let Some((k, val)) = l.split_once('=') {
+            match k {
+                "width" => v.width = val.trim().parse().unwrap_or(0),
+                "height" => v.height = val.trim().parse().unwrap_or(0),
+                "r_frame_rate" => { if let Some((a, b)) = val.split_once('/') { let (a, b): (f64, f64) = (a.parse().unwrap_or(0.0), b.parse().unwrap_or(1.0)); if b != 0.0 { v.fps = a / b; } } }
+                "duration" => v.duration_ms = (val.trim().parse::<f64>().unwrap_or(0.0) * 1000.0) as i64,
+                _ => {}
+            }
+        }
+    }
+    if v.width == 0 { return Err("no video stream".into()); }
+    Ok(v)
+}
+
+/// Render one frame with the subtitles burnt in by libass (through ffmpeg). Returns (w, h, RGBA).
+pub fn render_frame(video: &Path, ass_text: &str, at_ms: i64, out_w: i32, src: &VideoInfo, fonts_dir: Option<&Path>) -> Result<(i32, i32, Vec<u8>), String> {
+    use std::process::{Command, Stdio};
+    use std::io::Read;
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!("osiosub_prev_{}_{}.ass", std::process::id(), n));
+    std::fs::write(&tmp, ass_text).map_err(|e| e.to_string())?;
+    let out_h = ((src.height as f64 * out_w as f64 / src.width.max(1) as f64) / 2.0).round() as i32 * 2;
+    let esc = |p: &Path| p.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
+    let mut vf = format!("ass='{}'", esc(&tmp));
+    if let Some(d) = fonts_dir { vf = format!("ass='{}':fontsdir='{}'", esc(&tmp), esc(d)); }
+    vf.push_str(&format!(",scale={}:{}", out_w, out_h));
+    let ss = format!("{:.3}", at_ms.max(0) as f64 / 1000.0);
+    let mut child = Command::new("ffmpeg").args(["-v", "error", "-copyts", "-ss", &ss, "-i"]).arg(video)
+        .args(["-vf", &vf, "-frames:v", "1", "-an", "-sn", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+    let mut buf = Vec::new();
+    child.stdout.take().unwrap().read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let mut err = String::new();
+    if let Some(mut e) = child.stderr.take() { let _ = e.read_to_string(&mut err); }
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&tmp);
+    if buf.len() < (out_w * out_h * 4) as usize { return Err(format!("no frame ({})", err.lines().next().unwrap_or(""))); }
+    buf.truncate((out_w * out_h * 4) as usize);
+    Ok((out_w, out_h, buf))
+}
+
+#[cfg(test)]
+mod video_tests {
+    use super::*;
+    #[test]
+    fn render_if_ffmpeg() {
+        let v = Path::new("/tmp/claude-0/demo/v.mp4");
+        if !v.exists() { return; }
+        let info = probe_video(v).unwrap();
+        assert!(info.width > 0 && info.fps > 0.0);
+        let ass = "[Script Info]\nPlayResX: 640\nPlayResY: 360\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Merhaba\n";
+        let (_, _, a) = render_frame(v, ass, 2000, 320, &info, None).unwrap();
+        let (_, _, b) = render_frame(v, ass, 500, 320, &info, None).unwrap();
+        assert_ne!(a, b, "subtitle should change the frame");
+    }
+}
