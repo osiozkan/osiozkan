@@ -1,0 +1,9 @@
+[package]
+name = "osiosub-lua"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+osiosub-core = { path = "../core" }
+mlua = { version = "0.12", features = ["lua51", "vendored"] }
+regex = "1"

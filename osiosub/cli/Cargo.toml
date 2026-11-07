@@ -1,0 +1,12 @@
+[package]
+name = "osiosub-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "osiosub"
+path = "src/main.rs"
+
+[dependencies]
+osiosub-core = { path = "../core" }
+osiosub-lua = { path = "../lua" }
