@@ -1,0 +1,30 @@
+name: OsioSub
+on:
+  push:
+    paths: ["osiosub/**", ".github/workflows/osiosub.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: osiosub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: osiosub
+      - run: cargo test --workspace
+      - run: cargo build --release -p osiosub-app -p osiosub-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osiosub-${{ matrix.os }}
+          path: |
+            osiosub/target/release/osiosub
+            osiosub/target/release/osiosub.exe
+            osiosub/target/release/osiosub-app
+            osiosub/target/release/osiosub-app.exe

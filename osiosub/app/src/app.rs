@@ -8,7 +8,7 @@ use osiosub_core::{
     qc::{self, Issue, QcConfig, Severity},
     search::{self, Field, SearchOpts},
     tags, textfmt, time, timing, turkish,
-    fixes,
+    fixes, karaoke,
     spell::{Misspelling, Speller},
     undo::History,
 };
@@ -70,6 +70,7 @@ pub struct OsioApp {
     prev_last: (u64, i64),
     prev_ms: i64,
     prev_err: String,
+    focus_text: bool,
     speller: Option<Arc<Speller>>,
     speller_rx: Option<mpsc::Receiver<Result<Speller, String>>>,
     show_spell: bool,
@@ -80,16 +81,24 @@ pub struct OsioApp {
 impl OsioApp {
     pub fn new(cc: &eframe::CreationContext<'_>, arg: Option<String>) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        let mut qc_cfg = QcConfig::default();
+        let mut ignore = BTreeSet::new();
+        if let Some(st) = cc.storage {
+            if let Some(v) = st.get_string("max_cps").and_then(|v| v.parse().ok()) { qc_cfg.max_cps = v; }
+            if let Some(v) = st.get_string("max_line_len").and_then(|v| v.parse().ok()) { qc_cfg.max_line_len = v; }
+            if let Some(v) = st.get_string("min_dur_ms").and_then(|v| v.parse().ok()) { qc_cfg.min_dur_ms = v; }
+            if let Some(v) = st.get_string("spell_ignore") { for w in v.lines() { if !w.is_empty() { ignore.insert(w.to_string()); } } }
+        }
         let mut app = OsioApp {
             file: AssFile::new_default(), path: None, dirty: false, rev: 0, hist: History::new(200),
             sel: BTreeSet::new(), active: None, anchor: None, status: "Hazır".into(), issues: vec![], issues_rev: u64::MAX,
-            qc_cfg: QcConfig::default(), show_qc: false, show_styles: false, style_idx: 0, show_props: false, show_log: false,
+            qc_cfg, show_qc: false, show_styles: false, style_idx: 0, show_props: false, show_log: false,
             log: String::new(), find: FindState { skip_tags: true, ..Default::default() }, shift: ShiftState { start: true, end: true, ..Default::default() },
             fd: FileDialog::new(), fd_action: FileAction::Open, worker: worker::spawn(cc.egui_ctx.clone()), macros: vec![],
             running: false, dialog: None, time_buf: (None, String::new(), String::new()), scroll_to: None, export_ext: "srt",
             audio: None, audio_rx: None, audio_name: String::new(), wave_start: 0.0, wave_mspp: 20.0, wave_follow: None, drag: None,
             video: None, prev_tex: None, prev_rx: None, prev_last: (u64::MAX, -1), prev_ms: 0, prev_err: String::new(),
-            speller: None, speller_rx: None, show_spell: false, spell_hits: vec![], spell_ignore: BTreeSet::new(),
+            focus_text: false, speller: None, speller_rx: None, show_spell: false, spell_hits: vec![], spell_ignore: ignore,
         };
         if let Some(p) = arg { app.open_path(PathBuf::from(p)); }
         if let Some(a) = std::env::args().nth(2) { let pa = PathBuf::from(a); if pa.extension().map_or(false, |e| ["mp4", "mkv", "avi", "webm", "mov"].contains(&e.to_string_lossy().to_lowercase().as_str())) { app.load_video(pa, &cc.egui_ctx); } else { app.load_audio(pa, &cc.egui_ctx); } }
@@ -227,6 +236,24 @@ impl OsioApp {
             i.consume_shortcut(&K::new(M::COMMAND, Key::F)), i.consume_shortcut(&K::new(M::COMMAND, Key::D)),
             i.consume_shortcut(&K::new(M::COMMAND, Key::Delete)),
         ));
+        // grid navigation when no text widget has keyboard focus
+        if !ctx.egui_wants_keyboard_input() && !self.file.events.is_empty() {
+            let (up, down, home, end, enter, pgup, pgdn) = ctx.input_mut(|i| (
+                i.consume_key(M::NONE, Key::ArrowUp), i.consume_key(M::NONE, Key::ArrowDown),
+                i.consume_key(M::NONE, Key::Home), i.consume_key(M::NONE, Key::End),
+                i.consume_key(M::NONE, Key::Enter), i.consume_key(M::NONE, Key::PageUp), i.consume_key(M::NONE, Key::PageDown)));
+            let n = self.file.events.len();
+            let cur = self.active.unwrap_or(0);
+            let target = if up { Some(cur.saturating_sub(1)) } else if down { Some((cur + 1).min(n - 1)) } else if home { Some(0) } else if end { Some(n - 1) }
+                else if pgup { Some(cur.saturating_sub(15)) } else if pgdn { Some((cur + 15).min(n - 1)) } else { None };
+            if let Some(t) = target { self.select_only(t); self.scroll_to = Some(t); }
+            if enter { self.focus_text = true; }
+        }
+        // Ctrl+Enter inside the editor: next line, keep typing
+        if ctx.egui_wants_keyboard_input() && ctx.input_mut(|i| i.consume_shortcut(&K::new(M::COMMAND, Key::Enter))) {
+            if let Some(a) = self.active { if a + 1 < self.file.events.len() { self.select_only(a + 1); self.scroll_to = Some(a + 1); self.focus_text = true; } }
+        }
+        if ctx.input_mut(|i| i.consume_key(M::NONE, Key::Escape)) { ctx.memory_mut(|m| m.stop_text_input()); }
         if c.0 { if self.hist.undo(&mut self.file).is_some() { self.touch(); } }
         if c.1 { if self.hist.redo(&mut self.file).is_some() { self.touch(); } }
         if c.2 { self.save(); }
@@ -306,6 +333,12 @@ impl OsioApp {
                 if ui.button("Türkçe: küçük harf").clicked() { self.map_text(&sel, |t| tags::map_plain(t, turkish::to_lower)); ui.close(); }
                 if ui.button("Türkçe: Cümle düzeni").clicked() { self.map_text(&sel, |t| tags::map_plain(t, turkish::sentence_case)); ui.close(); }
                 if ui.button("Tipografi düzelt (… , boşluk)").clicked() { self.map_text(&sel, |t| tags::map_plain(t, turkish::fix_typography)); ui.close(); }
+                ui.menu_button("Karaoke (\\k) üret", |ui| {
+                    for (label, mode) in [("Kelime", karaoke::Split::Word), ("Karakter", karaoke::Split::Char), ("Hece (romaji)", karaoke::Split::Romaji)] {
+                        if ui.button(label).clicked() { let sel = sel.clone(); self.apply_fix("Karaoke", move |f| karaoke::auto_k_all(f, &sel, mode)); ui.close(); }
+                    }
+                    if ui.button("\\k etiketlerini sil").clicked() { self.map_text(&sel, karaoke::strip_k); ui.close(); }
+                });
                 if ui.button("Etiketleri temizle").clicked() { self.map_text(&sel, tags::strip_tags); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
@@ -427,6 +460,7 @@ impl OsioApp {
         });
         let mut shown = ev.text.replace("\\N", "\n");
         let r = ui.add(egui::TextEdit::multiline(&mut shown).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).id_salt("textedit"));
+        if self.focus_text { r.request_focus(); self.focus_text = false; }
         if r.gained_focus() { started = true; }
         if r.changed() { ev.text = shown.replace("\r", "").replace('\n', "\\N"); changed = true; }
         if started && changed { self.hist.record("Düzenle", &self.file); }
@@ -689,7 +723,18 @@ impl OsioApp {
         if let Some(t) = &self.prev_tex {
             let w = ui.available_width();
             let ar = t.size()[1] as f32 / t.size()[0] as f32;
-            ui.add(egui::Image::new(t).fit_to_exact_size(egui::vec2(w, w * ar)));
+            let r = ui.add(egui::Image::new(t).fit_to_exact_size(egui::vec2(w, w * ar)).sense(egui::Sense::click()));
+            let r = r.on_hover_text("Ctrl+tık: etkin satıra \\pos(x,y) yerleştir");
+            if r.clicked() && ui.input(|i| i.modifiers.command) {
+                if let (Some(p), Some(a)) = (r.interact_pointer_pos(), self.active) {
+                    let (rx, ry) = self.file.play_res();
+                    let x = ((p.x - r.rect.left()) / r.rect.width()) as f64 * rx as f64;
+                    let y = ((p.y - r.rect.top()) / r.rect.height()) as f64 * ry as f64;
+                    self.hist.record("Konum", &self.file);
+                    let t = tags::set_pos(&self.file.events[a].text, x, y);
+                    self.file.events[a].text = t; self.touch();
+                }
+            }
         }
         if !self.prev_err.is_empty() { ui.colored_label(Color32::from_rgb(255, 120, 90), &self.prev_err); }
         if let Some((_, info)) = &self.video { ui.label(RichText::new(format!("{}x{}  {:.3} fps", info.width, info.height, info.fps)).weak()); }
@@ -872,6 +917,12 @@ impl OsioApp {
 fn ui_mods(r: &egui::Response) -> egui::Modifiers { r.ctx.input(|i| i.modifiers) }
 
 impl eframe::App for OsioApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string("max_cps", self.qc_cfg.max_cps.to_string());
+        storage.set_string("max_line_len", self.qc_cfg.max_line_len.to_string());
+        storage.set_string("min_dur_ms", self.qc_cfg.min_dur_ms.to_string());
+        storage.set_string("spell_ignore", self.spell_ignore.iter().cloned().collect::<Vec<_>>().join("\n"));
+    }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_worker();

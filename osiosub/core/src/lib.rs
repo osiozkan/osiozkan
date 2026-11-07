@@ -2,6 +2,7 @@
 pub mod ass;
 pub mod color;
 pub mod fixes;
+pub mod karaoke;
 pub mod qc;
 pub mod search;
 pub mod spell;

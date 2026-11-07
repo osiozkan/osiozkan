@@ -66,6 +66,21 @@ pub fn karaoke_syllables(text: &str) -> Vec<(i64, String)> {
     out
 }
 
+/// Set (replace) `\pos(x,y)` in the first override block, creating one when needed.
+pub fn set_pos(text: &str, x: f64, y: f64) -> String {
+    let re = Regex::new(r"\\pos\([^)]*\)").unwrap();
+    let f = |v: f64| { let s = format!("{:.2}", v); s.trim_end_matches('0').trim_end_matches('.').to_string() };
+    let tag = format!("\\pos({},{})", f(x), f(y));
+    if text.starts_with('{') {
+        if let Some(end) = text.find('}') {
+            let block = &text[..end];
+            let cleaned = re.replace_all(block, "");
+            return format!("{}{}{}", cleaned, tag, &text[end..]);
+        }
+    }
+    format!("{{{}}}{}", tag, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +92,7 @@ mod tests {
         assert_eq!(map_plain("{\\b1}a{\\b0}b", |s| s.to_uppercase()), "{\\b1}A{\\b0}B");
         let k = karaoke_syllables("{\\k10}ka{\\k20}ra");
         assert_eq!(k, vec![(10, "ka".into()), (20, "ra".into())]);
+        assert_eq!(set_pos("hi", 10.0, 20.5), "{\\pos(10,20.5)}hi");
+        assert_eq!(set_pos("{\\an8\\pos(1,2)}hi", 3.0, 4.0), "{\\an8\\pos(3,4)}hi");
     }
 }
