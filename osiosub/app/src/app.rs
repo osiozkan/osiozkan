@@ -8,6 +8,7 @@ use osiosub_core::{
     qc::{self, Issue, QcConfig, Severity},
     search::{self, Field, SearchOpts},
     tags, textfmt, time, timing, turkish,
+    spell::{Misspelling, Speller},
     undo::History,
 };
 use osiosub_lua::{DialogResult, DialogSpec, DlgVal, MacroInfo};
@@ -68,6 +69,11 @@ pub struct OsioApp {
     prev_last: (u64, i64),
     prev_ms: i64,
     prev_err: String,
+    speller: Option<Arc<Speller>>,
+    speller_rx: Option<mpsc::Receiver<Result<Speller, String>>>,
+    show_spell: bool,
+    spell_hits: Vec<(usize, Misspelling, Vec<String>)>,
+    spell_ignore: BTreeSet<String>,
 }
 
 impl OsioApp {
@@ -82,6 +88,7 @@ impl OsioApp {
             running: false, dialog: None, time_buf: (None, String::new(), String::new()), scroll_to: None, export_ext: "srt",
             audio: None, audio_rx: None, audio_name: String::new(), wave_start: 0.0, wave_mspp: 20.0, wave_follow: None, drag: None,
             video: None, prev_tex: None, prev_rx: None, prev_last: (u64::MAX, -1), prev_ms: 0, prev_err: String::new(),
+            speller: None, speller_rx: None, show_spell: false, spell_hits: vec![], spell_ignore: BTreeSet::new(),
         };
         if let Some(p) = arg { app.open_path(PathBuf::from(p)); }
         if let Some(a) = std::env::args().nth(2) { let pa = PathBuf::from(a); if pa.extension().map_or(false, |e| ["mp4", "mkv", "avi", "webm", "mov"].contains(&e.to_string_lossy().to_lowercase().as_str())) { app.load_video(pa, &cc.egui_ctx); } else { app.load_audio(pa, &cc.egui_ctx); } }
@@ -279,6 +286,7 @@ impl OsioApp {
             });
             ui.menu_button("Araçlar", |ui| {
                 if ui.button("Kalite kontrol (QC)").clicked() { self.show_qc = true; ui.close(); }
+                if ui.button("Yazım denetimi (Türkçe)").clicked() { self.show_spell = true; self.start_speller(ui.ctx()); ui.close(); }
                 ui.separator();
                 let sel = self.selected_vec();
                 if ui.button("Türkçe: BÜYÜK HARF").clicked() { self.map_text(&sel, |t| tags::map_plain(t, turkish::to_upper)); ui.close(); }
@@ -495,6 +503,7 @@ impl OsioApp {
             });
             self.show_log = open;
         }
+        if self.show_spell { self.spell_window(ctx); }
         // Lua dialog
         if self.dialog.is_some() { self.lua_dialog(ctx); }
     }
@@ -543,6 +552,68 @@ impl OsioApp {
     }
 
 
+
+
+    fn start_speller(&mut self, ctx: &egui::Context) {
+        if self.speller.is_some() || self.speller_rx.is_some() { return; }
+        let (tx, rx) = mpsc::channel();
+        self.speller_rx = Some(rx);
+        let c = ctx.clone();
+        std::thread::spawn(move || { let _ = tx.send(Speller::turkish()); c.request_repaint(); });
+    }
+
+    fn scan_spelling(&mut self) {
+        let Some(sp) = self.speller.clone() else { return };
+        self.spell_hits.clear();
+        for (i, e) in self.file.events.iter().enumerate() {
+            if e.comment { continue; }
+            for m in sp.check_text(&e.text) {
+                if self.spell_ignore.contains(&m.word) { continue; }
+                let sug = sp.suggest(&m.word, 6);
+                self.spell_hits.push((i, m, sug));
+                if self.spell_hits.len() >= 1000 { return; }
+            }
+        }
+    }
+
+    fn spell_window(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.speller_rx {
+            match rx.try_recv() {
+                Ok(Ok(sp)) => { self.speller = Some(Arc::new(sp)); self.speller_rx = None; self.scan_spelling(); }
+                Ok(Err(e)) => { self.status = format!("Sözlük yüklenemedi: {e}"); self.speller_rx = None; self.show_spell = false; return; }
+                Err(_) => {}
+            }
+        }
+        let mut open = true;
+        let mut fix: Option<(usize, String, String)> = None;
+        let mut goto = None; let mut ignore: Option<String> = None; let mut rescan = false;
+        egui::Window::new("Yazım denetimi").open(&mut open).default_width(520.0).show(ctx, |ui| {
+            if self.speller.is_none() { ui.horizontal(|ui| { ui.spinner(); ui.label("Sözlük yükleniyor…"); }); return; }
+            ui.horizontal(|ui| { if ui.button("Yeniden tara").clicked() { rescan = true; } ui.label(format!("{} hatalı sözcük", self.spell_hits.len())); });
+            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                for (line, m, sug) in &self.spell_hits {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.link(format!("#{}", line + 1)).clicked() { goto = Some(*line); }
+                        ui.label(RichText::new(&m.word).color(Color32::from_rgb(255, 120, 90)).strong());
+                        for s in sug { if ui.small_button(s).clicked() { fix = Some((*line, m.word.clone(), s.clone())); } }
+                        if ui.small_button("Yoksay").clicked() { ignore = Some(m.word.clone()); }
+                    });
+                }
+            });
+        });
+        if let Some(g) = goto { self.select_only(g); self.scroll_to = Some(g); }
+        if let Some(w) = ignore { self.spell_ignore.insert(w); rescan = true; }
+        if let Some((line, word, rep)) = fix {
+            self.snapshot("Yazım düzelt");
+            if let Some(e) = self.file.events.get_mut(line) {
+                let mut done = false;
+                e.text = tags::map_plain(&e.text, |t| if !done && t.contains(&word) { done = true; t.replacen(&word, &rep, 1) } else { t.to_string() });
+            }
+            self.touch(); rescan = true;
+        }
+        if rescan { self.scan_spelling(); }
+        self.show_spell = open;
+    }
 
     fn load_video(&mut self, p: PathBuf, ctx: &egui::Context) {
         match osiosub_media::probe_video(&p) {

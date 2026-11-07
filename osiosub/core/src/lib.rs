@@ -3,6 +3,7 @@ pub mod ass;
 pub mod color;
 pub mod qc;
 pub mod search;
+pub mod spell;
 pub mod tags;
 pub mod textfmt;
 pub mod time;

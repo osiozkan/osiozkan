@@ -103,7 +103,7 @@ impl UserData for Subs {
             if let Value::Table(t) = val {
                 let l = from_table(&t)?;
                 if i >= 1 && (i as usize) <= sh.lines.len() { sh.lines[i as usize - 1] = l; }
-                else if i == 0 { sh.lines.push(l); }                                // subs[0] = line : append
+                else if i == 0 || i as usize == sh.lines.len() + 1 { sh.lines.push(l); }                                // subs[0] = line : append
                 else if i < 0 {                                                      // subs[-n] = line : insert before n
                     let p = ((-i) as usize - 1).min(sh.lines.len());
                     sh.lines.insert(p, l);
