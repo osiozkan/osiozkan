@@ -1,6 +1,7 @@
 //! OsioSub core: subtitle data model, ASS/SRT/VTT I/O, timing tools, QC.
 pub mod ass;
 pub mod color;
+pub mod fixes;
 pub mod qc;
 pub mod search;
 pub mod spell;

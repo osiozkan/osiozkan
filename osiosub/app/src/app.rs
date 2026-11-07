@@ -8,6 +8,7 @@ use osiosub_core::{
     qc::{self, Issue, QcConfig, Severity},
     search::{self, Field, SearchOpts},
     tags, textfmt, time, timing, turkish,
+    fixes,
     spell::{Misspelling, Speller},
     undo::History,
 };
@@ -287,6 +288,18 @@ impl OsioApp {
             ui.menu_button("Araçlar", |ui| {
                 if ui.button("Kalite kontrol (QC)").clicked() { self.show_qc = true; ui.close(); }
                 if ui.button("Yazım denetimi (Türkçe)").clicked() { self.show_spell = true; self.start_speller(ui.ctx()); ui.close(); }
+                ui.menu_button("Toplu düzeltmeler", |ui| {
+                    let cfg = self.qc_cfg.clone();
+                    if ui.button("Metni temizle (boşluk, …, noktalama)").clicked() { self.apply_fix("Metin temizle", |f| fixes::clean_text(f)); ui.close(); }
+                    if ui.button("Uzun satırları otomatik böl").clicked() { self.apply_fix("Otomatik böl", |f| fixes::auto_break_all(f, cfg.max_line_len, true)); ui.close(); }
+                    if ui.button("Satır sonlarını kaldır").clicked() { self.apply_fix("Satır birleştir", |f| { let mut n = 0; for e in f.events.iter_mut().filter(|e| !e.comment) { let t = fixes::unbreak(&e.text); if t != e.text { e.text = t; n += 1; } } n }); ui.close(); }
+                    if ui.button("İşitme engelli notlarını sil ([..], (..), AD:)").clicked() { self.apply_fix("HI sil", |f| fixes::remove_hi(f)); ui.close(); }
+                    if ui.button("Diyalog tirelerini düzenle (- )").clicked() { self.apply_fix("Tire", |f| fixes::normalize_dashes(f)); ui.close(); }
+                    ui.separator();
+                    if ui.button("Çakışmaları gider").clicked() { self.apply_fix("Çakışma", |f| fixes::fix_overlaps(f)); ui.close(); }
+                    if ui.button("Okuma hızına göre süre uzat").clicked() { self.apply_fix("CPS uzat", |f| fixes::extend_for_cps(f, cfg.max_cps, 84, cfg.max_dur_ms)); ui.close(); }
+                    if ui.button("Asgari süreyi sağla").clicked() { self.apply_fix("Min süre", |f| fixes::enforce_min_duration(f, cfg.min_dur_ms, 84)); ui.close(); }
+                });
                 ui.separator();
                 let sel = self.selected_vec();
                 if ui.button("Türkçe: BÜYÜK HARF").clicked() { self.map_text(&sel, |t| tags::map_plain(t, turkish::to_upper)); ui.close(); }
@@ -306,6 +319,14 @@ impl OsioApp {
                 }
             });
         });
+    }
+
+
+    fn apply_fix(&mut self, label: &str, f: impl FnOnce(&mut AssFile) -> usize) {
+        self.snapshot(label);
+        let n = f(&mut self.file);
+        if n == 0 { self.hist.undo(&mut self.file); self.status = format!("{label}: değişiklik yok"); }
+        else { self.touch(); self.status = format!("{label}: {n} satır"); }
     }
 
     fn map_text(&mut self, sel: &[usize], f: impl Fn(&str) -> String) {

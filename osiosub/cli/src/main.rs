@@ -1,5 +1,5 @@
 //! `osiosub` command line: convert, check, shift, and run Aegisub Lua macros headlessly.
-use osiosub_core::{ass::AssFile, qc, textfmt, timing};
+use osiosub_core::{ass::AssFile, fixes, qc, textfmt, timing};
 use osiosub_lua::{DefaultHost, ScriptRuntime};
 use std::{env, fs, path::Path, process::exit};
 
@@ -7,7 +7,7 @@ const HELP: &str = "osiosub <command>
   convert <in> <out>                 convert between .ass/.srt/.vtt/.txt
   check <file>                       run QC (CPS, line length, overlaps, typography)
   shift <in> <out> <ms>              shift all lines by ms (negative allowed)
-  fix <in> <out>                     typography fixes + sort + close tiny gaps
+  fix <in> <out>                     clean text, fix overlaps/durations/CPS, auto line-break, close gaps
   macros <script.lua>                list macros registered by a script
   run <script.lua> <in> <out> [macro-index|name] [sel-first-last]
                                      run an Aegisub automation macro on a file
@@ -45,10 +45,14 @@ fn main() {
         }
         Some("fix") if a.len() == 3 => {
             let mut f = read(&a[1]);
-            for e in &mut f.events { e.text = osiosub_core::tags::map_plain(&e.text, |s| s.replace("...", "…").replace("  ", " ")); e.text = e.text.trim().to_string(); }
+            let c = qc::QcConfig::default();
+            eprintln!("cleaned {} line(s)", fixes::clean_text(&mut f));
             timing::sort_by_start(&mut f);
-            let n = timing::close_gaps(&mut f, 100);
-            eprintln!("closed {n} gap(s)");
+            eprintln!("overlaps fixed: {}", fixes::fix_overlaps(&mut f));
+            eprintln!("min-duration: {}", fixes::enforce_min_duration(&mut f, c.min_dur_ms, 84));
+            eprintln!("cps-extended: {}", fixes::extend_for_cps(&mut f, c.max_cps, 84, c.max_dur_ms));
+            eprintln!("auto-broken: {}", fixes::auto_break_all(&mut f, c.max_line_len, true));
+            eprintln!("closed {} gap(s)", timing::close_gaps(&mut f, 100));
             write(&a[2], &f);
         }
         Some("macros") if a.len() == 2 => {
