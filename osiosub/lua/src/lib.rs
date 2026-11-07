@@ -3,6 +3,7 @@
 //! Implements the `aegisub.*` API, the `subs` object, `include()`, and bundled
 //! `util.lua` / `karaskel.lua` / `unicode` / `re` / `utf8` modules so existing
 //! Aegisub macros run unchanged.
+pub mod fonts;
 mod host;
 mod lines;
 mod modules;

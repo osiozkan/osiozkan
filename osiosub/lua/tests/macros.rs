@@ -82,3 +82,14 @@ aegisub.register_macro("a","",a)
     let res = r.run(0, &f, &[], 0);
     assert!(res.cancelled, "{:?}", res.error);
 }
+
+#[test]
+fn text_extents_scales_with_size() {
+    use osiosub_core::ass::Style;
+    let mut s = Style::default();
+    s.fontsize = 20.0;
+    let a = osiosub_lua::fonts::extents(&s, "Hello World").map(|e| e.0);
+    s.fontsize = 40.0;
+    let b = osiosub_lua::fonts::extents(&s, "Hello World").map(|e| e.0);
+    if let (Some(a), Some(b)) = (a, b) { assert!((b / a - 2.0).abs() < 1e-6); } // fonts may be absent in CI
+}

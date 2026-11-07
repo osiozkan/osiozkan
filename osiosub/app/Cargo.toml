@@ -14,3 +14,4 @@ egui-file-dialog = "0.15.0"
 egui_extras = "0.36"
 osiosub-core = { path = "../core" }
 osiosub-lua = { path = "../lua" }
+osiosub-media = { version = "0.1.0", path = "../media" }

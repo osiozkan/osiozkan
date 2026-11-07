@@ -51,7 +51,7 @@ pub trait Host {
     }
     /// Returns (width, height, descent, external_leading) in script pixels.
     fn text_extents(&self, style: &Style, text: &str) -> (f64, f64, f64, f64) {
-        approx_extents(style, text)
+        crate::fonts::extents(style, text).unwrap_or_else(|| approx_extents(style, text))
     }
     fn log(&mut self, msg: &str) { eprint!("{}", msg); }
     fn video_size(&self) -> Option<(i32, i32)> { None }

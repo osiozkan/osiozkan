@@ -11,11 +11,13 @@ use osiosub_core::{
     undo::History,
 };
 use osiosub_lua::{DialogResult, DialogSpec, DlgVal, MacroInfo};
+use osiosub_media::AudioPeaks;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{mpsc, Arc};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq)]
-enum FileAction { Open, SaveAs, Export, LoadScript }
+enum FileAction { Open, SaveAs, Export, LoadScript, OpenAudio }
 
 #[derive(Default)]
 struct FindState { open: bool, pattern: String, with: String, regex: bool, case: bool, word: bool, skip_tags: bool, field: u8, msg: String }
@@ -53,6 +55,13 @@ pub struct OsioApp {
     time_buf: (Option<usize>, String, String),
     scroll_to: Option<usize>,
     export_ext: &'static str,
+    audio: Option<Arc<AudioPeaks>>,
+    audio_rx: Option<mpsc::Receiver<Result<AudioPeaks, String>>>,
+    audio_name: String,
+    wave_start: f64,
+    wave_mspp: f64,
+    wave_follow: Option<usize>,
+    drag: Option<(usize, bool)>,
 }
 
 impl OsioApp {
@@ -65,8 +74,10 @@ impl OsioApp {
             log: String::new(), find: FindState { skip_tags: true, ..Default::default() }, shift: ShiftState { start: true, end: true, ..Default::default() },
             fd: FileDialog::new(), fd_action: FileAction::Open, worker: worker::spawn(cc.egui_ctx.clone()), macros: vec![],
             running: false, dialog: None, time_buf: (None, String::new(), String::new()), scroll_to: None, export_ext: "srt",
+            audio: None, audio_rx: None, audio_name: String::new(), wave_start: 0.0, wave_mspp: 20.0, wave_follow: None, drag: None,
         };
         if let Some(p) = arg { app.open_path(PathBuf::from(p)); }
+        if let Some(a) = std::env::args().nth(2) { app.load_audio(PathBuf::from(a), &cc.egui_ctx); }
         // auto-load scripts from ./automation/autoload if present
         if let Ok(rd) = std::fs::read_dir("automation/autoload") {
             for e in rd.flatten() { if e.path().extension().map_or(false, |x| x == "lua") { let _ = app.worker.tx.send(ToWorker::Load(e.path())); } }
@@ -223,6 +234,7 @@ impl OsioApp {
                     if ui.button(label).clicked() { self.export_ext = ext; self.fd_action = FileAction::Export; self.fd.save_file(); ui.close(); }
                 }
                 ui.separator();
+                if ui.button("Ses / video dosyasından dalga formu aç…").clicked() { self.fd_action = FileAction::OpenAudio; self.fd.pick_file(); ui.close(); }
                 if ui.button("Betik özellikleri…").clicked() { self.show_props = true; ui.close(); }
             });
             ui.menu_button("Düzen", |ui| {
@@ -522,6 +534,126 @@ impl OsioApp {
         self.show_styles = open;
     }
 
+
+    fn load_audio(&mut self, p: PathBuf, ctx: &egui::Context) {
+        let (tx, rx) = mpsc::channel();
+        self.audio_rx = Some(rx);
+        self.audio_name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        self.status = format!("Ses çözülüyor: {}", self.audio_name);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let r = osiosub_media::load_audio(&p, &mut |_| {});
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+    }
+
+    fn poll_audio(&mut self) {
+        if let Some(rx) = &self.audio_rx {
+            if let Ok(r) = rx.try_recv() {
+                self.audio_rx = None;
+                match r {
+                    Ok(p) => { self.status = format!("Ses yüklendi: {} ({:.1} sn)", self.audio_name, p.duration_ms() as f64 / 1000.0); self.audio = Some(Arc::new(p)); }
+                    Err(e) => self.status = format!("Ses yüklenemedi: {e}"),
+                }
+            }
+        }
+    }
+
+    fn waveform(&mut self, ui: &mut egui::Ui) {
+        let Some(audio) = self.audio.clone() else { ui.horizontal(|ui| { ui.spinner(); ui.label("Ses çözülüyor…"); }); return; };
+        let avail = ui.available_size();
+        let (resp, painter) = ui.allocate_painter(egui::vec2(avail.x, avail.y.max(60.0)), egui::Sense::click_and_drag());
+        let rect = resp.rect;
+        let dur = audio.duration_ms() as f64;
+        // follow active line
+        if self.wave_follow != self.active {
+            self.wave_follow = self.active;
+            if let Some(e) = self.active.and_then(|a| self.file.events.get(a)) {
+                let (s, en) = (self.wave_start, self.wave_start + rect.width() as f64 * self.wave_mspp);
+                if (e.start as f64) < s || (e.end as f64) > en { self.wave_start = (e.start as f64 - rect.width() as f64 * self.wave_mspp * 0.25).max(0.0); }
+            }
+        }
+        // zoom / scroll
+        if resp.hovered() {
+            let (scroll, zoom, ctrl) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.command));
+            if (zoom - 1.0).abs() > 1e-4 || (ctrl && scroll.y != 0.0) {
+                let f = if (zoom - 1.0).abs() > 1e-4 { zoom as f64 } else { (scroll.y as f64 * 0.01).exp() };
+                let mx = resp.hover_pos().map(|p| (p.x - rect.left()) as f64).unwrap_or(0.0);
+                let anchor = self.wave_start + mx * self.wave_mspp;
+                self.wave_mspp = (self.wave_mspp / f).clamp(1.0, 400.0);
+                self.wave_start = (anchor - mx * self.wave_mspp).max(0.0);
+            } else if scroll.x != 0.0 || scroll.y != 0.0 {
+                self.wave_start = (self.wave_start - (scroll.x + scroll.y) as f64 * self.wave_mspp).clamp(0.0, dur);
+            }
+        }
+        let t2x = |t: f64, st: f64, mspp: f64| rect.left() + ((t - st) / mspp) as f32;
+        let x2t = |x: f32, st: f64, mspp: f64| st + (x - rect.left()) as f64 * mspp;
+        painter.rect_filled(rect, 0.0, Color32::from_rgb(18, 22, 30));
+        let mid = rect.center().y; let half = rect.height() / 2.0 - 4.0;
+        // subtitle regions
+        let (st, mspp) = (self.wave_start, self.wave_mspp);
+        let t_end = st + rect.width() as f64 * mspp;
+        for (i, e) in self.file.events.iter().enumerate() {
+            if (e.end as f64) < st || (e.start as f64) > t_end || e.comment { continue; }
+            let r = egui::Rect::from_min_max(egui::pos2(t2x(e.start as f64, st, mspp).max(rect.left()), rect.top()), egui::pos2(t2x(e.end as f64, st, mspp).min(rect.right()), rect.bottom()));
+            let col = if Some(i) == self.active { Color32::from_rgba_unmultiplied(80, 140, 255, 70) } else if self.sel.contains(&i) { Color32::from_rgba_unmultiplied(120, 180, 255, 40) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 14) };
+            painter.rect_filled(r, 0.0, col);
+        }
+        // wave
+        let w = rect.width() as usize;
+        for px in 0..w {
+            let t0 = st + px as f64 * mspp;
+            let (lo, hi) = audio.range(t0 as i64, (t0 + mspp).ceil() as i64);
+            if hi == 0.0 && lo == 0.0 { continue; }
+            let x = rect.left() + px as f32 + 0.5;
+            painter.line_segment([egui::pos2(x, mid - hi.min(1.0) * half), egui::pos2(x, mid - lo.max(-1.0) * half)], egui::Stroke::new(1.0, Color32::from_rgb(110, 200, 150)));
+        }
+        // time ruler
+        let step = [100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0].iter().cloned().find(|s| s / mspp > 80.0).unwrap_or(120000.0);
+        let mut t = (st / step).floor() * step;
+        while t < t_end {
+            let x = t2x(t, st, mspp);
+            painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.top() + 6.0)], egui::Stroke::new(1.0, Color32::GRAY));
+            painter.text(egui::pos2(x + 3.0, rect.top()), egui::Align2::LEFT_TOP, time::fmt_ass(t as i64), egui::FontId::proportional(10.0), Color32::GRAY);
+            t += step;
+        }
+        // active handles
+        let mut handles: Option<(f32, f32)> = None;
+        if let Some(e) = self.active.and_then(|a| self.file.events.get(a)) {
+            let (xs, xe) = (t2x(e.start as f64, st, mspp), t2x(e.end as f64, st, mspp));
+            handles = Some((xs, xe));
+            painter.line_segment([egui::pos2(xs, rect.top()), egui::pos2(xs, rect.bottom())], egui::Stroke::new(2.0, Color32::from_rgb(255, 90, 90)));
+            painter.line_segment([egui::pos2(xe, rect.top()), egui::pos2(xe, rect.bottom())], egui::Stroke::new(2.0, Color32::from_rgb(90, 160, 255)));
+        }
+        // interaction: drag handles; click = set start (left) ; secondary click = set end ; ctrl-click selects line
+        let near = |x: f32, h: f32| (x - h).abs() < 7.0;
+        if resp.drag_started() {
+            if let (Some(p), Some((xs, xe)), Some(a)) = (resp.interact_pointer_pos(), handles, self.active) {
+                if near(p.x, xs) { self.hist.record("Zamanlama", &self.file); self.drag = Some((a, true)); }
+                else if near(p.x, xe) { self.hist.record("Zamanlama", &self.file); self.drag = Some((a, false)); }
+            }
+        }
+        if let (Some((a, is_start)), Some(p)) = (self.drag, resp.interact_pointer_pos()) {
+            let t = x2t(p.x, st, mspp).round().max(0.0) as i64;
+            if let Some(e) = self.file.events.get_mut(a) { if is_start { e.start = t.min(e.end); } else { e.end = t.max(e.start); } }
+            self.touch();
+        }
+        if resp.drag_stopped() { self.drag = None; }
+        if resp.hovered() { if let Some(p) = resp.hover_pos() { if let Some((xs, xe)) = handles { if near(p.x, xs) || near(p.x, xe) { ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal); } } } }
+        if resp.clicked() || resp.secondary_clicked() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let t = x2t(p.x, st, mspp).round().max(0.0) as i64;
+                if resp.secondary_clicked() {
+                    if let Some(a) = self.active { self.hist.record("Bitiş", &self.file); if let Some(e) = self.file.events.get_mut(a) { e.end = t.max(e.start + 1); self.touch(); } }
+                } else if ui.input(|i| i.modifiers.alt) {
+                    if let Some(a) = self.active { self.hist.record("Başlangıç", &self.file); if let Some(e) = self.file.events.get_mut(a) { e.start = t.min(e.end - 1).max(0); self.touch(); } }
+                } else if let Some(i) = self.file.events.iter().position(|e| e.start <= t && t < e.end) { self.select_only(i); self.scroll_to = Some(i); self.wave_follow = self.active; }
+            }
+        }
+        resp.on_hover_text("Sol tık: satır seç · Alt+tık: başlangıç · Sağ tık: bitiş · Kenarları sürükle · Ctrl+tekerlek: yakınlaştır");
+    }
+
     fn lua_dialog(&mut self, ctx: &egui::Context) {
         let (spec, mut vals) = self.dialog.take().unwrap();
         let mut result: Option<Option<String>> = None;
@@ -591,6 +723,7 @@ impl eframe::App for OsioApp {
                 FileAction::SaveAs => { let mut p = p; if p.extension().is_none() { p.set_extension("ass"); } self.save_to(p) }
                 FileAction::Export => { let mut p = p; if p.extension().is_none() { p.set_extension(self.export_ext); } self.save_to(p) }
                 FileAction::LoadScript => { let _ = self.worker.tx.send(ToWorker::Load(p)); }
+                FileAction::OpenAudio => self.load_audio(p, &ctx),
             }
         }
         // dropped files
@@ -613,6 +746,10 @@ impl eframe::App for OsioApp {
             });
         });
         egui::Panel::bottom("editor").resizable(true).min_size(150.0).show_inside(ui, |ui| self.editor(ui));
+        self.poll_audio();
+        if self.audio.is_some() || self.audio_rx.is_some() {
+            egui::Panel::bottom("wave").resizable(true).default_size(150.0).min_size(80.0).show_inside(ui, |ui| self.waveform(ui));
+        }
         egui::CentralPanel::default().show_inside(ui, |ui| self.grid(ui));
         self.windows(&ctx);
     }

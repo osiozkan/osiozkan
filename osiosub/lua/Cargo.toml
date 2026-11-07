@@ -7,3 +7,5 @@ edition.workspace = true
 osiosub-core = { path = "../core" }
 mlua = { version = "0.12", features = ["lua51", "vendored"] }
 regex = "1"
+fontdb = "0.24.0"
+ttf-parser = "0.25.1"
