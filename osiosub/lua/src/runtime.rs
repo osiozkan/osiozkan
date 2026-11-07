@@ -92,6 +92,15 @@ impl UserData for Subs {
                     if a <= b { sh.lines.drain(a - 1..b); }
                     Ok(())
                 })?,
+                "script_resolution" => lua.create_function(move |_, ()| {
+                    let sh = rc.borrow();
+                    let mut x: Option<i32> = None; let mut y: Option<i32> = None;
+                    for l in &sh.lines { if let Line::Info(k, v) = l {
+                        if k.eq_ignore_ascii_case("PlayResX") { x = v.trim().parse().ok(); }
+                        if k.eq_ignore_ascii_case("PlayResY") { y = v.trim().parse().ok(); }
+                    } }
+                    Ok(match (x, y) { (Some(x), Some(y)) => (x, y), (Some(x), None) => (x, x * 3 / 4), (None, Some(y)) => (y * 4 / 3, y), _ => (384, 288) })
+                })?,
                 "SetUndoPoint" => lua.create_function(|_, _: MultiValue| Ok(()))?,
                 _ => return Ok(Value::Nil),
             };
@@ -336,22 +345,22 @@ impl ScriptRuntime {
         g.set("tr", lua.create_function(|_, s: String| Ok(s))?)?;
         modules::install(lua)?;
 
-        // include(name): search script dirs, then bundled
+        // include(name): script dirs (package.path), then the bundled unmodified Aegisub include files
         let include = lua.create_function(move |lua, name: String| -> LResult<MultiValue> {
-            let req: Function = lua.globals().get("require")?;
-            let stem = name.strip_suffix(".lua").unwrap_or(&name).to_string();
-            let r: MultiValue = req.call(stem.clone())?;
-            // Aegisub's include() runs the file in the global env: bundled libs expose themselves as globals.
-            if let Some(Value::Table(t)) = r.iter().next() {
-                let g = lua.globals();
-                match stem.as_str() {
-                    "utils" | "utils-auto4" => { for p in t.pairs::<Value, Value>() { let (k, v) = p?; g.set(k, v)?; } }
-                    "karaskel" | "util" => { g.set(stem.as_str(), t.clone())?; }
-                    _ => {}
-                }
+            let pkg: Table = lua.globals().get("package")?;
+            let path: String = pkg.get("path")?;
+            let base = name.strip_suffix(".lua").unwrap_or(&name).to_string();
+            let mut src: Option<(String, String)> = None;
+            for pat in path.split(';') {
+                if pat.is_empty() { continue; }
+                let cand = pat.replace('?', &base.replace('.', "/"));
+                if let Ok(bytes) = std::fs::read(&cand) { src = Some((cand, String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string())); break; }
             }
-            if stem == "karaskel" { let _: Value = req.call("util")?; if let Ok(Value::Table(u)) = lua.globals().get::<Value>("package").and_then(|p| match p { Value::Table(p) => p.get::<Table>("loaded")?.get::<Value>("util"), v => Ok(v) }) { lua.globals().set("util", u)?; } }
-            Ok(r)
+            if src.is_none() {
+                if let Some(e) = modules::embedded_include(&format!("{}.lua", base)) { src = Some((format!("{}.lua", base), e.trim_start_matches('\u{feff}').to_string())); }
+            }
+            let Some((chunk, code)) = src else { return Err(mlua::Error::runtime(format!("Lua include not found: {}", name))) };
+            lua.load(code).set_name(format!("@{}", chunk)).call::<MultiValue>(())
         })?;
         g.set("include", include)?;
         Ok(())

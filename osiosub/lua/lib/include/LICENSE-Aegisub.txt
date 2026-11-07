@@ -1,0 +1,3 @@
+Files in this directory (karaskel*.lua, utils*.lua, unicode.lua, clipboard.lua, re.lua, cleantags.lua) are
+taken unmodified from the Aegisub project (https://github.com/TypesettingTools/Aegisub, automation/include)
+and are distributed under the licences stated in each file header (BSD 3-clause / ISC-style).

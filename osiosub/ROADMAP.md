@@ -8,7 +8,8 @@ bu dosyayı güncelleyerek devam eder (her gece 22:00 → 06:00).
 - `core/`  – ASS/SRT/VTT modeli, zaman, renk, etiketler, QC, zamanlama, arama, geri alma, Türkçe metin.
 - `lua/`   – Aegisub Automation 4 uyumlu Lua 5.1 çalışma zamanı (`aegisub.*`, `subs`, `include`, util/karaskel/re/unicode/utf8).
 - `cli/`   – `osiosub` komut satırı (convert/check/shift/fix/macros/run).
-- `app/`   – (planlı) egui tabanlı masaüstü arayüzü.
+- `media/` – ses çözme (symphonia + ffmpeg yedek), dalga formu, ffprobe/ffmpeg ile video önizleme (libass).
+- `app/`   – egui masaüstü arayüzü (ızgara, editör, dalga formu, önizleme, stil yöneticisi, QC, yazım denetimi, Lua makroları).
 
 ## Durum
 - [x] ASS okuma/yazma (SSA v4 dahil, bilinmeyen bölümler korunur)
@@ -22,11 +23,20 @@ bu dosyayı güncelleyerek devam eder (her gece 22:00 → 06:00).
 - [x] Lua kütüphaneleri: util, karaskel (temel), utf8, unicode, re
 - [x] CLI
 
+- [x] GUI: ızgara, editör, geri al/yinele, bul/değiştir, stil yöneticisi, QC, klavye gezinmesi, ayar kalıcılığı
+- [x] Dalga formu (sürükle: başlangıç/bitiş, Alt+tık, sağ tık), video önizleme (libass), Ctrl+tık → \pos
+- [x] Türkçe yazım denetimi (gömülü Hunspell tr, MIT lisanslı sözlük: `dicts/`)
+- [x] Toplu düzeltmeler (otomatik satır böl, HI sil, çakışma, CPS uzat, min süre), karaoke \k üretici
+- [x] Gerçek Aegisub `karaskel`/`utils`/`cleantags` dosyaları gömülü (`lua/lib/include`), `aegisub.parse_karaoke_data`, `subs.script_resolution`, ipairs(subs)
+- [x] CI iş akışı (Linux/Windows/macOS)
+
 ## Sıradaki işler (öncelik sırasıyla)
-1. **GUI (egui)**: altyazı ızgarası, düzenleme kutusu, stil yöneticisi, Lua makro menüsü + diyalog çevirisi.
-2. **Ses dalga formu** (symphonia ile saf Rust çözümleme) + zamanlama için sürükle-bırak, spektrum.
-3. **Video**: ffmpeg ile kare çıkarma, ASS render önizleme (libass bağlama veya kendi basit renderer), keyframe snap.
-4. Gerçek yazı tipi ölçümü (`fontdb` + `ttf-parser`) → `aegisub.text_extents` doğruluğu (karaskel pozisyonları).
+1. **Kullanıcının kendi Lua scriptleri ile uyumluluk testi**: scriptler `osiosub/automation/autoload/` altına konunca
+   gece oturumu hepsini `osiosub run` ile deneyip hataları düzeltecek (şu an elimizde yok). Gerçek `kara-templater.lua`
+   ile uçtan uca test (güvenilir kaynaktan, elle eklenince).
+2. **Ses oynatma** (cpal) + oynatma imleci, spektrum görünümü, kare adımlı video gezinme, keyframe snap, sahne değişimi.
+3. Video önizlemede sürekli oynatma (ffmpeg boru hattı) ve görsel typesetting araçları (\move, \clip, \org sürükle).
+4. Kaydetme sırasında font gömme (`[Fonts]`), eksik font uyarısı (`fonts::has_font`).
 5. Lua: `aegisub.dialog.open/save`, `ILL`/`Yutils` uyumluluk testleri, `lfs`, `clipper`, tam `karaskel` (furigana), `cleantags`, `auto4 filter config`.
 6. Subtitle Edit özellikleri: Netflix/BBC kalite kontrol profilleri, OCR (Tesseract) ile görüntü tabanlı altyazı, otomatik çeviri (API), Whisper ile oto-transkripsiyon, spell-check (Hunspell tr_TR), bul-değiştir çoklu dosya, toplu dönüştürme.
 7. Anime özel: Karaoke zamanlayıcı, typesetting araçları (\pos/\move/\clip görsel), stil kopyala, `Dialogue/Comment` toplu işlemleri, çeviri-düzenleme-QC iş akışı, sahne değişimi snap.
