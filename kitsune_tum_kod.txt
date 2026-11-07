@@ -1,0 +1,2894 @@
+
+================================================================
+DOSYA: .github/workflows/kitsune-ci.yml
+================================================================
+name: kitsune-ci
+on:
+  push:
+    paths: ["kitsune/**"]
+  pull_request:
+    paths: ["kitsune/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kitsune
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kitsune
+      - run: cargo test -p kitsune-core -p kitsune-lua
+      - run: cargo build -p kitsune-cli -p kitsune-gui
+
+================================================================
+DOSYA: kitsune/.gitignore
+================================================================
+target/
+
+================================================================
+DOSYA: kitsune/CHANGELOG.md
+================================================================
+# Değişiklik günlüğü
+
+## 0.1.0 — ilk gece (2026-11-06)
+- Çalışma alanı kuruldu: `core`, `lua`, `cli`, `gui`.
+- ASS/SSA/SRT/VTT okuma-yazma, etiket ve karaoke ayrıştırma, kalite denetimleri (13 test).
+- Aegisub uyumlu Lua motoru: `subs` userdata, `register_macro/filter`, `karaskel`, `utils`, `unicode`.
+- CLI: `info`, `convert`, `check`, `shift`, `lua list|run`.
+- egui arayüzü: ızgara, satır editörü, stiller, sorunlar, Lua makro paneli, geri al/yinele. **Not:** bu sürümde ekranda çalıştırılarak doğrulanamadı (sandbox'ta X11 kütüphanesi yok); yalnızca derleme doğrulandı.
+
+================================================================
+DOSYA: kitsune/Cargo.toml
+================================================================
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/lua", "crates/cli", "crates/gui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+================================================================
+DOSYA: kitsune/README.md
+================================================================
+# Kitsune
+
+Anime altyazıcıları için, Aegisub'ın iş akışını temel alan ve Subtitle Edit'in güçlü yanlarını katan, **Rust** ile sıfırdan yazılan altyazı editörü. Hedef: mevcut **Aegisub Lua (Automation 4)** betiklerinin değişmeden çalışması, hızlı ve sade bir arayüz.
+
+> Durum: erken geliştirme (v0.1). Yol haritası: [`docs/ROADMAP.md`](docs/ROADMAP.md) · Değişiklikler: [`CHANGELOG.md`](CHANGELOG.md)
+
+## Bileşenler
+| Crate | İş |
+|---|---|
+| `crates/core` | ASS/SSA/SRT/VTT okuma-yazma, etiket ayrıştırma, karaoke, zaman, kalite denetimleri |
+| `crates/lua` | Aegisub uyumlu Lua motoru (LuaJIT): `subs` nesnesi, `aegisub.*`, `karaskel`, `util`, `unicode` |
+| `crates/cli` | `kitsune` komut satırı aracı |
+| `crates/gui` | egui tabanlı masaüstü arayüz |
+
+## Derleme ve kullanım
+```bash
+cd kitsune
+cargo test --workspace
+cargo run -p kitsune-gui --release          # arayüz (Linux'ta libxkbcommon-x11 gerekir)
+cargo run -p kitsune-cli -- --help
+cargo run -p kitsune-cli -- lua run examples/ornek_makro.lua 0 girdi.ass cikti.ass 0,1
+```
+
+## Lua uyumluluğu (şu an)
+`aegisub.register_macro/register_filter`, `aegisub.cancel`, `aegisub.debug.out`, `aegisub.progress.*`, `aegisub.dialog.display` (başsız: varsayılan değerler), `aegisub.text_extents` (**yaklaşık**), `aegisub.frame_from_ms/ms_from_frame`, `subs` (`#subs`, `subs[i]`, `insert/append/delete/deleterange`), `include("utils.lua"|"karaskel.lua")`, `require("aegisub.util")`, `unicode.*`. Eksikler yol haritasında.
+
+================================================================
+DOSYA: kitsune/crates/cli/Cargo.toml
+================================================================
+[package]
+name = "kitsune-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kitsune"
+path = "src/main.rs"
+
+[dependencies]
+kitsune-core = { path = "../core" }
+kitsune-lua = { path = "../lua" }
+
+================================================================
+DOSYA: kitsune/crates/cli/src/main.rs
+================================================================
+use kitsune_core::{check, load_file, save_file, time};
+use kitsune_lua::Engine;
+use std::path::Path;
+use std::process::exit;
+
+const HELP: &str = "kitsune — anime altyazı aracı (komut satırı)
+
+KULLANIM:
+  kitsune info <dosya>                       özet bilgi
+  kitsune convert <girdi> <çıktı>            ass/srt/vtt dönüştür (uzantıya göre)
+  kitsune check <dosya>                      kalite denetimi (CPS, çakışma, satır uzunluğu…)
+  kitsune shift <girdi> <çıktı> <±ms>        tüm zamanları kaydır
+  kitsune lua list <betik.lua>               betiğin kayıtlı makroları
+  kitsune lua run <betik.lua> <no> <girdi> <çıktı> [sel,sel,..]   makroyu çalıştır (no: 0'dan)";
+
+fn die(m: &str) -> ! {
+    eprintln!("hata: {}", m);
+    exit(1)
+}
+
+fn main() {
+    let a: Vec<String> = std::env::args().skip(1).collect();
+    let s: Vec<&str> = a.iter().map(|x| x.as_str()).collect();
+    match s.as_slice() {
+        ["info", f] => {
+            let d = load_file(Path::new(f)).unwrap_or_else(|e| die(&e));
+            let (w, h) = d.play_res();
+            println!("Başlık: {}\nÇözünürlük: {}x{}\nStil: {}\nSatır: {} ({} yorum)", d.info_get("Title").unwrap_or("-"), w, h, d.styles.len(), d.events.len(), d.events.iter().filter(|e| e.is_comment()).count());
+            for w in &d.warnings { println!("uyarı: {}", w); }
+        }
+        ["convert", i, o] => {
+            let d = load_file(Path::new(i)).unwrap_or_else(|e| die(&e));
+            save_file(&d, Path::new(o)).unwrap_or_else(|e| die(&e));
+        }
+        ["check", f] => {
+            let d = load_file(Path::new(f)).unwrap_or_else(|e| die(&e));
+            let issues = check::run(&d, &check::Rules::default());
+            for i in &issues {
+                let e = &d.events[i.index];
+                println!("#{} [{}] {:?}: {}", i.index + 1, time::format_ass(e.start), i.kind, i.message);
+            }
+            println!("{} sorun", issues.len());
+            if !issues.is_empty() { exit(2) }
+        }
+        ["shift", i, o, ms] => {
+            let ms: i64 = ms.parse().unwrap_or_else(|_| die("ms sayı olmalı"));
+            let mut d = load_file(Path::new(i)).unwrap_or_else(|e| die(&e));
+            for e in &mut d.events { e.start = (e.start + ms).max(0); e.end = (e.end + ms).max(0); }
+            save_file(&d, Path::new(o)).unwrap_or_else(|e| die(&e));
+        }
+        ["lua", "list", script] => {
+            let e = Engine::new().unwrap_or_else(|e| die(&e));
+            e.load_script(Path::new(script)).unwrap_or_else(|er| die(&er));
+            for (i, m) in e.macros().iter().enumerate() { println!("{}\t{}\t{}", i, m.name, m.description); }
+        }
+        ["lua", "run", script, no, i, o, rest @ ..] => {
+            let e = Engine::new().unwrap_or_else(|e| die(&e));
+            e.load_script(Path::new(script)).unwrap_or_else(|er| die(&er));
+            let mut d = load_file(Path::new(i)).unwrap_or_else(|e| die(&e));
+            let sel: Vec<usize> = match rest.first() {
+                Some(r) => r.split(',').filter_map(|x| x.trim().parse::<usize>().ok()).collect(),
+                None => (0..d.events.len()).collect(),
+            };
+            let no: usize = no.parse().unwrap_or_else(|_| die("makro no sayı olmalı"));
+            let out = e.run(no, &mut d, &sel, sel.first().copied()).unwrap_or_else(|er| die(&er));
+            for l in &out.logs { println!("{}", l); }
+            if out.cancelled { eprintln!("makro iptal etti; dosya yazılmadı"); exit(3) }
+            save_file(&d, Path::new(o)).unwrap_or_else(|e| die(&e));
+        }
+        _ => println!("{}", HELP),
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/Cargo.toml
+================================================================
+[package]
+name = "kitsune-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+================================================================
+DOSYA: kitsune/crates/core/src/ass.rs
+================================================================
+//! ASS/SSA modeli, okuyucu ve yazıcı. Bilinmeyen bölümler ve yorumlar korunur.
+use crate::time;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Dialogue,
+    Comment,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    pub kind: EventKind,
+    pub layer: i32,
+    pub start: i64,
+    pub end: i64,
+    pub style: String,
+    pub actor: String,
+    pub margin_l: i32,
+    pub margin_r: i32,
+    pub margin_v: i32,
+    pub effect: String,
+    pub text: String,
+}
+
+impl Default for Event {
+    fn default() -> Self {
+        Event {
+            kind: EventKind::Dialogue,
+            layer: 0,
+            start: 0,
+            end: 5000,
+            style: "Default".into(),
+            actor: String::new(),
+            margin_l: 0,
+            margin_r: 0,
+            margin_v: 0,
+            effect: String::new(),
+            text: String::new(),
+        }
+    }
+}
+
+impl Event {
+    pub fn duration(&self) -> i64 {
+        self.end - self.start
+    }
+    pub fn is_comment(&self) -> bool {
+        self.kind == EventKind::Comment
+    }
+    pub fn to_line(&self) -> String {
+        format!(
+            "{}: {},{},{},{},{},{},{},{},{},{}",
+            if self.is_comment() { "Comment" } else { "Dialogue" },
+            self.layer,
+            time::format_ass(self.start),
+            time::format_ass(self.end),
+            self.style,
+            self.actor,
+            self.margin_l,
+            self.margin_r,
+            self.margin_v,
+            self.effect,
+            self.text
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Style {
+    pub name: String,
+    pub fontname: String,
+    pub fontsize: f64,
+    pub primary: String,
+    pub secondary: String,
+    pub outline_color: String,
+    pub back: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strikeout: bool,
+    pub scale_x: f64,
+    pub scale_y: f64,
+    pub spacing: f64,
+    pub angle: f64,
+    pub border_style: i32,
+    pub outline: f64,
+    pub shadow: f64,
+    pub alignment: i32,
+    pub margin_l: i32,
+    pub margin_r: i32,
+    pub margin_v: i32,
+    pub encoding: i32,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Style {
+            name: "Default".into(),
+            fontname: "Arial".into(),
+            fontsize: 48.0,
+            primary: "&H00FFFFFF".into(),
+            secondary: "&H000000FF".into(),
+            outline_color: "&H00000000".into(),
+            back: "&H00000000".into(),
+            bold: false,
+            italic: false,
+            underline: false,
+            strikeout: false,
+            scale_x: 100.0,
+            scale_y: 100.0,
+            spacing: 0.0,
+            angle: 0.0,
+            border_style: 1,
+            outline: 2.0,
+            shadow: 2.0,
+            alignment: 2,
+            margin_l: 10,
+            margin_r: 10,
+            margin_v: 10,
+            encoding: 1,
+        }
+    }
+}
+
+fn num(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{}", v as i64)
+    } else {
+        let s = format!("{:.4}", v);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+fn flag(b: bool) -> &'static str {
+    if b { "-1" } else { "0" }
+}
+
+impl Style {
+    pub fn to_line(&self) -> String {
+        format!(
+            "Style: {},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            self.name, self.fontname, num(self.fontsize), self.primary, self.secondary,
+            self.outline_color, self.back, flag(self.bold), flag(self.italic), flag(self.underline),
+            flag(self.strikeout), num(self.scale_x), num(self.scale_y), num(self.spacing),
+            num(self.angle), self.border_style, num(self.outline), num(self.shadow),
+            self.alignment, self.margin_l, self.margin_r, self.margin_v, self.encoding
+        )
+    }
+}
+
+pub const STYLE_FORMAT: &str = "Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding";
+pub const EVENT_FORMAT: &str = "Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text";
+
+#[derive(Debug, Clone, Default)]
+pub struct Section {
+    pub name: String,
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Document {
+    /// (anahtar, değer); ";" ile başlayan anahtar = yorum satırı (değer satırın kalanı).
+    pub info: Vec<(String, String)>,
+    pub styles: Vec<Style>,
+    pub events: Vec<Event>,
+    /// Garbage/Fonts/Graphics/Extradata gibi bilinmeyen bölümler (ham satırlar).
+    pub extra: Vec<Section>,
+    /// Bölüm yazım sırası ("Script Info", "V4+ Styles", "Events" ya da extra adları).
+    pub order: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl Default for Document {
+    fn default() -> Self {
+        let mut d = Document {
+            info: vec![
+                ("Title".into(), "Untitled".into()),
+                ("ScriptType".into(), "v4.00+".into()),
+                ("WrapStyle".into(), "0".into()),
+                ("ScaledBorderAndShadow".into(), "yes".into()),
+                ("YCbCr Matrix".into(), "None".into()),
+                ("PlayResX".into(), "1920".into()),
+                ("PlayResY".into(), "1080".into()),
+            ],
+            styles: vec![Style::default()],
+            events: vec![],
+            extra: vec![],
+            order: vec![],
+            warnings: vec![],
+        };
+        d.order = vec!["Script Info".into(), "V4+ Styles".into(), "Events".into()];
+        d
+    }
+}
+
+fn split_n<'a>(s: &'a str, n: usize) -> Vec<&'a str> {
+    s.splitn(n, ',').collect()
+}
+
+fn pf(s: &str, d: f64) -> f64 {
+    s.trim().parse().unwrap_or(d)
+}
+fn pi(s: &str, d: i32) -> i32 {
+    s.trim().parse::<f64>().map(|v| v as i32).unwrap_or(d)
+}
+
+/// SSA onluk BGR renk -> &HAABBGGRR
+fn norm_color(s: &str) -> String {
+    let t = s.trim();
+    if t.starts_with('&') || t.starts_with('#') {
+        let hex = t.trim_start_matches('&').trim_start_matches(['H', 'h']).trim_end_matches('&');
+        let hex = hex.trim_start_matches('#');
+        return format!("&H{:0>8}", hex.to_uppercase());
+    }
+    match t.parse::<i64>() {
+        Ok(v) => format!("&H{:08X}", (v as u32)),
+        Err(_) => "&H00FFFFFF".into(),
+    }
+}
+
+impl Document {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn info_get(&self, key: &str) -> Option<&str> {
+        self.info
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
+    }
+    pub fn info_set(&mut self, key: &str, val: &str) {
+        if let Some(e) = self.info.iter_mut().find(|(k, _)| k.eq_ignore_ascii_case(key)) {
+            e.1 = val.into();
+        } else {
+            self.info.push((key.into(), val.into()));
+        }
+    }
+    pub fn play_res(&self) -> (i32, i32) {
+        let x = self.info_get("PlayResX").and_then(|v| v.trim().parse().ok());
+        let y = self.info_get("PlayResY").and_then(|v| v.trim().parse().ok());
+        match (x, y) {
+            (Some(x), Some(y)) => (x, y),
+            (None, Some(y)) => (y * 4 / 3, y),
+            (Some(x), None) => (x, x * 3 / 4),
+            _ => (384, 288),
+        }
+    }
+    pub fn style(&self, name: &str) -> Option<&Style> {
+        self.styles.iter().find(|s| s.name == name)
+    }
+
+    pub fn parse(input: &str) -> Document {
+        let input = input.strip_prefix('\u{feff}').unwrap_or(input);
+        let mut doc = Document { info: vec![], styles: vec![], events: vec![], extra: vec![], order: vec![], warnings: vec![] };
+        let mut section = String::new();
+        let mut style_fmt: Vec<String> = default_fmt(STYLE_FORMAT);
+        let mut event_fmt: Vec<String> = default_fmt(EVENT_FORMAT);
+        let mut ssa = false;
+        for (ln, raw) in input.lines().enumerate() {
+            let line = raw.trim_end_matches('\r');
+            let t = line.trim();
+            if t.starts_with('[') && t.ends_with(']') {
+                section = t[1..t.len() - 1].to_string();
+                let low = section.to_ascii_lowercase();
+                let canon = match low.as_str() {
+                    "script info" => "Script Info".to_string(),
+                    "v4+ styles" | "v4 styles" => {
+                        ssa = low == "v4 styles";
+                        "V4+ Styles".to_string()
+                    }
+                    "events" => "Events".to_string(),
+                    _ => {
+                        doc.extra.push(Section { name: section.clone(), lines: vec![] });
+                        section.clone()
+                    }
+                };
+                section = canon.clone();
+                if !doc.order.contains(&canon) {
+                    doc.order.push(canon);
+                }
+                continue;
+            }
+            match section.as_str() {
+                "Script Info" => {
+                    if t.is_empty() {
+                        continue;
+                    }
+                    if let Some(c) = t.strip_prefix(';') {
+                        doc.info.push((";".into(), c.to_string()));
+                    } else if let Some((k, v)) = t.split_once(':') {
+                        doc.info.push((k.trim().to_string(), v.trim().to_string()));
+                    }
+                }
+                "V4+ Styles" => {
+                    if t.is_empty() || t.starts_with(';') { continue; }
+                    if let Some(f) = strip_ci(t, "Format:") {
+                        style_fmt = f.split(',').map(|x| x.trim().to_ascii_lowercase()).collect();
+                    } else if let Some(v) = strip_ci(t, "Style:") {
+                        let cells = split_n(v.trim_start(), style_fmt.len());
+                        doc.styles.push(parse_style(&style_fmt, &cells, ssa));
+                    }
+                }
+                "Events" => {
+                    if t.is_empty() { continue; }
+                    if let Some(f) = strip_ci(t, "Format:") {
+                        event_fmt = f.split(',').map(|x| x.trim().to_ascii_lowercase()).collect();
+                    } else {
+                        let (kind, rest) = if let Some(r) = strip_ci(t, "Dialogue:") {
+                            (EventKind::Dialogue, r)
+                        } else if let Some(r) = strip_ci(t, "Comment:") {
+                            (EventKind::Comment, r)
+                        } else {
+                            continue; // Picture:, Sound: vb. yoksayılır
+                        };
+                        let cells = split_n(rest.strip_prefix(' ').unwrap_or(rest), event_fmt.len());
+                        match parse_event(&event_fmt, &cells, kind) {
+                            Some(e) => doc.events.push(e),
+                            None => doc.warnings.push(format!("Satır {}: geçersiz olay atlandı", ln + 1)),
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(sec) = doc.extra.iter_mut().rev().find(|s| s.name == section) {
+                        sec.lines.push(line.to_string());
+                    } else if !t.is_empty() {
+                        // bölüm başlığından önceki satırlar
+                        doc.warnings.push(format!("Satır {}: bölüm dışı satır yoksayıldı", ln + 1));
+                    }
+                }
+            }
+        }
+        for n in ["Script Info", "V4+ Styles", "Events"] {
+            if !doc.order.iter().any(|o| o == n) {
+                doc.order.push(n.into());
+            }
+        }
+        if doc.styles.is_empty() {
+            doc.styles.push(Style::default());
+        }
+        doc
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut o = String::new();
+        for name in &self.order {
+            match name.as_str() {
+                "Script Info" => {
+                    o.push_str("[Script Info]\n");
+                    for (k, v) in &self.info {
+                        if k == ";" { o.push_str(&format!(";{}\n", v)); } else { o.push_str(&format!("{}: {}\n", k, v)); }
+                    }
+                }
+                "V4+ Styles" => {
+                    o.push_str("[V4+ Styles]\nFormat: ");
+                    o.push_str(STYLE_FORMAT);
+                    o.push('\n');
+                    for s in &self.styles { o.push_str(&s.to_line()); o.push('\n'); }
+                }
+                "Events" => {
+                    o.push_str("[Events]\nFormat: ");
+                    o.push_str(EVENT_FORMAT);
+                    o.push('\n');
+                    for e in &self.events { o.push_str(&e.to_line()); o.push('\n'); }
+                }
+                other => {
+                    if let Some(sec) = self.extra.iter().find(|s| s.name == other) {
+                        o.push_str(&format!("[{}]\n", sec.name));
+                        for l in &sec.lines { o.push_str(l); o.push('\n'); }
+                        if sec.lines.last().map_or(false, |l| l.is_empty()) { o.pop(); }
+                    }
+                }
+            }
+            o.push('\n');
+        }
+        while o.ends_with("\n\n") { o.pop(); }
+        o
+    }
+
+    pub fn sort_by_start(&mut self) {
+        self.events.sort_by_key(|e| (e.start, e.end));
+    }
+}
+
+fn default_fmt(f: &str) -> Vec<String> {
+    f.split(',').map(|x| x.trim().to_ascii_lowercase()).collect()
+}
+
+fn strip_ci<'a>(s: &'a str, p: &str) -> Option<&'a str> {
+    if s.len() >= p.len() && s.is_char_boundary(p.len()) && s[..p.len()].eq_ignore_ascii_case(p) {
+        Some(&s[p.len()..])
+    } else {
+        None
+    }
+}
+
+fn parse_event(fmt: &[String], cells: &[&str], kind: EventKind) -> Option<Event> {
+    let mut e = Event { kind, ..Event::default() };
+    let mut got_start = false;
+    let mut got_end = false;
+    for (i, name) in fmt.iter().enumerate() {
+        let c = cells.get(i).copied().unwrap_or("");
+        match name.as_str() {
+            "layer" | "marked" => e.layer = pi(&c.replace("Marked=", ""), 0),
+            "start" => { e.start = time::parse_ass(c)?; got_start = true; }
+            "end" => { e.end = time::parse_ass(c)?; got_end = true; }
+            "style" => e.style = c.trim().trim_start_matches('*').to_string(),
+            "name" | "actor" => e.actor = c.trim().to_string(),
+            "marginl" => e.margin_l = pi(c, 0),
+            "marginr" => e.margin_r = pi(c, 0),
+            "marginv" => e.margin_v = pi(c, 0),
+            "effect" => e.effect = c.trim().to_string(),
+            "text" => e.text = c.to_string(),
+            _ => {}
+        }
+    }
+    if got_start && got_end { Some(e) } else { None }
+}
+
+fn parse_style(fmt: &[String], cells: &[&str], ssa: bool) -> Style {
+    let mut s = Style::default();
+    for (i, name) in fmt.iter().enumerate() {
+        let c = cells.get(i).copied().unwrap_or("").trim();
+        match name.as_str() {
+            "name" => s.name = c.to_string(),
+            "fontname" => s.fontname = c.to_string(),
+            "fontsize" => s.fontsize = pf(c, 48.0),
+            "primarycolour" => s.primary = norm_color(c),
+            "secondarycolour" => s.secondary = norm_color(c),
+            "outlinecolour" | "tertiarycolour" => s.outline_color = norm_color(c),
+            "backcolour" => s.back = norm_color(c),
+            "bold" => s.bold = pi(c, 0) != 0,
+            "italic" => s.italic = pi(c, 0) != 0,
+            "underline" => s.underline = pi(c, 0) != 0,
+            "strikeout" => s.strikeout = pi(c, 0) != 0,
+            "scalex" => s.scale_x = pf(c, 100.0),
+            "scaley" => s.scale_y = pf(c, 100.0),
+            "spacing" => s.spacing = pf(c, 0.0),
+            "angle" => s.angle = pf(c, 0.0),
+            "borderstyle" => s.border_style = pi(c, 1),
+            "outline" => s.outline = pf(c, 2.0),
+            "shadow" => s.shadow = pf(c, 2.0),
+            "alignment" => {
+                let a = pi(c, 2);
+                s.alignment = if ssa { ssa_align(a) } else { a };
+            }
+            "marginl" => s.margin_l = pi(c, 10),
+            "marginr" => s.margin_r = pi(c, 10),
+            "marginv" => s.margin_v = pi(c, 10),
+            "encoding" => s.encoding = pi(c, 1),
+            _ => {}
+        }
+    }
+    s
+}
+
+/// SSA hizalamasını (1-3 alt, 5-7 üst, 9-11 orta) numpad düzenine çevirir.
+fn ssa_align(a: i32) -> i32 {
+    match a {
+        1..=3 => a,
+        5..=7 => a - 5 + 7,
+        9..=11 => a - 9 + 4,
+        _ => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SAMPLE: &str = "\u{feff}[Script Info]\r\n; yorum\r\nTitle: Test\r\nPlayResX: 1280\r\nPlayResY: 720\r\n\r\n[Aegisub Project Garbage]\r\nLast Style Storage: Default\r\n\r\n[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\r\n\r\n[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\nDialogue: 0,0:00:01.00,0:00:03.50,Default,,0,0,0,,Merhaba, {\\i1}dünya{\\i0}\r\nComment: 0,0:00:04.00,0:00:05.00,Default,x,0,0,0,fx,not\r\n";
+    #[test]
+    fn parse_and_roundtrip() {
+        let d = Document::parse(SAMPLE);
+        assert_eq!(d.events.len(), 2);
+        assert_eq!(d.events[0].text, "Merhaba, {\\i1}dünya{\\i0}");
+        assert_eq!(d.events[0].start, 1000);
+        assert!(d.events[1].is_comment());
+        assert!(d.styles[0].bold);
+        assert_eq!(d.play_res(), (1280, 720));
+        let out = d.to_string();
+        let d2 = Document::parse(&out);
+        assert_eq!(d.events, d2.events);
+        assert_eq!(d.styles, d2.styles);
+        assert!(out.contains("[Aegisub Project Garbage]"));
+        assert!(out.find("Garbage").unwrap() < out.find("[V4+ Styles]").unwrap());
+    }
+    #[test]
+    fn shuffled_format() {
+        let d = Document::parse("[Events]\nFormat: Start, End, Text, Style\nDialogue: 0:00:01.00,0:00:02.00,a,b,c,Alt\n");
+        // Text sınırlı sayıda bölünür: son sütun Style olduğundan "a,b,c" bölünür
+        assert_eq!(d.events.len(), 1);
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/check.rs
+================================================================
+//! Altyazı kalite denetimleri (sorun listesi).
+use crate::ass::Document;
+use crate::tags;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Kind {
+    NonPositiveDuration,
+    Overlap,
+    TooFast,       // CPS yüksek
+    TooShort,
+    TooLong,
+    LineTooLong,
+    TooManyLines,
+    UnknownStyle,
+    EmptyText,
+    DoubleSpace,
+    UnbalancedBraces,
+}
+
+#[derive(Debug, Clone)]
+pub struct Issue {
+    /// events indeksi (0 tabanlı)
+    pub index: usize,
+    pub kind: Kind,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Rules {
+    pub max_cps: f64,
+    pub min_duration_ms: i64,
+    pub max_duration_ms: i64,
+    pub max_line_chars: usize,
+    pub max_lines: usize,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules { max_cps: 20.0, min_duration_ms: 500, max_duration_ms: 7000, max_line_chars: 42, max_lines: 2 }
+    }
+}
+
+pub fn run(doc: &Document, r: &Rules) -> Vec<Issue> {
+    let mut out = vec![];
+    let mut push = |index, kind, message: String| out.push(Issue { index, kind, message });
+    // Çakışma için yalnızca diyalog olaylarını başlangıca göre sıralı tara
+    let mut order: Vec<usize> = (0..doc.events.len()).filter(|&i| !doc.events[i].is_comment()).collect();
+    order.sort_by_key(|&i| doc.events[i].start);
+    for w in order.windows(2) {
+        let (a, b) = (&doc.events[w[0]], &doc.events[w[1]]);
+        if b.start < a.end && a.layer == b.layer && a.style == b.style {
+            push(w[1], Kind::Overlap, format!("Önceki satırla {} ms çakışıyor", a.end - b.start));
+        }
+    }
+    for (i, e) in doc.events.iter().enumerate() {
+        if e.is_comment() { continue; }
+        if e.duration() <= 0 {
+            push(i, Kind::NonPositiveDuration, "Süre sıfır ya da negatif".into());
+        }
+        if doc.style(&e.style).is_none() {
+            push(i, Kind::UnknownStyle, format!("Tanımsız stil: {}", e.style));
+        }
+        let vis = tags::visible_chars(&e.text);
+        if vis == 0 && !e.text.contains("\\p1") {
+            push(i, Kind::EmptyText, "Metin boş".into());
+            continue;
+        }
+        let dur = e.duration();
+        if dur > 0 {
+            let cps = vis as f64 / (dur as f64 / 1000.0);
+            if cps > r.max_cps && e.effect.is_empty() {
+                push(i, Kind::TooFast, format!("Okuma hızı {:.1} karakter/sn (sınır {})", cps, r.max_cps));
+            }
+            if dur < r.min_duration_ms { push(i, Kind::TooShort, format!("Süre {} ms", dur)); }
+            if dur > r.max_duration_ms { push(i, Kind::TooLong, format!("Süre {} ms", dur)); }
+        }
+        if tags::max_line_len(&e.text) > r.max_line_chars {
+            push(i, Kind::LineTooLong, format!("Satır {} karakteri aşıyor", r.max_line_chars));
+        }
+        if tags::line_count(&e.text) > r.max_lines {
+            push(i, Kind::TooManyLines, format!("{} satırdan fazla", r.max_lines));
+        }
+        if tags::plain(&e.text).contains("  ") {
+            push(i, Kind::DoubleSpace, "Çift boşluk".into());
+        }
+        let (o, c) = (e.text.matches('{').count(), e.text.matches('}').count());
+        if o != c {
+            push(i, Kind::UnbalancedBraces, "Eşleşmeyen süslü parantez".into());
+        }
+    }
+    out.sort_by_key(|i| i.index);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ass::Event;
+    #[test]
+    fn finds_issues() {
+        let mut d = Document::new();
+        d.events.push(Event { start: 0, end: 1000, text: "a".repeat(60), ..Event::default() });
+        d.events.push(Event { start: 500, end: 600, text: "x".into(), ..Event::default() });
+        d.events.push(Event { start: 9000, end: 10000, text: "y".into(), style: "Yok".into(), ..Event::default() });
+        let kinds: Vec<_> = run(&d, &Rules::default()).into_iter().map(|i| i.kind).collect();
+        assert!(kinds.contains(&Kind::TooFast));
+        assert!(kinds.contains(&Kind::LineTooLong));
+        assert!(kinds.contains(&Kind::UnknownStyle));
+        assert!(kinds.contains(&Kind::Overlap));
+        assert!(kinds.contains(&Kind::TooShort));
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/karaoke.rs
+================================================================
+//! Karaoke (\k, \kf, \ko) hece ayrıştırma ve üretme.
+use crate::tags::{parse_block, split, Part};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Syllable {
+    /// Santisaniye
+    pub duration_cs: i64,
+    pub kind: String,
+    pub text: String,
+}
+
+/// "{\k20}Ka{\k30}ra" -> heceler. Etiket bloğundaki diğer etiketler yoksayılır.
+pub fn parse(text: &str) -> Vec<Syllable> {
+    let mut out: Vec<Syllable> = vec![];
+    let mut cur: Option<Syllable> = None;
+    for p in split(text) {
+        match p {
+            Part::Tags(b) => {
+                for (n, a) in parse_block(b) {
+                    if matches!(n.as_str(), "k" | "K" | "kf" | "ko") {
+                        if let Some(s) = cur.take() { out.push(s); }
+                        let n = if n == "K" { "kf".to_string() } else { n };
+                        cur = Some(Syllable { duration_cs: a.parse().unwrap_or(0), kind: n, text: String::new() });
+                    }
+                }
+            }
+            Part::Text(t) => {
+                if let Some(s) = cur.as_mut() { s.text.push_str(t); }
+                else if !t.is_empty() { cur = Some(Syllable { duration_cs: 0, kind: "k".into(), text: t.into() }); }
+            }
+        }
+    }
+    if let Some(s) = cur { out.push(s); }
+    out
+}
+
+pub fn build(sylls: &[Syllable]) -> String {
+    sylls.iter().map(|s| format!("{{\\{}{}}}{}", s.kind, s.duration_cs, s.text)).collect()
+}
+
+/// Metni her karakter için eşit uzunlukta \k ile böler (toplam süre ms).
+pub fn split_even(text: &str, total_ms: i64) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() { return String::new(); }
+    let total_cs = total_ms / 10;
+    let each = total_cs / chars.len() as i64;
+    let mut rem = total_cs - each * chars.len() as i64;
+    let mut sylls = vec![];
+    for c in chars {
+        let extra = if rem > 0 { rem -= 1; 1 } else { 0 };
+        sylls.push(Syllable { duration_cs: each + extra, kind: "k".into(), text: c.to_string() });
+    }
+    build(&sylls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn karaoke() {
+        let s = parse("{\\k20}Ka{\\kf30}ra");
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[1].kind, "kf");
+        assert_eq!(build(&s), "{\\k20}Ka{\\kf30}ra");
+        let e = split_even("abc", 1000);
+        assert_eq!(parse(&e).iter().map(|s| s.duration_cs).sum::<i64>(), 100);
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/lib.rs
+================================================================
+//! Kitsune çekirdeği: ASS/SRT modeli, ayrıştırıcılar, zamanlama, etiketler, denetimler.
+pub mod ass;
+pub mod check;
+pub mod karaoke;
+pub mod srt;
+pub mod tags;
+pub mod time;
+
+pub use ass::{Document, Event, EventKind, Style};
+
+use std::path::Path;
+
+/// Dosyayı uzantısına göre okur (.ass/.ssa/.srt/.vtt). Kodlama UTF-8 (BOM'lu/BOM'suz) varsayılır;
+/// geçersizse kayıplı dönüştürülür.
+pub fn load_file(path: &Path) -> Result<Document, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    let text = decode(&bytes);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    Ok(match ext.as_str() {
+        "srt" => srt::to_document(&srt::parse_srt(&text), (1920, 1080)),
+        "vtt" => srt::to_document(&srt::parse_vtt(&text), (1920, 1080)),
+        _ => Document::parse(&text),
+    })
+}
+
+/// UTF-8 / UTF-16 (BOM'lu) çözer.
+pub fn decode(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        let le = bytes[0] == 0xFF;
+        let u: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        return String::from_utf16_lossy(&u);
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+pub fn save_file(doc: &Document, path: &Path) -> Result<(), String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let out = match ext.as_str() {
+        "srt" => srt::write_srt(&srt::from_document(doc)),
+        _ => doc.to_string().replace('\n', "\r\n"),
+    };
+    std::fs::write(path, out).map_err(|e| format!("{}: {}", path.display(), e))
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/srt.rs
+================================================================
+//! SRT / WebVTT okuma-yazma ve ASS'e dönüştürme.
+use crate::ass::{Document, Event};
+use crate::time;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cue {
+    pub start: i64,
+    pub end: i64,
+    pub text: String,
+}
+
+pub fn parse_srt(input: &str) -> Vec<Cue> {
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input).replace("\r\n", "\n").replace('\r', "\n");
+    let mut cues = vec![];
+    for block in input.split("\n\n") {
+        let lines: Vec<&str> = block.lines().filter(|l| !l.trim().is_empty() || false).collect();
+        if lines.is_empty() { continue; }
+        let Some(ti) = lines.iter().position(|l| l.contains("-->")) else { continue };
+        let (a, b) = lines[ti].split_once("-->").unwrap();
+        let b = b.trim().split_whitespace().next().unwrap_or("");
+        let (Some(start), Some(end)) = (time::parse_srt(a), time::parse_srt(b)) else { continue };
+        let text = lines[ti + 1..].join("\\N");
+        cues.push(Cue { start, end, text });
+    }
+    cues
+}
+
+pub fn parse_vtt(input: &str) -> Vec<Cue> {
+    parse_srt(input.trim_start_matches("WEBVTT"))
+}
+
+/// HTML-benzeri SRT etiketlerini ASS'e çevirir.
+pub fn html_to_ass(s: &str) -> String {
+    let mut o = s.to_string();
+    for (a, b) in [("<i>", "{\\i1}"), ("</i>", "{\\i0}"), ("<b>", "{\\b1}"), ("</b>", "{\\b0}"), ("<u>", "{\\u1}"), ("</u>", "{\\u0}"), ("<I>", "{\\i1}"), ("</I>", "{\\i0}"), ("<B>", "{\\b1}"), ("</B>", "{\\b0}")] {
+        o = o.replace(a, b);
+    }
+    // kalan etiketleri (font vb.) at
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in o.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+pub fn to_document(cues: &[Cue], play_res: (i32, i32)) -> Document {
+    let mut d = Document::new();
+    d.info_set("PlayResX", &play_res.0.to_string());
+    d.info_set("PlayResY", &play_res.1.to_string());
+    for c in cues {
+        d.events.push(Event { start: c.start, end: c.end, text: html_to_ass(&c.text), ..Event::default() });
+    }
+    d
+}
+
+pub fn from_document(doc: &Document) -> Vec<Cue> {
+    doc.events
+        .iter()
+        .filter(|e| !e.is_comment() && !e.text.trim().is_empty())
+        .map(|e| {
+            let mut t = String::new();
+            for p in crate::tags::split(&e.text) {
+                match p {
+                    crate::tags::Part::Tags(b) => {
+                        for (n, a) in crate::tags::parse_block(b) {
+                            match (n.as_str(), a.as_str()) {
+                                ("i", "1") => t.push_str("<i>"),
+                                ("i", "0") => t.push_str("</i>"),
+                                ("b", "1") => t.push_str("<b>"),
+                                ("b", "0") => t.push_str("</b>"),
+                                ("u", "1") => t.push_str("<u>"),
+                                ("u", "0") => t.push_str("</u>"),
+                                _ => {}
+                            }
+                        }
+                    }
+                    crate::tags::Part::Text(x) => t.push_str(&x.replace("\\N", "\n").replace("\\n", " ").replace("\\h", " ")),
+                }
+            }
+            Cue { start: e.start, end: e.end, text: t }
+        })
+        .collect()
+}
+
+pub fn write_srt(cues: &[Cue]) -> String {
+    let mut o = String::new();
+    for (i, c) in cues.iter().enumerate() {
+        o.push_str(&format!("{}\n{} --> {}\n{}\n\n", i + 1, time::format_srt(c.start), time::format_srt(c.end), c.text));
+    }
+    o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn srt_roundtrip() {
+        let src = "1\r\n00:00:01,000 --> 00:00:02,500\r\n<i>Selam</i>\r\nDünya\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nİki\r\n";
+        let cues = parse_srt(src);
+        assert_eq!(cues.len(), 2);
+        let doc = to_document(&cues, (1920, 1080));
+        assert_eq!(doc.events[0].text, "{\\i1}Selam{\\i0}\\NDünya");
+        let back = from_document(&doc);
+        assert_eq!(back[0].text, "<i>Selam</i>\nDünya");
+        assert!(write_srt(&back).contains("00:00:01,000 --> 00:00:02,500"));
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/tags.rs
+================================================================
+//! Override etiket bloklarını ayıran ve metin analizi yapan yardımcılar.
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Part<'a> {
+    /// `{...}` içeriği (süslü parantezler hariç)
+    Tags(&'a str),
+    Text(&'a str),
+}
+
+/// Metni etiket bloklarına ve düz metne böler.
+pub fn split(text: &str) -> Vec<Part<'_>> {
+    let mut out = vec![];
+    let mut rest = text;
+    while !rest.is_empty() {
+        if let Some(open) = rest.find('{') {
+            if open > 0 {
+                out.push(Part::Text(&rest[..open]));
+            }
+            match rest[open..].find('}') {
+                Some(close) => {
+                    out.push(Part::Tags(&rest[open + 1..open + close]));
+                    rest = &rest[open + close + 1..];
+                }
+                None => {
+                    out.push(Part::Text(&rest[open..]));
+                    break;
+                }
+            }
+        } else {
+            out.push(Part::Text(rest));
+            break;
+        }
+    }
+    out
+}
+
+/// Etiketleri siler; `\N`/`\n`/`\h` korunur (isteğe bağlı olarak boşluğa çevrilebilir).
+pub fn strip_tags(text: &str) -> String {
+    split(text)
+        .into_iter()
+        .filter_map(|p| if let Part::Text(t) = p { Some(t) } else { None })
+        .collect()
+}
+
+/// Gösterilen düz metin: etiketsiz, `\N`->'\n', `\h`->' '.
+pub fn plain(text: &str) -> String {
+    strip_tags(text).replace("\\N", "\n").replace("\\n", " ").replace("\\h", " ")
+}
+
+/// Okunabilirlik için sayılan karakter sayısı (boşluk ve satır sonu hariç).
+pub fn visible_chars(text: &str) -> usize {
+    plain(text).chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// Satırlar (\N ile) halinde en uzun satırın karakter sayısı.
+pub fn max_line_len(text: &str) -> usize {
+    plain(text).lines().map(|l| l.chars().count()).max().unwrap_or(0)
+}
+
+pub fn line_count(text: &str) -> usize {
+    let p = plain(text);
+    if p.is_empty() { 0 } else { p.lines().count() }
+}
+
+/// Bir etiket bloğundaki etiketleri (ad, argüman) olarak ayırır. İç içe `\t(...)` tek etiket sayılır.
+pub fn parse_block(block: &str) -> Vec<(String, String)> {
+    let mut out = vec![];
+    let b = block.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        let mut depth = 0;
+        while j < b.len() {
+            match b[j] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                b'\\' if depth <= 0 => break,
+                _ => {}
+            }
+            j += 1;
+        }
+        let tag = &block[start..j];
+        let nl = tag.find(|c: char| c.is_ascii_digit() || c == '(' || c == '-' || c == '&' || c == '.')
+            .unwrap_or(tag.len());
+        // 1c, 2a gibi rakamla başlayan etiket adları
+        let (name, arg) = split_name(tag, nl);
+        out.push((name.to_string(), arg.trim().to_string()));
+        i = j;
+    }
+    out
+}
+
+fn split_name(tag: &str, nl: usize) -> (&str, &str) {
+    // \1c &H..& , \2a, \3c, \4a, \fn Arial, \fs20, \fscx100, \fad(…), \pos(…)
+    let bytes = tag.as_bytes();
+    if !bytes.is_empty() && matches!(bytes[0], b'1'..=b'4') && tag.len() > 1 {
+        let mut e = 2;
+        while e < tag.len() && tag.as_bytes()[e].is_ascii_alphabetic() { e += 1; }
+        return (&tag[..e], &tag[e..]);
+    }
+    for pre in ["fn", "fscx", "fscy", "fsp", "fs", "fe", "fad", "fade", "frx", "fry", "frz", "fr", "bord", "xbord", "ybord", "shad", "xshad", "yshad", "be", "blur", "pos", "move", "org", "clip", "iclip", "an", "a", "alpha", "b", "i", "u", "s", "k", "K", "kf", "ko", "kt", "q", "r", "p", "pbo", "fax", "fay", "c", "t"] {
+        if tag.starts_with(pre) {
+            let rest = &tag[pre.len()..];
+            let next_is_alpha = rest.chars().next().map_or(false, |c| c.is_ascii_alphabetic());
+            // \fn ve \r serbest metin alır
+            if pre == "fn" || pre == "r" || !next_is_alpha {
+                return (pre, rest);
+            }
+        }
+    }
+    (&tag[..nl], &tag[nl..])
+}
+
+/// Bloktaki tüm etiketleri sil (`{}` bırakmaz).
+pub fn remove_all_tags(text: &str) -> String {
+    strip_tags(text)
+}
+
+/// Boş `{}` bloklarını ve ardışık blokları birleştirir.
+pub fn clean(text: &str) -> String {
+    let mut out = String::new();
+    let mut pending = String::new();
+    for p in split(text) {
+        match p {
+            Part::Tags(t) => pending.push_str(t),
+            Part::Text(t) => {
+                if !pending.is_empty() {
+                    out.push('{');
+                    out.push_str(&pending);
+                    out.push('}');
+                    pending.clear();
+                }
+                out.push_str(t);
+            }
+        }
+    }
+    if !pending.is_empty() {
+        out.push('{');
+        out.push_str(&pending);
+        out.push('}');
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn basics() {
+        assert_eq!(strip_tags("a{\\i1}b{\\i0}c"), "abc");
+        assert_eq!(plain("Merhaba\\Ndünya"), "Merhaba\ndünya");
+        assert_eq!(visible_chars("ab {\\b1}c\\Nd"), 4);
+        assert_eq!(max_line_len("abc\\Nabcde"), 5);
+        assert_eq!(clean("{\\i1}{\\b1}x"), "{\\i1\\b1}x");
+    }
+    #[test]
+    fn tag_parse() {
+        let t = parse_block("\\an8\\pos(100,200)\\1c&HFF0000&\\fnArial\\fs30\\t(0,500,\\fscx120)\\b1");
+        let names: Vec<_> = t.iter().map(|x| x.0.as_str()).collect();
+        assert_eq!(names, ["an", "pos", "1c", "fn", "fs", "t", "b"]);
+        assert_eq!(t[1].1, "(100,200)");
+        assert_eq!(t[3].1, "Arial");
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/core/src/time.rs
+================================================================
+//! Zaman yardımcıları. ASS santisaniye (h:mm:ss.cc), SRT milisaniye kullanır.
+
+/// ASS zamanı "H:MM:SS.cc" -> ms. Hatalıysa None.
+pub fn parse_ass(s: &str) -> Option<i64> {
+    let s = s.trim();
+    let (neg, s) = match s.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, s),
+    };
+    let mut parts = s.split(':');
+    let h: i64 = parts.next()?.trim().parse().ok()?;
+    let m: i64 = parts.next()?.trim().parse().ok()?;
+    let sec = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    let (ss, frac) = match sec.split_once('.') {
+        Some((a, b)) => (a, b),
+        None => (sec, ""),
+    };
+    let ss: i64 = ss.trim().parse().ok()?;
+    let cs: i64 = match frac.len() {
+        0 => 0,
+        1 => frac.parse::<i64>().ok()? * 100,
+        2 => frac.parse::<i64>().ok()? * 10,
+        _ => frac[..3].parse::<i64>().ok()?,
+    };
+    let ms = ((h * 60 + m) * 60 + ss) * 1000 + cs;
+    Some(if neg { -ms } else { ms })
+}
+
+/// ms -> "H:MM:SS.cc" (santisaniyeye yuvarlanır, negatifler 0'a kenetlenir).
+pub fn format_ass(ms: i64) -> String {
+    let cs_total = (ms.max(0) + 5) / 10;
+    let cs = cs_total % 100;
+    let s = cs_total / 100;
+    format!("{}:{:02}:{:02}.{:02}", s / 3600, (s / 60) % 60, s % 60, cs)
+}
+
+/// SRT "HH:MM:SS,mmm" (nokta da kabul) -> ms.
+pub fn parse_srt(s: &str) -> Option<i64> {
+    let s = s.trim().replace(',', ".");
+    let mut it = s.split(':');
+    let h: i64 = it.next()?.trim().parse().ok()?;
+    let m: i64 = it.next()?.trim().parse().ok()?;
+    let sec = it.next()?;
+    let (ss, f) = sec.split_once('.').unwrap_or((sec, "0"));
+    let ss: i64 = ss.trim().parse().ok()?;
+    let mut f = f.trim().to_string();
+    f.truncate(3);
+    while f.len() < 3 {
+        f.push('0');
+    }
+    let f: i64 = f.parse().ok()?;
+    Some(((h * 60 + m) * 60 + ss) * 1000 + f)
+}
+
+pub fn format_srt(ms: i64) -> String {
+    let ms = ms.max(0);
+    format!(
+        "{:02}:{:02}:{:02},{:03}",
+        ms / 3_600_000,
+        (ms / 60_000) % 60,
+        (ms / 1000) % 60,
+        ms % 1000
+    )
+}
+
+/// Kare <-> ms (sabit fps). Aegisub'ın kare zamanlaması gibi karenin ortasına yakın değer verir.
+pub fn ms_from_frame(frame: i64, fps: f64) -> i64 {
+    (frame as f64 * 1000.0 / fps).round() as i64
+}
+pub fn frame_from_ms(ms: i64, fps: f64) -> i64 {
+    (ms as f64 * fps / 1000.0).floor() as i64
+}
+/// Başlangıç için kare-başı, bitiş için bir önceki karenin sonu: Aegisub davranışı.
+pub fn snap_start_to_frame(ms: i64, fps: f64) -> i64 {
+    let f = (ms as f64 * fps / 1000.0).ceil() as i64;
+    // ASS cs hassasiyeti: karenin ortasına
+    let a = ms_from_frame(f - 1, fps);
+    let b = ms_from_frame(f, fps);
+    ((a + b) / 2 + 5) / 10 * 10
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn roundtrip() {
+        assert_eq!(parse_ass("0:01:02.50"), Some(62_500));
+        assert_eq!(format_ass(62_500), "0:01:02.50");
+        assert_eq!(parse_srt("00:01:02,500"), Some(62_500));
+        assert_eq!(format_srt(3_723_004), "01:02:03,004");
+        assert_eq!(parse_ass("junk"), None);
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/gui/Cargo.toml
+================================================================
+[package]
+name = "kitsune-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kitsune-gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.37.0"
+egui_extras = "0.37.0"
+kitsune-core = { path = "../core" }
+kitsune-lua = { path = "../lua" }
+
+================================================================
+DOSYA: kitsune/crates/gui/src/main.rs
+================================================================
+use eframe::egui;
+use egui_extras::{Column, TableBuilder};
+use kitsune_core::{check, load_file, save_file, tags, time, Document, Event};
+use kitsune_lua::Engine;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+fn main() -> eframe::Result {
+    let opts = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]).with_title("Kitsune"),
+        ..Default::default()
+    };
+    eframe::run_native("Kitsune", opts, Box::new(|_| Ok(Box::new(App::new()))))
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum Tab {
+    Styles,
+    Problems,
+    Automation,
+}
+
+struct App {
+    doc: Document,
+    path_input: String,
+    path: Option<PathBuf>,
+    dirty: bool,
+    sel: BTreeSet<usize>,
+    active: Option<usize>,
+    last_clicked: Option<usize>,
+    undo: Vec<Document>,
+    redo: Vec<Document>,
+    status: String,
+    tab: Tab,
+    shift_ms: String,
+    find: String,
+    replace: String,
+    issues: Vec<check::Issue>,
+    engine: Option<Engine>,
+    script_input: String,
+    log: String,
+    edit_row: Option<usize>,
+}
+
+impl App {
+    fn new() -> Self {
+        let mut doc = Document::new();
+        doc.events.push(Event { start: 1000, end: 3500, text: "Kitsune'ye hoş geldiniz".into(), ..Event::default() });
+        App {
+            doc, path_input: String::new(), path: None, dirty: false, sel: BTreeSet::from([0]), active: Some(0),
+            last_clicked: Some(0), undo: vec![], redo: vec![], status: "Hazır".into(), tab: Tab::Styles,
+            shift_ms: "0".into(), find: String::new(), replace: String::new(), issues: vec![],
+            engine: Engine::new().ok(), script_input: String::new(), log: String::new(), edit_row: None,
+        }
+    }
+
+    fn push_undo(&mut self) {
+        self.edit_row = None;
+        self.undo.push(self.doc.clone());
+        if self.undo.len() > 200 { self.undo.remove(0); }
+        self.redo.clear();
+        self.dirty = true;
+    }
+    fn do_undo(&mut self) {
+        if let Some(d) = self.undo.pop() {
+            self.redo.push(std::mem::replace(&mut self.doc, d));
+            self.fix_sel();
+        }
+    }
+    fn do_redo(&mut self) {
+        if let Some(d) = self.redo.pop() {
+            self.undo.push(std::mem::replace(&mut self.doc, d));
+            self.fix_sel();
+        }
+    }
+    fn fix_sel(&mut self) {
+        let n = self.doc.events.len();
+        self.sel.retain(|&i| i < n);
+        if self.active.map_or(false, |a| a >= n) { self.active = n.checked_sub(1); }
+    }
+
+    fn open(&mut self, p: PathBuf) {
+        match load_file(&p) {
+            Ok(d) => {
+                self.status = format!("{} açıldı ({} satır)", p.display(), d.events.len());
+                self.doc = d;
+                self.path = Some(p);
+                self.undo.clear();
+                self.redo.clear();
+                self.dirty = false;
+                self.sel = BTreeSet::from([0]);
+                self.active = if self.doc.events.is_empty() { None } else { Some(0) };
+                self.issues.clear();
+            }
+            Err(e) => self.status = e,
+        }
+    }
+    fn save(&mut self, p: PathBuf) {
+        match save_file(&self.doc, &p) {
+            Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.path = Some(p); self.dirty = false; }
+            Err(e) => self.status = e,
+        }
+    }
+
+    fn targets(&self) -> Vec<usize> {
+        if self.sel.is_empty() { (0..self.doc.events.len()).collect() } else { self.sel.iter().copied().collect() }
+    }
+
+    fn run_macro(&mut self, i: usize) {
+        let Some(engine) = &self.engine else { return };
+        let before = self.doc.clone();
+        let sel: Vec<usize> = self.sel.iter().copied().collect();
+        match engine.run(i, &mut self.doc, &sel, self.active) {
+            Ok(out) => {
+                self.log = out.logs.join("\n");
+                if out.cancelled {
+                    self.status = "Makro iptal edildi".into();
+                } else {
+                    self.undo.push(before);
+                    self.redo.clear();
+                    self.dirty = true;
+                    self.sel = out.selection.into_iter().collect();
+                    self.active = out.active;
+                    self.fix_sel();
+                    self.status = "Makro tamamlandı".into();
+                }
+            }
+            Err(e) => { self.log = e; self.doc = before; self.status = "Makro hata verdi".into(); }
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) { self.do_undo(); }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) { self.do_redo(); }
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+            if let Some(p) = self.path.clone() { self.save(p); }
+        }
+
+        egui::Panel::top("menu").show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Yeni").clicked() { *self = App { engine: self.engine.take(), ..App::new() }; }
+                ui.label("Dosya:");
+                ui.add(egui::TextEdit::singleline(&mut self.path_input).desired_width(320.0).hint_text("/yol/dosya.ass"));
+                if ui.button("Aç").clicked() && !self.path_input.is_empty() { self.open(PathBuf::from(self.path_input.clone())); }
+                if ui.button("Kaydet").clicked() {
+                    let p = if !self.path_input.is_empty() { Some(PathBuf::from(&self.path_input)) } else { self.path.clone() };
+                    if let Some(p) = p { self.save(p); }
+                }
+                ui.separator();
+                if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("↶ Geri al")).clicked() { self.do_undo(); }
+                if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("↷ Yinele")).clicked() { self.do_redo(); }
+                ui.separator();
+                ui.label("Kaydır (ms):");
+                ui.add(egui::TextEdit::singleline(&mut self.shift_ms).desired_width(70.0));
+                if ui.button("Uygula").clicked() {
+                    if let Ok(ms) = self.shift_ms.trim().parse::<i64>() {
+                        self.push_undo();
+                        for i in self.targets() { let e = &mut self.doc.events[i]; e.start = (e.start + ms).max(0); e.end = (e.end + ms).max(0); }
+                    }
+                }
+                ui.separator();
+                ui.add(egui::TextEdit::singleline(&mut self.find).desired_width(110.0).hint_text("Bul"));
+                ui.add(egui::TextEdit::singleline(&mut self.replace).desired_width(110.0).hint_text("Değiştir"));
+                if ui.button("Değiştir").clicked() && !self.find.is_empty() {
+                    self.push_undo();
+                    let (f, r) = (self.find.clone(), self.replace.clone());
+                    let mut n = 0;
+                    for i in self.targets() { let e = &mut self.doc.events[i]; n += e.text.matches(&f).count(); e.text = e.text.replace(&f, &r); }
+                    self.status = format!("{} değişiklik", n);
+                }
+            });
+        });
+
+        egui::Panel::bottom("status").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(&self.status);
+                ui.separator();
+                ui.label(format!("{} satır, {} seçili{}", self.doc.events.len(), self.sel.len(), if self.dirty { " •değişti" } else { "" }));
+            });
+        });
+
+        egui::Panel::right("side").default_size(340.0).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Styles, "Stiller");
+                ui.selectable_value(&mut self.tab, Tab::Problems, "Sorunlar");
+                ui.selectable_value(&mut self.tab, Tab::Automation, "Otomasyon (Lua)");
+            });
+            ui.separator();
+            match self.tab {
+                Tab::Styles => self.styles_ui(ui),
+                Tab::Problems => self.problems_ui(ui),
+                Tab::Automation => self.automation_ui(ui),
+            }
+        });
+
+        egui::Panel::bottom("editor").min_size(170.0).show(ui, |ui| self.editor_ui(ui));
+        egui::CentralPanel::default().show(ui, |ui| self.grid_ui(ui));
+    }
+}
+
+impl App {
+    fn grid_ui(&mut self, ui: &mut egui::Ui) {
+        let n = self.doc.events.len();
+        let mut clicked: Option<(usize, egui::Modifiers)> = None;
+        TableBuilder::new(ui)
+            .striped(true)
+            .sense(egui::Sense::click())
+            .column(Column::exact(44.0))
+            .column(Column::exact(86.0))
+            .column(Column::exact(86.0))
+            .column(Column::exact(48.0))
+            .column(Column::exact(100.0))
+            .column(Column::exact(44.0))
+            .column(Column::remainder().clip(true))
+            .header(22.0, |mut h| {
+                for t in ["#", "Başla", "Bitiş", "CPS", "Stil", "Kat.", "Metin"] { h.col(|ui| { ui.strong(t); }); }
+            })
+            .body(|body| {
+                body.rows(22.0, n, |mut row| {
+                    let i = row.index();
+                    row.set_selected(self.sel.contains(&i));
+                    let e = &self.doc.events[i];
+                    let dur = e.duration().max(1) as f64 / 1000.0;
+                    let cps = tags::visible_chars(&e.text) as f64 / dur;
+                    let bad = self.issues.iter().any(|x| x.index == i);
+                    let (s, en, cl, st, ly, tx) = (time::format_ass(e.start), time::format_ass(e.end), e.is_comment(), e.style.clone(), e.layer, tags::plain(&e.text).replace('\n', " ⏎ "));
+                    row.col(|ui| { let t = format!("{}", i + 1); ui.label(if bad { egui::RichText::new(t).color(egui::Color32::LIGHT_RED) } else { egui::RichText::new(t) }); });
+                    row.col(|ui| { ui.monospace(s); });
+                    row.col(|ui| { ui.monospace(en); });
+                    row.col(|ui| { let c = if cps > 20.0 { egui::Color32::LIGHT_RED } else { ui.visuals().text_color() }; ui.label(egui::RichText::new(format!("{:.1}", cps)).color(c)); });
+                    row.col(|ui| { ui.label(st); });
+                    row.col(|ui| { ui.label(ly.to_string()); });
+                    row.col(|ui| { let t = egui::RichText::new(tx); ui.label(if cl { t.weak().italics() } else { t }); });
+                    if row.response().clicked() { clicked = Some((i, row.response().ctx.input(|i| i.modifiers))); }
+                });
+            });
+        if let Some((i, m)) = clicked {
+            if m.shift {
+                let a = self.last_clicked.unwrap_or(i);
+                self.sel = (a.min(i)..=a.max(i)).collect();
+            } else if m.command {
+                if !self.sel.remove(&i) { self.sel.insert(i); }
+                self.last_clicked = Some(i);
+            } else {
+                self.sel = BTreeSet::from([i]);
+                self.last_clicked = Some(i);
+            }
+            self.active = Some(i);
+        }
+    }
+
+    fn editor_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if ui.button("＋ Satır ekle").clicked() {
+                self.push_undo();
+                let at = self.active.map_or(self.doc.events.len(), |a| a + 1);
+                let (s, st) = self.active.map_or((0, "Default".to_string()), |a| (self.doc.events[a].end, self.doc.events[a].style.clone()));
+                self.doc.events.insert(at, Event { start: s, end: s + 2000, style: st, ..Event::default() });
+                self.active = Some(at);
+                self.sel = BTreeSet::from([at]);
+            }
+            if ui.button("Çoğalt").clicked() {
+                if let Some(a) = self.active {
+                    self.push_undo();
+                    let e = self.doc.events[a].clone();
+                    self.doc.events.insert(a + 1, e);
+                    self.active = Some(a + 1);
+                    self.sel = BTreeSet::from([a + 1]);
+                }
+            }
+            if ui.button("Sil").clicked() && !self.sel.is_empty() {
+                self.push_undo();
+                for &i in self.sel.clone().iter().rev() { self.doc.events.remove(i); }
+                self.sel.clear();
+                self.active = self.active.and_then(|a| a.min(self.doc.events.len()).checked_sub(1).or(Some(0))).filter(|_| !self.doc.events.is_empty());
+            }
+            if ui.button("Birleştir").clicked() && self.sel.len() > 1 {
+                self.push_undo();
+                let idx: Vec<usize> = self.sel.iter().copied().collect();
+                let text = idx.iter().map(|&i| self.doc.events[i].text.clone()).collect::<Vec<_>>().join("\\N");
+                let end = idx.iter().map(|&i| self.doc.events[i].end).max().unwrap();
+                self.doc.events[idx[0]].text = text;
+                self.doc.events[idx[0]].end = end;
+                for &i in idx[1..].iter().rev() { self.doc.events.remove(i); }
+                self.sel = BTreeSet::from([idx[0]]);
+                self.active = Some(idx[0]);
+            }
+            if ui.button("Zamana göre sırala").clicked() { self.push_undo(); self.doc.sort_by_start(); }
+        });
+        let Some(a) = self.active.filter(|&a| a < self.doc.events.len()) else { ui.label("Satır seçilmedi"); return };
+        let before = self.doc.events[a].clone();
+        let mut e = before.clone();
+        let (mut s, mut en) = (time::format_ass(e.start), time::format_ass(e.end));
+        let styles: Vec<String> = self.doc.styles.iter().map(|s| s.name.clone()).collect();
+        ui.horizontal(|ui| {
+            let mut cm = e.is_comment();
+            if ui.checkbox(&mut cm, "Yorum").changed() { e.kind = if cm { kitsune_core::EventKind::Comment } else { kitsune_core::EventKind::Dialogue }; }
+            ui.label("Başla");
+            if ui.add(egui::TextEdit::singleline(&mut s).desired_width(80.0)).lost_focus() { if let Some(v) = time::parse_ass(&s) { e.start = v; } }
+            ui.label("Bitiş");
+            if ui.add(egui::TextEdit::singleline(&mut en).desired_width(80.0)).lost_focus() { if let Some(v) = time::parse_ass(&en) { e.end = v; } }
+            ui.label(format!("Süre {:.2}s", e.duration() as f64 / 1000.0));
+            egui::ComboBox::from_id_salt("style").selected_text(e.style.clone()).show_ui(ui, |ui| {
+                for n in &styles { ui.selectable_value(&mut e.style, n.clone(), n); }
+            });
+            ui.label("Kat.");
+            ui.add(egui::DragValue::new(&mut e.layer));
+            ui.label("Aktör");
+            ui.add(egui::TextEdit::singleline(&mut e.actor).desired_width(90.0));
+            ui.label("Efekt");
+            ui.add(egui::TextEdit::singleline(&mut e.effect).desired_width(90.0));
+        });
+        ui.add(egui::TextEdit::multiline(&mut e.text).desired_width(f32::INFINITY).desired_rows(4).font(egui::TextStyle::Monospace));
+        let dur = e.duration().max(1) as f64 / 1000.0;
+        ui.label(format!("{} karakter · {:.1} cps · en uzun satır {}", tags::visible_chars(&e.text), tags::visible_chars(&e.text) as f64 / dur, tags::max_line_len(&e.text)));
+        if e != before {
+            // Aynı satırdaki ardışık düzenlemeler tek geri-alma adımında birleşir.
+            if self.edit_row != Some(a) {
+                self.undo.push(self.doc.clone());
+                self.redo.clear();
+            }
+            self.edit_row = Some(a);
+            self.doc.events[a] = e;
+            self.dirty = true;
+        }
+    }
+
+    fn styles_ui(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+        let before = self.doc.clone();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for s in &mut self.doc.styles {
+                egui::CollapsingHeader::new(s.name.clone()).id_salt(format!("st-{}", s.name)).show(ui, |ui| {
+                    changed |= ui.add(egui::TextEdit::singleline(&mut s.fontname)).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut s.fontsize).prefix("boyut ")).changed();
+                    ui.horizontal(|ui| {
+                        changed |= ui.checkbox(&mut s.bold, "B").changed();
+                        changed |= ui.checkbox(&mut s.italic, "I").changed();
+                        changed |= ui.checkbox(&mut s.underline, "U").changed();
+                    });
+                    changed |= ui.add(egui::DragValue::new(&mut s.outline).prefix("çerçeve ").speed(0.1)).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut s.shadow).prefix("gölge ").speed(0.1)).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut s.alignment).range(1..=9).prefix("hiza ")).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut s.margin_v).prefix("dikey kenar ")).changed();
+                    ui.label(format!("Renkler: {} {} {} {}", s.primary, s.secondary, s.outline_color, s.back));
+                });
+            }
+            if ui.button("＋ Stil ekle").clicked() {
+                let mut s = kitsune_core::Style::default();
+                s.name = format!("Stil{}", self.doc.styles.len() + 1);
+                self.doc.styles.push(s);
+                changed = true;
+            }
+        });
+        if changed { self.undo.push(before); self.redo.clear(); self.dirty = true; }
+    }
+
+    fn problems_ui(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Denetle").clicked() {
+            self.issues = check::run(&self.doc, &check::Rules::default());
+            self.status = format!("{} sorun bulundu", self.issues.len());
+        }
+        let mut go = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for i in &self.issues {
+                if ui.selectable_label(false, format!("#{} {}", i.index + 1, i.message)).clicked() { go = Some(i.index); }
+            }
+        });
+        if let Some(i) = go { self.sel = BTreeSet::from([i]); self.active = Some(i); }
+    }
+
+    fn automation_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.script_input).desired_width(220.0).hint_text("betik.lua yolu"));
+            if ui.button("Yükle").clicked() {
+                if let Some(e) = &self.engine {
+                    self.status = match e.load_script(std::path::Path::new(&self.script_input)) {
+                        Ok(n) => format!("{} makro yüklendi", n),
+                        Err(er) => er,
+                    };
+                }
+            }
+        });
+        let macros = self.engine.as_ref().map(|e| e.macros()).unwrap_or_default();
+        let mut run = None;
+        for (i, m) in macros.iter().enumerate() {
+            if ui.button(&m.name).on_hover_text(&m.description).clicked() { run = Some(i); }
+        }
+        if let Some(i) = run { self.run_macro(i); }
+        ui.separator();
+        ui.label("Günlük:");
+        ui.add(egui::TextEdit::multiline(&mut self.log).desired_width(f32::INFINITY).desired_rows(8).interactive(false));
+    }
+}
+
+================================================================
+DOSYA: kitsune/crates/lua/Cargo.toml
+================================================================
+[package]
+name = "kitsune-lua"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kitsune-core = { path = "../core" }
+mlua = { version = "0.12.2", features = ["luajit", "vendored"] }
+
+================================================================
+DOSYA: kitsune/crates/lua/lua/karaskel.lua
+================================================================
+-- karaskel.lua uyumlu çekirdek (Aegisub 3.x). Metin ölçümü aegisub.text_extents'e dayanır.
+include("utils.lua")
+karaskel = {}
+
+function karaskel.collect_head(subs, generate_furigana)
+  local meta = { res_x = 0, res_y = 0, wrap_style = 0 }
+  local styles = { n = 0 }
+  local have_script_res = false
+  for i = 1, #subs do
+    local l = subs[i]
+    if l.class == "style" then
+      styles.n = styles.n + 1
+      l.margin_v = l.margin_t
+      styles[l.name] = l
+      styles[styles.n] = l
+    elseif l.class == "info" then
+      local k = l.key:lower()
+      meta[l.key] = l.value
+      if k == "playresx" then meta.res_x = tonumber(l.value) or 0
+      elseif k == "playresy" then meta.res_y = tonumber(l.value) or 0
+      elseif k == "wrapstyle" then meta.wrap_style = tonumber(l.value) or 0 end
+    end
+  end
+  if meta.res_x == 0 and meta.res_y == 0 then meta.res_x, meta.res_y = 384, 288
+  elseif meta.res_x == 0 then meta.res_x = meta.res_y / 3 * 4
+  elseif meta.res_y == 0 then meta.res_y = meta.res_x / 4 * 3 end
+  meta.video_x_correct_factor = 1
+  return meta, styles
+end
+
+function karaskel.use_furigana(styles) end
+
+local function parse_kara(text)
+  local out, cur = {}, nil
+  local pos = 1
+  local n = 0
+  while pos <= #text do
+    local b = text:find("{", pos, true)
+    local seg = text:sub(pos, (b or #text + 1) - 1)
+    if seg ~= "" then
+      if not cur then cur = { duration = 0, kind = "k", tag = "k", text = "", tags = "" }; out[#out + 1] = cur end
+      cur.text = cur.text .. seg
+    end
+    if not b then break end
+    local e = text:find("}", b, true)
+    if not e then break end
+    local block = text:sub(b + 1, e - 1)
+    local found = false
+    for tag, val in block:gmatch("\\([kK][fo]?)(%-?%d+)") do
+      found = true
+      cur = { duration = tonumber(val) * 10, kind = tag, tag = tag, text = "", tags = "" }
+      out[#out + 1] = cur
+    end
+    if not found and cur then cur.tags = cur.tags .. block end
+    pos = e + 1
+  end
+  return out
+end
+
+function karaskel.preproc_line_text(meta, styles, line)
+  line.text_stripped = line.text:gsub("%b{}", ""):gsub("\\[Nnh]", function(c) return c == "\\h" and " " or "" end)
+  line.duration = line.end_time - line.start_time
+  line.kara = parse_kara(line.text)
+  local t = 0
+  line.kara.n = #line.kara
+  for i, s in ipairs(line.kara) do
+    s.i = i
+    s.start_time = t
+    s.end_time = t + s.duration
+    s.text_stripped = s.text:gsub("%b{}", "")
+    s.text_spacestripped = s.text_stripped:gsub("^%s+", ""):gsub("%s+$", "")
+    s.duration_cs = s.duration / 10
+    t = t + s.duration
+  end
+  line.kdur = t
+end
+
+function karaskel.preproc_line_size(meta, styles, line)
+  local st = line.styleref
+  local w, h, d, el = aegisub.text_extents(st, line.text_stripped)
+  line.width, line.height, line.descent, line.extlead = w, h, d, el
+  for _, s in ipairs(line.kara or {}) do
+    s.width, s.height, s.descent, s.extlead = aegisub.text_extents(st, s.text_stripped)
+  end
+  local left = 0
+  for _, s in ipairs(line.kara or {}) do
+    s.left = left
+    s.center = left + s.width / 2
+    s.right = left + s.width
+    left = left + s.width
+  end
+end
+
+function karaskel.preproc_line_pos(meta, styles, line)
+  local st = line.styleref
+  line.margin_l = (line.margin_l and line.margin_l > 0) and line.margin_l or st.margin_l
+  line.margin_r = (line.margin_r and line.margin_r > 0) and line.margin_r or st.margin_r
+  line.margin_v = (line.margin_t and line.margin_t > 0) and line.margin_t or st.margin_t
+  line.eff_margin_l, line.eff_margin_r, line.eff_margin_t, line.eff_margin_b =
+    line.margin_l, line.margin_r, line.margin_v, line.margin_v
+  local a = st.align
+  line.halign = (a - 1) % 3 == 0 and "left" or ((a - 1) % 3 == 1 and "center" or "right")
+  line.valign = a <= 3 and "bottom" or (a <= 6 and "middle" or "top")
+  line.hcenter = line.halign
+  if line.halign == "left" then line.left = line.margin_l; line.center = line.left + line.width / 2; line.right = line.left + line.width
+  elseif line.halign == "right" then line.right = meta.res_x - line.margin_r; line.center = line.right - line.width / 2; line.left = line.right - line.width
+  else line.left = (meta.res_x - line.margin_l - line.margin_r - line.width) / 2 + line.margin_l; line.center = line.left + line.width / 2; line.right = line.left + line.width end
+  if line.valign == "top" then line.top = line.margin_v; line.middle = line.top + line.height / 2; line.bottom = line.top + line.height
+  elseif line.valign == "bottom" then line.bottom = meta.res_y - line.margin_v; line.middle = line.bottom - line.height / 2; line.top = line.bottom - line.height
+  else line.top = (meta.res_y - line.height) / 2; line.middle = meta.res_y / 2; line.bottom = line.top + line.height end
+  line.x = line.halign == "left" and line.left or (line.halign == "center" and line.center or line.right)
+  line.y = line.valign == "top" and line.top or (line.valign == "middle" and line.middle or line.bottom)
+  for _, s in ipairs(line.kara or {}) do
+    s.left = s.left + line.left; s.center = s.center + line.left; s.right = s.right + line.left
+    s.top, s.middle, s.bottom = line.top, line.middle, line.bottom
+    s.x = line.halign == "left" and s.left or (line.halign == "center" and s.center or s.right)
+    s.y = line.y
+  end
+end
+
+function karaskel.preproc_line(subs, meta, styles, line)
+  if line.class ~= "dialogue" then return end
+  line.styleref = styles[line.style] or styles["Default"] or styles[1]
+  karaskel.preproc_line_text(meta, styles, line)
+  karaskel.preproc_line_size(meta, styles, line)
+  karaskel.preproc_line_pos(meta, styles, line)
+end
+
+function karaskel.preproc(subs, meta, styles)
+  for i = 1, #subs do
+    local l = subs[i]
+    if l.class == "dialogue" then karaskel.preproc_line(subs, meta, styles, l); subs[i] = l end
+  end
+end
+
+================================================================
+DOSYA: kitsune/crates/lua/lua/util.lua
+================================================================
+-- aegisub.util uyumlu yardımcılar (Aegisub 3.x utils.lua / aegisub.util)
+local util = {}
+
+function util.copy(t)
+  local r = {}
+  for k, v in pairs(t) do r[k] = v end
+  return r
+end
+function util.deep_copy(t)
+  local seen = {}
+  local function c(o)
+    if type(o) ~= "table" then return o end
+    if seen[o] then return seen[o] end
+    local r = {}
+    seen[o] = r
+    for k, v in pairs(o) do r[c(k)] = c(v) end
+    return setmetatable(r, getmetatable(o))
+  end
+  return c(t)
+end
+function util.clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi end return v end
+function util.interpolate(pct, a, b) return a + (b - a) * pct end
+
+function util.ass_color(r, g, b) return string.format("&H%02X%02X%02X&", b, g, r) end
+function util.ass_alpha(a) return string.format("&H%02X&", a) end
+function util.ass_style_color(r, g, b, a) return string.format("&H%02X%02X%02X%02X", a or 0, b, g, r) end
+
+function util.extract_color(s)
+  local a, b, g, r
+  s = tostring(s or "")
+  -- &HAABBGGRR  (stil rengi)
+  a, b, g, r = s:match("&H(%x%x)(%x%x)(%x%x)(%x%x)")
+  if a then return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), tonumber(a, 16) end
+  -- &HBBGGRR&  (etiket rengi)
+  b, g, r = s:match("&H(%x%x)(%x%x)(%x%x)&?")
+  if b then return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), 0 end
+  -- &HAA&
+  a = s:match("&H(%x%x)&")
+  if a then return 0, 0, 0, tonumber(a, 16) end
+  return 0, 0, 0, 0
+end
+function util.alpha_from_style(s) local _, _, _, a = util.extract_color(s); return util.ass_alpha(a) end
+function util.color_from_style(s) local r, g, b = util.extract_color(s); return util.ass_color(r, g, b) end
+
+function util.interpolate_color(pct, c1, c2)
+  local r1, g1, b1 = util.extract_color(c1)
+  local r2, g2, b2 = util.extract_color(c2)
+  return util.ass_color(math.floor(util.interpolate(pct, r1, r2) + 0.5),
+                        math.floor(util.interpolate(pct, g1, g2) + 0.5),
+                        math.floor(util.interpolate(pct, b1, b2) + 0.5))
+end
+function util.interpolate_alpha(pct, a1, a2)
+  local _, _, _, x = util.extract_color(a1)
+  local _, _, _, y = util.extract_color(a2)
+  return util.ass_alpha(math.floor(util.interpolate(pct, x, y) + 0.5))
+end
+
+function util.RGB_to_HSV(r, g, b)
+  r, g, b = r / 255, g / 255, b / 255
+  local mx, mn = math.max(r, g, b), math.min(r, g, b)
+  local d = mx - mn
+  local h = 0
+  if d ~= 0 then
+    if mx == r then h = ((g - b) / d) % 6
+    elseif mx == g then h = (b - r) / d + 2
+    else h = (r - g) / d + 4 end
+    h = h * 60
+  end
+  local s = mx == 0 and 0 or d / mx
+  return math.floor(h + 0.5), math.floor(s * 255 + 0.5), math.floor(mx * 255 + 0.5)
+end
+function util.HSV_to_RGB(h, s, v)
+  s, v = s / 255, v / 255
+  h = (h % 360) / 60
+  local c = v * s
+  local x = c * (1 - math.abs(h % 2 - 1))
+  local r, g, b = 0, 0, 0
+  if h < 1 then r, g, b = c, x, 0 elseif h < 2 then r, g, b = x, c, 0
+  elseif h < 3 then r, g, b = 0, c, x elseif h < 4 then r, g, b = 0, x, c
+  elseif h < 5 then r, g, b = x, 0, c else r, g, b = c, 0, x end
+  local m = v - c
+  return math.floor((r + m) * 255 + 0.5), math.floor((g + m) * 255 + 0.5), math.floor((b + m) * 255 + 0.5)
+end
+function util.HSL_to_RGB(h, s, l)
+  s, l = s / 255, l / 255
+  local c = (1 - math.abs(2 * l - 1)) * s
+  local hp = (h % 360) / 60
+  local x = c * (1 - math.abs(hp % 2 - 1))
+  local r, g, b = 0, 0, 0
+  if hp < 1 then r, g, b = c, x, 0 elseif hp < 2 then r, g, b = x, c, 0
+  elseif hp < 3 then r, g, b = 0, c, x elseif hp < 4 then r, g, b = 0, x, c
+  elseif hp < 5 then r, g, b = x, 0, c else r, g, b = c, 0, x end
+  local m = l - c / 2
+  return math.floor((r + m) * 255 + 0.5), math.floor((g + m) * 255 + 0.5), math.floor((b + m) * 255 + 0.5)
+end
+
+function util.trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+function util.headtail(s)
+  local a, b = s:find("%s+")
+  if a then return s:sub(1, a - 1), s:sub(b + 1) end
+  return s, ""
+end
+function util.words(s)
+  return function()
+    if s == "" then return nil end
+    local a, b = s:find("%s+")
+    local w, sp
+    if a == 1 then w, sp, s = "", s:sub(1, b), s:sub(b + 1)
+    elseif a then w, sp, s = s:sub(1, a - 1), s:sub(a, b), s:sub(b + 1)
+    else w, sp, s = s, "", "" end
+    return w, sp
+  end
+end
+function util.uuid()
+  return (("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"):gsub("[xy]", function(c)
+    local v = c == "x" and math.random(0, 15) or math.random(8, 11)
+    return string.format("%x", v)
+  end))
+end
+
+return util
+
+================================================================
+DOSYA: kitsune/crates/lua/lua/utils.lua
+================================================================
+-- Eski stil `include("utils.lua")`: genel fonksiyonlar tanımlar.
+local util = require("aegisub.util")
+table.copy = util.copy
+table.copy_deep = util.deep_copy
+string.trim = util.trim
+string.headtail = util.headtail
+string.words = util.words
+function math.round(x, n) local m = 10 ^ (n or 0); return math.floor(x * m + 0.5) / m end
+function clamp(v, lo, hi) return util.clamp(v, lo, hi) end
+function interpolate(p, a, b) return util.interpolate(p, a, b) end
+ass_color, ass_alpha, ass_style_color = util.ass_color, util.ass_alpha, util.ass_style_color
+extract_color, alpha_from_style, color_from_style = util.extract_color, util.alpha_from_style, util.color_from_style
+interpolate_color, interpolate_alpha = util.interpolate_color, util.interpolate_alpha
+HSV_to_RGB, HSL_to_RGB, RGB_to_HSV = util.HSV_to_RGB, util.HSL_to_RGB, util.RGB_to_HSV
+
+================================================================
+DOSYA: kitsune/crates/lua/src/lib.rs
+================================================================
+//! Aegisub uyumlu Lua (Automation 4) çalışma zamanı.
+//!
+//! `subs` nesnesi gerçek Aegisub'daki gibi bir userdata'dır: `#subs`, `subs[i]`,
+//! `subs[i] = line`, `subs.insert/append/delete/deleterange` desteklenir.
+use kitsune_core::ass::{Document, Event, EventKind, Style};
+use mlua::{Function, Lua, MultiValue, RegistryKey, Table, UserData, UserDataMethods, Value, Variadic};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+const UTIL_LUA: &str = include_str!("../lua/util.lua");
+const UTILS_LUA: &str = include_str!("../lua/utils.lua");
+const KARASKEL_LUA: &str = include_str!("../lua/karaskel.lua");
+const CANCEL_MARK: &str = "__kitsune_cancel__";
+
+#[derive(Debug, Clone)]
+pub enum Line {
+    Info(String, String),
+    Style(Style),
+    Event(Event),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroKind {
+    Macro,
+    Filter,
+}
+
+#[derive(Debug, Clone)]
+pub struct MacroInfo {
+    pub name: String,
+    pub description: String,
+    pub script: String,
+    pub kind: MacroKind,
+}
+
+#[derive(Debug, Default)]
+pub struct RunOutput {
+    pub selection: Vec<usize>,
+    pub active: Option<usize>,
+    pub logs: Vec<String>,
+    pub cancelled: bool,
+}
+
+#[derive(Default, Clone)]
+struct Ctx {
+    fps: Option<f64>,
+    video_size: Option<(i32, i32)>,
+    script_dir: PathBuf,
+    include_dirs: Vec<PathBuf>,
+    current_script: String,
+    project: Vec<(String, String)>,
+}
+
+struct MacroEntry {
+    info: MacroInfo,
+    process: RegistryKey,
+    validate: Option<RegistryKey>,
+}
+
+pub struct Engine {
+    lua: Lua,
+    macros: Rc<RefCell<Vec<MacroEntry>>>,
+    logs: Rc<RefCell<Vec<String>>>,
+    ctx: Rc<RefCell<Ctx>>,
+}
+
+fn lerr(e: mlua::Error) -> String {
+    let s = e.to_string();
+    s.replace(CANCEL_MARK, "iptal")
+}
+
+// ---------- Satır <-> Lua tablosu ----------
+
+fn line_to_table(lua: &Lua, l: &Line) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    t.set("extra", lua.create_table()?)?;
+    match l {
+        Line::Info(k, v) => {
+            t.set("class", "info")?;
+            t.set("section", "Script Info")?;
+            t.set("key", k.as_str())?;
+            t.set("value", v.as_str())?;
+            t.set("raw", if k == ";" { format!(";{}", v) } else { format!("{}: {}", k, v) })?;
+        }
+        Line::Style(s) => {
+            t.set("class", "style")?;
+            t.set("section", "V4+ Styles")?;
+            t.set("name", s.name.as_str())?;
+            t.set("fontname", s.fontname.as_str())?;
+            t.set("fontsize", s.fontsize)?;
+            t.set("color1", s.primary.as_str())?;
+            t.set("color2", s.secondary.as_str())?;
+            t.set("color3", s.outline_color.as_str())?;
+            t.set("color4", s.back.as_str())?;
+            t.set("bold", s.bold)?;
+            t.set("italic", s.italic)?;
+            t.set("underline", s.underline)?;
+            t.set("strikeout", s.strikeout)?;
+            t.set("scale_x", s.scale_x)?;
+            t.set("scale_y", s.scale_y)?;
+            t.set("spacing", s.spacing)?;
+            t.set("angle", s.angle)?;
+            t.set("borderstyle", s.border_style)?;
+            t.set("outline", s.outline)?;
+            t.set("shadow", s.shadow)?;
+            t.set("align", s.alignment)?;
+            t.set("margin_l", s.margin_l)?;
+            t.set("margin_r", s.margin_r)?;
+            t.set("margin_t", s.margin_v)?;
+            t.set("margin_b", s.margin_v)?;
+            t.set("encoding", s.encoding)?;
+        }
+        Line::Event(e) => {
+            t.set("class", "dialogue")?;
+            t.set("section", "Events")?;
+            t.set("comment", e.is_comment())?;
+            t.set("layer", e.layer)?;
+            t.set("start_time", e.start)?;
+            t.set("end_time", e.end)?;
+            t.set("style", e.style.as_str())?;
+            t.set("actor", e.actor.as_str())?;
+            t.set("margin_l", e.margin_l)?;
+            t.set("margin_r", e.margin_r)?;
+            t.set("margin_t", e.margin_v)?;
+            t.set("margin_b", e.margin_v)?;
+            t.set("effect", e.effect.as_str())?;
+            t.set("text", e.text.as_str())?;
+            t.set("raw", e.to_line())?;
+        }
+    }
+    Ok(t)
+}
+
+fn get_str(t: &Table, k: &str, d: &str) -> mlua::Result<String> {
+    match t.get::<Value>(k)? {
+        Value::Nil => Ok(d.to_string()),
+        Value::String(s) => Ok(s.to_string_lossy().to_string()),
+        Value::Integer(i) => Ok(i.to_string()),
+        Value::Number(n) => Ok(n.to_string()),
+        _ => Err(mlua::Error::runtime(format!("alan '{}' metin olmalı", k))),
+    }
+}
+fn get_f(t: &Table, k: &str, d: f64) -> mlua::Result<f64> {
+    match t.get::<Value>(k)? {
+        Value::Nil => Ok(d),
+        Value::Integer(i) => Ok(i as f64),
+        Value::Number(n) => Ok(n),
+        Value::String(s) => Ok(s.to_string_lossy().parse().unwrap_or(d)),
+        _ => Err(mlua::Error::runtime(format!("alan '{}' sayı olmalı", k))),
+    }
+}
+fn get_b(t: &Table, k: &str, d: bool) -> mlua::Result<bool> {
+    match t.get::<Value>(k)? {
+        Value::Nil => Ok(d),
+        Value::Boolean(b) => Ok(b),
+        Value::Integer(i) => Ok(i != 0),
+        Value::Number(n) => Ok(n != 0.0),
+        _ => Ok(d),
+    }
+}
+
+fn table_to_line(t: &Table) -> mlua::Result<Line> {
+    let class = get_str(t, "class", "")?;
+    match class.as_str() {
+        "info" => Ok(Line::Info(get_str(t, "key", "")?, get_str(t, "value", "")?)),
+        "style" => {
+            let d = Style::default();
+            let mv = if t.contains_key("margin_t")? { get_f(t, "margin_t", 10.0)? } else { get_f(t, "margin_v", 10.0)? };
+            Ok(Line::Style(Style {
+                name: get_str(t, "name", "Default")?,
+                fontname: get_str(t, "fontname", &d.fontname)?,
+                fontsize: get_f(t, "fontsize", d.fontsize)?,
+                primary: get_str(t, "color1", &d.primary)?,
+                secondary: get_str(t, "color2", &d.secondary)?,
+                outline_color: get_str(t, "color3", &d.outline_color)?,
+                back: get_str(t, "color4", &d.back)?,
+                bold: get_b(t, "bold", false)?,
+                italic: get_b(t, "italic", false)?,
+                underline: get_b(t, "underline", false)?,
+                strikeout: get_b(t, "strikeout", false)?,
+                scale_x: get_f(t, "scale_x", 100.0)?,
+                scale_y: get_f(t, "scale_y", 100.0)?,
+                spacing: get_f(t, "spacing", 0.0)?,
+                angle: get_f(t, "angle", 0.0)?,
+                border_style: get_f(t, "borderstyle", 1.0)? as i32,
+                outline: get_f(t, "outline", 2.0)?,
+                shadow: get_f(t, "shadow", 2.0)?,
+                alignment: get_f(t, "align", 2.0)? as i32,
+                margin_l: get_f(t, "margin_l", 10.0)? as i32,
+                margin_r: get_f(t, "margin_r", 10.0)? as i32,
+                margin_v: mv as i32,
+                encoding: get_f(t, "encoding", 1.0)? as i32,
+            }))
+        }
+        "dialogue" => {
+            let mv = if t.contains_key("margin_t")? { get_f(t, "margin_t", 0.0)? } else { get_f(t, "margin_v", 0.0)? };
+            Ok(Line::Event(Event {
+                kind: if get_b(t, "comment", false)? { EventKind::Comment } else { EventKind::Dialogue },
+                layer: get_f(t, "layer", 0.0)? as i32,
+                start: get_f(t, "start_time", 0.0)?.round() as i64,
+                end: get_f(t, "end_time", 0.0)?.round() as i64,
+                style: get_str(t, "style", "Default")?,
+                actor: if t.contains_key("actor")? { get_str(t, "actor", "")? } else { get_str(t, "name", "")? },
+                margin_l: get_f(t, "margin_l", 0.0)? as i32,
+                margin_r: get_f(t, "margin_r", 0.0)? as i32,
+                margin_v: mv as i32,
+                effect: get_str(t, "effect", "")?,
+                text: get_str(t, "text", "")?,
+            }))
+        }
+        other => Err(mlua::Error::runtime(format!("bilinmeyen satır sınıfı: '{}'", other))),
+    }
+}
+
+pub fn doc_to_lines(doc: &Document) -> Vec<Line> {
+    let mut v = vec![];
+    for (k, val) in &doc.info {
+        v.push(Line::Info(k.clone(), val.clone()));
+    }
+    for s in &doc.styles {
+        v.push(Line::Style(s.clone()));
+    }
+    for e in &doc.events {
+        v.push(Line::Event(e.clone()));
+    }
+    v
+}
+
+pub fn lines_into_doc(lines: Vec<Line>, doc: &mut Document) {
+    doc.info.clear();
+    doc.styles.clear();
+    doc.events.clear();
+    for l in lines {
+        match l {
+            Line::Info(k, v) => doc.info.push((k, v)),
+            Line::Style(s) => doc.styles.push(s),
+            Line::Event(e) => doc.events.push(e),
+        }
+    }
+}
+
+// ---------- subs userdata ----------
+
+#[derive(Clone)]
+struct Subs(Rc<RefCell<Vec<Line>>>);
+
+fn idx_of(v: &Value) -> Option<i64> {
+    match v {
+        Value::Integer(i) => Some(*i as i64),
+        Value::Number(n) => Some(*n as i64),
+        _ => None,
+    }
+}
+
+fn collect_lines(args: &[Value]) -> mlua::Result<Vec<Line>> {
+    let mut out = vec![];
+    for a in args {
+        match a {
+            Value::Table(t) => out.push(table_to_line(t)?),
+            _ => return Err(mlua::Error::runtime("satır tablosu bekleniyordu")),
+        }
+    }
+    Ok(out)
+}
+
+impl UserData for Subs {
+    fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
+        m.add_meta_method(mlua::MetaMethod::Len, |_, this, ()| Ok(this.0.borrow().len()));
+        m.add_meta_method(mlua::MetaMethod::Index, |lua, this, key: Value| {
+            if let Some(i) = idx_of(&key) {
+                let lines = this.0.borrow();
+                if i < 1 || i as usize > lines.len() {
+                    return Err(mlua::Error::runtime(format!("satır indeksi sınır dışı: {}", i)));
+                }
+                return Ok(Value::Table(line_to_table(lua, &lines[i as usize - 1])?));
+            }
+            let Value::String(k) = &key else { return Ok(Value::Nil) };
+            let st = this.0.clone();
+            match &*k.to_str()? {
+                "n" => Ok(Value::Integer(st.borrow().len() as _)),
+                "insert" => Ok(Value::Function(lua.create_function(move |_, args: Variadic<Value>| {
+                    let i = args.first().and_then(idx_of).ok_or_else(|| mlua::Error::runtime("insert: indeks gerekli"))?;
+                    let new = collect_lines(&args[1..])?;
+                    let mut l = st.borrow_mut();
+                    let at = (i.max(1) as usize - 1).min(l.len());
+                    for (o, n) in new.into_iter().enumerate() {
+                        l.insert(at + o, n);
+                    }
+                    Ok(())
+                })?)),
+                "append" => Ok(Value::Function(lua.create_function(move |_, args: Variadic<Value>| {
+                    let new = collect_lines(&args)?;
+                    st.borrow_mut().extend(new);
+                    Ok(())
+                })?)),
+                "delete" => Ok(Value::Function(lua.create_function(move |_, args: Variadic<Value>| {
+                    let mut idx: Vec<usize> = vec![];
+                    for a in args.iter() {
+                        match a {
+                            Value::Table(t) => {
+                                for v in t.sequence_values::<i64>() {
+                                    idx.push(v? as usize);
+                                }
+                            }
+                            other => idx.push(idx_of(other).ok_or_else(|| mlua::Error::runtime("delete: indeks bekleniyordu"))? as usize),
+                        }
+                    }
+                    idx.sort_unstable();
+                    idx.dedup();
+                    let mut l = st.borrow_mut();
+                    for i in idx.into_iter().rev() {
+                        if i >= 1 && i <= l.len() {
+                            l.remove(i - 1);
+                        }
+                    }
+                    Ok(())
+                })?)),
+                "deleterange" => Ok(Value::Function(lua.create_function(move |_, (a, b): (i64, i64)| {
+                    let mut l = st.borrow_mut();
+                    let a = a.max(1) as usize;
+                    let b = (b.max(0) as usize).min(l.len());
+                    if a <= b {
+                        l.drain(a - 1..b);
+                    }
+                    Ok(())
+                })?)),
+                _ => Ok(Value::Nil),
+            }
+        });
+        m.add_meta_method(mlua::MetaMethod::NewIndex, |_, this, (key, val): (Value, Value)| {
+            let i = idx_of(&key).ok_or_else(|| mlua::Error::runtime("subs yalnızca sayısal indekse atanabilir"))?;
+            let mut l = this.0.borrow_mut();
+            match val {
+                Value::Nil => {
+                    if i >= 1 && (i as usize) <= l.len() {
+                        l.remove(i as usize - 1);
+                    }
+                }
+                Value::Table(t) => {
+                    let line = table_to_line(&t)?;
+                    if i == 0 || i as usize == l.len() + 1 {
+                        l.push(line);
+                    } else if i >= 1 && (i as usize) <= l.len() {
+                        l[i as usize - 1] = line;
+                    } else {
+                        return Err(mlua::Error::runtime(format!("satır indeksi sınır dışı: {}", i)));
+                    }
+                }
+                _ => return Err(mlua::Error::runtime("satır tablosu bekleniyordu")),
+            }
+            Ok(())
+        });
+    }
+}
+
+// ---------- Engine ----------
+
+impl Engine {
+    pub fn new() -> Result<Engine, String> {
+        let e = Engine {
+            lua: Lua::new(),
+            macros: Rc::new(RefCell::new(vec![])),
+            logs: Rc::new(RefCell::new(vec![])),
+            ctx: Rc::new(RefCell::new(Ctx::default())),
+        };
+        e.setup().map_err(lerr)?;
+        Ok(e)
+    }
+
+    pub fn set_video(&self, fps: Option<f64>, size: Option<(i32, i32)>) {
+        let mut c = self.ctx.borrow_mut();
+        c.fps = fps;
+        c.video_size = size;
+    }
+    pub fn add_include_dir(&self, p: impl Into<PathBuf>) {
+        self.ctx.borrow_mut().include_dirs.push(p.into());
+    }
+    pub fn set_project_property(&self, k: &str, v: &str) {
+        let mut c = self.ctx.borrow_mut();
+        c.project.retain(|(a, _)| a != k);
+        c.project.push((k.into(), v.into()));
+    }
+    pub fn macros(&self) -> Vec<MacroInfo> {
+        self.macros.borrow().iter().map(|m| m.info.clone()).collect()
+    }
+    pub fn take_logs(&self) -> Vec<String> {
+        std::mem::take(&mut *self.logs.borrow_mut())
+    }
+
+    fn setup(&self) -> mlua::Result<()> {
+        let lua = &self.lua;
+        let g = lua.globals();
+        let aeg = lua.create_table()?;
+
+        // register_macro / register_filter
+        let macros = self.macros.clone();
+        let ctx = self.ctx.clone();
+        aeg.set("register_macro", lua.create_function(move |lua, (name, desc, process, validate): (String, Option<String>, Function, Option<Function>)| {
+            let script = ctx.borrow().current_script.clone();
+            macros.borrow_mut().push(MacroEntry {
+                info: MacroInfo { name, description: desc.unwrap_or_default(), script, kind: MacroKind::Macro },
+                process: lua.create_registry_value(process)?,
+                validate: match validate { Some(f) => Some(lua.create_registry_value(f)?), None => None },
+            });
+            Ok(())
+        })?)?;
+        let macros = self.macros.clone();
+        let ctx = self.ctx.clone();
+        aeg.set("register_filter", lua.create_function(move |lua, (name, desc, _prio, process, _cfg): (String, Option<String>, Option<i64>, Function, Value)| {
+            let script = ctx.borrow().current_script.clone();
+            macros.borrow_mut().push(MacroEntry {
+                info: MacroInfo { name, description: desc.unwrap_or_default(), script, kind: MacroKind::Filter },
+                process: lua.create_registry_value(process)?,
+                validate: None,
+            });
+            Ok(())
+        })?)?;
+        aeg.set("cancel", lua.create_function(|_, ()| -> mlua::Result<()> { Err(mlua::Error::runtime(CANCEL_MARK)) })?)?;
+
+        // progress
+        let progress = lua.create_table()?;
+        let logs = self.logs.clone();
+        progress.set("set", lua.create_function(|_, _: Value| Ok(()))?)?;
+        progress.set("task", lua.create_function(|_, _: Variadic<Value>| Ok(()))?)?;
+        progress.set("title", lua.create_function(|_, _: Variadic<Value>| Ok(()))?)?;
+        progress.set("is_cancelled", lua.create_function(|_, ()| Ok(false))?)?;
+        aeg.set("progress", progress)?;
+
+        // debug
+        let dbg = lua.create_table()?;
+        let out_fn = {
+            let logs = logs.clone();
+            lua.create_function(move |lua, args: MultiValue| {
+                let mut v: Vec<Value> = args.into_iter().collect();
+                if matches!(v.first(), Some(Value::Integer(_)) | Some(Value::Number(_))) && v.len() > 1 {
+                    v.remove(0);
+                }
+                let fmt: Function = lua.globals().get::<Table>("string")?.get("format")?;
+                let s = if v.len() > 1 {
+                    fmt.call::<String>(MultiValue::from_iter(v))?
+                } else {
+                    match v.first() {
+                        Some(Value::String(s)) => s.to_string_lossy().to_string(),
+                        Some(Value::Nil) | None => String::new(),
+                        Some(x) => lua.globals().get::<Function>("tostring")?.call::<String>(x.clone())?,
+                    }
+                };
+                logs.borrow_mut().push(s);
+                Ok(())
+            })?
+        };
+        dbg.set("out", out_fn.clone())?;
+        aeg.set("log", out_fn.clone())?;
+        g.set("print", lua.create_function({
+            let logs = logs.clone();
+            move |lua, args: Variadic<Value>| {
+                let ts: Function = lua.globals().get("tostring")?;
+                let mut parts = vec![];
+                for a in args.iter() { parts.push(ts.call::<String>(a.clone())?); }
+                logs.borrow_mut().push(parts.join("\t"));
+                Ok(())
+            }
+        })?)?;
+        aeg.set("debug", dbg)?;
+
+        // zaman / kare
+        let ctx = self.ctx.clone();
+        aeg.set("frame_from_ms", lua.create_function(move |_, ms: f64| Ok(ctx.borrow().fps.map(|f| (ms * f / 1000.0).floor() as i64)))?)?;
+        let ctx = self.ctx.clone();
+        aeg.set("ms_from_frame", lua.create_function(move |_, fr: f64| Ok(ctx.borrow().fps.map(|f| (fr * 1000.0 / f).round() as i64)))?)?;
+        let ctx = self.ctx.clone();
+        aeg.set("video_size", lua.create_function(move |_, ()| Ok(match ctx.borrow().video_size { Some((w, h)) => (Some(w), Some(h), Some(1.0), Some(0)), None => (None, None, None, None) }))?)?;
+        aeg.set("keyframes", lua.create_function(|lua, ()| lua.create_table())?)?;
+        aeg.set("get_audio_selection", lua.create_function(|_, ()| Ok(Value::Nil))?)?;
+        aeg.set("gettext", lua.create_function(|_, s: String| Ok(s))?)?;
+        aeg.set("lua_supports", lua.create_function(|_, _: Value| Ok(true))?)?;
+        let ctx = self.ctx.clone();
+        aeg.set("project_properties", lua.create_function(move |lua, ()| {
+            let t = lua.create_table()?;
+            for (k, v) in ctx.borrow().project.iter() { t.set(k.as_str(), v.as_str())?; }
+            Ok(t)
+        })?)?;
+        let ctx = self.ctx.clone();
+        aeg.set("decode_path", lua.create_function(move |_, p: String| {
+            let c = ctx.borrow();
+            let dir = c.script_dir.to_string_lossy().to_string();
+            Ok(p.replace("?script", &dir).replace("?user", &dir).replace("?data", &dir).replace("?temp", &std::env::temp_dir().to_string_lossy()))
+        })?)?;
+
+        // yaklaşık metin ölçümü
+        aeg.set("text_extents", lua.create_function(|_, (style, text): (Table, String)| {
+            let fs = get_f(&style, "fontsize", 48.0)?;
+            let sx = get_f(&style, "scale_x", 100.0)? / 100.0;
+            let sy = get_f(&style, "scale_y", 100.0)? / 100.0;
+            let sp = get_f(&style, "spacing", 0.0)?;
+            let bold = get_b(&style, "bold", false)?;
+            let w: f64 = text.chars().map(|c| {
+                let base = if c.is_whitespace() { 0.28 } else if "iljI.,;:!'|".contains(c) { 0.28 } else if "mwMW@".contains(c) { 0.85 } else if c.is_ascii_uppercase() { 0.68 } else if (c as u32) > 0x2E80 { 1.0 } else { 0.52 };
+                (base * fs * if bold { 1.05 } else { 1.0 } + sp) * sx
+            }).sum();
+            Ok((w, fs * 1.15 * sy, fs * 0.22 * sy, 0.0f64))
+        })?)?;
+
+        // dialog (başsız): varsayılan değerleri döndürür
+        let dialog = lua.create_table()?;
+        dialog.set("display", lua.create_function(|lua, (cfg, buttons, _ids): (Table, Option<Table>, Value)| {
+            let res = lua.create_table()?;
+            for c in cfg.sequence_values::<Table>() {
+                let c = c?;
+                let name: Option<String> = c.get("name")?;
+                let Some(name) = name else { continue };
+                let class: String = c.get("class")?;
+                let v: Value = match class.as_str() {
+                    "label" | "image" => continue,
+                    "checkbox" => Value::Boolean(c.get::<Option<bool>>("value")?.unwrap_or(false)),
+                    "dropdown" => { let v: Value = c.get("value")?; if let Value::Nil = v { let items: Option<Table> = c.get("items")?; match items { Some(t) => t.get::<Value>(1)?, None => Value::Nil } } else { v } }
+                    "intedit" | "floatedit" | "slider" | "scrollbar" => c.get::<Option<f64>>("value")?.map(Value::Number).unwrap_or(Value::Number(0.0)),
+                    _ => { let v: Value = c.get("value")?; if let Value::Nil = v { c.get("text")? } else { v } }
+                };
+                res.set(name, v)?;
+            }
+            let btn: Value = match buttons {
+                Some(b) => b.get::<Value>(1)?,
+                None => Value::Boolean(true),
+            };
+            Ok((btn, res))
+        })?)?;
+        dialog.set("open", lua.create_function(|_, _: Variadic<Value>| Ok(Value::Nil))?)?;
+        dialog.set("save", lua.create_function(|_, _: Variadic<Value>| Ok(Value::Nil))?)?;
+        aeg.set("dialog", dialog)?;
+        g.set("aegisub", aeg)?;
+
+        // unicode
+        let uni = lua.create_table()?;
+        uni.set("len", lua.create_function(|_, s: mlua::LuaString| Ok(s.to_string_lossy().chars().count()))?)?;
+        uni.set("codepoint", lua.create_function(|_, s: mlua::LuaString| Ok(s.to_string_lossy().chars().next().map(|c| c as u32).unwrap_or(0)))?)?;
+        uni.set("to_upper", lua.create_function(|_, s: mlua::LuaString| Ok(s.to_string_lossy().to_uppercase()))?)?;
+        uni.set("to_lower", lua.create_function(|_, s: mlua::LuaString| Ok(s.to_string_lossy().to_lowercase()))?)?;
+        uni.set("to_fold_case", lua.create_function(|_, s: mlua::LuaString| Ok(s.to_string_lossy().to_lowercase()))?)?;
+        uni.set("chars", lua.create_function(|lua, s: mlua::LuaString| {
+            let chars: Vec<String> = s.to_string_lossy().chars().map(|c| c.to_string()).collect();
+            let mut i = 0usize;
+            lua.create_function_mut(move |_, ()| { if i < chars.len() { i += 1; Ok(Some(chars[i - 1].clone())) } else { Ok(None) } })
+        })?)?;
+        g.set("unicode", uni.clone())?;
+
+        // yerleşik modüller
+        let preload: Table = lua.globals().get::<Table>("package")?.get("preload")?;
+        let util_src = UTIL_LUA;
+        preload.set("aegisub.util", lua.create_function(move |lua, _: MultiValue| lua.load(util_src).set_name("=aegisub.util").eval::<Value>())?)?;
+        preload.set("unicode", lua.create_function(move |_, _: MultiValue| Ok(uni.clone()))?)?;
+        Ok(())
+    }
+
+    /// Bir Lua betiği yükler; kaydettiği makroların sayısını döndürür.
+    pub fn load_script(&self, path: &Path) -> Result<usize, String> {
+        let src = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+        let src = String::from_utf8_lossy(&src).trim_start_matches('\u{feff}').to_string();
+        {
+            let mut c = self.ctx.borrow_mut();
+            c.script_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            c.current_script = path.to_string_lossy().to_string();
+        }
+        let before = self.macros.borrow().len();
+        self.load_in_env(&src, &path.to_string_lossy()).map_err(lerr)?;
+        Ok(self.macros.borrow().len() - before)
+    }
+
+    fn load_in_env(&self, src: &str, chunk_name: &str) -> mlua::Result<()> {
+        let lua = &self.lua;
+        let env = lua.create_table()?;
+        let mt = lua.create_table()?;
+        mt.set("__index", lua.globals())?;
+        env.set_metatable(Some(mt))?;
+        // include(): aynı ortamda yükler
+        let me_ctx = self.ctx.clone();
+        let env2 = env.clone();
+        let this = IncludeHelper { ctx: me_ctx };
+        env.set("include", lua.create_function(move |lua, name: String| {
+            let Some((cn, src)) = this.find(&name) else {
+                return Err(mlua::Error::runtime(format!("include: '{}' bulunamadı", name)));
+            };
+            lua.load(&src).set_name(format!("@{}", cn)).set_environment(env2.clone()).exec()
+        })?)?;
+        let chunk = lua.load(src).set_name(format!("@{}", chunk_name)).set_environment(env.clone());
+        chunk.exec()?;
+        Ok(())
+    }
+
+    /// Makro doğrulaması (varsa `validate` fonksiyonu).
+    pub fn validate(&self, idx: usize, doc: &Document, selection: &[usize], active: Option<usize>) -> bool {
+        let macros = self.macros.borrow();
+        let Some(m) = macros.get(idx) else { return false };
+        let Some(v) = &m.validate else { return true };
+        let r = (|| -> mlua::Result<bool> {
+            let f: Function = self.lua.registry_value(v)?;
+            let subs = self.lua.create_userdata(Subs(Rc::new(RefCell::new(doc_to_lines(doc)))))?;
+            let off = doc.info.len() + doc.styles.len();
+            let sel = self.lua.create_sequence_from(selection.iter().map(|i| (i + off + 1) as i64))?;
+            let ret: Value = f.call((subs, sel, active.map(|a| (a + off + 1) as i64)))?;
+            Ok(!matches!(ret, Value::Boolean(false) | Value::Nil))
+        })();
+        r.unwrap_or(false)
+    }
+
+    /// Makroyu çalıştırır. `selection`/`active` doc.events indeksleridir (0 tabanlı).
+    /// Hata ya da iptalde belge değişmez.
+    pub fn run(&self, idx: usize, doc: &mut Document, selection: &[usize], active: Option<usize>) -> Result<RunOutput, String> {
+        let macros = self.macros.borrow();
+        let m = macros.get(idx).ok_or("makro bulunamadı")?;
+        let off = doc.info.len() + doc.styles.len();
+        let shared = Rc::new(RefCell::new(doc_to_lines(doc)));
+        self.logs.borrow_mut().clear();
+        let call = || -> mlua::Result<(Vec<i64>, Option<i64>)> {
+            let f: Function = self.lua.registry_value(&m.process)?;
+            let subs = self.lua.create_userdata(Subs(shared.clone()))?;
+            let sel = self.lua.create_sequence_from(selection.iter().map(|i| (i + off + 1) as i64))?;
+            let ret: MultiValue = f.call((subs, sel, active.map(|a| (a + off + 1) as i64)))?;
+            let mut it = ret.into_iter();
+            let mut new_sel = vec![];
+            if let Some(Value::Table(t)) = it.next() {
+                for v in t.sequence_values::<i64>() { new_sel.push(v?); }
+            } else {
+                new_sel = selection.iter().map(|i| (i + off + 1) as i64).collect();
+            }
+            let new_active = it.next().and_then(|v| idx_of(&v));
+            Ok((new_sel, new_active))
+        };
+        match call() {
+            Ok((sel, act)) => {
+                let lines = shared.borrow().clone();
+                let new_off = lines.iter().filter(|l| !matches!(l, Line::Event(_))).count();
+                lines_into_doc(lines, doc);
+                let conv = |i: i64| (i as usize).checked_sub(new_off + 1);
+                Ok(RunOutput {
+                    selection: sel.into_iter().filter_map(conv).collect(),
+                    active: act.and_then(conv).or(active),
+                    logs: self.take_logs(),
+                    cancelled: false,
+                })
+            }
+            Err(e) => {
+                if e.to_string().contains(CANCEL_MARK) {
+                    Ok(RunOutput { selection: selection.to_vec(), active, logs: self.take_logs(), cancelled: true })
+                } else {
+                    let logs = self.take_logs().join("\n");
+                    Err(format!("{}\n{}", lerr(e), logs).trim().to_string())
+                }
+            }
+        }
+    }
+}
+
+struct IncludeHelper {
+    ctx: Rc<RefCell<Ctx>>,
+}
+impl IncludeHelper {
+    fn find(&self, name: &str) -> Option<(String, String)> {
+        let c = self.ctx.borrow();
+        let mut dirs = vec![c.script_dir.clone()];
+        dirs.extend(c.include_dirs.iter().cloned());
+        for d in dirs {
+            let p = d.join(name);
+            if let Ok(src) = std::fs::read_to_string(&p) {
+                return Some((p.to_string_lossy().to_string(), src));
+            }
+        }
+        match name {
+            "utils.lua" => Some(("utils.lua".into(), UTILS_LUA.into())),
+            "karaskel.lua" => Some(("karaskel.lua".into(), KARASKEL_LUA.into())),
+            "unicode.lua" | "re.lua" | "clipboard.lua" => Some((name.into(), String::new())),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn script(dir: &Path, name: &str, src: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, src).unwrap();
+        p
+    }
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("kitsune-lua-{}-{}", name, std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    fn doc() -> Document {
+        Document::parse("[Script Info]\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,merhaba\nDialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,{\\k50}ka{\\k50}ra\n")
+    }
+
+    #[test]
+    fn macro_edits_lines() {
+        let d = tmp("edit");
+        let p = script(&d, "a.lua", r#"
+script_name = "Büyük harf"
+include("utils.lua")
+function go(subs, sel, act)
+  for i = 1, #subs do
+    local l = subs[i]
+    if l.class == "dialogue" then
+      l.text = unicode.to_upper(l.text)
+      l.start_time = l.start_time + 100
+      subs[i] = l
+    end
+  end
+  subs.append({class="dialogue", comment=true, layer=0, start_time=0, end_time=10, style="Default", actor="", margin_l=0, margin_r=0, margin_t=0, effect="", text="x", extra={}})
+  aegisub.debug.out("n=%d", #subs)
+  return {sel[1]}
+end
+aegisub.register_macro("Büyüt", "aciklama", go)
+"#);
+        let e = Engine::new().unwrap();
+        assert_eq!(e.load_script(&p).unwrap(), 1);
+        let mut doc = doc();
+        let out = e.run(0, &mut doc, &[0], Some(0)).unwrap();
+        assert_eq!(doc.events[0].text, "MERHABA");
+        assert_eq!(doc.events[0].start, 1100);
+        assert_eq!(doc.events.len(), 3);
+        assert!(doc.events[2].is_comment());
+        assert_eq!(out.selection, vec![0]);
+        assert!(out.logs[0].starts_with("n="));
+    }
+
+    #[test]
+    fn cancel_leaves_doc_untouched() {
+        let d = tmp("cancel");
+        let p = script(&d, "c.lua", "aegisub.register_macro('c','',function(s) local l=s[#s]; l.text='zzz'; s[#s]=l; aegisub.cancel() end)");
+        let e = Engine::new().unwrap();
+        e.load_script(&p).unwrap();
+        let mut doc = doc();
+        let before = doc.events.clone();
+        let out = e.run(0, &mut doc, &[], None).unwrap();
+        assert!(out.cancelled);
+        assert_eq!(doc.events, before);
+    }
+
+    #[test]
+    fn karaskel_works() {
+        let d = tmp("kara");
+        let p = script(&d, "k.lua", r#"
+include("karaskel.lua")
+aegisub.register_macro('k','',function(subs, sel)
+  local meta, styles = karaskel.collect_head(subs, false)
+  local l = subs[#subs]
+  karaskel.preproc_line(subs, meta, styles, l)
+  aegisub.debug.out("%d %d %d", meta.res_x, l.kara.n, l.kdur)
+  assert(l.kara[2].start_time == 500)
+  assert(styles["Default"].fontsize == 40)
+end)"#);
+        let e = Engine::new().unwrap();
+        e.load_script(&p).unwrap();
+        let mut doc = doc();
+        let out = e.run(0, &mut doc, &[1], Some(1)).unwrap();
+        assert_eq!(out.logs[0], "1280 2 1000");
+    }
+
+    #[test]
+    fn error_reports_message() {
+        let d = tmp("err");
+        let p = script(&d, "e.lua", "aegisub.register_macro('e','',function() error('patladi') end)");
+        let e = Engine::new().unwrap();
+        e.load_script(&p).unwrap();
+        let mut doc = doc();
+        assert!(e.run(0, &mut doc, &[], None).unwrap_err().contains("patladi"));
+    }
+
+    #[test]
+    fn util_module() {
+        let d = tmp("util");
+        let p = script(&d, "u.lua", r#"
+local util = require("aegisub.util")
+aegisub.register_macro('u','',function()
+  aegisub.debug.out(util.ass_color(255,0,16))
+  aegisub.debug.out(util.interpolate_color(0.5, "&H000000&", "&HFFFFFF&"))
+  local h, t = util.headtail("a b c")
+  aegisub.debug.out(h .. "|" .. t)
+  aegisub.debug.out(tostring(unicode.len("çğş")))
+end)"#);
+        let e = Engine::new().unwrap();
+        e.load_script(&p).unwrap();
+        let mut doc = doc();
+        let out = e.run(0, &mut doc, &[], None).unwrap();
+        assert_eq!(out.logs, vec!["&H1000FF&", "&H808080&", "a|b c", "3"]);
+    }
+}
+
+================================================================
+DOSYA: kitsune/docs/ROADMAP.md
+================================================================
+# Yol haritası
+
+Her gece bir sonraki sürüm bu listeden ilerletilir. `[x]` bitti, `[~]` kısmen, `[ ]` yapılacak.
+
+## Biçimler
+- [x] ASS okuma/yazma (bilinmeyen bölümler, yorumlar, Format sırası korunur)
+- [~] SSA v4 (stil hizası/renk dönüşümü var; test az)
+- [x] SRT, WebVTT okuma; SRT yazma
+- [ ] VTT yazma, SUB/MicroDVD, TTML, SBV, LRC
+- [ ] UTF-8 dışı kodlama otomatik tespiti (UTF-16 BOM var)
+- [ ] Aegisub Project Garbage'daki video/ses/zaman kodu/keyframe bilgisini kullanma
+- [ ] Gömülü fontlar (uuencode) çözme/yazma, extradata
+
+## Aegisub eşdeğerleri
+- [~] Satır tablosu: ekle, sil, çoğalt, birleştir, sırala, geri al/yinele
+- [ ] Altyazı ızgarası: sütun seçimi, renkli stil/yorum, çoklu seçim kısayolları, sürükle-bırak
+- [ ] Video önizleme (ffmpeg/libmpv), ASS çizimi (libass), kare-kesin zamanlama
+- [ ] Ses dalga formu / spektrum, zamanlama sürükleme, snap-to-keyframe
+- [ ] Stil yöneticisi (renk seçici, depolama, içe aktarma), canlı önizleme
+- [ ] Zaman kaydırma (kare/ms), zamanlama sonrası işlemci (lead-in/out, keyframe snap)
+- [ ] Bul/Değiştir (regex, alan seçimi), Spell check (Hunspell), Tercüme asistanı
+- [ ] Çizim/vektör (\p) görsel editörü, \pos/\move/\clip görsel araçları
+- [ ] Karaoke aracı (heceleme, ses ile eşleme, otomatik süre)
+- [ ] Çözünürlük dönüştürücü, renk matrisi, Fontları topla
+
+## Subtitle Edit'ten alınacaklar
+- [x] Kalite denetimi (CPS, süre, satır uzunluğu, çakışma, boş metin, tanımsız stil)
+- [ ] Çeviri: yan yana iki dil, DeepL/Google/yerel LLM ile otomatik çeviri
+- [ ] OCR (bitmap altyazılar), ses→metin (Whisper)
+- [ ] Çakışma düzeltme, satır bölme/birleştirme önerileri, otomatik satır kırma
+- [ ] Toplu dönüştürme, FPS değiştirme, senkron noktası (iki nokta ile ger/esnet)
+- [ ] Sözlük/ortak ifade düzeltmeleri (Türkçe için "i/İ" kuralları dahil)
+
+## Lua (Automation 4) uyumu
+- [x] `subs` userdata, makro/filtre kaydı, iptal, günlük, karaskel, utils, unicode
+- [ ] Gerçek `text_extents` (font metrikleri: fontdb + rustybuzz; şu an yaklaşık)
+- [ ] `aegisub.dialog.display` için gerçek arayüz diyalogu (GUI) ve yapılandırma
+- [ ] `re` (regex), `lfs`, `clipboard`, `lpeg` modülleri; `aegisub.util` tam eşdeğerlik
+- [ ] Video/ses bağlamı: `aegisub.video_size`, `keyframes`, `get_audio_selection`, proje özellikleri
+- [ ] Betik dizini taraması (autoload), hata ekranı satır numaralı, `script_*` meta
+- [ ] Popüler betikleri (Kara Effector, Karaoke Templater `kara-templater`, Dependency Control) uyumluluk testi
+- [ ] Lua 5.1/LuaJIT `ffi` güvenlik/sandbox ayarı
+
+## Performans ve kalite
+- [ ] 100k satırlık dosyalarda sanal kaydırma, artımlı geri alma (fark tabanlı)
+- [ ] Fuzz testleri (ASS ayrıştırıcı), gerçek dünya örnek dosyaları ile regresyon seti
+- [ ] CI: Linux/Windows/macOS sürüm paketleri
+
+================================================================
+DOSYA: kitsune/examples/ornek_makro.lua
+================================================================
+-- Kitsune örnek makrosu: seçili satırların sonuna kısa bir süre ekler ve etiketleri temizler.
+script_name = "Örnek: Süre uzat"
+script_description = "Seçili satırların bitişini 200 ms uzatır"
+script_author = "kitsune"
+script_version = "1"
+
+include("utils.lua")
+
+local function uzat(subs, sel, active)
+  for _, i in ipairs(sel) do
+    local l = subs[i]
+    l.end_time = l.end_time + 200
+    subs[i] = l
+  end
+  aegisub.debug.out("%d satır uzatıldı", #sel)
+  return sel
+end
+
+aegisub.register_macro(script_name, script_description, uzat)
