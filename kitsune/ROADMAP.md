@@ -29,3 +29,4 @@ Kural: Her gece 22:00–06:00 arası çalışılır; her oturum sonunda commit +
 
 ## Gece günlüğü
 - 2026-11-08: Sıfırdan çekirdek + Lua köprüsü + CLI kuruldu, testler geçiyor.
+- 2026-11-08: `lint-lua` komutu eklendi. Kullanıcının Lua betikleri repoda yok; `kitsune lint-lua <klasör>` ile test edilmeli (betikleri `lua-scripts/` altına ekleyin).

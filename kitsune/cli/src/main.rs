@@ -8,6 +8,7 @@ fn usage() -> ! {
   check <file> [--cps N] [--len N]      kalite kontrol (CPS, çakışma, satır uzunluğu...)\n\
   shift <in> <out> <ms>                 tüm zamanlamaları kaydır\n\
   fix <in> <out>                        çakışma/süre/ardışık-aynı düzeltmeleri\n\
+  lint-lua <dosya|klasör>               Lua betiklerini yükle, uyumluluk hatalarını raporla\n\
   macros <script.lua>                   Lua betiğindeki makroları listele\n\
   run <script.lua> <in> <out> [--macro N|NAME] [--sel a,b,c] [--set key=val]... [--fps F]\n\
                                          Aegisub Automation 4 makrosu çalıştır");
@@ -43,6 +44,31 @@ fn main() {
             let mut r = Runner::new(core::Script::new_default(), HostOptions::default()).map_err(|e| e.to_string())?;
             r.load_file(&a[1]).map_err(|e| e.to_string())?;
             for (i, m) in r.macros.iter().enumerate() { println!("{}\t{}\t{}", i, m.name, m.description); }
+            Ok(())
+        }
+        "lint-lua" if a.len() >= 2 => {
+            // Bir klasördeki (veya tek) .lua betiklerini yükleyip uyumsuzlukları raporla.
+            let mut files = Vec::new();
+            let p = std::path::Path::new(&a[1]);
+            if p.is_dir() {
+                let mut stack = vec![p.to_path_buf()];
+                while let Some(d) = stack.pop() {
+                    for e in std::fs::read_dir(&d).map_err(|e| e.to_string())?.flatten() {
+                        let q = e.path();
+                        if q.is_dir() { stack.push(q) } else if q.extension().map_or(false, |x| x == "lua") { files.push(q) }
+                    }
+                }
+            } else { files.push(p.to_path_buf()) }
+            files.sort();
+            let (mut ok, mut bad) = (0, 0);
+            for f in files {
+                let mut r = Runner::new(core::Script::new_default(), HostOptions::default()).map_err(|e| e.to_string())?;
+                match r.load_file(f.to_str().unwrap_or("")) {
+                    Ok(()) => { ok += 1; println!("OK   {} ({} makro)", f.display(), r.macros.len()); }
+                    Err(e) => { bad += 1; println!("FAIL {}\n     {}", f.display(), e.to_string().lines().next().unwrap_or("")); }
+                }
+            }
+            println!("{ok} yüklendi, {bad} hatalı");
             Ok(())
         }
         "run" if a.len() >= 4 => {
