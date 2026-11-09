@@ -1,0 +1,21 @@
+{
+  "name": "yoru",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Yoru — anime subtitle editor: Aegisub-compatible (ASS + Lua automation) with Subtitle Edit's QC/conversion tooling.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/patch-fengari.mjs"
+  },
+  "dependencies": {
+    "@types/node": "^26.6.6",
+    "fengari": "^0.1.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  }
+}
