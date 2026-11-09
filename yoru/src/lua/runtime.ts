@@ -114,6 +114,57 @@ export class LuaRuntime {
     }
   }
 
+  /** JS değerini yerel olarak Lua yığınına it (büyük veri için JSON'dan çok daha hızlı). */
+  private pushValue(v: any) {
+    const L = this.L;
+    if (v === null || v === undefined) lua.lua_pushnil(L);
+    else if (typeof v === "boolean") lua.lua_pushboolean(L, v);
+    else if (typeof v === "number") Number.isInteger(v) ? lua.lua_pushinteger(L, v) : lua.lua_pushnumber(L, v);
+    else if (typeof v === "string") lua.lua_pushstring(L, to_luastring(v));
+    else if (Array.isArray(v)) {
+      lua.lua_createtable(L, v.length, 0);
+      for (let i = 0; i < v.length; i++) { this.pushValue(v[i]); lua.lua_rawseti(L, -2, i + 1); }
+    } else {
+      lua.lua_createtable(L, 0, 8);
+      for (const k in v) { if (v[k] === undefined) continue; this.pushValue(v[k]); lua.lua_setfield(L, -2, to_luastring(k)); }
+    }
+  }
+  private toValue(idx: number): any {
+    const L = this.L;
+    switch (lua.lua_type(L, idx)) {
+      case lua.LUA_TBOOLEAN: return !!lua.lua_toboolean(L, idx);
+      case lua.LUA_TNUMBER: return lua.lua_tonumber(L, idx);
+      case lua.LUA_TSTRING: return to_jsstring(lua.lua_tostring(L, idx));
+      case lua.LUA_TTABLE: {
+        idx = lua.lua_absindex(L, idx);
+        const arr: any[] = []; const obj: Record<string, any> = {}; let isArr = true, n = 0;
+        lua.lua_pushnil(L);
+        while (lua.lua_next(L, idx) !== 0) {
+          const kt = lua.lua_type(L, -2);
+          const vt = lua.lua_type(L, -1);
+          if (vt !== lua.LUA_TFUNCTION && vt !== lua.LUA_TUSERDATA && vt !== lua.LUA_TTHREAD) {
+            const val = this.toValue(-1);
+            if (kt === lua.LUA_TNUMBER && Number.isInteger(lua.lua_tonumber(L, -2)) && lua.lua_tonumber(L, -2) >= 1) { arr[lua.lua_tonumber(L, -2) - 1] = val; n++; obj[String(lua.lua_tonumber(L, -2))] = val; }
+            else { isArr = false; obj[to_jsstring(lua.lua_tostring(L, -2))] = val; }
+          }
+          lua.lua_pop(L, 1);
+        }
+        return isArr && (n === 0 || arr.length === n) ? arr : obj;
+      }
+      default: return undefined;
+    }
+  }
+  /** Lua işlevini JS değerleriyle çağırır, tek dönüş değerini JS'e çevirir. */
+  private callV(fn: string, ...args: any[]): any {
+    const L = this.L;
+    lua.lua_getglobal(L, to_luastring(fn));
+    for (const a of args) this.pushValue(a);
+    if (lua.lua_pcall(L, args.length, 1, 0) !== 0) {
+      const err = to_jsstring(lua.lua_tostring(L, -1)); lua.lua_pop(L, 1); throw new Error(err);
+    }
+    const out = this.toValue(-1); lua.lua_pop(L, 1); return out;
+  }
+
   private call(fn: string, ...args: (string | number)[]): any {
     const L = this.L;
     lua.lua_getglobal(L, to_luastring(fn));
@@ -141,22 +192,17 @@ export class LuaRuntime {
   }
 
   private input(file: AssFile, sel: number[], active?: number) {
-    return JSON.stringify({
-      info: file.info,
-      styles: file.styles,
-      events: file.events.map((e) => ({ ...e, end: e.end })),
-      sel, active,
-    });
+    return { info: file.info, styles: file.styles, events: file.events, sel, active };
   }
 
   validate(id: number, file: AssFile, sel: number[], active?: number): boolean {
-    try { return !!this.call("__validate", id, this.input(file, sel, active)).ok; } catch { return false; }
+    try { return !!this.callV("__validate", id, this.input(file, sel, active)).ok; } catch { return false; }
   }
 
   async run(id: number, file: AssFile, sel: number[] = [], active?: number): Promise<RunResult> {
     const nHead = file.info.length + file.styles.length;
     this.logs = [];
-    let r = this.call("__start", id, this.input(file, sel.map((i) => i + 1 + nHead), active !== undefined ? active + 1 + nHead : undefined));
+    let r = this.callV("__start", id, this.input(file, sel.map((i) => i + 1 + nHead), active !== undefined ? active + 1 + nHead : undefined));
     for (let guard = 0; guard < 10000; guard++) {
       if (r.status === "request") {
         const req = r.req;
@@ -165,7 +211,7 @@ export class LuaRuntime {
           resp = this.hooks.dialog ? await this.hooks.dialog({ config: req.config ?? [], buttons: req.buttons ?? ["OK", "Cancel"], ids: req.ids })
             : defaultDialog(req.config ?? [], req.buttons ?? ["OK", "Cancel"]);
         } else resp = { path: (await this.hooks.fileDialog?.({ kind: req.__req, title: req.title, wildcards: req.wildcards })) ?? null };
-        r = this.call("__resume", JSON.stringify(resp ?? {}));
+        r = this.callV("__resume", resp ?? {});
         continue;
       }
       break;

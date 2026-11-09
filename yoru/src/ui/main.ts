@@ -1,5 +1,5 @@
 import { parseAss, serializeAss, newEvent, Style, DEFAULT_STYLE, getInfo, setInfo } from "../core/ass";
-import { detectAndParse, toSrt, toVtt, toPlainText } from "../core/formats";
+import { detectAndParse, toSrt, toVtt, toPlainText, toLrc, toSbv, toTtml } from "../core/formats";
 import { formatAssTime, parseAssTime } from "../core/time";
 import { cps, runQc, autoFix, DEFAULT_QC } from "../core/qc";
 import { findAll, replaceAll, mergeEvents, splitEvent, shiftTimes, sortEvents, insertEventAfter, duplicateEvent, fixOverlaps, chainGaps, snapToFrames } from "../core/ops";
@@ -149,11 +149,11 @@ $<HTMLInputElement>("f-open").onchange = async (ev) => {
   store.load(detectAndParse(f.name, text), f.name.replace(/\.[^.]+$/, "") + ".ass");
   status(`${f.name} açıldı: ${store.file.events.length} satır`);
 };
-const save = () => { download(store.name, serializeAss(store.file)); store.dirty = false; status("Kaydedildi"); };
+const save = () => { download(store.name, serializeAss(store.file)); store.dirty = false; try { localStorage.removeItem(AUTOSAVE); } catch { /* */ } status("Kaydedildi"); };
 $("b-save").onclick = save;
 $<HTMLSelectElement>("b-export").onchange = (ev) => {
   const s = ev.target as HTMLSelectElement; const base = store.name.replace(/\.[^.]+$/, "");
-  if (s.value === "srt") download(base + ".srt", toSrt(store.file)); if (s.value === "vtt") download(base + ".vtt", toVtt(store.file), "text/vtt"); if (s.value === "txt") download(base + ".txt", toPlainText(store.file));
+  if (s.value === "srt") download(base + ".srt", toSrt(store.file)); if (s.value === "vtt") download(base + ".vtt", toVtt(store.file), "text/vtt"); if (s.value === "lrc") download(base + ".lrc", toLrc(store.file)); if (s.value === "sbv") download(base + ".sbv", toSbv(store.file)); if (s.value === "ttml") download(base + ".ttml", toTtml(store.file), "application/ttml+xml"); if (s.value === "txt") download(base + ".txt", toPlainText(store.file));
   s.value = "";
 };
 $("b-undo").onclick = () => store.undo(); $("b-redo").onclick = () => store.redo();
@@ -302,7 +302,15 @@ window.addEventListener("beforeunload", (e) => { if (store.dirty) e.preventDefau
 
 store.on(() => { syncEdit(); renderGrid(); wave.draw(); updatePreview(video.currentTime * 1000); $("b-save").textContent = store.dirty ? "Kaydet (.ass) •" : "Kaydet (.ass)"; });
 window.addEventListener("resize", () => { renderGrid(); wave.draw(); });
-store.load(parseAss(SAMPLE()), "ornek.ass");
+/* ---------- Otomatik kayıt / kurtarma (localStorage) ---------- */
+const AUTOSAVE = "yoru.autosave";
+setInterval(() => { try { if (store.dirty) localStorage.setItem(AUTOSAVE, JSON.stringify({ name: store.name, ass: serializeAss(store.file), t: Date.now() })); } catch { /* kota */ } }, 15000);
+let recovered = false;
+try {
+  const raw = localStorage.getItem(AUTOSAVE);
+  if (raw) { const o = JSON.parse(raw); store.load(parseAss(o.ass), o.name); store.dirty = true; recovered = true; setTimeout(() => status("Önceki oturum kurtarıldı — kaydetmeyi unutmayın"), 0); }
+} catch { /* yok say */ }
+if (!recovered) store.load(parseAss(SAMPLE()), "ornek.ass");
 function SAMPLE() {
   return `[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,64,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,40,40,50,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.50,Default,,0,0,0,,Yoru'ya hoş geldiniz.\nDialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\\i1}Aegisub{\\i0} Lua betiklerinizi yükleyin,\\Nve gece boyu gelişen sürümleri deneyin.\n`;
 }

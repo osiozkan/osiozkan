@@ -35,6 +35,44 @@ function getfenv(f)
   end
   return _G
 end
+-- LuaJIT, tam sayı bekleyen yerlerde ondalıkları sessizce keser; Lua 5.3 hata verir. Aynı davranışı sağla.
+do
+  local function trunc(x)
+    if math.type(x) == "float" then
+      if x ~= x or x == math.huge or x == -math.huge then return x end
+      return math.tointeger(x >= 0 and math.floor(x) or math.ceil(x)) or x
+    end
+    if type(x) == "string" then local n = tonumber(x); if n then return trunc(n) end end
+    return x
+  end
+  local function wrap(tbl, name, ...)
+    local f, idx = tbl[name], { ... }
+    tbl[name] = function(...)
+      local a = table.pack(...)
+      for _, i in ipairs(idx) do if i <= a.n and a[i] ~= nil then a[i] = trunc(a[i]) end end
+      return f(table.unpack(a, 1, a.n))
+    end
+  end
+  wrap(string, "sub", 2, 3); wrap(string, "rep", 2); wrap(string, "byte", 2, 3); wrap(string, "char", 1, 2, 3, 4, 5, 6, 7, 8)
+  wrap(table, "insert", 2); wrap(table, "remove", 2); wrap(table, "concat", 3, 4)
+  local rnd = math.random
+  math.random = function(m, n) if m ~= nil then m = trunc(m) end; if n ~= nil then n = trunc(n) end; return rnd(m, n) end
+  local fmt = string.format
+  string.format = function(f, ...)
+    local hasfloat = false
+    for i = 1, select("#", ...) do if math.type((select(i, ...))) == "float" then hasfloat = true; break end end
+    if not hasfloat then return fmt(f, ...) end
+    local args = table.pack(...)
+    local k = 0
+    for spec in f:gmatch("%%[%-%+ #0]*%d*%.?%d*([%a%%])") do
+      if spec ~= "%" then
+        k = k + 1
+        if spec:find("[dicouxX]") and args[k] ~= nil then args[k] = trunc(args[k]) end
+      end
+    end
+    return fmt(f, table.unpack(args, 1, args.n))
+  end
+end
 -- 5.3'te tam sayı bölmesi/bit işleci farkları için LuaJIT 'bit' kütüphanesi
 do
   local function tobit(x) x = math.tointeger(math.floor(x)) or 0; x = x & 0xFFFFFFFF; if x >= 0x80000000 then x = x - 0x100000000 end; return x end
@@ -166,13 +204,16 @@ do
 end
 
 ---------------------------------------------------------------- Altyazı nesnesi
+local raw_mt
 local function copy_line(l)
   local c = {}
-  for k, v in pairs(l) do c[k] = v end
+  for k, v in pairs(l) do if k ~= "raw" then c[k] = v end end
+  setmetatable(c, raw_mt)
   if l.extra then c.extra = {}; for k, v in pairs(l.extra) do c.extra[k] = v end end
   return c
 end
 
+local make_raw
 local function fmt_time(ms)
   ms = math.max(0, math.floor(ms + 0.5))
   local cs = (ms // 10) % 100
@@ -181,7 +222,7 @@ local function fmt_time(ms)
 end
 local function color_str(c) return c end
 
-local function make_raw(l)
+function make_raw(l)
   if l.class == "dialogue" then
     return string.format("%s: %d,%s,%s,%s,%s,%d,%d,%d,%s,%s", l.comment and "Comment" or "Dialogue", l.layer or 0,
       fmt_time(l.start_time or 0), fmt_time(l.end_time or 0), l.style or "Default", l.actor or "",
@@ -195,6 +236,7 @@ local function make_raw(l)
   return l.raw or ""
 end
 
+raw_mt = { __index = function(t, k) if k == "raw" then return make_raw(t) end end }
 local function norm_color(c) c = tostring(c or "&H00FFFFFF"); if c:sub(-1) ~= "&" then c = c .. "&" end; return c end
 local function from_js_style(s)
   return { class = "style", section = "[V4+ Styles]", name = s.name, fontname = s.fontname, fontsize = s.fontsize,
@@ -218,14 +260,14 @@ local function build_lines(data)
   local lines = {}
   for _, kv in ipairs(data.info) do
     local l = { class = "info", section = "[Script Info]", key = kv[1], value = kv[2] }
-    l.raw = make_raw(l); lines[#lines + 1] = l
+    setmetatable(l, raw_mt); lines[#lines + 1] = l
   end
-  for _, s in ipairs(data.styles) do local l = from_js_style(s); l.raw = make_raw(l); lines[#lines + 1] = l end
+  for _, s in ipairs(data.styles) do local l = from_js_style(s); setmetatable(l, raw_mt); lines[#lines + 1] = l end
   for _, e in ipairs(data.events) do
-    local l = { class = "dialogue", section = "[Events]", comment = e.comment, layer = e.layer, start_time = e.start, end_time = e.end_,
+    local l = { class = "dialogue", section = "[Events]", comment = e.comment, layer = e.layer, start_time = e.start, end_time = e["end"],
       style = e.style, actor = e.actor, margin_l = e.marginL, margin_r = e.marginR, margin_t = e.marginV, margin_b = e.marginV,
       margin_v = e.marginV, effect = e.effect, text = e.text, extra = {} }
-    l.raw = make_raw(l); lines[#lines + 1] = l
+    setmetatable(l, raw_mt); lines[#lines + 1] = l
   end
   return lines
 end
@@ -268,13 +310,13 @@ local function new_subs(lines)
       if type(k) == "number" then
         local l = lines[k]
         if not l then error("Requested out-of-range line from subtitle file: " .. tostring(k), 2) end
-        local c = copy_line(l); c.raw = l.raw; return c
+        return copy_line(l)
       end
       return methods[k]
     end,
     __newindex = function(_, k, v)
       if type(k) ~= "number" or k < 1 or k > #lines + 1 then error("Attempt to write out-of-range line to subtitle file: " .. tostring(k), 2) end
-      v = copy_line(v); v.raw = make_raw(v); lines[k] = v
+      v = copy_line(v); lines[k] = v
     end,
     __len = function() return #lines end,
   })
@@ -468,15 +510,14 @@ local function make_input(data)
   return lines, new_subs(lines)
 end
 
-function __validate(id, input_json)
+function __validate(id, data)
   local m = macros[id]
-  if not m then return json.encode({ ok = false }) end
-  if not m.validate then return json.encode({ ok = true }) end
-  local data = json.decode(input_json)
+  if not m then return { ok = false } end
+  if not m.validate then return { ok = true } end
   local lines, subs = make_input(data)
   local ok, r, msg = pcall(m.validate, subs, data.sel or {}, data.active or 1)
-  if not ok then return json.encode({ ok = false, message = tostring(r) }) end
-  return json.encode({ ok = r and true or false, message = msg })
+  if not ok then return { ok = false, message = tostring(r) } end
+  return { ok = r and true or false, message = msg }
 end
 
 local function finish(ra, rb)
@@ -492,26 +533,24 @@ local function step(resp)
   local ok = res[1]
   if not ok then
     local e = res[2]
-    if e == cancel_marker then return json.encode({ status = "cancelled" }) end
-    return json.encode({ status = "error", message = tostring(e) })
+    if e == cancel_marker then return { status = "cancelled" } end
+    return { status = "error", message = tostring(e) }
   end
   if coroutine.status(run.co) == "suspended" then
-    return json.encode({ status = "request", req = res[2] })
+    return { status = "request", req = res[2] }
   end
   -- bitti: xpcall(fn) → true, r1, r2
   if res[2] == false then
     local e = res[3]
-    if e == cancel_marker then return json.encode({ status = "cancelled" }) end
-    return json.encode({ status = "error", message = tostring(e) })
+    if e == cancel_marker then return { status = "cancelled" } end
+    return { status = "error", message = tostring(e) }
   end
-  return json.encode(finish(res[3], res[4]))
+  return finish(res[3], res[4])
 end
 
-function __start(id, input_json)
+function __start(id, data)
   local m = macros[id]
-  if not m then return json.encode({ status = "error", message = "unknown macro" }) end
-  local data = json.decode(input_json)
-  for _, e in ipairs(data.events) do e.end_ = e["end"] end
+  if not m then return { status = "error", message = "unknown macro" } end
   local lines, subs = make_input(data)
   run = { lines = lines, subs = subs }
   local sel = data.sel or {}
@@ -539,7 +578,7 @@ function __start(id, input_json)
   return step(nil)
 end
 
-function __resume(resp_json) return step(json.decode(resp_json)) end
+function __resume(resp) return step(resp) end
 
 package.preload["aegisub.json"] = function() return json end
 __json = json

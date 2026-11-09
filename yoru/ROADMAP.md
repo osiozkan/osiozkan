@@ -3,7 +3,7 @@
 > Gece çalışmaları buradan devam eder: her koşu önce bu dosyayı okur, "Sıradaki" listesinden ilerler, bitince günlüğe ekler. Test geçmeden commit yok (`npm test`, `npx tsc --noEmit`, `node e2e/smoke.mjs`).
 
 ## Günlük
-- **2026-11-09 (Gece 1)** — Depo boştu; sıfırdan: ASS/SRT/VTT çekirdeği, QC, toplu işlemler, Aegisub-uyumlu Lua çalışma ortamı (fengari, LuaJIT sayı biçimi yaması), web arayüzü (ızgara, düzenleme, video önizleme, dalga formu, stil yöneticisi, QC, Lua makro çalıştırma). 14 birim testi + tarayıcı duman testi.
+- **2026-11-09 (Gece 1)** — Depo boştu; sıfırdan: ASS/SRT/VTT çekirdeği, QC, toplu işlemler, Aegisub-uyumlu Lua çalışma ortamı (fengari, LuaJIT sayı biçimi yaması), web arayüzü (ızgara, düzenleme, video önizleme, dalga formu, stil yöneticisi, QC, Lua makro çalıştırma). Gece sonu: Lua köprüsü yerel tablo aktarımına geçti (50k satır ≈ 6 sn; JSON ayrıştırıcı kuadratikti), LuaJIT uyumu (`%d`/`sub`/`rep` ondalık argümanları keser), LRC/SBV/TTML, otomatik kayıt/kurtarma. 17 birim testi + tarayıcı duman testi.
 
 ## Sıradaki (öncelik sırasıyla)
 1. **Kullanıcının Lua betikleriyle uyumluluk sınaması** — gerçek betikleri (`kara-templater`, `Automation 4 templater`, `cleantags`, `Selection Sort` vb.) `test/fixtures/` içine alıp çalıştır; eksik API'leri tamamla. (Kullanıcıdan betiklerini repoya eklemesi istenecek.)

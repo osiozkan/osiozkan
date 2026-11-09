@@ -94,6 +94,7 @@ export function detectAndParse(name: string, src: string): AssFile {
   const ext = name.toLowerCase().split(".").pop();
   const head = src.slice(0, 400);
   if (ext === "ass" || ext === "ssa" || /\[Script Info\]/i.test(head)) return parseAssLazy(src);
+  if (ext === "lrc") return parseLrc(src);
   if (ext === "vtt" || /^﻿?WEBVTT/.test(head)) return parseVtt(src);
   return parseSrt(src);
 }
@@ -103,3 +104,32 @@ const parseAssLazy = parseAss;
 
 export function withTitle(f: AssFile, title: string): AssFile { setInfo(f, "Title", title); return f; }
 export type { Event };
+
+/* ---- Ek biçimler: LRC, SBV (YouTube), TTML (basit) ---- */
+const lrcT = (ms: number) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000; return `${String(m).padStart(2, "0")}:${s.toFixed(2).padStart(5, "0")}`; };
+export function toLrc(f: AssFile): string {
+  return f.events.filter((e) => !e.comment).slice().sort((a, b) => a.start - b.start).map((e) => `[${lrcT(e.start)}]${stripTags(e.text)}`).join("\n") + "\n";
+}
+export function parseLrc(src: string): AssFile {
+  const f = newFile(); const rows: { t: number; text: string }[] = [];
+  for (const line of src.replace(/\r/g, "").split("\n")) {
+    const times = [...line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
+    if (!times.length) continue;
+    const text = line.replace(/\[[^\]]*\]/g, "").trim();
+    for (const m of times) rows.push({ t: Math.round((+m[1] * 60 + +m[2]) * 1000), text });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  rows.forEach((r, i) => f.events.push(newEvent({ start: r.t, end: rows[i + 1]?.t ?? r.t + 3000, text: r.text })));
+  return f;
+}
+const sbvT = (ms: number) => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`; };
+export function toSbv(f: AssFile): string {
+  return f.events.filter((e) => !e.comment).slice().sort((a, b) => a.start - b.start).map((e) => `${sbvT(e.start)},${sbvT(e.end)}\n${stripTags(e.text, false).replace(/ +/g, " ")}\n`).join("\n");
+}
+const xmlEsc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as any)[c]);
+export function toTtml(f: AssFile, lang = "tr"): string {
+  const t = (ms: number) => formatSrtTime(ms, ".");
+  const body = f.events.filter((e) => !e.comment).slice().sort((a, b) => a.start - b.start)
+    .map((e) => `      <p begin="${t(e.start)}" end="${t(e.end)}">${xmlEsc(stripTags(e.text, true)).replace(/\\N/g, "<br/>")}</p>`).join("\n");
+  return `<?xml version="1.0" encoding="utf-8"?>\n<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="${lang}">\n  <body>\n    <div>\n${body}\n    </div>\n  </body>\n</tt>\n`;
+}

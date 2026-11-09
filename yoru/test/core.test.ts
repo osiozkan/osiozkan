@@ -72,3 +72,13 @@ describe("ops/qc", () => {
     expect(runQc(f).some((i) => i.code === "cps")).toBe(true);
   });
 });
+import { toLrc, parseLrc, toSbv, toTtml } from "../src/core/formats";
+describe("ek biçimler", () => {
+  it("lrc/sbv/ttml", () => {
+    const f = parseAss(SAMPLE);
+    expect(toLrc(f)).toContain("[00:01.00]Merhaba, dünya ikinci satır".replace(" ikinci", " ikinci"));
+    expect(parseLrc("[00:01.50]a\n[00:03.00]b").events.map((e) => [e.start, e.end])).toEqual([[1500, 3000], [3000, 6000]]);
+    expect(toSbv(f)).toContain("0:00:01.000,0:00:03.500");
+    expect(toTtml(f)).toContain('begin="00:00:01.000"');
+  });
+});

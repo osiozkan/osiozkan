@@ -88,3 +88,27 @@ end)`);
     expect(res.file!.events[0].text).toBe("k_ra153");
   });
 });
+
+describe("LuaJIT davranış uyumu", () => {
+  it("ondalık tamsayı argümanları kesilir, sayılar tam sayı gibi yazılır", async () => {
+    const { rt, id } = setup(`
+aegisub.register_macro("n", "", function(subs)
+  local l = subs[4]
+  l.text = string.format("%d|%05.1f|%x", 7/2, 3.14159, 255.9) .. ("abcdef"):sub(1, 5/2) .. ("x"):rep(2.7) .. (10/2) .. "/" .. 2^3 .. "/" .. math.floor(7/2)
+  subs[4] = l
+end)`);
+    const res = await rt.run(id, parseAss(ASS), []);
+    expect(res.message).toBeUndefined();
+    expect(res.file!.events[0].text).toBe("3|003.1|ffabxx5/8/3");
+  });
+  it("50k satırlık dosyada makro makul sürede çalışır", async () => {
+    const { rt, id } = setup(`aegisub.register_macro("p","",function(subs) for i=1,#subs do local l=subs[i]; if l.class=="dialogue" then l.start_time=l.start_time+10; subs[i]=l end end end)`);
+    const f = parseAss(ASS);
+    f.events = Array.from({ length: 50000 }, (_, i) => ({ ...f.events[1], start: i * 100, end: i * 100 + 90 }));
+    const t0 = Date.now();
+    const res = await rt.run(id, f, []);
+    expect(res.file!.events.length).toBe(50000);
+    expect(res.file!.events[49999].start).toBe(49999 * 100 + 10);
+    expect(Date.now() - t0).toBeLessThan(15000);
+  }, 30000);
+});

@@ -11,7 +11,7 @@
   <strong class="brand">夜 Yoru</strong>
   <button id="b-open" title="Ctrl+O">Aç</button>
   <button id="b-save" title="Ctrl+S">Kaydet (.ass)</button>
-  <select id="b-export"><option value="">Dışa aktar…</option><option>srt</option><option>vtt</option><option>txt</option></select>
+  <select id="b-export"><option value="">Dışa aktar…</option><option>srt</option><option>vtt</option><option>lrc</option><option>sbv</option><option>ttml</option><option>txt</option></select>
   <span class="sep"></span>
   <button id="b-undo" title="Ctrl+Z">↶</button><button id="b-redo" title="Ctrl+Y">↷</button>
   <span class="sep"></span>
@@ -53,7 +53,7 @@
     <div id="grid"><div id="grid-inner"></div></div>
   </section>
 </main>
-<input type="file" id="f-open" accept=".ass,.ssa,.srt,.vtt,.txt" hidden/>
+<input type="file" id="f-open" accept=".ass,.ssa,.srt,.vtt,.lrc,.txt" hidden/>
 <input type="file" id="f-video" accept="video/*,audio/*" hidden/>
 <input type="file" id="f-lua" accept=".lua" hidden/>
 <script type="module" src="/src/ui/main.ts"></script>
