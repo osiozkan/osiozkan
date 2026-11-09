@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Yoru — Anime Altyazı Stüdyosu</title>
+<link rel="stylesheet" href="/src/ui/style.css"/>
+</head>
+<body>
+<header id="bar">
+  <strong class="brand">夜 Yoru</strong>
+  <button id="b-open" title="Ctrl+O">Aç</button>
+  <button id="b-save" title="Ctrl+S">Kaydet (.ass)</button>
+  <select id="b-export"><option value="">Dışa aktar…</option><option>srt</option><option>vtt</option><option>txt</option></select>
+  <span class="sep"></span>
+  <button id="b-undo" title="Ctrl+Z">↶</button><button id="b-redo" title="Ctrl+Y">↷</button>
+  <span class="sep"></span>
+  <button id="b-video">Video/Ses aç</button>
+  <button id="b-find" title="Ctrl+F">Bul/Değiştir</button>
+  <button id="b-shift">Zaman kaydır</button>
+  <button id="b-styles">Stiller</button>
+  <button id="b-props">Betik özellikleri</button>
+  <button id="b-qc">Denetim (QC)</button>
+  <button id="b-auto">Otomasyon</button>
+  <span id="status" class="grow"></span>
+</header>
+<main>
+  <section id="left">
+    <div id="vwrap"><video id="video" controls></video><div id="overlay"></div><div id="novideo">Video yüklenmedi — "Video/Ses aç"</div></div>
+    <canvas id="wave"></canvas>
+    <div id="edit">
+      <div class="row">
+        <label>Başlangıç <input id="e-start" size="11"/></label>
+        <label>Bitiş <input id="e-end" size="11"/></label>
+        <label>Süre <input id="e-dur" size="7" disabled/></label>
+        <label>Katman <input id="e-layer" type="number" size="3" style="width:56px"/></label>
+        <label>Stil <select id="e-style"></select></label>
+        <label>Oyuncu <input id="e-actor" size="10"/></label>
+        <label>Efekt <input id="e-effect" size="8"/></label>
+        <label><input id="e-comment" type="checkbox"/> Yorum</label>
+        <span id="e-cps"></span>
+      </div>
+      <textarea id="e-text" rows="3" placeholder="Altyazı metni (ASS etiketleri desteklenir; satır sonu: \N)"></textarea>
+      <div class="row small">
+        <button id="e-split">Böl (imleçte)</button><button id="e-merge">Birleştir</button>
+        <button id="e-new">Yeni satır</button><button id="e-dup">Çoğalt</button><button id="e-del">Sil</button>
+        <button id="e-i">i</button><button id="e-b">b</button><button id="e-u">u</button><button id="e-an8">{\an8}</button><button id="e-nl">\N</button>
+      </div>
+    </div>
+  </section>
+  <section id="right">
+    <div id="grid-head"></div>
+    <div id="grid"><div id="grid-inner"></div></div>
+  </section>
+</main>
+<input type="file" id="f-open" accept=".ass,.ssa,.srt,.vtt,.txt" hidden/>
+<input type="file" id="f-video" accept="video/*,audio/*" hidden/>
+<input type="file" id="f-lua" accept=".lua" hidden/>
+<script type="module" src="/src/ui/main.ts"></script>
+</body>
+</html>
