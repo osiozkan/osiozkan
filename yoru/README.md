@@ -25,3 +25,7 @@ npm run build && node e2e/smoke.mjs   # tarayıcı duman testi (Playwright)
 ## Aegisub Lua uyumluluğu (şimdiki durum)
 Var: `register_macro/filter`, `subs[i]`/atama/`insert/append/delete/deleterange/n`, `aegisub.dialog.display/open/save`, `progress`, `debug.out`/`log`, `cancel`, `text_extents`, `frame_from_ms`/`ms_from_frame`, `video_size`, `keyframes`, `project_properties`, `decode_path`, `clipboard`, `re.*`, `unicode.*`, `util.*`, `karaskel.collect_head/preproc_line*`, `include`/`require`, Lua 5.1 uyumluluk katmanı (`unpack`, `setfenv`, `loadstring`, `math.pow`, `bit`).
 Eksik/yaklaşık: bkz. `ROADMAP.md`.
+
+## Kısayollar
+`Ctrl+O/S/F/Z/Y` aç/kaydet/bul/geri al/yinele · `Ctrl+Enter` sonraki satır · `↑/↓` satır seç · `Del` sil · `Boşluk` oynat/duraklat ·
+`Alt+Z` / `Alt+X` başlangıç/bitişi şimdiki ana ayarla · `Alt+←/→` ±1 kare · `Alt+Boşluk` satırı oynat · dalga formunda kenarları sürükle, tekerlek ile yakınlaştır.

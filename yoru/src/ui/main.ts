@@ -284,8 +284,15 @@ $("b-auto").onclick = async () => {
 };
 
 /* ---------- Klavye ---------- */
+const nowMs = () => Math.round(video.currentTime * 1000);
+const setTime = (which: "start" | "end") => { const e = store.activeEvent; if (!e || !video.src) return; store.checkpoint(); e[which] = nowMs(); if (e.end < e.start) { which === "start" ? (e.end = e.start) : (e.start = e.end); } store.emit(); };
 document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
+  // Zamanlama kısayolları (Alt+Z/X: başlangıç/bitiş = şimdiki an, Alt+←/→: ±1 kare, Alt+Space: satırı oynat)
+  if (e.altKey && e.key.toLowerCase() === "z") { e.preventDefault(); setTime("start"); return; }
+  if (e.altKey && e.key.toLowerCase() === "x") { e.preventDefault(); setTime("end"); return; }
+  if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); seekTo(nowMs() + (e.key === "ArrowRight" ? 1 : -1) * Math.round(1000 / store.fps)); return; }
+  if (e.altKey && e.key === " ") { e.preventDefault(); const a = store.activeEvent; if (a && video.src) { seekTo(a.start); video.play(); const stop = () => { if (nowMs() >= a.end) { video.pause(); video.removeEventListener("timeupdate", stop); } }; video.addEventListener("timeupdate", stop); } return; }
   if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? store.redo() : store.undo(); }
   else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); store.redo(); }
   else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
