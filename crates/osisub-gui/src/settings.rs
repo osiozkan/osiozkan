@@ -31,6 +31,8 @@ pub struct Settings {
     pub grid_layer: bool,
     pub grid_effect: bool,
     pub grid_margins: bool,
+    /// Elle yüklenen (otomatik yükleme klasörü dışındaki) betikler; açılışta yeniden yüklenir
+    pub scripts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -67,6 +69,7 @@ impl Default for Settings {
             grid_layer: true,
             grid_effect: true,
             grid_margins: false,
+            scripts: vec![],
         }
     }
 }

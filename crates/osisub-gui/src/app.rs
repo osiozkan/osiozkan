@@ -277,6 +277,11 @@ impl App {
             }
         }
         all.extend(user_auto);
+        let settings = Settings::load();
+        for s in &settings.scripts {
+            let p = PathBuf::from(s);
+            if p.is_file() && !all.contains(&p) { all.push(p); }
+        }
         let mut loaded_scripts = vec![];
         for s in all {
             loaded_scripts.push(s.clone());
@@ -350,7 +355,7 @@ impl App {
             gloss_findings: vec![],
             help_open: false,
             about_open: false,
-            settings: Settings::load(),
+            settings,
             reference: None,
             ref_lines: vec![],
             fonts_open: false,
@@ -688,11 +693,33 @@ impl App {
     }
 
     fn load_lua(&mut self, p: PathBuf) {
+        // Kalıcı liste: otomatik yükleme klasöründekiler zaten her açılışta gelir
+        let in_autoload = autoload_dir().map_or(false, |d| p.parent() == Some(d.as_path()));
+        let ps = p.to_string_lossy().to_string();
+        if !in_autoload && !self.settings.scripts.contains(&ps) {
+            self.settings.scripts.push(ps);
+            self.settings.save();
+        }
+        if self.loaded_scripts.contains(&p) {
+            // aynı betiği iki kez yükleme: motoru yeniden yükle (betik geliştirirken değişiklikleri alır)
+            self.reload_scripts();
+            return;
+        }
         self.loaded_scripts.push(p.clone());
         self.worker.send(Cmd::Load(p));
     }
 
     /// Motoru sıfırlayıp tüm betikleri yeniden yükler (betik geliştirirken değişiklikleri almak için).
+    /// Elle yüklenmiş betiği kalıcı listeden çıkarır ve motoru onsuz yeniden yükler.
+    pub(crate) fn remove_script(&mut self, p: &std::path::Path) {
+        let ps = p.to_string_lossy().to_string();
+        self.settings.scripts.retain(|s| *s != ps);
+        self.settings.save();
+        self.loaded_scripts.retain(|x| x != p);
+        self.reload_scripts();
+        self.status = format!("Betik kaldırıldı: {}", p.display());
+    }
+
     fn reload_scripts(&mut self) {
         self.dialog = None;
         self.running = None;

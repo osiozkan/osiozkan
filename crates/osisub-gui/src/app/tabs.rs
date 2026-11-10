@@ -579,6 +579,23 @@ impl App {
             if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
         }
         if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
+        egui::CollapsingHeader::new(format!("Yüklü betik dosyaları ({})", self.loaded_scripts.len())).id_salt("script_files").show(ui, |ui| {
+            let mut remove: Option<PathBuf> = None;
+            for p in self.loaded_scripts.clone() {
+                let ps = p.to_string_lossy().to_string();
+                ui.horizontal(|ui| {
+                    if self.settings.scripts.contains(&ps) {
+                        if ui.small_button("Kaldır").on_hover_text("Listeden çıkar (dosya silinmez)").clicked() { remove = Some(p.clone()); }
+                    } else if ps.starts_with(osisub_lua::BUILTIN_PREFIX) {
+                        ui.label(RichText::new("yerleşik").small().weak());
+                    } else {
+                        ui.label(RichText::new("otomatik").small().weak()).on_hover_text("Otomatik yükleme klasöründen ya da komut satırından");
+                    }
+                    ui.label(RichText::new(&ps).monospace().small());
+                });
+            }
+            if let Some(p) = remove { self.remove_script(&p); }
+        });
         if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if ui.small_button("Durdur").on_hover_text("Betik motorunu sıfırlar (takılan betikler için)").clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
         let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
         for (id, script, name, desc, kind) in list {
