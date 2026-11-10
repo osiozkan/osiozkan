@@ -27,6 +27,8 @@ pub enum VideoTool {
     Clip,
     VClip,
     Rotate,
+    /// \frx/\fry (Aegisub Rotate XY)
+    RotateXY,
     Scale,
 }
 
@@ -822,6 +824,47 @@ impl Media {
                     let nt = osisub_core::overrides::remove_initial(&d.text, "frz");
                     if nt != d.text {
                         doc.edit("Dönmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
+            VideoTool::RotateXY => {
+                let get = |n: &str| osisub_core::overrides::get_initial(&d.text, n).and_then(|t| t.number()).unwrap_or(0.0) as f32;
+                let (frx, fry) = (get("frx"), get("fry"));
+                let org = osisub_core::overrides::get_initial(&d.text, "org").map(|t| t.args()).and_then(|a| Some((a.first()?.trim().parse::<f32>().ok()?, a.get(1)?.trim().parse::<f32>().ok()?))).unwrap_or(cur);
+                let o = to_screen(org.0, org.1);
+                // Döndürülmüş bir kare taslağı: frx dikey, fry yatay sıkıştırma olarak gösterilir
+                let (w, h) = (60.0 * fry.to_radians().cos().abs().max(0.05), 40.0 * frx.to_radians().cos().abs().max(0.05));
+                p.rect_stroke(Rect::from_center_size(o, egui::vec2(w * 2.0, h * 2.0)), 0.0, Stroke::new(1.5, col), egui::StrokeKind::Middle);
+                p.line_segment([o - egui::vec2(80.0, 0.0), o + egui::vec2(80.0, 0.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x6b, 0xc5, 0xe5, 160)));
+                p.line_segment([o - egui::vec2(0.0, 60.0), o + egui::vec2(0.0, 60.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x6b, 0xc5, 0xe5, 160)));
+                p.circle_filled(o, 4.0, Color32::WHITE);
+                p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frx {:.1}°  fry {:.1}°", frx, fry), egui::FontId::monospace(11.0), col);
+                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "yatay sürükle: \\fry · dikey: \\frx · Shift: 15° adım · sağ tık: sıfırla", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                if r.drag_started() {
+                    self.vt_drag = Some((0, (frx, fry)));
+                }
+                if r.dragged() {
+                    if let (Some((_, (x0, y0))), Some(origin), Some(pos)) = (self.vt_drag, press, ptr) {
+                        let dv = pos - origin;
+                        let snap = ui.input(|i| i.modifiers.shift);
+                        let q = |v: f32| { let v = if snap { (v / 15.0).round() * 15.0 } else { (v * 10.0).round() / 10.0 }; format!("{}", v) };
+                        let ny = y0 + dv.x * 0.5;
+                        let nx = x0 - dv.y * 0.5;
+                        let t1 = osisub_core::overrides::set_initial(&d.text, "fry", &q(ny));
+                        let t2 = osisub_core::overrides::set_initial(&t1, "frx", &q(nx));
+                        if t2 != d.text {
+                            let key = format!("vt:frxy:{}", at);
+                            doc.edit_keyed("3B döndür", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = t2));
+                        }
+                    }
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                }
+                if r.secondary_clicked() {
+                    let nt = osisub_core::overrides::remove_initial(&osisub_core::overrides::remove_initial(&d.text, "frx"), "fry");
+                    if nt != d.text {
+                        doc.edit("3B dönmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
                     }
                 }
             }

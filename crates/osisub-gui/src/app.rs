@@ -433,6 +433,7 @@ impl App {
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
             Some("vclip") => app.media.tool = crate::media_ui::VideoTool::VClip,
             Some("rotate") => app.media.tool = crate::media_ui::VideoTool::Rotate,
+            Some("rotatexy") => app.media.tool = crate::media_ui::VideoTool::RotateXY,
             Some("scale") => app.media.tool = crate::media_ui::VideoTool::Scale,
             Some("spectrum") => app.media.spectrum = true,
             Some("play") => app.autoplay = true,
@@ -1213,7 +1214,7 @@ impl App {
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.menu_button("Video aracı", |ui| {
                     use crate::media_ui::VideoTool as T;
-                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
+                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
                         if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
                     }
                 });
