@@ -229,7 +229,15 @@ impl App {
             job.wrap.max_width = wrap_width;
             ui.fonts_mut(|f| f.layout_job(job))
         };
-        ui.add(TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N"));
+        let out = TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N").show(ui);
+        if let Some(c) = out.cursor_range {
+            self.editor_cursor = Some((at, c.primary.index.into()));
+        }
+        let mut split_req: Option<bool> = None; // Some(false) = orantılı süre, Some(true) = video karesi
+        out.response.context_menu(|ui| {
+            if ui.button("İmleçte böl (süre metne orantılı)").clicked() { split_req = Some(false); ui.close(); }
+            if ui.add_enabled(self.media.framerate().is_some(), egui::Button::new("İmleçte böl (video karesinde)")).clicked() { split_req = Some(true); ui.close(); }
+        });
         let cps = qc::cps(&nd);
         let vis = osisub_core::tags::visible_text(&nd.text);
         let longest = osisub_core::tags::max_line_len(&nd.text);
@@ -248,6 +256,12 @@ impl App {
                 if best.is_empty() { ui.label(RichText::new("(eşleşen satır yok)").weak()); }
                 for (_, t) in best.iter().take(3) { ui.label(RichText::new(t).italics()); }
             });
+        }
+        if let Some(at_frame) = split_req {
+            if nd == d {
+                self.split_at_cursor(at_frame);
+                return;
+            }
         }
         if nd != d {
             let key = if nd.text != d.text { format!("text:{}", at) } else if nd.start_time != d.start_time || nd.end_time != d.end_time { format!("time:{}", at) } else { String::new() };

@@ -156,6 +156,8 @@ pub struct App {
     hotkeys_open: bool,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
+    /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
+    editor_cursor: Option<(usize, usize)>,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -211,6 +213,8 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
+    ("split_cursor", "İmleçte böl (süre metne orantılı)"),
+    ("split_cursor_frame", "İmleçte böl (video karesinde)"),
     ("snap_scenes", "Sahne değişimlerine yapıştır (≤3 kare)"),
     ("tool_none", "Video aracı: yok"),
     ("tool_pos", "Video aracı: konum"),
@@ -338,6 +342,7 @@ impl App {
             attach_open: false,
             compare: None,
             hotkeys_open: false,
+            editor_cursor: None,
             spell_rows: std::cell::RefCell::new((u64::MAX, Default::default())),
             qc_media_key: (0, false),
             select_crit: Default::default(),
@@ -933,6 +938,30 @@ impl App {
         self.issues_key = rev;
     }
 
+    /// Etkin satırı düzenleme kutusundaki imleçten ikiye böler. Süre: görünür metin oranında
+    /// (Aegisub "Split at cursor (estimate times)") ya da videodaki karede.
+    pub(crate) fn split_at_cursor(&mut self, at_frame: bool) {
+        let at = self.doc.active;
+        let Some((cl, pos)) = self.editor_cursor.filter(|(l, _)| *l == at) else { self.status = "Önce düzenleme kutusunda imleci konumlandırın".into(); return };
+        let _ = cl;
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() else { return };
+        let t = if at_frame {
+            match self.media.framerate() { Some(fr) => fr.time_at_start(fr.frame_at(self.media.playhead)), None => return }
+        } else {
+            let before: String = d.text.chars().take(pos).collect();
+            let (n0, n) = (osisub_core::tags::visible_len(&before), osisub_core::tags::visible_len(&d.text).max(1));
+            let ms = d.start_time + (d.duration() as f64 * n0 as f64 / n as f64).round() as i64;
+            // kare hızı biliniyorsa kare sınırına
+            self.media.framerate().map_or(ms, |fr| fr.snap(ms))
+        };
+        if self.doc.split(at, pos, t) {
+            self.status = format!("Bölündü: {}", time::format_ass(t));
+            self.editor_cursor = None;
+        } else {
+            self.status = "Bu konumda bölünemez (etiket içi, satır başı/sonu ya da süre dışı)".into();
+        }
+    }
+
     /// Yerleşik komutu çalıştırır (kısayoldan).
     pub(crate) fn run_command(&mut self, id: &str, ctx: &egui::Context) {
         use crate::media_ui::VideoTool as T;
@@ -957,6 +986,8 @@ impl App {
             "line_next" => step_line(self, 1),
             "line_prev" => step_line(self, -1),
             "select_lines" => self.select_open = true,
+            "split_cursor" => self.split_at_cursor(false),
+            "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
                 if let Some(fr) = fr.filter(|_| !self.media.keyframes.is_empty()) {
                     let kf = self.media.keyframes.clone();
