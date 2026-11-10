@@ -11,6 +11,7 @@ pub mod overrides;
 pub mod paths;
 pub mod qc;
 pub mod search;
+pub mod select;
 pub mod srt;
 pub mod stats;
 pub mod tags;

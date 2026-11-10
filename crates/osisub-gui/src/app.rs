@@ -143,6 +143,9 @@ pub struct App {
     tm_dirty: bool,
     /// (etkin satır, tm_rev) için hesaplanmış öneriler
     tm_cache: (usize, u64, Vec<osisub_core::tm::Suggestion>),
+    /// "Satırları seç" penceresi
+    select_open: bool,
+    select_crit: osisub_core::select::Criteria,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -292,6 +295,8 @@ impl App {
             filter: String::new(),
             hotkey_capture: None,
             lua_error: None,
+            select_open: false,
+            select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
             tm_rev: 0,
             tm_dirty: false,
@@ -414,6 +419,7 @@ impl App {
             Some("stats") => app.stats_open = true,
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
+            Some("select") => app.select_open = true,
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
             Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
@@ -1057,6 +1063,7 @@ impl App {
                 if ui.add_enabled(self.doc.can_undo(), egui::Button::new(format!("Geri al{}", self.doc.undo_desc().map(|d| format!(": {}", d)).unwrap_or_default())).shortcut_text("Ctrl+Z")).clicked() { self.doc.undo(); ui.close(); }
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new("Yinele").shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
+                if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
                 if ui.add(egui::Button::new("Satır ekle").shortcut_text("Ctrl+Enter")).clicked() { self.doc.insert_after_active(); self.scroll_to = Some(self.doc.active); ui.close(); }
                 if ui.add(egui::Button::new("Çoğalt").shortcut_text("Ctrl+D")).clicked() { self.doc.duplicate_selected(); ui.close(); }
                 if ui.add(egui::Button::new("Sil").shortcut_text("Del")).clicked() { self.doc.delete_selected(); ui.close(); }
@@ -1394,6 +1401,7 @@ impl eframe::App for App {
         self.help_windows(&ctx);
         self.export_window(&ctx);
         self.lua_error_window(&ctx);
+        self.select_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

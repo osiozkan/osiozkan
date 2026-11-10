@@ -77,6 +77,7 @@
 - [ ] Video araçları: vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
+- [x] Satırları seç (Aegisub Select Lines): metin/stil/konuşan/efekt; içerir/tam/regex; ters; diyalog/yorum; yeni/ekle/çıkar/kesişim (Düzen menüsü)
 - [x] Lua makrolarına kısayol atama (Otomasyon sekmesi; settings.json `macro_hotkeys`)
 - [ ] Otomasyon yöneticisi (kaldır, kalıcı betik listesi), yerleşik komutlar için kısayol profili (Aegisub uyumlu)
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır

@@ -86,6 +86,58 @@ impl App {
         if !open || close { self.lua_error = None; }
     }
 
+    /// Aegisub "Satırları seç": alan + kip + eylem.
+    pub(super) fn select_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::search::Field;
+        use osisub_core::select::{Action, Mode};
+        if !self.select_open { return; }
+        let mut open = true;
+        let mut apply = false;
+        egui::Window::new("Satırları seç").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            let c = &mut self.select_crit;
+            let r = ui.add(TextEdit::singleline(&mut c.pattern).hint_text("desen (boş + Tam = alanı boş olanlar)").desired_width(320.0));
+            if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) { apply = true; }
+            ui.horizontal(|ui| {
+                ui.label("Alan:");
+                for (f, l) in [(Field::Text, "Metin"), (Field::Style, "Stil"), (Field::Actor, "Konuşan"), (Field::Effect, "Efekt")] { ui.radio_value(&mut c.field, f, l); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Eşleşme:");
+                for (m, l) in [(Mode::Contains, "İçerir"), (Mode::Exact, "Tam"), (Mode::Regex, "Düzenli ifade")] { ui.radio_value(&mut c.mode, m, l); }
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut c.match_case, "Büyük/küçük harf duyarlı");
+                ui.checkbox(&mut c.invert, "Eşleşmeyenleri seç");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Satırlar:");
+                ui.checkbox(&mut c.dialogues, "Diyalog");
+                ui.checkbox(&mut c.comments, "Yorum");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Seçim:");
+                for (a, l) in [(Action::Set, "Yeni seçim"), (Action::Add, "Ekle"), (Action::Subtract, "Çıkar"), (Action::Intersect, "Kesişim")] { ui.radio_value(&mut c.action, a, l); }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Seç").clicked() { apply = true; }
+                if ui.button("Kapat").clicked() { self.select_open = false; }
+            });
+        });
+        if apply {
+            match osisub_core::select::select(&self.doc.script, &self.select_crit, &self.doc.selection) {
+                Ok(sel) => {
+                    let n = sel.len();
+                    let active = if sel.contains(&self.doc.active) { self.doc.active } else { sel.first().copied().unwrap_or(self.doc.active) };
+                    self.doc.select(sel, active);
+                    self.scroll_to = Some(active);
+                    self.status = format!("{} satır seçildi", n);
+                }
+                Err(e) => self.status = format!("Desen hatası: {}", e),
+            }
+        }
+        if !open { self.select_open = false; }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
