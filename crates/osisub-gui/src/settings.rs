@@ -27,6 +27,10 @@ pub struct Settings {
     pub dict_dic: String,
     /// Lua makro kısayolları: (tuş birleşimi "Ctrl+Shift+K", betik adı, makro adı)
     pub macro_hotkeys: Vec<MacroHotkey>,
+    /// Izgara sütunları (Aegisub gibi): katman, efekt, kenar boşlukları
+    pub grid_layer: bool,
+    pub grid_effect: bool,
+    pub grid_margins: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -60,6 +64,9 @@ impl Default for Settings {
             dict_aff: String::new(),
             dict_dic: String::new(),
             macro_hotkeys: vec![],
+            grid_layer: true,
+            grid_effect: true,
+            grid_margins: false,
         }
     }
 }

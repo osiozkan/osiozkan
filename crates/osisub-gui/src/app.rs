@@ -1085,6 +1085,13 @@ impl App {
                 if ui.add(egui::Button::new("Uzaklaştır").shortcut_text("Ctrl -")).clicked() { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
                 if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
                 ui.separator();
+                ui.menu_button("Izgara sütunları", |ui| {
+                    let mut ch = ui.checkbox(&mut self.settings.grid_layer, "Katman").changed();
+                    ch |= ui.checkbox(&mut self.settings.grid_effect, "Efekt").changed();
+                    ch |= ui.checkbox(&mut self.settings.grid_margins, "Kenar boşlukları (Sol/Sağ/Dik)").changed();
+                    if ch { self.settings.save(); }
+                });
+                ui.separator();
                 if ui.add(egui::Button::new("Zamana git…").shortcut_text("Ctrl+G")).clicked() { self.goto_open = true; self.goto_focus = true; ui.close(); }
             });
             ui.menu_button("Video", |ui| {

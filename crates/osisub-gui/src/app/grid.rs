@@ -30,22 +30,28 @@ impl App {
         }
         let mods = ui.input(|i| i.modifiers);
         let has_ref = !self.ref_lines.is_empty();
+        let (show_layer, show_effect, show_margins) = (self.settings.grid_layer, self.settings.grid_effect, self.settings.grid_margins);
+        let extra_w = if show_layer { 28.0 } else { 0.0 } + if show_effect { 80.0 } else { 0.0 } + if show_margins { 3.0 * 34.0 } else { 0.0 };
         let avail_w = ui.available_width();
         let mut table = TableBuilder::new(ui)
             .striped(true)
             .sense(egui::Sense::click())
             .resizable(true)
             .cell_layout(egui::Layout::left_to_right(Align::Center))
-            .column(Column::exact(44.0))
+            .column(Column::exact(44.0));
+        if show_layer { table = table.column(Column::exact(28.0)); }
+        table = table
             .column(Column::exact(86.0))
             .column(Column::exact(86.0))
             .column(Column::exact(52.0))
             .column(Column::exact(44.0))
             .column(Column::initial(90.0).clip(true))
             .column(Column::initial(80.0).clip(true));
+        if show_effect { table = table.column(Column::initial(80.0).clip(true)); }
+        if show_margins { for _ in 0..3 { table = table.column(Column::exact(34.0)); } }
         if has_ref {
-            // Sabit sütunlar ≈ 482 px; kalanı Referans ve Metin eşit paylaşsın.
-            let w = ((avail_w - 482.0 - 16.0) / 2.0).max(120.0);
+            // Sabit sütunlar ≈ 482 px (+ isteğe bağlı sütunlar); kalanı Referans ve Metin eşit paylaşsın.
+            let w = ((avail_w - 482.0 - extra_w - 16.0) / 2.0).max(120.0);
             table = table.column(Column::initial(w).clip(true).resizable(true));
         }
         table = table.column(Column::remainder().clip(true));
@@ -62,7 +68,13 @@ impl App {
         let mut ctx_row: Option<usize> = None;
         table
             .header(22.0, |mut h| {
-                let titles: Vec<&str> = if has_ref { vec!["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Referans", "Metin"] } else { vec!["#", "Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan", "Metin"] };
+                let mut titles: Vec<&str> = vec!["#"];
+                if show_layer { titles.push("K"); }
+                titles.extend(["Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan"]);
+                if show_effect { titles.push("Efekt"); }
+                if show_margins { titles.extend(["Sol", "Sağ", "Dik"]); }
+                if has_ref { titles.push("Referans"); }
+                titles.push("Metin");
                 for t in titles {
                     h.col(|ui| { ui.strong(t); });
                 }
@@ -84,12 +96,19 @@ impl App {
                     };
                     let overlap = flags.map_or(false, |f| f.contains(&Kind::Overlap));
                     row.col(|ui| { ui.label(col((pos + 1).to_string(), None)); });
+                    if show_layer { row.col(|ui| { ui.label(col(d.layer.to_string(), if d.layer != 0 { Some(theme::ACCENT) } else { None })); }); }
                     row.col(|ui| { ui.label(col(time::format_ass(d.start_time), if overlap { Some(theme::BAD) } else { None })); });
                     row.col(|ui| { ui.label(col(time::format_ass(d.end_time), None)); });
                     row.col(|ui| { ui.label(col(format!("{:.2}", d.duration() as f64 / 1000.0), flags.and_then(|f| f.iter().find(|k| matches!(k, Kind::TooShort | Kind::TooLong | Kind::NegativeDuration)).map(|_| theme::WARN)))); });
-                    row.col(|ui| { ui.label(col(if cps.is_finite() { format!("{:.0}", cps) } else { "∞".into() }, flags.and_then(|f| f.contains(&Kind::ReadingSpeed).then_some(theme::BAD)))); });
+                    row.col(|ui| { ui.label(col(if d.comment { String::new() } else if cps.is_finite() { format!("{:.0}", cps) } else { "∞".into() }, flags.and_then(|f| f.contains(&Kind::ReadingSpeed).then_some(theme::BAD)))); });
                     row.col(|ui| { ui.label(RichText::new(&d.style).color(if flags.map_or(false, |f| f.contains(&Kind::UnknownStyle)) { theme::BAD } else { Color32::from_gray(180) })); });
                     row.col(|ui| { ui.label(RichText::new(&d.actor).weak()); });
+                    if show_effect { row.col(|ui| { ui.label(RichText::new(&d.effect).weak()); }); }
+                    if show_margins {
+                        for m in [d.margin_l, d.margin_r, d.margin_t] {
+                            row.col(|ui| { ui.label(col(if m == 0 { String::new() } else { m.to_string() }, None)); });
+                        }
+                    }
                     if has_ref {
                         let refs = &self.ref_lines;
                         let end = refs.partition_point(|r| r.0 < d.end_time);
