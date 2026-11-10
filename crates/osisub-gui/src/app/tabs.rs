@@ -547,7 +547,7 @@ impl App {
 
     pub(super) fn automation_tab(&mut self, ui: &mut egui::Ui) {
         if ui.button("Lua betiği yükle…").clicked() {
-            if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.load_lua(p); }
+            if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
         }
         if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
         if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if ui.small_button("Durdur").on_hover_text("Betik motorunu sıfırlar (takılan betikler için)").clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }

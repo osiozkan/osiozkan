@@ -1,0 +1,34 @@
+//! Pakete gömülü Lua modülleri (MoonScript derleyicisi + saf Lua LPeg). Otomatik değil: elle güncellenir.
+pub const MODULES: &[(&str, &str)] = &[
+    ("lpeg", include_str!("../lua/vendor/lulpeg.lua")),
+    ("moonscript.base", include_str!("../lua/vendor/moonscript/base.lua")),
+    ("moonscript.compile", include_str!("../lua/vendor/moonscript/compile.lua")),
+    ("moonscript.compile.statement", include_str!("../lua/vendor/moonscript/compile/statement.lua")),
+    ("moonscript.compile.value", include_str!("../lua/vendor/moonscript/compile/value.lua")),
+    ("moonscript.data", include_str!("../lua/vendor/moonscript/data.lua")),
+    ("moonscript.dump", include_str!("../lua/vendor/moonscript/dump.lua")),
+    ("moonscript.errors", include_str!("../lua/vendor/moonscript/errors.lua")),
+    ("moonscript", include_str!("../lua/vendor/moonscript/init.lua")),
+    ("moonscript.line_tables", include_str!("../lua/vendor/moonscript/line_tables.lua")),
+    ("moonscript.parse", include_str!("../lua/vendor/moonscript/parse.lua")),
+    ("moonscript.parse.env", include_str!("../lua/vendor/moonscript/parse/env.lua")),
+    ("moonscript.parse.literals", include_str!("../lua/vendor/moonscript/parse/literals.lua")),
+    ("moonscript.parse.util", include_str!("../lua/vendor/moonscript/parse/util.lua")),
+    ("moonscript.transform", include_str!("../lua/vendor/moonscript/transform.lua")),
+    ("moonscript.transform.accumulator", include_str!("../lua/vendor/moonscript/transform/accumulator.lua")),
+    ("moonscript.transform.class", include_str!("../lua/vendor/moonscript/transform/class.lua")),
+    ("moonscript.transform.comprehension", include_str!("../lua/vendor/moonscript/transform/comprehension.lua")),
+    ("moonscript.transform.destructure", include_str!("../lua/vendor/moonscript/transform/destructure.lua")),
+    ("moonscript.transform.names", include_str!("../lua/vendor/moonscript/transform/names.lua")),
+    ("moonscript.transform.statement", include_str!("../lua/vendor/moonscript/transform/statement.lua")),
+    ("moonscript.transform.statements", include_str!("../lua/vendor/moonscript/transform/statements.lua")),
+    ("moonscript.transform.transformer", include_str!("../lua/vendor/moonscript/transform/transformer.lua")),
+    ("moonscript.transform.value", include_str!("../lua/vendor/moonscript/transform/value.lua")),
+    ("moonscript.types", include_str!("../lua/vendor/moonscript/types.lua")),
+    ("moonscript.util", include_str!("../lua/vendor/moonscript/util.lua")),
+    ("moonscript.version", include_str!("../lua/vendor/moonscript/version.lua")),
+];
+
+pub fn module(name: &str) -> Option<&'static str> {
+    MODULES.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}

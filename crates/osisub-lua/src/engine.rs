@@ -270,6 +270,10 @@ impl Engine {
         if src.starts_with("#!") {
             src.insert_str(0, "--");
         }
+        if path.extension().map_or(false, |x| x.eq_ignore_ascii_case("moon")) {
+            let f: Function = self.lua.globals().get("__osisub_moon_to_lua")?;
+            src = f.call((src, path.to_string_lossy().to_string()))?;
+        }
         let file = path.to_string_lossy().to_string();
         let dir = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
         let before = self.inner.borrow().macros.len();

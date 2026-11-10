@@ -51,6 +51,30 @@ package.preload["utf8"] = function()
   return f()
 end
 
+-- require: gömülü modüller (lpeg, moonscript.*) ve include klasörlerindeki .lua/.moon modülleri.
+-- Aegisub gibi .moon dosyaları MoonScript ile derlenip yüklenir.
+function __osisub_moon_to_lua(src, chunk)
+  local moon = require("moonscript.base")
+  local code, err = moon.to_lua(src)
+  if not code then error(chunk .. ": " .. tostring(err), 0) end
+  return code
+end
+local function searcher(name)
+  local src = N.embedded_module(name)
+  if src then
+    local f, err = loadstring(src, "@osisub/" .. name)
+    if not f then error(err, 0) end
+    return f
+  end
+  local s, path = N.find_module(name)
+  if not s then return "\n\tosisub include klasörlerinde yok: " .. name end
+  if path:sub(-5) == ".moon" then s = __osisub_moon_to_lua(s, path) end
+  local f, err = loadstring(s, "@" .. path)
+  if not f then error(err, 0) end
+  return f
+end
+table.insert(package.loaders, 2, searcher)
+
 -- LuaJIT'te ipairs(userdata) hata verir; `subs` üzerinde yinelemeyi de destekle.
 local real_ipairs = ipairs
 function ipairs(t)

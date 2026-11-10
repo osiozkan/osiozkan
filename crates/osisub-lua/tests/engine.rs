@@ -97,3 +97,31 @@ fn api_misuse_yields_errors_not_panics() {
     // Betik bozuk durumda da çalışmaya devam etmeli ve belge tutarlı kalmalı
     let _ = e.script().to_ass_string();
 }
+
+#[test]
+fn moonscript_macro_runs() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.load_script(Path::new("tests/fixtures/sample.moon")).unwrap();
+    let id = e.macros().iter().position(|m| m.name == "Moon örneği").expect("makro kaydı");
+    let idx = last_dialogue_idx(&e);
+    e.run_macro(id, &[idx], idx).unwrap();
+    assert!(e.take_log().contains("degisti=1"));
+    assert_eq!(e.script().dialogues().next().unwrap().text, "{\\K20}KA{\\K30}RA");
+}
+
+#[test]
+fn require_finds_include_dir_modules() {
+    let dir = std::env::temp_dir().join(format!("osisub-req-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("l0")).unwrap();
+    std::fs::write(dir.join("l0/Yardim.moon"), "{ ikiKat: (x) -> x * 2 }\n").unwrap();
+    std::fs::write(dir.join("duz.lua"), "return { ad = 'düz' }\n").unwrap();
+    let scr = dir.join("kullan.lua");
+    std::fs::write(&scr, "script_name='k'\nlocal y = require 'l0.Yardim'\nlocal d = require 'duz'\naegisub.register_macro('k','k',function() aegisub.log('%d %s', y.ikiKat(21), d.ad) end)\n").unwrap();
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.add_include_dir(&dir);
+    e.load_script(&scr).unwrap();
+    e.run_macro(0, &[], 0).unwrap();
+    assert_eq!(e.take_log(), "42 düz");
+    let _ = std::fs::remove_dir_all(&dir);
+}

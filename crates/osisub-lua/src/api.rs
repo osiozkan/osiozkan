@@ -110,6 +110,30 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 Err(mlua::Error::runtime(format!("Could not find include file: {}", name)))
             })?,
         )?;
+        native.set("embedded_module", lua.create_function(|_, name: String| Ok(crate::vendor::module(&name)))?)?;
+        let inn = inner.clone();
+        // require için: include klasörlerinde a/b.lua, a/b/init.lua, a/b.moon, a/b/init.moon ara.
+        native.set(
+            "find_module",
+            lua.create_function(move |_, name: String| {
+                let rel = name.replace('.', "/");
+                let roots: Vec<PathBuf> = inn.borrow().include_dirs.clone();
+                for r in roots {
+                    for cand in [format!("{rel}.lua"), format!("{rel}/init.lua"), format!("{rel}.moon"), format!("{rel}/init.moon")] {
+                        let c = r.join(&cand);
+                        if c.is_file() {
+                            let bytes = std::fs::read(&c).map_err(mlua::Error::external)?;
+                            let mut s = osisub_core::ass::decode_bytes(&bytes);
+                            if s.starts_with('\u{feff}') {
+                                s.remove(0);
+                            }
+                            return Ok((Some(s), Some(c.to_string_lossy().to_string())));
+                        }
+                    }
+                }
+                Ok((None, None))
+            })?,
+        )?;
         let inn = inner.clone();
         native.set(
             "log",

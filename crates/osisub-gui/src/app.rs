@@ -249,7 +249,7 @@ impl App {
         let mut user_auto: Vec<PathBuf> = vec![];
         if let Some(d) = autoload_dir() {
             if let Ok(rd) = std::fs::read_dir(d) {
-                user_auto = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "lua")).collect();
+                user_auto = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "lua" || x == "moon")).collect();
                 user_auto.sort();
             }
         }
@@ -837,7 +837,7 @@ impl App {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
                 "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { self.request(Guarded::OpenPath(p)); }
-                "lua" => self.load_lua(p),
+                "lua" | "moon" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
         }
@@ -1029,7 +1029,7 @@ impl App {
                 ui.separator();
                 if ui.button("Lua betiği yükle…").clicked() {
                     ui.close();
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Lua", &["lua"]).pick_file() { self.load_lua(p); }
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
                 }
                 if ui.button("Betikleri yeniden yükle").clicked() { ui.close(); self.reload_scripts(); }
             });
