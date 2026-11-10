@@ -404,6 +404,10 @@ impl App {
 
         if !has_k {
             ui.label("Bu satırda karaoke etiketi yok.");
+            if ui.button("Japonca hecele (romaji/kana) ve süreyi eşit dağıt").on_hover_text("Mora kuralları: ki|mi |no, ki|t|to, shi|n|ji; きょ|う; küçük kana ve ー önceki heceye yapışır").clicked() {
+                let plain = osisub_core::tags::strip_tags(&d.text);
+                new_syls = Some(k::equal_syllables(&k::auto_syllables(&plain), line_cs, "kf"));
+            }
             if ui.button("Karakterlere böl ve süreyi dağıt").on_hover_text("Japonca/Çince şarkı sözleri için").clicked() {
                 let plain = osisub_core::tags::strip_tags(&d.text);
                 let mut v: Vec<k::Syl> = plain.chars().filter(|c| !c.is_control()).map(|c| k::Syl { dur: 0, kind: "kf".into(), text: c.to_string() }).collect();

@@ -209,6 +209,100 @@ pub fn scale_to(syls: &mut [Syl], total_cs: i64) {
     }
 }
 
+fn is_kana(c: char) -> bool {
+    matches!(c, '\u{3040}'..='\u{30ff}' | '\u{31f0}'..='\u{31ff}' | '\u{ff66}'..='\u{ff9f}')
+}
+
+fn is_cjk(c: char) -> bool {
+    is_kana(c) || matches!(c, '\u{4e00}'..='\u{9fff}' | '\u{3400}'..='\u{4dbf}' | '\u{f900}'..='\u{faff}')
+}
+
+/// Kendinden önceki moraya yapışan küçük kana ve uzatma işareti.
+fn kana_attaches(c: char) -> bool {
+    matches!(c, 'ゃ' | 'ゅ' | 'ょ' | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'ゎ' | 'ャ' | 'ュ' | 'ョ' | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ヮ' | 'ー' | '〜' | '～')
+}
+
+fn is_vowel(c: char) -> bool {
+    matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u') || matches!(c, 'ā' | 'ē' | 'ī' | 'ō' | 'ū' | 'Ā' | 'Ē' | 'Ī' | 'Ō' | 'Ū' | 'â' | 'ê' | 'î' | 'ô' | 'û')
+}
+
+/// Japonca şarkı sözünü karaoke hecelerine (mora) böler. Kana/kanji varsa karakter tabanlı
+/// (küçük kana ve ー önceki moraya yapışır), yoksa romaji kuralları: ünsüz(ler)+ünlü, tek başına
+/// `n`, ikiz ünsüzün ilki (sokuon). Boşluk ve noktalama önceki heceye eklenir.
+pub fn auto_syllables(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().filter(|c| !c.is_control()).collect();
+    let mut out: Vec<String> = vec![];
+    let push_attach = |out: &mut Vec<String>, c: char| match out.last_mut() {
+        Some(l) => l.push(c),
+        None => out.push(c.to_string()),
+    };
+    if chars.iter().any(|&c| is_cjk(c)) {
+        for &c in &chars {
+            if kana_attaches(c) || !(is_cjk(c) || c.is_alphanumeric()) {
+                push_attach(&mut out, c);
+            } else {
+                out.push(c.to_string());
+            }
+        }
+        return out;
+    }
+    let mut cur = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if !c.is_alphabetic() {
+            // boşluk/noktalama: bekleyen ünsüzleri kapat, sonra önceki heceye yapıştır
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+            push_attach(&mut out, c);
+            i += 1;
+            continue;
+        }
+        if is_vowel(c) {
+            cur.push(c);
+            out.push(std::mem::take(&mut cur));
+            i += 1;
+            continue;
+        }
+        let lc = c.to_ascii_lowercase();
+        // tek başına n: ardından ünlü ya da 'y' gelmiyorsa
+        if lc == 'n' && cur.is_empty() && !next.map_or(false, |n| is_vowel(n) || n.eq_ignore_ascii_case(&'y')) {
+            out.push(c.to_string());
+            i += 1;
+            continue;
+        }
+        // ikiz ünsüz (kk, tt, ss, pp, cch): ilki ayrı mora
+        if cur.is_empty() && next.map_or(false, |n| n.eq_ignore_ascii_case(&c) || (lc == 't' && n.eq_ignore_ascii_case(&'c'))) && lc != 'n' {
+            out.push(c.to_string());
+            i += 1;
+            continue;
+        }
+        cur.push(c);
+        i += 1;
+    }
+    if !cur.is_empty() {
+        // ünlüsüz kalan son ünsüzler (ör. İngilizce sözcük sonu) önceki heceye eklenir
+        match out.last_mut() {
+            Some(l) if !l.ends_with(' ') => l.push_str(&cur),
+            _ => out.push(cur),
+        }
+    }
+    out
+}
+
+/// Parçaları eşit süreli `\kf` hecelerine çevirir (kalan santisaniyeler baştan dağıtılır).
+pub fn equal_syllables(parts: &[String], total_cs: i64, kind: &str) -> Vec<Syl> {
+    let n = parts.len() as i64;
+    if n == 0 {
+        return vec![];
+    }
+    let base = total_cs.max(0) / n;
+    let rem = total_cs.max(0) % n;
+    parts.iter().enumerate().map(|(i, t)| Syl { dur: base + if (i as i64) < rem { 1 } else { 0 }, kind: kind.to_string(), text: t.clone() }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +359,34 @@ mod tests {
         assert!(has_lead("pre{\\k20}ka"));
         assert!(has_lead("{\\an8}{\\k20}ka"));
         assert!(!has_lead("{\\an8\\k20}ka"));
+    }
+
+    #[test]
+    fn romaji_morae() {
+        let j = |s: &str| auto_syllables(s).join("|");
+        assert_eq!(j("kimi no na wa"), "ki|mi |no |na |wa");
+        assert_eq!(j("kitto"), "ki|t|to");
+        assert_eq!(j("shinjitsu"), "shi|n|ji|tsu");
+        assert_eq!(j("kon'nichiwa"), "ko|n'|ni|chi|wa");
+        assert_eq!(j("kyou mo"), "kyo|u |mo");
+        assert_eq!(j("matcha"), "ma|t|cha");
+        assert_eq!(j("Sayonara!"), "Sa|yo|na|ra!");
+        assert_eq!(j("san"), "sa|n");
+        assert_eq!(j("onna"), "o|n|na");
+    }
+
+    #[test]
+    fn kana_morae() {
+        let j = |s: &str| auto_syllables(s).join("|");
+        assert_eq!(j("きょうも"), "きょ|う|も");
+        assert_eq!(j("ちょっと待って"), "ちょ|っ|と|待|っ|て");
+        assert_eq!(j("ラーメン、好き"), "ラー|メ|ン、|好|き");
+    }
+
+    #[test]
+    fn equal_split() {
+        let v = equal_syllables(&["a".into(), "b".into(), "c".into()], 100, "kf");
+        assert_eq!(v.iter().map(|s| s.dur).collect::<Vec<_>>(), vec![34, 33, 33]);
+        assert_eq!(build(&v), "{\\kf34}a{\\kf33}b{\\kf33}c");
     }
 }
