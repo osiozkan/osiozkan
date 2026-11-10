@@ -223,10 +223,12 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
 // ---------------------------------------------------------------- düzeltmeler
 
 /// Seçili (indeks listesi) satırları kaydırır. `None` = tümü.
+/// `only`: kaydırılacak entry indeksleri (sıralı olmak zorunda değil).
 pub fn shift(script: &mut Script, ms: i64, only: Option<&[usize]>) {
+    let only: Option<Vec<usize>> = only.map(|o| { let mut v = o.to_vec(); v.sort_unstable(); v });
     for (i, e) in script.entries.iter_mut().enumerate() {
         if let Entry::Dialogue(d) = e {
-            if only.map_or(true, |s| s.contains(&i)) {
+            if only.as_ref().map_or(true, |s| s.binary_search(&i).is_ok()) {
                 d.start_time = (d.start_time + ms).max(0);
                 d.end_time = (d.end_time + ms).max(0);
             }
@@ -237,9 +239,10 @@ pub fn shift(script: &mut Script, ms: i64, only: Option<&[usize]>) {
 /// Kare cinsinden kaydırma (Aegisub "Shift Times" kare kipi): her satırın görünen ilk/son karesi
 /// `frames` kare kaydırılır; VFR'de doğru, santisaniye yuvarlamasında kayma birikmez.
 pub fn shift_frames(script: &mut Script, fr: &crate::vfr::Framerate, frames: i64, only: Option<&[usize]>) {
+    let only: Option<Vec<usize>> = only.map(|o| { let mut v = o.to_vec(); v.sort_unstable(); v });
     for (i, e) in script.entries.iter_mut().enumerate() {
         if let Entry::Dialogue(d) = e {
-            if only.map_or(true, |s| s.contains(&i)) {
+            if only.as_ref().map_or(true, |s| s.binary_search(&i).is_ok()) {
                 let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time));
                 let empty = d.end_time <= d.start_time;
                 d.start_time = fr.time_at_start((fs + frames).max(0));

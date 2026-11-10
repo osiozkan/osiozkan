@@ -67,6 +67,8 @@ pub struct App {
     fps_to: f64,
     shift_frames: i64,
     shift_all: bool,
+    /// kaydırma: seçimden sonra başlayan tüm satırlar da
+    shift_after: bool,
     fps: f64,
     quit_confirm: bool,
     shot: Option<PathBuf>,
@@ -373,6 +375,7 @@ impl App {
             fps_to: 23.976,
             shift_frames: 24,
             shift_all: false,
+            shift_after: false,
             fps: 23.976,
             quit_confirm: false,
             shot,

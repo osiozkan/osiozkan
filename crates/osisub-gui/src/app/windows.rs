@@ -346,21 +346,31 @@ impl App {
                     ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10));
                 }
                 ui.checkbox(&mut self.shift_all, "tüm satırlar");
+                ui.add_enabled(!self.shift_all, egui::Checkbox::new(&mut self.shift_after, "seçimden sonrakiler de")).on_hover_text("Seçili ilk satırın başlangıcından sonra başlayan tüm satırlar (ör. sahne kesildiğinde)");
                 if ui.button("Uygula").clicked() {
-                    // Kare kipi + video kare hızı: satır başına gerçek kare kaydırması (VFR doğru)
-                    let fr = if self.shift_use_frames { self.media.framerate() } else { None };
-                    if let Some(fr) = fr {
-                        let mut s = self.doc.script.clone();
-                        let only: Option<Vec<usize>> = if self.shift_all { None } else { Some(self.doc.selection.clone()) };
-                        qc::shift_frames(&mut s, &fr, self.shift_frames, only.as_deref());
-                        self.doc.apply_new_script("Kare kaydır", s);
-                    } else if self.shift_all {
-                        let mut s = self.doc.script.clone();
-                        qc::shift(&mut s, self.shift_ms, None);
-                        self.doc.apply_new_script("Kaydır", s);
+                    let only: Option<Vec<usize>> = if self.shift_all {
+                        None
                     } else {
-                        self.doc.shift_selected(self.shift_ms);
+                        let sel = self.doc.target_lines();
+                        if self.shift_after {
+                            let from = sel.iter().filter_map(|&i| if let Entry::Dialogue(d) = &self.doc.script.entries[i] { Some(d.start_time) } else { None }).min().unwrap_or(i64::MAX);
+                            let mut v: Vec<usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.start_time >= from)).map(|(i, _)| i).collect();
+                            v.extend(sel);
+                            v.sort_unstable();
+                            v.dedup();
+                            Some(v)
+                        } else {
+                            Some(sel)
+                        }
+                    };
+                    let n = only.as_ref().map_or(self.doc.script.dialogues().count(), |v| v.len());
+                    let mut s = self.doc.script.clone();
+                    // Kare kipi + video kare hızı: satır başına gerçek kare kaydırması (VFR doğru)
+                    match self.media.framerate().filter(|_| self.shift_use_frames) {
+                        Some(fr) => { qc::shift_frames(&mut s, &fr, self.shift_frames, only.as_deref()); self.doc.apply_new_script("Kare kaydır", s); }
+                        None => { qc::shift(&mut s, self.shift_ms, only.as_deref()); self.doc.apply_new_script("Kaydır", s); }
                     }
+                    self.status = format!("{} satır kaydırıldı", n);
                 }
             });
             ui.separator();
