@@ -13,7 +13,8 @@ enum Msg {
     Info(Result<MediaInfo, String>),
     Wave(Result<Waveform, String>),
     /// `time` anından başlayan ardışık kareler (ilk kare = istenen kare)
-    Frame { time: i64, rev: u64, res: Result<Vec<Frame>, String> },
+    /// `first`: kare hızı biliniyorsa ilk çizilen karenin numarası (istenen karenin birkaç kare öncesi)
+    Frame { time: i64, rev: u64, first: Option<i64>, res: Result<Vec<Frame>, String> },
     Keyframes(Vec<i64>),
     /// Videodan algılanan değişken kare hızı (VFR)
     Vfr(osisub_core::vfr::Framerate),
@@ -403,20 +404,20 @@ impl Media {
                     }
                 }
                 Msg::Wave(Err(e)) => self.status = format!("Ses okunamadı: {}", e),
-                Msg::Frame { time, rev, res } => {
+                Msg::Frame { time, rev, first, res } => {
                     self.frame_busy = false;
                     match res {
                         Ok(frames) => {
-                            // Önbellek anahtarları: istenen zaman + sonraki karelerin tam başlangıç zamanları
-                            // (kare adımı playhead'i tam kare başlangıcına koyar → önbellekten anında gelir).
+                            // Önbellek anahtarları: istenen zaman + çevredeki karelerin tam başlangıç zamanları
+                            // (kare adımı playhead'i tam kare başlangıcına koyar → ileri/geri adım önbellekten gelir).
                             let fr = self.framerate();
-                            // İstek, playhead'deki karenin tam başlangıcından yapılır (aşağıda) → ilk kare = frame_at(time).
-                            let base = fr.as_ref().map(|f| f.frame_at(time));
+                            let base = first;
+                            let shown = match (&fr, first) { (Some(f), Some(b)) => (f.frame_at(time) - b).max(0) as usize, _ => 0 };
                             for (i, f) in frames.iter().enumerate() {
                                 let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
                                 let tex = ctx.load_texture("frame", img, egui::TextureOptions::LINEAR);
                                 let mut keys = vec![];
-                                if i == 0 {
+                                if i == shown.min(frames.len() - 1) {
                                     keys.push(time);
                                     self.tex = Some(tex.clone());
                                     self.frame_shown = (time, rev);
@@ -469,11 +470,18 @@ impl Media {
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
                 // Playhead'de ekranda olan kare (mpv/Aegisub gibi): o karenin başlangıcından iste.
-                let t_render = self.framerate().map_or(t, |fr| fr.time_at(fr.frame_at(t)));
+                // Playhead'deki kare (mpv/Aegisub gibi) ve çevresi: 3 kare öncesinden 5 kare sonrasına
+                let (t_render, first, count) = match self.framerate() {
+                    Some(fr) => {
+                        let f0 = fr.frame_at(t);
+                        let b = (f0 - 3).max(0);
+                        (fr.time_at(b), Some(b), (f0 - b) as usize + 6)
+                    }
+                    None => (t, None, 6),
+                };
                 std::thread::spawn(move || {
-                    // 6 kare birden: ileri kare adımları (.) önbellekten anında gösterilir
-                    let res = osisub_media::render_frames(&p, Some(&ass), t_render, 6, 960, &info);
-                    let _ = tx.send(Msg::Frame { time: t, rev, res });
+                    let res = osisub_media::render_frames(&p, Some(&ass), t_render, count, 960, &info);
+                    let _ = tx.send(Msg::Frame { time: t, rev, first, res });
                     ctx2.request_repaint();
                 });
             }
