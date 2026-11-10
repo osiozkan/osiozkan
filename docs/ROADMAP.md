@@ -46,7 +46,7 @@
 - [x] MoonScript (`.moon`) betikleri, include klasörlerinden `require`
 - [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
 - [ ] DependencyControl uyumluluğu (ASSFoundation, Aegisub-Motion gibi betik aileleri için)
-- [ ] Dışa aktarım filtreleri (register_filter) için boru hattı
+- [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] Betikleri yeniden yükle (motoru sıfırlar)
 - [ ] Betik hata ayıklama: satır numaralı iz, günlük penceresi

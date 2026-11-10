@@ -16,10 +16,14 @@ function __new_script_env(script_dir)
   return env
 end
 
+-- Aegisub gibi: izleme düzeyinden (varsayılan 3) yüksek iletiler gösterilmez.
+-- 0 ölümcül, 1 hata, 2 uyarı, 3 ileti, 4 ayrıntı, 5 izleme. OSISUB_TRACE_LEVEL ile değiştirilir.
+__osisub_trace_level = tonumber(os.getenv("OSISUB_TRACE_LEVEL") or "") or 3
 function aegisub.log(...)
   local args = { ... }
   local level = 0
   if type(args[1]) == "number" then level = table.remove(args, 1) end
+  if level > __osisub_trace_level then return end
   local msg = tostring(args[1] == nil and "" or args[1])
   if #args > 1 then
     local ok, r = pcall(string.format, unpack(args))
