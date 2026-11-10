@@ -5,7 +5,7 @@
 ## Sıradaki geceler için öncelikli öneriler
 1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows/macOS çalıştırma, GitHub Actions'ın ilk gerçek çalışması (CI + release iş akışları hiç çalıştırılmadı).
 2. **Kullanıcının kendi Lua betikleri** ile regresyon testi (betikler depoya eklenip `crates/osisub-lua/tests/fixtures/`'a konmalı; çalışmayan API'ler `docs/LUA_UYUMLULUK.md`'e işlenmeli). `kara-templater.lua` uyumluluğu.
-3. **Video araçları:** `\org`, vektör `\clip`/çizim, `\t` animasyon düzenleme.
+3. **Video araçları:** vektör `\clip`/çizim, `\t` animasyon düzenleme.
 4. **Çeviri belleği (TM)** ve çevrimiçi çeviri bağlayıcıları (anahtar gerektirir; kullanıcıya sorulmalı).
 5. **Kısayol özelleştirme** (Aegisub kısayol profili).
 6. **Performans:** yazı tipi dizini önbelleği; video için kalıcı ffmpeg/libmpv hattı; büyük belgede QC'yi artımlı yapma.
@@ -41,7 +41,7 @@
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
 - [x] Gerçek yazı tipi ölçüleri (`text_extents`: ttf-parser, GDI/VSFilter uyumlu hücre yüksekliği)
-- [ ] Yazı tipi dizini önbelleği (tarama her açılışta tüm dosyaları okuyor)
+- [x] Yazı tipi dizini önbelleği (`<veri>/font-index.tsv`; yalnızca değişen dosyalar yeniden okunur, `OSISUB_NO_FONT_CACHE=1` kapatır)
 - [x] `kara-templater.lua` yerleşik ve gerçek Aegisub `karaskel-auto4.lua` ile testli
 - [x] MoonScript (`.moon`) betikleri, include klasörlerinden `require`
 - [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
@@ -70,7 +70,7 @@
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)
 - [x] Video araçları: \org sürükleme (döndürme aracında beyaz nokta)
-- [ ] Video araçları:, vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
+- [ ] Video araçları: vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama

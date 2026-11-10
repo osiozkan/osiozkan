@@ -75,6 +75,83 @@ fn family_names(face: &Face) -> Vec<String> {
     out
 }
 
+/// Dosya kimliği: boyut + değişiklik zamanı (sn). Değişmeyen dosya yeniden okunmaz.
+fn file_stamp(p: &Path) -> Option<(u64, u64)> {
+    let m = std::fs::metadata(p).ok()?;
+    let t = m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some((m.len(), t))
+}
+
+fn parse_faces(path: &Path) -> Vec<FaceInfo> {
+    let mut out = vec![];
+    let Ok(bytes) = std::fs::read(path) else { return out };
+    let n = ttf_parser::fonts_in_collection(&bytes).unwrap_or(1);
+    for index in 0..n {
+        let Ok(face) = Face::parse(&bytes, index) else { continue };
+        let (bold, italic) = (face.is_bold(), face.is_italic());
+        for family in family_names(&face) {
+            out.push(FaceInfo { family, bold, italic, path: path.to_path_buf(), index });
+        }
+    }
+    out
+}
+
+/// Yazı tipi dosyalarını tarar; `cache` verilirse (yol, boyut, zaman) eşleşen dosyalar için
+/// önbellekteki aile adları kullanılır ve önbellek güncellenir. Biçim: TSV, satır başına bir yüz.
+fn scan_files(files: &[PathBuf], cache: Option<&Path>) -> Vec<FaceInfo> {
+    // önbellek: yol -> (boyut, zaman, yüzler)
+    let mut old: HashMap<PathBuf, (u64, u64, Vec<FaceInfo>)> = HashMap::new();
+    if let Some(c) = cache {
+        if let Ok(t) = std::fs::read_to_string(c) {
+            for l in t.lines().skip(1) {
+                let f: Vec<&str> = l.split('\t').collect();
+                if f.len() != 7 {
+                    continue;
+                }
+                let (Ok(size), Ok(mtime)) = (f[1].parse::<u64>(), f[2].parse::<u64>()) else { continue };
+                let path = PathBuf::from(f[0]);
+                let e = old.entry(path.clone()).or_insert((size, mtime, vec![]));
+                // "-" = yüzü olmayan (bozuk) dosya
+                if f[6] != "-" {
+                    e.2.push(FaceInfo { family: f[6].to_string(), bold: f[4] == "1", italic: f[5] == "1", path, index: f[3].parse().unwrap_or(0) });
+                }
+            }
+        }
+    }
+    let mut faces = vec![];
+    let mut out = String::from("# osisub yazı tipi dizini v1\n");
+    let mut changed = old.len() != files.len();
+    for path in files {
+        let stamp = file_stamp(path).unwrap_or((0, 0));
+        let got = match old.remove(path) {
+            Some((s, m, f)) if (s, m) == stamp => f,
+            _ => {
+                changed = true;
+                parse_faces(path)
+            }
+        };
+        if cache.is_some() {
+            if got.is_empty() {
+                out.push_str(&format!("{}\t{}\t{}\t0\t0\t0\t-\n", path.display(), stamp.0, stamp.1));
+            }
+            for x in &got {
+                out.push_str(&format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", path.display(), stamp.0, stamp.1, x.index, x.bold as u8, x.italic as u8, x.family.replace(['\t', '\n'], " ")));
+            }
+        }
+        faces.extend(got);
+    }
+    if let (Some(c), true) = (cache, changed) {
+        if let Some(d) = c.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let tmp = c.with_extension("tmp");
+        if std::fs::write(&tmp, out).is_ok() {
+            let _ = std::fs::rename(&tmp, c);
+        }
+    }
+    faces
+}
+
 impl FontDb {
     pub fn add_dir(&mut self, d: impl Into<PathBuf>) {
         self.extra_dirs.push(d.into());
@@ -92,17 +169,8 @@ impl FontDb {
         for d in default_dirs().iter().chain(self.extra_dirs.iter()) {
             walk(d, &mut files, 0);
         }
-        for path in files {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
-            let n = ttf_parser::fonts_in_collection(&bytes).unwrap_or(1);
-            for index in 0..n {
-                let Ok(face) = Face::parse(&bytes, index) else { continue };
-                let (bold, italic) = (face.is_bold(), face.is_italic());
-                for family in family_names(&face) {
-                    self.faces.push(FaceInfo { family, bold, italic, path: path.clone(), index });
-                }
-            }
-        }
+        let cache = if std::env::var_os("OSISUB_NO_FONT_CACHE").is_some() { None } else { osisub_core::paths::data_dir().map(|d| d.join("font-index.tsv")) };
+        self.faces = scan_files(&files, cache.as_deref());
     }
 
     /// Kurulu bir yazı tipi ailesi var mı (büyük/küçük harf duyarsız, tam adlar dahil).
@@ -191,3 +259,35 @@ impl FontDb {
         Some((w, st.fontsize * sy, fd.descent * ppu * sy, fd.ext_lead * ppu * sy))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_cache_matches_full_scan() {
+        let mut files = vec![];
+        for d in default_dirs() {
+            walk(&d, &mut files, 0);
+        }
+        files.truncate(40);
+        if files.is_empty() {
+            return; // ortamda yazı tipi yok
+        }
+        let dir = std::env::temp_dir().join(format!("osisub-fontcache-{}", std::process::id()));
+        let c = dir.join("idx.tsv");
+        let key = |v: &[FaceInfo]| { let mut k: Vec<String> = v.iter().map(|f| format!("{}|{}|{}|{}|{}", f.path.display(), f.index, f.bold, f.italic, f.family)).collect(); k.sort(); k };
+        let full = scan_files(&files, None);
+        let first = scan_files(&files, Some(&c));
+        assert!(c.is_file());
+        // önbellekten okuma: dosyaları "okunamaz" yapamayız; önbelleği elle işaretleyip kullanıldığını doğrula
+        let t = std::fs::read_to_string(&c).unwrap();
+        let fam = first.first().map(|f| f.family.clone()).unwrap_or_default();
+        std::fs::write(&c, t.replacen(&format!("\t{}\n", fam), "\tönbellek-ailesi\n", 1)).unwrap();
+        let cached = scan_files(&files, Some(&c));
+        assert_eq!(key(&full), key(&first));
+        assert!(cached.iter().any(|f| f.family == "önbellek-ailesi"), "önbellek kullanılmadı");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
