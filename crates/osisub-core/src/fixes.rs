@@ -253,6 +253,17 @@ pub fn apply(script: &mut Script, f: &Fixes) -> Report {
         if d.comment {
             continue;
         }
+        // Tipografi/karaoke/fx satırlarında yalnızca kodlama onarımı güvenlidir; cümle zincirine de katılmazlar.
+        if crate::qc::is_typeset(d) || crate::qc::is_karaoke(d) || d.effect.eq_ignore_ascii_case("fx") {
+            if in_scope && f.mojibake {
+                let nt = map_text(&d.text, fix_mojibake);
+                if nt != d.text {
+                    d.text = nt;
+                    rep.changed_lines += 1;
+                }
+            }
+            continue;
+        }
         if in_scope {
             let mut nt = fix_text(&d.text, f);
             if f.sentence_case {
@@ -357,11 +368,25 @@ fn capitalize_after_sentence_ends(t: &str) -> String {
 }
 
 fn fix_timing(script: &mut Script, f: &Fixes) -> usize {
-    let order: Vec<usize> = {
-        let mut v: Vec<usize> = script.entries.iter().enumerate().filter(|(i, e)| matches!(e, Entry::Dialogue(d) if !d.comment) && f.only.as_ref().map_or(true, |o| o.contains(i))).map(|(i, _)| i).collect();
-        v.sort_by_key(|&i| if let Entry::Dialogue(d) = &script.entries[i] { d.start_time } else { 0 });
-        v
-    };
+    // Yalnızca diyalog satırları; "sonraki satır" aynı stil+katmandan seçilir (araya giren tabelalar
+    // diyaloğu kısaltmasın). Tipografi/karaoke/fx satırlarının zamanına dokunulmaz.
+    let mut groups: std::collections::HashMap<(String, i32), Vec<usize>> = std::collections::HashMap::new();
+    for (i, e) in script.entries.iter().enumerate() {
+        if let Entry::Dialogue(d) = e {
+            if !d.comment && f.only.as_ref().map_or(true, |o| o.contains(&i)) && !crate::qc::is_typeset(d) && !crate::qc::is_karaoke(d) && !d.effect.eq_ignore_ascii_case("fx") {
+                groups.entry((d.style.clone(), d.layer)).or_default().push(i);
+            }
+        }
+    }
+    let mut n = 0;
+    for (_, mut order) in groups {
+        order.sort_by_key(|&i| if let Entry::Dialogue(d) = &script.entries[i] { d.start_time } else { 0 });
+        n += fix_timing_chain(script, f, &order);
+    }
+    n
+}
+
+fn fix_timing_chain(script: &mut Script, f: &Fixes, order: &[usize]) -> usize {
     let mut n = 0;
     for k in 0..order.len() {
         let next_start = order.get(k + 1).and_then(|&j| if let Entry::Dialogue(d) = &script.entries[j] { Some(d.start_time) } else { None });
@@ -397,6 +422,25 @@ mod tests {
 
     fn s(texts: &[&str]) -> Script {
         Script::from_dialogues(texts.iter().enumerate().map(|(i, t)| Dialogue { start_time: i as i64 * 3000, end_time: i as i64 * 3000 + 2000, text: t.to_string(), ..Default::default() }).collect())
+    }
+
+    #[test]
+    fn typesetting_and_karaoke_untouched() {
+        let mk = |a: i64, b: i64, t: &str| Dialogue { start_time: a, end_time: b, text: t.into(), ..Default::default() };
+        let mut sc = Script::from_dialogues(vec![
+            mk(0, 500, "merhaba  dünya"),
+            mk(600, 700, "{\\pos(10,10)}OKUL  ADI"),
+            mk(2000, 4000, "ikinci satır"),
+            mk(5000, 5300, "{\\k10}ka  {\\k20}ra"),
+        ]);
+        let f = Fixes { min_duration_ms: Some(1500), sentence_case: true, ..Default::default() };
+        apply(&mut sc, &f);
+        let v: Vec<&Dialogue> = sc.dialogues().collect();
+        assert_eq!(v[0].text, "Merhaba dünya");
+        assert_eq!(v[0].end_time, 1500, "tabela diyaloğun uzatılmasını engellememeli");
+        assert_eq!((v[1].text.as_str(), v[1].end_time), ("{\\pos(10,10)}OKUL  ADI", 700));
+        assert_eq!(v[3].text, "{\\k10}ka  {\\k20}ra");
+        assert_eq!(v[3].end_time, 5300);
     }
 
     #[test]
