@@ -266,6 +266,9 @@ impl Media {
                 Err(e) => self.status = e,
             }
         }
+        // Oynatma kareleri dokuyu yerinde günceller: önbellekteki bir kareyle paylaşılan dokuyu bozmasın.
+        self.tex = None;
+        self.frame_shown = (-1, u64::MAX);
         self.play_from = from;
         self.play_dur = dur;
         self.play_begin_at = Some(std::time::Instant::now());
@@ -328,11 +331,14 @@ impl Media {
                 Msg::Info(Ok(i)) => {
                     self.status = format!("{}×{} @ {:.3} fps, {}", i.width, i.height, i.fps, time::format_ass(i.duration_ms));
                     self.info = Some(i);
+                    // Kare hızı artık belli: etkin satırın ilk görünen karesine yeniden konumlan
+                    self.last_active = usize::MAX;
                 }
                 Msg::Info(Err(e)) => self.status = format!("Ortam açılamadı: {}", e),
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
                 Msg::Keyframes(k) => self.keyframes = k,
                 Msg::Vfr(fr) => {
+                    self.last_active = usize::MAX;
                     // Kullanıcının elle yüklediği timecode varsa ona dokunma
                     if self.timecodes.is_none() || self.timecodes_auto {
                         self.status = format!("Değişken kare hızı (VFR) algılandı: ortalama {:.3} fps — kare hesapları videonun zaman damgalarını kullanıyor", fr.fps());
@@ -474,7 +480,11 @@ impl Media {
         if self.last_active != doc.active {
             self.last_active = doc.active;
             if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active) {
-                self.playhead = d.start_time + 20;
+                // Aegisub gibi: satırın göründüğü ilk kareye git (kare hızı yoksa biraz içeri)
+                self.playhead = match self.framerate() {
+                    Some(fr) => fr.time_at(fr.frame_at_start(d.start_time)),
+                    None => d.start_time + 20,
+                };
                 let (w_ms, _) = (self.ms_per_px * 600.0, 0);
                 if (d.start_time as f64) < self.view_start || (d.end_time as f64) > self.view_start + w_ms {
                     self.view_start = (d.start_time as f64 - w_ms * 0.25).max(0.0);

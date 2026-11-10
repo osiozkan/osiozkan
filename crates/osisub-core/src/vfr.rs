@@ -53,7 +53,18 @@ impl Framerate {
     /// `ms` anında ekranda olan kare.
     pub fn frame_at(&self, ms: i64) -> i64 {
         match self {
-            Framerate::Cfr(f) => crate::time::frame_from_ms(ms, *f),
+            Framerate::Cfr(f) => {
+                // time_at'in tam tersi: time_at(n) <= ms olan en büyük n (time_at ms'ye yuvarlar;
+                // düz floor(ms*fps/1000) 23.976/24'te bazı karelerde bir önceki kareyi verir).
+                let mut n = ((ms as f64 + 0.5) * f / 1000.0).ceil() as i64 - 1;
+                while self.time_at(n + 1) <= ms {
+                    n += 1;
+                }
+                while self.time_at(n) > ms {
+                    n -= 1;
+                }
+                n
+            }
             Framerate::Vfr { ts, tail_fps } => {
                 if ms < ts[0] {
                     return ((ms - ts[0]) as f64 * tail_fps / 1000.0).floor() as i64;
@@ -292,9 +303,23 @@ mod tests {
     }
 
     #[test]
+    fn cfr_roundtrip() {
+        for fps in [23.976, 24000.0 / 1001.0, 24.0, 25.0, 29.97, 30000.0 / 1001.0, 60.0] {
+            let fr = Framerate::cfr(fps);
+            for n in -5..5000 {
+                assert_eq!(fr.frame_at(fr.time_at(n)), n, "fps {} kare {}", fps, n);
+                assert_eq!(fr.frame_at(fr.time_at(n + 1) - 1), n, "fps {} kare {} sonu", fps, n);
+            }
+        }
+        // 24 fps'de 47. kare 1958 ms'de başlar (1958.33 yuvarlanmış)
+        assert_eq!(Framerate::cfr(24.0).frame_at(1958), 47);
+    }
+
+    #[test]
     fn cfr_matches_time_helpers() {
         let fr = Framerate::cfr(23.976);
         assert_eq!(fr.time_at(24), crate::time::ms_from_frame(24, 23.976));
+        assert_eq!(fr.frame_at(1001), 24);
         assert_eq!(fr.frame_at(1001), crate::time::frame_from_ms(1001, 23.976));
     }
 }

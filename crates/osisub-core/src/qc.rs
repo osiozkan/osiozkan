@@ -98,6 +98,38 @@ pub fn frame_issues(script: &Script, fr: &crate::vfr::Framerate, keyframes_ms: &
     out
 }
 
+/// `frame_issues`'in bulduğu sahne değişimi yakınlıklarını düzeltir: ≤`max_frames` kare uzaktaki
+/// başlangıç/bitişi anahtar karenin ASS-güvenli sınırına çeker. Değişen satır sayısı.
+pub fn snap_to_keyframes(script: &mut Script, fr: &crate::vfr::Framerate, keyframes_ms: &[i64], max_frames: i64) -> usize {
+    let mut kf: Vec<i64> = keyframes_ms.iter().map(|&k| fr.frame_at(k)).collect();
+    kf.sort_unstable();
+    kf.dedup();
+    let nearest = |f: i64| -> Option<i64> {
+        let i = kf.partition_point(|&k| k < f);
+        [i.checked_sub(1), Some(i)].into_iter().flatten().filter_map(|j| kf.get(j).copied()).min_by_key(|k| (k - f).abs()).filter(|k| (k - f).abs() <= max_frames)
+    };
+    let mut n = 0;
+    for d in script.dialogues_mut() {
+        if d.comment || d.effect.eq_ignore_ascii_case("fx") || d.duration() <= 0 {
+            continue;
+        }
+        let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time) + 1);
+        let (mut s, mut e) = (d.start_time, d.end_time);
+        if let Some(k) = nearest(fs).filter(|k| *k != fs) {
+            s = fr.time_at_start(k);
+        }
+        if let Some(k) = nearest(fe).filter(|k| *k != fe) {
+            e = fr.time_at_start(k);
+        }
+        if e > s && (s, e) != (d.start_time, d.end_time) {
+            d.start_time = s;
+            d.end_time = e;
+            n += 1;
+        }
+    }
+    n
+}
+
 /// Tipografi (tabela/yazı) satırı: konumlandırılmış ya da çizim. Okuma hızı, uzunluk, süre ve
 /// çakışma denetimleri bunlar için anlamsızdır (anime'de tabelalar diyalogla üst üste biner).
 pub fn is_typeset(d: &Dialogue) -> bool {
@@ -438,6 +470,10 @@ mod tests {
         // d1 ve d2 farklı satırlar ama aynı stil: 70→71 = 1 kare boşluk
         assert!(is.iter().any(|x| x.entry == at(2) && x.kind == Kind::Flicker), "{:?}", is);
         assert!(!is.iter().any(|x| x.entry == at(3)), "{:?}", is);
+        let mut s2 = s.clone();
+        assert_eq!(snap_to_keyframes(&mut s2, &fr, &kf, 3), 1);
+        assert_eq!(s2.dialogues().next().unwrap().start_time, t(48));
+        assert!(!frame_issues(&s2, &fr, &kf, 3).iter().any(|x| x.kind == Kind::NearKeyframe));
     }
 
     #[test]

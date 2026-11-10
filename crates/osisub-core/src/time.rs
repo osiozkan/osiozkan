@@ -57,8 +57,9 @@ pub fn ms_from_frame(frame: i64, fps: f64) -> i64 {
     (frame as f64 * 1000.0 / fps).round() as i64
 }
 
+/// `ms` anında ekranda olan kare; `ms_from_frame`'in tam tersi (yuvarlamayla tutarlı).
 pub fn frame_from_ms(ms: i64, fps: f64) -> i64 {
-    (ms as f64 * fps / 1000.0).floor() as i64
+    crate::vfr::Framerate::cfr(fps).frame_at(ms)
 }
 
 /// Zamanı en yakın kare sınırına oturtur.

@@ -557,6 +557,15 @@ impl App {
             if ui.button("Çakışmaları düzelt").clicked() { apply(self, "Çakışmaları düzelt", &|s| { qc::fix_overlaps(s); }); }
             if ui.button("Yinelenenleri sil").clicked() { apply(self, "Yinelenenleri sil", &|s| { qc::remove_duplicates(s); }); }
             if ui.button("Boşları sil").clicked() { apply(self, "Boşları sil", &|s| { qc::remove_empty(s); }); }
+            if let Some(fr) = self.media.framerate().filter(|_| !self.media.keyframes.is_empty()) {
+                if ui.button("Sahne değişimlerine yapıştır (≤3 kare)").on_hover_text("Anahtar kareye 1-3 kare yakın başlangıç/bitişleri anahtar kareye çeker").clicked() {
+                    let kf = self.media.keyframes.clone();
+                    let mut s = self.doc.script.clone();
+                    let n = qc::snap_to_keyframes(&mut s, &fr, &kf, 3);
+                    self.doc.apply_new_script("Sahne değişimlerine yapıştır", s);
+                    self.status = format!("{} satır sahne değişimine yapıştırıldı", n);
+                }
+            }
         });
         ui.separator();
         ui.label(RichText::new(format!("{} sorun", self.issues.len())).strong());
