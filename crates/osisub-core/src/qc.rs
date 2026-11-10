@@ -235,23 +235,29 @@ pub fn snap_to_framerate(script: &mut Script, fr: &crate::vfr::Framerate) {
 }
 
 /// Aynı stil/katmandaki ardışık çakışmaları, önceki satırın bitişini kısaltarak giderir.
+/// Aynı stil+katmandaki diyalog satırlarında (zaman sırasıyla) öncekinin bitişini sonrakinin
+/// başlangıcına çeker. Tipografi, karaoke ve fx satırlarına dokunmaz.
 pub fn fix_overlaps(script: &mut Script) -> usize {
+    let mut groups: std::collections::HashMap<(String, i32), Vec<(i64, usize)>> = std::collections::HashMap::new();
+    for (i, e) in script.entries.iter().enumerate() {
+        if let Entry::Dialogue(d) = e {
+            if !d.comment && !is_typeset(d) && !is_karaoke(d) && !d.effect.eq_ignore_ascii_case("fx") {
+                groups.entry((d.style.clone(), d.layer)).or_default().push((d.start_time, i));
+            }
+        }
+    }
     let mut fixed = 0;
-    let mut last: Option<usize> = None;
-    for i in 0..script.entries.len() {
-        let (start, style, layer) = match &script.entries[i] {
-            Entry::Dialogue(d) if !d.comment => (d.start_time, d.style.clone(), d.layer),
-            _ => continue,
-        };
-        if let Some(p) = last {
-            if let Entry::Dialogue(pd) = &mut script.entries[p] {
-                if pd.style == style && pd.layer == layer && pd.end_time > start && start > pd.start_time {
+    for (_, mut v) in groups {
+        v.sort_unstable();
+        for w in v.windows(2) {
+            let start = w[1].0;
+            if let Entry::Dialogue(pd) = &mut script.entries[w[0].1] {
+                if pd.end_time > start && start > pd.start_time {
                     pd.end_time = start;
                     fixed += 1;
                 }
             }
         }
-        last = Some(i);
     }
     fixed
 }
@@ -356,6 +362,11 @@ mod tests {
         assert!(!issues.iter().any(|x| x.entry == at(1)), "tabela işaretlendi: {:?}", issues);
         assert!(!issues.iter().any(|x| x.entry == at(3)), "karaoke işaretlendi: {:?}", issues);
         assert!(issues.iter().any(|x| x.entry == at(2) && x.kind == Kind::Overlap), "gerçek çakışma bulunmadı: {:?}", issues);
+        let sign_before = sc.dialogues().nth(1).unwrap().clone();
+        assert_eq!(fix_overlaps(&mut sc), 1);
+        assert_eq!(sc.dialogues().next().unwrap().end_time, 2500);
+        assert_eq!(sc.dialogues().nth(1).unwrap(), &sign_before, "tabelaya dokunulmamalı");
+        assert!(!check(&sc, &Rules::default()).iter().any(|x| x.kind == Kind::Overlap));
     }
 
     #[test]
