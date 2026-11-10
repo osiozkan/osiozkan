@@ -268,6 +268,31 @@ impl App {
         }
     }
 
+    /// Yerleşik komutlara kısayol atama (Lua makroları Otomasyon sekmesinde).
+    pub(super) fn hotkeys_window(&mut self, ctx: &egui::Context) {
+        if !self.hotkeys_open { return; }
+        let mut open = true;
+        egui::Window::new("Kısayolları düzenle").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(RichText::new("Düğmeye tıklayıp tuş birleşimine basın (Esc = iptal, Backspace = kaldır). Lua makroları için: Otomasyon sekmesi.").weak().small());
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                egui::Grid::new("hk_grid").num_columns(2).striped(true).show(ui, |ui| {
+                    for (id, label) in super::COMMANDS {
+                        ui.label(*label);
+                        let cur = self.settings.macro_hotkeys.iter().find(|h| h.script == super::COMMAND_SCRIPT && h.name == *id).map(|h| h.keys.clone());
+                        let capturing = self.hotkey_capture.as_ref().map_or(false, |(s, n)| s == super::COMMAND_SCRIPT && n == id);
+                        let text = if capturing { "tuşa basın…".to_string() } else { cur.unwrap_or_else(|| "—".into()) };
+                        if ui.add(egui::Button::new(RichText::new(text).monospace()).selected(capturing)).clicked() {
+                            self.hotkey_capture = Some((super::COMMAND_SCRIPT.to_string(), id.to_string()));
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+        });
+        if !open { self.hotkeys_open = false; }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

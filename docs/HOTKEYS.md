@@ -30,3 +30,6 @@
 
 ## Lua makrolarına kısayol atama
 *Otomasyon* sekmesinde her makronun yanındaki **"kısayol yok"** düğmesine tıklayın ve tuş birleşimine basın (ör. `Ctrl+Shift+K`). **Esc** iptal eder, **Backspace** kısayolu kaldırır. Atamalar `settings.json` içinde (`macro_hotkeys`) betik adı + makro adıyla saklanır; betik yeniden yüklendiğinde de geçerlidir. Yerleşik bir kısayolu (ör. `Ctrl+S`) ezerseniz durum çubuğunda uyarı görünür. Metin kutusunda yazarken değiştiricisiz harf kısayolları çalışmaz (F tuşları çalışır).
+
+## Yerleşik komutlara kısayol atama
+*Yardım → Kısayolları düzenle…*: video karesinde böl, çoğalt + 1 kare kaydır, satırı oynat, başlangıç/bitişi video karesine al, kare/satır gezinme, satırları seç, sahne değişimlerine yapıştır ve video araçları (konum, hareket, kırpma, vektör kırpma, döndürme, 3B döndürme, ölçek) için kendi tuşlarınızı atayın. Atamalar Lua makro kısayollarıyla aynı yerde (`settings.json` → `macro_hotkeys`, betik adı `@komut`) saklanır.

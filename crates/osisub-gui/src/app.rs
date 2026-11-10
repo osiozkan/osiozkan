@@ -152,6 +152,8 @@ pub struct App {
     attach_open: bool,
     /// Karşılaştırma: (eski sürüm adı, eski betik, farklar)
     compare: Option<(String, osisub_core::Script, Vec<osisub_core::compare::Change>)>,
+    /// Kısayol düzenleyici penceresi (yerleşik komutlar)
+    hotkeys_open: bool,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -194,6 +196,30 @@ enum RowAction {
     Paste,
     SetStyle(String),
 }
+
+/// Kısayol atanabilen yerleşik komutlar (kimlik, ad). Ayarlarda betik adı `@komut` ile saklanır.
+pub(crate) const COMMANDS: &[(&str, &str)] = &[
+    ("split_frame", "Video karesinde böl"),
+    ("dup_shift", "Çoğalt ve 1 kare kaydır"),
+    ("play_line", "Satırı oynat / durdur"),
+    ("set_start", "Başlangıcı video karesine al"),
+    ("set_end", "Bitişi video karesine al"),
+    ("frame_next", "Sonraki kare"),
+    ("frame_prev", "Önceki kare"),
+    ("line_next", "Sonraki satır"),
+    ("line_prev", "Önceki satır"),
+    ("select_lines", "Satırları seç…"),
+    ("snap_scenes", "Sahne değişimlerine yapıştır (≤3 kare)"),
+    ("tool_none", "Video aracı: yok"),
+    ("tool_pos", "Video aracı: konum"),
+    ("tool_move", "Video aracı: hareket"),
+    ("tool_clip", "Video aracı: kırpma"),
+    ("tool_vclip", "Video aracı: vektör kırpma"),
+    ("tool_rotate", "Video aracı: döndürme"),
+    ("tool_rotatexy", "Video aracı: 3B döndürme"),
+    ("tool_scale", "Video aracı: ölçek"),
+];
+pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
 fn tm_path() -> Option<PathBuf> {
     osisub_core::paths::data_dir().map(|d| d.join("tm.tsv"))
@@ -309,6 +335,7 @@ impl App {
             select_open: false,
             attach_open: false,
             compare: None,
+            hotkeys_open: false,
             qc_media_key: (0, false),
             select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
@@ -441,6 +468,7 @@ impl App {
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("select") => app.select_open = true,
             Some("attach") => app.attach_open = true,
+            Some("hotkeys") => app.hotkeys_open = true,
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
             Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
@@ -902,6 +930,51 @@ impl App {
         self.issues_key = rev;
     }
 
+    /// Yerleşik komutu çalıştırır (kısayoldan).
+    pub(crate) fn run_command(&mut self, id: &str, ctx: &egui::Context) {
+        use crate::media_ui::VideoTool as T;
+        let fr = self.media.framerate();
+        let step_line = |app: &mut App, d: isize| {
+            if app.rows.is_empty() { return; }
+            let p = app.rows.iter().position(|&r| r == app.doc.active).unwrap_or(0) as isize;
+            let np = (p + d).clamp(0, app.rows.len() as isize - 1) as usize;
+            let r = app.rows[np];
+            app.doc.select(vec![r], r);
+            app.anchor = np;
+            app.scroll_to = Some(r);
+        };
+        match id {
+            "split_frame" => { if let Some(fr) = &fr { if !self.doc.split_at_frame(fr, self.media.playhead) { self.status = "Bu kare satırın içinde değil".into(); } } }
+            "dup_shift" => { if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); } }
+            "play_line" => self.media.toggle_play(&self.doc, ctx),
+            "set_start" => self.media.set_active_start(&mut self.doc),
+            "set_end" => self.media.set_active_end(&mut self.doc),
+            "frame_next" => self.media.step_frames(1),
+            "frame_prev" => self.media.step_frames(-1),
+            "line_next" => step_line(self, 1),
+            "line_prev" => step_line(self, -1),
+            "select_lines" => self.select_open = true,
+            "snap_scenes" => {
+                if let Some(fr) = fr.filter(|_| !self.media.keyframes.is_empty()) {
+                    let kf = self.media.keyframes.clone();
+                    let mut s = self.doc.script.clone();
+                    let n = qc::snap_to_keyframes(&mut s, &fr, &kf, 3);
+                    self.doc.apply_new_script("Sahne değişimlerine yapıştır", s);
+                    self.status = format!("{} satır sahne değişimine yapıştırıldı", n);
+                }
+            }
+            "tool_none" => self.media.tool = T::None,
+            "tool_pos" => self.media.tool = T::Pos,
+            "tool_move" => self.media.tool = T::Move,
+            "tool_clip" => self.media.tool = T::Clip,
+            "tool_vclip" => self.media.tool = T::VClip,
+            "tool_rotate" => self.media.tool = T::Rotate,
+            "tool_rotatexy" => self.media.tool = T::RotateXY,
+            "tool_scale" => self.media.tool = T::Scale,
+            _ => self.status = format!("Bilinmeyen komut: {}", id),
+        }
+    }
+
     /// Çeviri belleğini diske yazar (değiştiyse).
     pub(crate) fn save_tm(&mut self) {
         if !self.tm_dirty { return; }
@@ -957,7 +1030,9 @@ impl App {
                     let keys = crate::hotkeys::format(&sc);
                     // aynı tuş başka makroda varsa ondan al
                     self.settings.macro_hotkeys.retain(|h| crate::hotkeys::parse(&h.keys) != Some(sc));
+                    let label = if script == COMMAND_SCRIPT { COMMANDS.iter().find(|c| c.0 == name).map(|c| c.1.to_string()).unwrap_or_else(|| name.clone()) } else { name.clone() };
                     self.settings.macro_hotkeys.push(crate::settings::MacroHotkey { keys: keys.clone(), script, name: name.clone() });
+                    let name = label;
                     self.status = if crate::hotkeys::conflicts_builtin(&sc) { format!("{} → {} (UYARI: yerleşik kısayolu ezer)", keys, name) } else { format!("{} → {}", keys, name) };
                 }
                 self.settings.save();
@@ -974,6 +1049,10 @@ impl App {
                 let plain = !(sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
                 let fkey = sc.logical_key.name().starts_with('F') && sc.logical_key.name().len() > 1;
                 if typing_now && plain && !fkey {
+                    continue;
+                }
+                if script == COMMAND_SCRIPT {
+                    if ctx.input_mut(|i| i.consume_shortcut(&sc)) { self.run_command(&name, ctx); }
                     continue;
                 }
                 if ctx.input_mut(|i| i.consume_shortcut(&sc)) {
@@ -1324,6 +1403,7 @@ impl App {
             });
             ui.menu_button("Yardım", |ui| {
                 if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
+                if ui.button("Kısayolları düzenle…").clicked() { self.hotkeys_open = true; ui.close(); }
                 if ui.button("Hakkında").clicked() { self.about_open = true; ui.close(); }
             });
         });
@@ -1495,6 +1575,7 @@ impl eframe::App for App {
         self.select_window(&ctx);
         self.attach_window(&ctx);
         self.compare_window(&ctx);
+        self.hotkeys_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
