@@ -25,6 +25,7 @@
 - [ ] Biçimler: SAMI, SubViewer, STL, iTT, Netflix TTML tam, PGS/VobSub OCR
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [x] Timecode dosyaları v1/v2 (VFR, `core::vfr`): Video menüsünden aç/kaydet/kapat; kare adımı, kareye yapışma, `aegisub.frame_from_ms/ms_from_frame`, "Kareye oturt", CLI `--timecodes`
+- [x] Kare doğruluğu: Aegisub START/END anlambilimi (iki kare arasının ortası) — F6/F7, kareye yapışma, anahtar kare yapışması, "Kareye oturt", son-işleyici ve Lua `frame_from_ms/ms_from_frame` santisaniye yuvarlamasına dayanıklı (eskiden 23.976'da bazı satırlar bir kare geç başlıyordu); önizleme playhead'deki kareyi gösterir
 - [x] VFR: videodan otomatik algılama (ffprobe paket PTS; ms yuvarlaması toleranslı), videoda "kare N VFR" göstergesi; elle yüklenen timecode önceliklidir
 - [ ] Matroska timestamp v4 dosyaları
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
