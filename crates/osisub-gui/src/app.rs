@@ -212,6 +212,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("split_frame", "Video karesinde böl"),
     ("dup_shift", "Çoğalt ve 1 kare kaydır"),
     ("play_line", "Satırı oynat / durdur"),
+    ("play_head", "Playhead'den oynat / durdur"),
     ("set_start", "Başlangıcı video karesine al"),
     ("set_end", "Bitişi video karesine al"),
     ("frame_next", "Sonraki kare"),
@@ -989,6 +990,7 @@ impl App {
             "split_frame" => { if let Some(fr) = &fr { if !self.doc.split_at_frame(fr, self.media.playhead) { self.status = "Bu kare satırın içinde değil".into(); } } }
             "dup_shift" => { if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); } }
             "play_line" => self.media.toggle_play(&self.doc, ctx),
+            "play_head" => self.media.toggle_play_from_playhead(&self.doc, ctx),
             "set_start" => self.media.set_active_start(&mut self.doc),
             "set_end" => self.media.set_active_end(&mut self.doc),
             "frame_next" => self.media.step_frames(1),
@@ -1152,6 +1154,7 @@ impl App {
                 i.consume_shortcut(&k(Modifiers::COMMAND, Key::M)),
             )
         });
+        if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::F5)) { self.media.toggle_play_from_playhead(&self.doc, ctx); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) { self.media.toggle_play(&self.doc, ctx); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) { self.media.set_active_start(&mut self.doc); }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) { self.media.set_active_end(&mut self.doc); }
@@ -1381,6 +1384,7 @@ impl App {
                     }
                 });
                 if ui.add_enabled(self.media.is_open(), egui::Button::new("Satırı oynat / durdur").shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc, ui.ctx()); ui.close(); }
+                if ui.add_enabled(self.media.is_open(), egui::Button::new("Playhead'den oynat / durdur").shortcut_text("Shift+F5")).clicked() { self.media.toggle_play_from_playhead(&self.doc, ui.ctx()); ui.close(); }
             });
             ui.menu_button("Otomasyon", |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new("Yüklü makro yok").weak()); }

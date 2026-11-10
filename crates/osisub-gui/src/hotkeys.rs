@@ -62,6 +62,7 @@ pub fn conflicts_builtin(sc: &KeyboardShortcut) -> bool {
         (true, false, true, Key::S | Key::Z) => true,
         (false, false, false, Key::F5 | Key::F6 | Key::F7 | Key::Comma | Key::Period | Key::Space | Key::Delete | Key::Escape) => true,
         (false, true, false, Key::ArrowUp | Key::ArrowDown) => true,
+        (false, false, true, Key::F5) => true,
         _ => false,
     }
 }

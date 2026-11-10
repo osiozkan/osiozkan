@@ -14,6 +14,7 @@
 | ↑ ↓ PageUp PageDown | Satır gezinme (metin kutusunda değilken) |
 | Alt+↑ / Alt+↓ | Önceki / sonraki satır (her zaman) |
 | F5 | Etkin satırı oynat/durdur (video+ses) |
+| Shift+F5 | Playhead'den oynat/durdur (satır sınırı olmadan, en çok 10 dk) |
 | F6 / F7 | Playhead'i başlangıç / bitiş yap |
 | Dalga formu: sürükle (kenar tutamaçları) | Başlangıç/bitiş ayarla (kareye/anahtar kareye yapışır) |
 | Dalga formu: Alt+sürükle | Satırı taşı |

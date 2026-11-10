@@ -267,12 +267,27 @@ impl Media {
             self.stop_all();
             return;
         }
-        let Some(p) = self.path.clone() else { return };
         let (s, e) = match doc.script.entries.get(doc.active) {
             Some(Entry::Dialogue(d)) => (d.start_time, d.end_time),
             _ => (self.playhead, self.playhead + 5000),
         };
-        let (from, dur) = ((s - 300).max(0), e - s + 600);
+        self.play_range(doc, ctx, (s - 300).max(0), e - s + 600);
+    }
+
+    /// Playhead'den itibaren (satır sınırı olmadan) oynatır; çalarken çağrılırsa durdurur.
+    pub fn toggle_play_from_playhead(&mut self, doc: &Document, ctx: &egui::Context) {
+        if self.is_playing() {
+            self.stop_all();
+            return;
+        }
+        let end = self.info.as_ref().map(|i| i.duration_ms).filter(|d| *d > 0).unwrap_or(self.playhead + 60_000);
+        let from = self.playhead.max(0);
+        // çok uzun akışlar için üst sınır: 10 dk (yeniden basınca devam eder)
+        self.play_range(doc, ctx, from, (end - from).clamp(500, 600_000));
+    }
+
+    fn play_range(&mut self, doc: &Document, ctx: &egui::Context, from: i64, dur: i64) {
+        let Some(p) = self.path.clone() else { return };
         // Önce uygulama içi ses motoru (hassas ses saati); olmazsa harici ffplay.
         match osisub_media::audio::AudioPlayer::start(&p, from, dur) {
             Ok(a) => self.audio = Some(a),
