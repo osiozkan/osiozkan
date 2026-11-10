@@ -148,6 +148,8 @@ pub struct App {
     select_crit: osisub_core::select::Criteria,
     /// Kare denetimleri için medya durumu (anahtar kare sayısı, kare hızı var mı); değişince QC yenilenir
     qc_media_key: (usize, bool),
+    /// Ekler (gömülü yazı tipleri/grafikler) penceresi
+    attach_open: bool,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -303,6 +305,7 @@ impl App {
             hotkey_capture: None,
             lua_error: None,
             select_open: false,
+            attach_open: false,
             qc_media_key: (0, false),
             select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
@@ -428,6 +431,7 @@ impl App {
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("select") => app.select_open = true,
+            Some("attach") => app.attach_open = true,
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
             Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
@@ -1267,6 +1271,7 @@ impl App {
                         }
                     }
                 });
+                if ui.button("Ekler (gömülü yazı tipleri)…").on_hover_text("[Fonts]/[Graphics]: dosyaları ASS'e göm, çıkar, sil").clicked() { self.attach_open = true; ui.close(); }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
@@ -1454,6 +1459,7 @@ impl eframe::App for App {
         self.export_window(&ctx);
         self.lua_error_window(&ctx);
         self.select_window(&ctx);
+        self.attach_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

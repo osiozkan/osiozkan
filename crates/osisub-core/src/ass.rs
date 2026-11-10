@@ -309,7 +309,11 @@ impl Script {
                 pending_blank += 1;
                 continue;
             }
-            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            // [Fonts]/[Graphics] verisi (UUencode, 33..=96) '[' ile başlayıp ']' ile bitebilir; gerçek bölüm
+            // adları hep küçük harf ya da boşluk içerir (uuencode'da yok) → veri satırını bölüm sanma.
+            let in_attach = section == "Fonts" || section == "Graphics";
+            let uu_data = in_attach && trimmed.len() <= 80 && trimmed.bytes().all(|b| (33..=96).contains(&b));
+            if trimmed.starts_with('[') && trimmed.ends_with(']') && !uu_data {
                 section = trimmed[1..trimmed.len() - 1].trim().to_string();
                 pending_blank = 0;
                 // Bölüm adları büyük/küçük harf duyarsızdır; kanonik biçime çevir.

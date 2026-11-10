@@ -21,7 +21,8 @@
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
 - [ ] Override etiketlerinin tipli anlamlandırılması (\t içi, \clip vektör, animasyon süreleri)
-- [ ] ASS Extradata/Fonts/Graphics yapılandırılmış erişim
+- [x] Ekler: [Fonts]/[Graphics] gömme/çıkarma/silme (core::attach, ASS UUencode), "Kullanılan yazı tiplerini göm" (Araçlar → Ekler); ayrıştırıcı "[..]" gibi görünen veri satırlarını bölüm sanmıyor
+- [ ] ASS Extradata yapılandırılmış erişim
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme
 - [ ] Biçimler: SAMI, SubViewer, STL, iTT, Netflix TTML tam, PGS/VobSub OCR
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)

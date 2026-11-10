@@ -138,6 +138,75 @@ impl App {
         if !open { self.select_open = false; }
     }
 
+    /// Ekler: ASS'e gömülü yazı tipleri/grafikler (Aegisub Attachments).
+    pub(super) fn attach_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::attach;
+        if !self.attach_open { return; }
+        let mut open = true;
+        let list = attach::list(&self.doc.script);
+        let mut remove: Option<String> = None;
+        let mut save: Option<String> = None;
+        let mut add_files = false;
+        let mut embed_used = false;
+        egui::Window::new("Ekler").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            if list.is_empty() { ui.label(RichText::new("Bu betikte gömülü dosya yok.").weak()); }
+            egui::Grid::new("attach_grid").num_columns(4).striped(true).show(ui, |ui| {
+                for a in &list {
+                    ui.label(RichText::new(&a.name).monospace());
+                    ui.label(RichText::new(&a.section).weak());
+                    ui.label(format!("{:.1} KB", a.size as f64 / 1024.0));
+                    ui.horizontal(|ui| {
+                        if ui.small_button("Kaydet…").clicked() { save = Some(a.name.clone()); }
+                        if ui.small_button("Sil").clicked() { remove = Some(a.name.clone()); }
+                    });
+                    ui.end_row();
+                }
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Dosya ekle…").clicked() { add_files = true; }
+                if ui.button("Kullanılan yazı tiplerini göm").on_hover_text("Betikte kullanılan ve sistemde bulunan yazı tipi dosyalarını [Fonts] bölümüne ekler").clicked() { embed_used = true; }
+            });
+            ui.label(RichText::new("Gömülü yazı tipleri libass/VSFilter tarafından okunur; dosya boyutu ~%33 büyür.").weak().small());
+        });
+        if let Some(n) = remove {
+            let mut s = self.doc.script.clone();
+            if attach::remove(&mut s, &n) { self.doc.apply_new_script("Eki sil", s); self.status = format!("Ek silindi: {}", n); }
+        }
+        if let Some(n) = save {
+            if let (Some(data), Some(p)) = (attach::extract(&self.doc.script, &n), rfd::FileDialog::new().set_file_name(n.as_str()).save_file()) {
+                match std::fs::write(&p, data) { Ok(()) => self.status = format!("Kaydedildi: {}", p.display()), Err(e) => self.status = format!("Hata: {}", e) }
+            }
+        }
+        if add_files {
+            if let Some(files) = rfd::FileDialog::new().add_filter("Yazı tipi / grafik", &["ttf", "otf", "ttc", "otc", "png", "jpg", "bmp", "gif"]).pick_files() {
+                let mut s = self.doc.script.clone();
+                let mut n = 0;
+                for f in files {
+                    if let (Ok(data), Some(name)) = (std::fs::read(&f), f.file_name().map(|x| x.to_string_lossy().to_string())) { attach::attach(&mut s, &name, &data); n += 1; }
+                }
+                if n > 0 { self.doc.apply_new_script("Ek ekle", s); self.status = format!("{} dosya gömüldü", n); }
+            }
+        }
+        if embed_used {
+            let mut db = osisub_lua::fonts::FontDb::default();
+            let mut s = self.doc.script.clone();
+            let (mut n, mut missing) = (0, vec![]);
+            let mut seen = std::collections::HashSet::new();
+            for u in osisub_core::fonts_used::used_fonts(&self.doc.script) {
+                let files = db.files_for(&u.family);
+                if files.is_empty() { missing.push(u.family.clone()); }
+                for f in files {
+                    if !seen.insert(f.clone()) { continue; }
+                    if let (Ok(data), Some(name)) = (std::fs::read(&f), f.file_name().map(|x| x.to_string_lossy().to_string())) { attach::attach(&mut s, &name, &data); n += 1; }
+                }
+            }
+            if n > 0 { self.doc.apply_new_script("Yazı tiplerini göm", s); }
+            self.status = if missing.is_empty() { format!("{} yazı tipi dosyası gömüldü", n) } else { format!("{} dosya gömüldü; bulunamayan: {}", n, missing.join(", ")) };
+        }
+        if !open { self.attach_open = false; }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
