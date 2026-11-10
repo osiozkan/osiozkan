@@ -40,8 +40,28 @@ impl App {
                 });
             }
         }
+        // Çeviri belleği önerileri (satır ya da bellek değişince yeniden hesaplanır)
+        let mut use_tm: Option<String> = None;
+        if !self.tm.is_empty() && !hits.is_empty() {
+            if self.tm_cache.0 != at || self.tm_cache.1 != self.tm_rev {
+                let src = self.ref_source(a, b).unwrap_or_default();
+                self.tm_cache = (at, self.tm_rev, self.tm.suggest(&src, 3, 60));
+            }
+            for s in &self.tm_cache.2 {
+                ui.horizontal(|ui| {
+                    let col = if s.score == 100 { theme::ACCENT } else { Color32::GRAY };
+                    ui.label(RichText::new(format!("TM {}%", s.score)).monospace().small().color(col));
+                    if ui.small_button("Kullan").on_hover_text(format!("Kaynak: {}", s.source)).clicked() { use_tm = Some(s.target.clone()); }
+                    ui.label(RichText::new(&s.target).italics());
+                });
+            }
+        }
         // Çeviri kutusu
         let mut nd = d.clone();
+        if let Some(t) = use_tm.take() {
+            let head = osisub_core::overrides::parse(&nd.text).into_iter().take_while(|s| matches!(s, osisub_core::overrides::Seg::Block(_))).collect::<Vec<_>>();
+            nd.text = format!("{}{}", osisub_core::overrides::to_string(&head), t);
+        }
         let sp = self.spell.clone();
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
             let mut job = editor_job(buf.as_str(), sp.as_deref());
@@ -89,6 +109,11 @@ impl App {
             }
         });
         if enter {
+            // Çeviriyi belleğe öğret (kaynak = referanstaki eşleşen satır)
+            if let Some(src) = self.ref_source(a, b) {
+                let tgt = osisub_core::tags::visible_text(&nd.text).replace('\n', "\\N");
+                if self.tm.add(&src, &tgt) { self.tm_rev += 1; self.tm_dirty = true; }
+            }
             step(self, 1);
         }
         if !self.glossary.is_empty() && !self.ref_lines.is_empty() {

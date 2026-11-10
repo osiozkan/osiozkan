@@ -137,6 +137,12 @@ pub struct App {
     hotkey_capture: Option<(String, String)>,
     /// Son Lua hatası (makro adı, ileti) — hata penceresinde gösterilir
     lua_error: Option<(String, String)>,
+    /// Çeviri belleği (<veri>/tm.tsv), değişiklik sayacı, kaydedilmemiş mi
+    tm: osisub_core::tm::Memory,
+    tm_rev: u64,
+    tm_dirty: bool,
+    /// (etkin satır, tm_rev) için hesaplanmış öneriler
+    tm_cache: (usize, u64, Vec<osisub_core::tm::Suggestion>),
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -178,6 +184,10 @@ enum RowAction {
     Cut,
     Paste,
     SetStyle(String),
+}
+
+fn tm_path() -> Option<PathBuf> {
+    osisub_core::paths::data_dir().map(|d| d.join("tm.tsv"))
 }
 
 fn autoload_dir() -> Option<PathBuf> {
@@ -282,6 +292,10 @@ impl App {
             filter: String::new(),
             hotkey_capture: None,
             lua_error: None,
+            tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
+            tm_rev: 0,
+            tm_dirty: false,
+            tm_cache: (usize::MAX, u64::MAX, vec![]),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
             rules: Rules::default(),
@@ -634,7 +648,7 @@ impl App {
             }
             self.write_project_garbage(&p);
             match self.doc.save_as(p.clone()) {
-                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); }
+                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); self.save_tm(); }
                 Err(e) => self.status = format!("Hata: {}", e),
             }
         }
@@ -817,6 +831,33 @@ impl App {
         }
         self.issues = issues;
         self.issues_key = rev;
+    }
+
+    /// Çeviri belleğini diske yazar (değiştiyse).
+    pub(crate) fn save_tm(&mut self) {
+        if !self.tm_dirty { return; }
+        if let Some(p) = tm_path() {
+            if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+            if std::fs::write(&p, self.tm.to_tsv()).is_ok() { self.tm_dirty = false; }
+        }
+    }
+
+    /// Referansla zamanı örtüşen satırların (kaynak, çeviri) çiftlerini belleğe ekler.
+    pub(crate) fn tm_learn_document(&mut self) -> usize {
+        let mut n = 0;
+        let ds: Vec<(i64, i64, String)> = self.doc.script.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, d.text.clone())).collect();
+        for (a, b, text) in ds {
+            if let Some(src) = self.ref_source(a, b) {
+                if self.tm.add(&src, &osisub_core::tags::visible_text(&text).replace('\n', "\\N")) { n += 1; }
+            }
+        }
+        if n > 0 { self.tm_rev += 1; self.tm_dirty = true; }
+        n
+    }
+
+    /// Zaman aralığıyla en çok örtüşen referans satırının metni.
+    pub(crate) fn ref_source(&self, a: i64, b: i64) -> Option<String> {
+        self.ref_lines.iter().filter(|r| r.1 > a && r.0 < b).max_by_key(|r| r.1.min(b) - r.0.max(a)).map(|r| r.2.replace(" ⏎ ", " "))
     }
 
     fn recheck(&mut self) {
@@ -1132,6 +1173,34 @@ impl App {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Metin/CSV", &["txt", "csv", "tsv"]).pick_file() { self.load_glossary(p); }
                 }
+                ui.menu_button(format!("Çeviri belleği ({} çift)", self.tm.len()), |ui| {
+                    if ui.add_enabled(!self.ref_lines.is_empty(), egui::Button::new("Bu belgeyi belleğe ekle")).on_hover_text("Referansla örtüşen her satır: referans metni → çeviri").clicked() {
+                        ui.close();
+                        let n = self.tm_learn_document();
+                        self.save_tm();
+                        self.status = format!("Çeviri belleğine {} çift eklendi/güncellendi (toplam {})", n, self.tm.len());
+                    }
+                    if ui.button("İçe aktar (TSV)…").clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv", "txt"]).pick_file() {
+                            match std::fs::read_to_string(&p) {
+                                Ok(t) => {
+                                    let before = self.tm.len();
+                                    self.tm.merge(osisub_core::tm::Memory::parse(&t));
+                                    self.tm_rev += 1; self.tm_dirty = true; self.save_tm();
+                                    self.status = format!("Çeviri belleği: {} → {} çift", before, self.tm.len());
+                                }
+                                Err(e) => self.status = format!("Hata: {}", e),
+                            }
+                        }
+                    }
+                    if ui.add_enabled(!self.tm.is_empty(), egui::Button::new("Dışa aktar (TSV)…")).clicked() {
+                        ui.close();
+                        if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv"]).save_file() {
+                            match std::fs::write(&p, self.tm.to_tsv()) { Ok(()) => self.status = "Çeviri belleği dışa aktarıldı".into(), Err(e) => self.status = format!("Hata: {}", e) }
+                        }
+                    }
+                });
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
@@ -1259,6 +1328,7 @@ impl App {
 impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_settings();
+        self.save_tm();
         if !self.doc.is_dirty() { self.clear_autosave(); }
     }
 
