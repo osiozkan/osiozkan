@@ -11,10 +11,10 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
   osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N]
-  osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N --snap]
+  osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
   osisub macros <betik.lua>...            betiklerdeki makroları listele
-  osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N]
+  osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
   osisub info <dosya>                     özet bilgi
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N]
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
@@ -111,6 +111,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let all = !["--overlaps", "--dupes", "--empty", "--clean", "--sort", "--snap"].iter().any(|f| args.contains(&f.to_string()));
             let (ov, du, em, cl, so, sn) = (flag(&mut args, "--overlaps"), flag(&mut args, "--dupes"), flag(&mut args, "--empty"), flag(&mut args, "--clean"), flag(&mut args, "--sort"), flag(&mut args, "--snap"));
             let fps: Option<f64> = opt(&mut args, "--fps").and_then(|v| v.parse().ok());
+            let tc = load_timecodes(&mut args)?;
             let inp = args.first().ok_or("girdi gerekli")?.clone();
             let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
             let mut s = load(&inp)?;
@@ -118,7 +119,13 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if all || du { println!("yinelenen silindi: {}", qc::remove_duplicates(&mut s)); }
             if all || em { println!("boş silindi: {}", qc::remove_empty(&mut s)); }
             if all || cl { for d in s.dialogues_mut() { d.text = qc::clean_text(&d.text); } }
-            if sn { qc::snap_to_frames(&mut s, fps.ok_or("--snap için --fps gerekli")?); }
+            if sn {
+                match (&tc, fps) {
+                    (Some(tc), _) => qc::snap_to_framerate(&mut s, tc),
+                    (None, Some(f)) => qc::snap_to_frames(&mut s, f),
+                    (None, None) => return Err("--snap için --fps ya da --timecodes gerekli".into()),
+                }
+            }
             if all || ov { println!("çakışma düzeltildi: {}", qc::fix_overlaps(&mut s)); }
             save(&s, &out)
         }
@@ -233,10 +240,11 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             }
             let sel_arg = opt(&mut args, "--select");
             let fps = opt(&mut args, "--fps").and_then(|v| v.parse().ok());
+            let timecodes = load_timecodes(&mut args)?.map(std::sync::Arc::new);
             if args.len() < 3 { return Err("kullanım: run <girdi> <betik.lua> <makro> [çıktı]".into()); }
             let (inp, lua, mac) = (args[0].clone(), args[1].clone(), args[2].clone());
             let out = args.get(3).cloned().unwrap_or_else(|| inp.clone());
-            let mut e = new_engine(HeadlessHost { params, fps, ..Default::default() })?;
+            let mut e = new_engine(HeadlessHost { params, fps, timecodes, ..Default::default() })?;
             let script = load(&inp)?;
             let n = script.entries.len();
             e.set_script(script);
@@ -288,4 +296,15 @@ fn new_engine(host: HeadlessHost) -> Result<Engine, String> {
         }
     }
     Ok(e)
+}
+
+/// `--timecodes dosya` seçeneğini okur (v1/v2).
+fn load_timecodes(args: &mut Vec<String>) -> Result<Option<osisub_core::vfr::Framerate>, String> {
+    match opt(args, "--timecodes") {
+        Some(p) => {
+            let t = std::fs::read_to_string(&p).map_err(|e| format!("{}: {}", p, e))?;
+            osisub_core::vfr::Framerate::parse_timecodes(&t).map(Some).map_err(|e| format!("{}: {}", p, e))
+        }
+        None => Ok(None),
+    }
 }

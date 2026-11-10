@@ -15,6 +15,7 @@ const KARASKEL: &str = include_str!("../lua/karaskel.lua");
 const UTF8_LUA: &str = include_str!("../lua/utf8.lua");
 const UTILS_AUTO4: &str = include_str!("../lua/utils-auto4.lua");
 const KARASKEL_AUTO4: &str = include_str!("../lua/karaskel-auto4.lua");
+const CLEANTAGS: &str = include_str!("../lua/cleantags.lua");
 const UNICODE_LUA: &str = "unicode = aegisub.__unicode\nreturn unicode\n";
 
 fn embedded(name: &str) -> Option<&'static str> {
@@ -25,6 +26,7 @@ fn embedded(name: &str) -> Option<&'static str> {
         "utf8.lua" => Some(UTF8_LUA),
         "utils-auto4.lua" => Some(UTILS_AUTO4),
         "karaskel-auto4.lua" => Some(KARASKEL_AUTO4),
+        "cleantags.lua" => Some(CLEANTAGS),
         _ => None,
     }
 }
@@ -321,12 +323,12 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         let inn = inner.clone();
         aegisub.set(
             "frame_from_ms",
-            lua.create_function(move |_, ms: f64| Ok(inn.borrow().host.fps().map(|f| osisub_core::time::frame_from_ms(ms as i64, f))))?,
+            lua.create_function(move |_, ms: f64| Ok(inn.borrow().host.framerate().map(|f| f.frame_at(ms as i64))))?,
         )?;
         let inn = inner.clone();
         aegisub.set(
             "ms_from_frame",
-            lua.create_function(move |_, fr: f64| Ok(inn.borrow().host.fps().map(|f| osisub_core::time::ms_from_frame(fr as i64, f))))?,
+            lua.create_function(move |_, fr: f64| Ok(inn.borrow().host.framerate().map(|f| f.time_at(fr as i64))))?,
         )?;
         let inn = inner.clone();
         aegisub.set(

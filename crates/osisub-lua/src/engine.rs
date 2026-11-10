@@ -41,6 +41,10 @@ pub trait Host {
     fn fps(&self) -> Option<f64> {
         None
     }
+    /// Kare hızı (VFR timecode dahil). Varsayılan: `fps()`'ten sabit hız.
+    fn framerate(&self) -> Option<std::sync::Arc<osisub_core::vfr::Framerate>> {
+        self.fps().map(|f| std::sync::Arc::new(osisub_core::vfr::Framerate::cfr(f)))
+    }
     fn video_size(&self) -> Option<(i32, i32)> {
         None
     }
@@ -71,6 +75,8 @@ pub trait Host {
 pub struct HeadlessHost {
     pub params: HashMap<String, String>,
     pub fps: Option<f64>,
+    /// VFR timecode (varsa `fps` yerine kullanılır).
+    pub timecodes: Option<std::sync::Arc<osisub_core::vfr::Framerate>>,
     pub video_size: Option<(i32, i32)>,
     pub quiet: bool,
 }
@@ -95,6 +101,9 @@ impl Host for HeadlessHost {
         if !self.quiet {
             eprint!("{}", msg);
         }
+    }
+    fn framerate(&self) -> Option<std::sync::Arc<osisub_core::vfr::Framerate>> {
+        self.timecodes.clone().or_else(|| self.fps.map(|f| std::sync::Arc::new(osisub_core::vfr::Framerate::cfr(f))))
     }
     fn fps(&self) -> Option<f64> {
         self.fps

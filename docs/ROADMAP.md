@@ -23,7 +23,8 @@
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme
 - [ ] Biçimler: SAMI, SubViewer, STL, iTT, Netflix TTML tam, PGS/VobSub OCR
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
-- [ ] Anahtar kare/timecode dosyaları (Aegisub .txt, v1/v2), değişken fps
+- [x] Timecode dosyaları v1/v2 (VFR, `core::vfr`): Video menüsünden aç/kaydet/kapat; kare adımı, kareye yapışma, `aegisub.frame_from_ms/ms_from_frame`, "Kareye oturt", CLI `--timecodes`
+- [ ] VFR: videodan otomatik timecode çıkarma (ffprobe pts), Matroska timestamp v4
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
 - [x] Yazım denetimi: Hunspell uyumlu (spellbook), tr_TR indir/seç, öneriler, yoksay, kullanıcı sözlüğü; `FLAG num` bayrak-0 uyumluluğu (LibreOffice tr_TR ile doğrulandı, ~1 sn yükleme)
@@ -41,7 +42,10 @@
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
 - [x] Gerçek yazı tipi ölçüleri (`text_extents`: ttf-parser, GDI/VSFilter uyumlu hücre yüksekliği)
 - [ ] Yazı tipi dizini önbelleği (tarama her açılışta tüm dosyaları okuyor)
-- [ ] `kara-templater.lua` ve Aegisub'ın gelen otomasyon betiklerinin birebir testi
+- [x] `kara-templater.lua` yerleşik ve gerçek Aegisub `karaskel-auto4.lua` ile testli
+- [x] MoonScript (`.moon`) betikleri, include klasörlerinden `require`
+- [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
+- [ ] DependencyControl uyumluluğu (ASSFoundation, Aegisub-Motion gibi betik aileleri için)
 - [ ] Dışa aktarım filtreleri (register_filter) için boru hattı
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] Betikleri yeniden yükle (motoru sıfırlar)

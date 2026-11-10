@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug, Default)]
 pub struct MediaState {
     pub fps: Option<f64>,
+    /// Yüklü timecode dosyası (VFR); varsa `fps` yerine kullanılır.
+    pub timecodes: Option<Arc<osisub_core::vfr::Framerate>>,
     pub video_size: Option<(i32, i32)>,
     pub audio_selection: Option<(i64, i64)>,
     /// Anahtar kare numaraları (fps biliniyorsa).
@@ -63,6 +65,9 @@ impl Host for ChannelHost {
     }
     fn fps(&self) -> Option<f64> {
         self.media.lock().ok().and_then(|m| m.fps)
+    }
+    fn framerate(&self) -> Option<Arc<osisub_core::vfr::Framerate>> {
+        self.media.lock().ok().and_then(|m| m.timecodes.clone().or(m.fps.map(|f| Arc::new(osisub_core::vfr::Framerate::cfr(f)))))
     }
     fn video_size(&self) -> Option<(i32, i32)> {
         self.media.lock().ok().and_then(|m| m.video_size)

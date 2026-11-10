@@ -597,8 +597,8 @@ impl App {
         if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
             self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
         }
-        if let Some(f) = self.media.fps() {
-            self.doc.script.set_garbage("Video Position", &osisub_core::time::frame_from_ms(self.media.playhead, f).to_string());
+        if let Some(f) = self.media.framerate() {
+            self.doc.script.set_garbage("Video Position", &f.frame_at(self.media.playhead).to_string());
         }
     }
 
@@ -643,7 +643,7 @@ impl App {
             props.push(("audio_file".to_string(), p.to_string_lossy().to_string()));
         }
         self.sync_media_state();
-        if let Some(f) = self.media.fps() { props.push(("video_position".to_string(), osisub_core::time::frame_from_ms(self.media.playhead, f).to_string())); }
+        if let Some(f) = self.media.framerate() { props.push(("video_position".to_string(), f.frame_at(self.media.playhead).to_string())); }
         // Aegisub gibi: seçim boşsa etkin satır seçili sayılır.
         let mut selection = self.doc.selection.clone();
         if selection.is_empty() && self.doc.active < self.doc.script.entries.len() { selection.push(self.doc.active); }
@@ -672,8 +672,9 @@ impl App {
     fn sync_media_state(&mut self) {
         if let Ok(mut m) = self.worker.media.lock() {
             m.fps = self.media.fps();
+            m.timecodes = self.media.timecodes.clone();
             m.video_size = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width as i32, i.height as i32));
-            m.keyframes = self.media.fps().map(|f| self.media.keyframes.iter().map(|&ms| osisub_core::time::frame_from_ms(ms, f)).collect()).unwrap_or_default();
+            m.keyframes = self.media.framerate().map(|f| self.media.keyframes.iter().map(|&ms| f.frame_at(ms)).collect()).unwrap_or_default();
             m.audio_selection = match self.doc.script.entries.get(self.doc.active) {
                 Some(Entry::Dialogue(d)) => Some((d.start_time, d.end_time)),
                 _ => None,
@@ -1009,6 +1010,34 @@ impl App {
                         match std::fs::write(&p, t) { Ok(()) => self.status = "Anahtar kareler kaydedildi".into(), Err(e) => self.status = format!("Hata: {}", e) }
                     }
                 }
+                ui.separator();
+                if ui.button("Timecode dosyası aç (VFR)…").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Timecode", &["txt", "tc"]).pick_file() {
+                        match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| osisub_core::vfr::Framerate::parse_timecodes(&t)) {
+                            Ok(fr) => {
+                                self.status = format!("Timecode yüklendi: ortalama {:.3} fps", fr.fps());
+                                self.media.timecodes = Some(std::sync::Arc::new(fr));
+                            }
+                            Err(e) => self.status = format!("Timecode hatası: {}", e),
+                        }
+                    }
+                }
+                if ui.add_enabled(self.media.framerate().is_some(), egui::Button::new("Timecode kaydet (v2)…")).clicked() {
+                    ui.close();
+                    if let (Some(fr), Some(p)) = (self.media.framerate(), rfd::FileDialog::new().add_filter("Timecode", &["txt"]).save_file()) {
+                        // Kare sayısı: videonun süresi ya da son altyazı bitişi
+                        let end = self.media.info.as_ref().map(|i| i.duration_ms).filter(|d| *d > 0).unwrap_or_else(|| self.doc.script.dialogues().map(|d| d.end_time).max().unwrap_or(0));
+                        let frames = (fr.frame_at(end) + 1).max(1) as usize;
+                        match std::fs::write(&p, fr.to_v2(frames)) { Ok(()) => self.status = format!("{} kare için timecode kaydedildi", frames), Err(e) => self.status = format!("Hata: {}", e) }
+                    }
+                }
+                if ui.add_enabled(self.media.timecodes.is_some(), egui::Button::new("Timecode'u kapat")).clicked() {
+                    ui.close();
+                    self.media.timecodes = None;
+                    self.status = "Timecode kapatıldı (videonun sabit kare hızı kullanılıyor)".into();
+                }
+                ui.separator();
                 ui.checkbox(&mut self.media.spectrum, "Spektrum göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");

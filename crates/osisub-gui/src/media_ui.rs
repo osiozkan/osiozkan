@@ -55,6 +55,8 @@ pub struct Media {
     player: Option<Child>,
     pub snap: bool,
     pub keyframes: Vec<i64>,
+    /// Yüklü timecode dosyası (VFR); varsa kare hesapları bunu kullanır.
+    pub timecodes: Option<Arc<osisub_core::vfr::Framerate>>,
     pub snap_kf: bool,
     /// Videoda \pos sürükleme aracı.
     pub tool: VideoTool,
@@ -98,6 +100,7 @@ impl Media {
             player: None,
             snap: true,
             keyframes: vec![],
+            timecodes: None,
             snap_kf: true,
             tool: VideoTool::None,
             vt_drag: None,
@@ -124,11 +127,10 @@ impl Media {
 
     /// Playhead'i `n` kare ileri/geri alır (fps yoksa 40 ms).
     pub fn step_frames(&mut self, n: i64) {
-        let step = self.fps().map(|f| 1000.0 / f).unwrap_or(40.0);
-        let cur = self.fps().map(|f| (self.playhead as f64 * f / 1000.0).round()).unwrap_or(0.0);
-        self.playhead = match self.fps() {
-            Some(f) => (((cur as i64 + n) as f64) * 1000.0 / f).round() as i64,
-            None => self.playhead + (n as f64 * step) as i64,
+        self.playhead = match self.framerate() {
+            // Önce en yakın kare başlangıcına oturt, sonra n kare git (VFR'de kare süreleri farklı olabilir).
+            Some(fr) => fr.time_at(fr.frame_at(fr.snap(self.playhead)) + n),
+            None => self.playhead + n * 40,
         }
         .max(0);
     }
@@ -143,6 +145,11 @@ impl Media {
 
     pub fn fps(&self) -> Option<f64> {
         self.info.as_ref().map(|i| i.fps).filter(|f| *f > 0.0)
+    }
+
+    /// Kare hızı: timecode dosyası yüklüyse o (VFR), yoksa videonun sabit hızı.
+    pub fn framerate(&self) -> Option<Arc<osisub_core::vfr::Framerate>> {
+        self.timecodes.clone().or_else(|| self.fps().map(|f| Arc::new(osisub_core::vfr::Framerate::cfr(f))))
     }
 
     pub fn open(&mut self, p: PathBuf, ctx: &egui::Context) {
@@ -389,8 +396,8 @@ impl Media {
                 return k;
             }
         }
-        match (self.snap, self.fps()) {
-            (true, Some(f)) => time::snap_to_frame(ms, f),
+        match (self.snap, self.framerate()) {
+            (true, Some(fr)) => fr.snap(ms),
             _ => ms,
         }
     }

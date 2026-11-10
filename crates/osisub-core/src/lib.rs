@@ -16,6 +16,7 @@ pub mod stats;
 pub mod tags;
 pub mod time;
 pub mod timing;
+pub mod vfr;
 pub mod vtt;
 
 pub use ass::{Dialogue, Entry, Script, Style};

@@ -196,8 +196,14 @@ impl App {
                 ui.add(egui::DragValue::new(&mut self.fps).speed(0.001).range(1.0..=240.0));
                 if ui.button("Kareye oturt").clicked() {
                     let mut s = self.doc.script.clone();
-                    qc::snap_to_frames(&mut s, self.fps);
+                    match &self.media.timecodes {
+                        Some(tc) => qc::snap_to_framerate(&mut s, tc),
+                        None => qc::snap_to_frames(&mut s, self.fps),
+                    }
                     self.doc.apply_new_script("Kareye oturt", s);
+                }
+                if self.media.timecodes.is_some() {
+                    ui.label(RichText::new("(VFR timecode kullanılıyor)").weak());
                 }
             });
         });

@@ -185,9 +185,14 @@ pub fn sort_by(script: &mut Script, key: SortKey) {
 }
 
 pub fn snap_to_frames(script: &mut Script, fps: f64) {
+    snap_to_framerate(script, &crate::vfr::Framerate::cfr(fps));
+}
+
+/// Sabit ya da değişken (timecode) kare hızına göre kareye oturtur.
+pub fn snap_to_framerate(script: &mut Script, fr: &crate::vfr::Framerate) {
     for d in script.dialogues_mut() {
-        d.start_time = crate::time::snap_to_frame(d.start_time, fps);
-        d.end_time = crate::time::snap_to_frame(d.end_time, fps);
+        d.start_time = fr.snap(d.start_time);
+        d.end_time = fr.snap(d.end_time);
     }
 }
 
