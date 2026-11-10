@@ -1108,6 +1108,22 @@ impl Media {
                 self.drag = if (pos.x - xs).abs() <= 7.0 { Drag::Start } else if (pos.x - xe).abs() <= 7.0 { Drag::End } else if let Some(i) = syl { Drag::Syl(i) } else if pos.x > xs && pos.x < xe && ui.input(|i| i.modifiers.alt) { Drag::Body(ms_of(pos.x) as i64 - d.start_time) } else { Drag::None };
             }
         }
+        // Karaoke: heceye çift tıkla → yalnızca o heceyi oynat
+        if resp.double_clicked() && k_syls.len() > 1 {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                let m = ms_of(pos.x) as i64;
+                let mut t = d.start_time;
+                for s in &k_syls {
+                    let t2 = t + s.dur * 10;
+                    if m >= t && m < t2 {
+                        if self.is_playing() { self.stop_all(); }
+                        self.play_range(doc, ui.ctx(), t, (t2 - t).max(50));
+                        break;
+                    }
+                    t = t2;
+                }
+            }
+        }
         if let (true, Drag::Syl(i)) = (resp.dragged(), self.drag) {
             if let Some(pos) = resp.interact_pointer_pos() {
                 // sınırın şimdiki zamanı (cs) → yeni zaman; toplam süre korunur

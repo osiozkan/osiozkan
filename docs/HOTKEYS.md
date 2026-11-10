@@ -22,6 +22,7 @@
 | Dalga formu: Ctrl+tekerlek | Yakınlaştır (tekerlek: kaydır) |
 | Video: Ctrl+tekerlek / orta tuşla sürükle / orta çift tık | Yakınlaştır (imleç etrafında) / kaydır / sıfırla |
 | Dalga formu: sarı hece sınırını sürükle | Karaoke hecesinin süresini ayarla (komşu heceyle paylaşır) |
+| Dalga formu: heceye çift tıkla | Yalnızca o heceyi oynat |
 | Karaoke sekmesi: hece metnine `|` yaz | Heceyi böl |
 | Ctrl+G | Zamana git |
 | , / . | Playhead'i 1 kare geri / ileri (metin kutusunda değilken) |
