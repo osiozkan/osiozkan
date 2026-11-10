@@ -8,8 +8,13 @@
 **Karaoke:** Japonca otomatik hece (mora) ayırma — romaji ve kana.
 **Çeviri:** çeviri belleği (bulanık öneri, Enter ile öğrenme, belgeden toplu ekleme, TSV içe/dışa aktarma).
 **Arayüz:** Lua makrolarına kısayol atama; Düzen → Satırları seç (Aegisub Select Lines); ızgarada Katman/Efekt/Kenar boşluğu sütunları; elle yüklenen betikler kalıcı + Kaldır.
-**Performans:** kalıcı yazı tipi dizini önbelleği.
-**Hata düzeltmeleri:** medya açıkken kaydetme Project Garbage satırları ekleyip etkin satırı/ızgarayı kaydırıyordu; video araçlarında tutamaç isabet testi yanlış noktayı kullanıyordu; kısayol yakalama tek başına Ctrl tuşunu kaydediyordu.
+**Kare doğruluğu:** Aegisub START/END anlambilimi (F6/F7, yapışma, anahtar kare, kareye oturt, Lua kare dönüşümleri); satır seçince ilk görünen kareye gidilir; kare kipinde kaydırma satır başına gerçek kare kaydırması; "Video karesinde böl", "Çoğalt ve 1 kare kaydır", imleçte böl.
+**Kalite (anime):** tipografi/karaoke/fx satırları yanlış alarm vermez; çakışma stil+katman başına zaman sırasıyla; sahne değişimi yakınlığı ve titreme denetimi + "Sahne değişimlerine yapıştır"; CLI `check --video`; sürüm karşılaştırma (GUI + CLI `compare`).
+**Tipografi:** vektör `\clip`, 3B döndürme (`\frx/\fry`), video yakınlaştırma/kaydırma; ekler (yazı tipi gömme/çıkarma, önizlemede `fontsdir`).
+**Karaoke:** dalga formunda hece sınırlarını sürükleyerek zamanlama.
+**Arayüz:** yerleşik komutlara kısayol atama; ızgarada yazım göstergesi; MoonScript hata satırları .moon kaynağına eşlenir.
+**Performans:** kalıcı yazı tipi dizini önbelleği; kare adımı için 6 karelik ön-yükleme.
+**Hata düzeltmeleri:** medya açıkken kaydetme Project Garbage satırları ekleyip etkin satırı/ızgarayı kaydırıyordu; video araçlarında tutamaç isabet testi yanlış noktayı kullanıyordu; kısayol yakalama tek başına Ctrl tuşunu kaydediyordu; CFR'de kare numarası hesabı (floor) bazı karelerde bir önceki kareyi veriyordu; tam kare zamanı santisaniyeye yuvarlanınca satırlar bir kare geç başlıyordu; 23.976 mp4'te kare adımı bir sonraki kareyi gösteriyordu; "[..]" görünümlü gömülü yazı tipi satırları bölüm başlığı sanılıyordu; çakışma denetimi/düzeltmesi dosya sırasına bakıyordu; sık hataları düzelt ve son-işleyici tabelaları değiştiriyordu.
 
 ## 0.2.0 — 2026-10-29 (ilk gece sürümü)
 
