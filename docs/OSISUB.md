@@ -10,7 +10,7 @@ Not: Depo kökündeki `README.md` GitHub profil sayfasıdır; dokunulmaz. Proje 
 
 | Crate | Görev |
 |---|---|
-| `osisub-core` | ASS/SSA/SRT/VTT/LRC/MicroDVD/SBV/TTML okuma-yazma (bayt-kararlı gidiş-dönüş), zaman/renk, etiket ayrıştırma ve temizleme, karaoke modeli, QC, "sık hataları düzelt", bul/değiştir, zamanlama son-işleyici, yeniden örnekleme, yazı tipi çıkarımı |
+| `osisub-core` | ASS/SSA/SRT/VTT/LRC/MicroDVD/SBV/TTML okuma-yazma (bayt-kararlı gidiş-dönüş), zaman/renk, etiket ayrıştırma ve temizleme, karaoke modeli, QC, "sık hataları düzelt", bul/değiştir, zamanlama son-işleyici, yeniden örnekleme, yazı tipi çıkarımı; `vfr` (CFR/VFR kare hızı, timecode v1/v2, Aegisub START/END kare anlambilimi), `tm` (çeviri belleği), `select` (satırları seç), `compare` (sürüm karşılaştırma), `drawing` (ASS çizim/vektör clip), `attach` ([Fonts]/[Graphics] ekleri) |
 | `osisub-lua` | LuaJIT tabanlı Aegisub Automation 4 motoru: `aegisub.*`, `subs`, `register_macro/filter`, `dialog.display`, `progress`, `re`, `unicode`, `utf8`, `lfs`, `clipboard`, `karaskel.lua`, `utils.lua`, gerçek yazı tipi ölçüleriyle `text_extents` |
 | `osisub-doc` | Arayüzden bağımsız belge modeli: seçim, geri al/yinele (yazma birleştirme), komutlar, pano, Lua arka plan çalışanı |
 | `osisub-media` | ffmpeg/ffprobe: ortam bilgisi, ses dalga formu, libass'lı video kareleri/akışı, anahtar kareler, konuşma tespiti |
@@ -22,7 +22,8 @@ Not: Depo kökündeki `README.md` GitHub profil sayfasıdır; dokunulmaz. Proje 
 - Izgara (100k satır akıcı), sağ tık menüsü, Ctrl+C/X/V (ASS satırları ya da düz metin), sürükle-bırak (altyazı/video/Lua)
 - Düzenleme paneli: zaman, stil, konuşan, kenar boşlukları, efekt, metin; karakter/satır/KSS sayacı; referans altyazı
 - Medya paneli: libass'lı video önizleme, dalga formu (kaydır/yakınlaştır, sürükleyerek zamanlama, kare + anahtar kareye yapışma), F5 ile video+ses oynatma, videoda `\pos` sürükleme
-- Sekmeler: Stiller (görsel düzenleyici), Karaoke (hece çubuğu), Kalite (QC), Otomasyon (Lua), Bilgi
+- Sekmeler: Stiller (görsel düzenleyici + libass önizleme), Karaoke (hece çubuğu, Japonca hece ayırma), Çeviri (referans + çeviri belleği), Yazım, Kalite (QC + kare denetimleri), Otomasyon (Lua/MoonScript, makro kısayolları), Bilgi
+- Video araçları: `\\pos`, `\\move`, `\\clip` (dikdörtgen + vektör), `\\frz` + `\\org`, `\\frx/\\fry`, `\\fscx/\\fscy`; video yakınlaştırma/kaydırma; dalga formunda karaoke heceleri
 - Araçlar: Bul/Değiştir (regex, Türkçe i/İ), Sık hataları düzelt, Yazı tipi denetimi, Çözünürlüğü yeniden örnekle, Zamanlama son-işleyici, Sesten satır oluştur (VAD)
 
 Kısayollar: `docs/HOTKEYS.md`.
@@ -32,7 +33,7 @@ Kısayollar: `docs/HOTKEYS.md`.
 - Satır tabloları Aegisub ile aynı alanları taşır (`class`, `section="[Events]"`, `start_time`, `margin_t/b/v`, `extra`, `raw` ...).
 - `subs[i]`, `#subs`, `subs.n`, `subs.append/insert/delete/deleterange`, `subs[0]=line`, `ipairs(subs)` desteklenir.
 - Makrodan dönen seçim/aktif satır, `aegisub.cancel()`, `aegisub.set_undo_point` işlenir; doğrulama (`validate`) ve filtreler desteklenir.
-- `include("karaskel.lua" | "utils.lua" | "unicode.lua" | "utf8.lua" | "*-auto4.lua")`; `require "re" / "unicode" / "utf8" / "lfs" / "ffi" / "bit" / "aegisub.util" / "aegisub.clipboard"`.
+- Gerçek Aegisub `karaskel-auto4.lua` ve yerleşik `kara-templater.lua`; MoonScript (`.moon`) betikleri ve modülleri; `include("karaskel.lua" | "utils.lua" | "unicode.lua" | "utf8.lua" | "cleantags.lua" | "*-auto4.lua")`; `require "re" / "unicode" / "utf8" / "lfs" / "ffi" / "bit" / "aegisub.util" / "aegisub.clipboard"`.
 - İletişim kutuları: CLI'de varsayılanlar + `--param ad=değer`; GUI'de gerçek diyalog.
 - Videodan `aegisub.frame_from_ms`, `ms_from_frame`, `video_size`, `get_audio_selection`, `project_properties`.
 - Betikler: komut satırında `--lua`, GUI'de Otomasyon menüsü ya da `~/.config/osisub/automation/autoload/*.lua`.
