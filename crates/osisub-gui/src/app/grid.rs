@@ -95,7 +95,19 @@ impl App {
                         t
                     };
                     let overlap = flags.map_or(false, |f| f.contains(&Kind::Overlap));
-                    row.col(|ui| { ui.label(col((pos + 1).to_string(), None)); });
+                    // Yazım göstergesi (sözlük yüklüyse): satır numarası kırmızı
+                    let misspelled = match (&self.spell, d.comment) {
+                        (Some(sp), false) => {
+                            let mut c = self.spell_rows.borrow_mut();
+                            if c.0 != self.doc.rev { *c = (self.doc.rev, Default::default()); }
+                            *c.1.entry(ei).or_insert_with(|| osisub_spell::words_of(&d.text).iter().any(|w| osisub_spell::should_flag(sp, w)))
+                        }
+                        _ => false,
+                    };
+                    row.col(|ui| {
+                        let r = ui.label(col((pos + 1).to_string(), misspelled.then_some(theme::BAD)));
+                        if misspelled { r.on_hover_text("Bu satırda yazım hatası olabilir"); }
+                    });
                     if show_layer { row.col(|ui| { ui.label(col(d.layer.to_string(), if d.layer != 0 { Some(theme::ACCENT) } else { None })); }); }
                     row.col(|ui| { ui.label(col(time::format_ass(d.start_time), if overlap { Some(theme::BAD) } else { None })); });
                     row.col(|ui| { ui.label(col(time::format_ass(d.end_time), None)); });

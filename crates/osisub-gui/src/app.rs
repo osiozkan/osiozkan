@@ -154,6 +154,8 @@ pub struct App {
     compare: Option<(String, osisub_core::Script, Vec<osisub_core::compare::Change>)>,
     /// Kısayol düzenleyici penceresi (yerleşik komutlar)
     hotkeys_open: bool,
+    /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
+    spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -336,6 +338,7 @@ impl App {
             attach_open: false,
             compare: None,
             hotkeys_open: false,
+            spell_rows: std::cell::RefCell::new((u64::MAX, Default::default())),
             qc_media_key: (0, false),
             select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),

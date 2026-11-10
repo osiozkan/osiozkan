@@ -39,7 +39,8 @@
 - [x] Çeviri belleği (TM): Çeviri sekmesinde bulanık öneriler (%60+, "Kullan"), Enter ile öğrenme, Araçlar → Çeviri belleği (belgeden ekle, TSV içe/dışa aktar); `<veri>/tm.tsv`
 - [ ] Otomatik çeviri bağlayıcıları (DeepL/Google; API anahtarı kullanıcıdan)
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
-- [ ] Yazım: çok dilli sözlük seçimi, ızgarada hata göstergesi
+- [x] Yazım: ızgarada hata göstergesi (satır numarası kırmızı; sürüm başına önbellekli)
+- [ ] Yazım: çok dilli sözlük seçimi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
 - [x] Karaoke kipi dalga formunda: hece sınırları ve metinleri etkin satırda gösterilir, sınırlar sürüklenerek ayarlanır (toplam süre korunur)
 - [x] Karaoke: oynatırken Boşluk ile tuşla zamanlama (gecikme ayarlı; çekirdek `apply_taps` testli)
