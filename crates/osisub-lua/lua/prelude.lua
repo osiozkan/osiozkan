@@ -57,11 +57,30 @@ end
 
 -- require: gömülü modüller (lpeg, moonscript.*) ve include klasörlerindeki .lua/.moon modülleri.
 -- Aegisub gibi .moon dosyaları MoonScript ile derlenip yüklenir.
+local moon_maps = {}
 function __osisub_moon_to_lua(src, chunk)
   local moon = require("moonscript.base")
-  local code, err = moon.to_lua(src)
-  if not code then error(chunk .. ": " .. tostring(err), 0) end
+  local code, ltable = moon.to_lua(src)
+  if not code then error(chunk .. ": " .. tostring(ltable), 0) end
+  moon_maps[chunk] = { lines = ltable, src = src }
   return code
+end
+-- Hata iletilerindeki "dosya.moon:<lua satırı>" konumlarını .moon kaynak satırına çevirir.
+function __osisub_moon_rewrite(msg)
+  if next(moon_maps) == nil then return msg end
+  return (msg:gsub("([^%s\"'@]*%.moon):(%d+):", function(file, n)
+    local m = moon_maps[file]
+    if not m then return nil end
+    n = tonumber(n)
+    for i = n, 0, -1 do
+      local pos = m.lines[i]
+      if pos then
+        local _, nl = m.src:sub(1, pos):gsub("\n", "")
+        return file .. ":" .. (nl + 1) .. ":"
+      end
+    end
+    return nil
+  end))
 end
 local function searcher(name)
   local src = N.embedded_module(name)

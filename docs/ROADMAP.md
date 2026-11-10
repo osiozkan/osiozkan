@@ -59,7 +59,7 @@
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] Betikleri yeniden yükle (motoru sıfırlar)
 - [x] Betik hata penceresi: hata iletisi + hatalı kaynak satırı (±3), yığın izi, kopyala (Windows yollarındaki boşluklar dahil)
-- [ ] MoonScript hatalarında .moon satırına eşleme (şu an derlenmiş Lua satırı)
+- [x] MoonScript hatalarında .moon satırına eşleme (yükleme ve çalıştırma hataları; hata penceresi .moon kaynağını gösterir)
 - [ ] Kullanıcının Lua betikleriyle regresyon test paketi (kullanıcıdan betikler istenmeli)
 
 ## Arayüz (GUI)

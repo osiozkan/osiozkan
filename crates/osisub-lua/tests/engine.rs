@@ -125,3 +125,14 @@ fn require_finds_include_dir_modules() {
     assert_eq!(e.take_log(), "42 düz");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn moonscript_errors_point_to_moon_lines() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.load_script(Path::new("tests/fixtures/hatali.moon")).unwrap();
+    let err = e.run_macro(0, &[], 0).unwrap_err().message;
+    // hata 10. satırda (y.alan = 3)
+    assert!(err.contains("hatali.moon:10:"), "{}", err);
+    assert_eq!(osisub_lua::error_location(&err).map(|x| x.1), Some(10));
+}

@@ -206,9 +206,15 @@ pub fn builtin_script(name: &str) -> Option<&'static str> {
 
 /// Lua hata iletisindeki ilk `dosya.lua:SATIR:` konumu (gömülü/yerleşik betikler hariç).
 pub fn error_location(msg: &str) -> Option<(String, usize)> {
+    // .lua ve .moon konumlarından metinde önce geleni
+    [".lua:", ".moon:"].iter().filter_map(|ext| error_location_ext(msg, ext)).min_by_key(|x| x.0).map(|x| (x.1, x.2))
+}
+
+fn error_location_ext(msg: &str, ext: &str) -> Option<(usize, String, usize)> {
     let mut rest = msg;
-    while let Some(i) = rest.find(".lua:") {
-        let (head, tail) = rest.split_at(i + 4);
+    let mut off = 0usize;
+    while let Some(i) = rest.find(ext) {
+        let (head, tail) = rest.split_at(i + ext.len() - 1);
         let digits: String = tail[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
         // dosya adının başı: satır başı (bilinen önekler atlanır); yol boşluk içerebilir (Windows).
         let line_start = head.rfind('\n').map(|j| j + 1).unwrap_or(0);
@@ -223,8 +229,9 @@ pub fn error_location(msg: &str) -> Option<(String, usize)> {
             cand
         };
         if !digits.is_empty() && !file.starts_with("osisub/") && !file.starts_with("builtin:") && !file.is_empty() {
-            return Some((file.to_string(), digits.parse().ok()?));
+            return Some((off + i, file.to_string(), digits.parse().ok()?));
         }
+        off += i + ext.len();
         rest = &tail[1..];
     }
     None
@@ -291,6 +298,14 @@ impl Engine {
         &self.scripts
     }
 
+    /// MoonScript betiklerinin hata konumlarını .moon satırlarına çevirir.
+    fn moon_rewrite(&self, msg: String) -> String {
+        match self.lua.globals().get::<Function>("__osisub_moon_rewrite") {
+            Ok(f) => f.call::<String>(msg.clone()).unwrap_or(msg),
+            Err(_) => msg,
+        }
+    }
+
     pub fn load_script(&mut self, path: &Path) -> Result<ScriptInfo, EngineError> {
         let ps = path.to_string_lossy();
         let mut src = if let Some(name) = ps.strip_prefix(BUILTIN_PREFIX) {
@@ -317,7 +332,7 @@ impl Engine {
         let mk: Function = self.lua.globals().get("__new_script_env")?;
         let env: Table = mk.call(dir)?;
         let chunk = self.lua.load(&src).set_name(format!("@{}", file)).set_environment(env.clone());
-        chunk.exec()?;
+        chunk.exec().map_err(|e| EngineError { message: self.moon_rewrite(e.to_string()) })?;
 
         let g = |k: &str| -> String {
             match env.get::<Value>(k) {
@@ -415,7 +430,7 @@ impl Engine {
                 Ok(out)
             }
             Err(e) => {
-                let msg = e.to_string();
+                let msg = self.moon_rewrite(e.to_string());
                 if msg.contains(CANCEL_MARKER) {
                     Ok(RunOutcome { cancelled: true, undo_desc, ..Default::default() })
                 } else {
