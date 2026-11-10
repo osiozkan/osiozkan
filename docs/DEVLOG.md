@@ -1,6 +1,6 @@
 # Geliştirme günlüğü
 
-Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç hep `claude/vibrant-clarke-2e8jtn` dalına push edilir; PR yalnızca kullanıcı isterse açılır.
+Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç o gecenin görevinin verdiği dala push edilir (`tools/ship.sh` geçerli dalı kullanır; 2026-10-29: `claude/vibrant-clarke-2e8jtn`, 2026-11-10: `claude/vibrant-clarke-6oujog`); PR yalnızca kullanıcı isterse açılır.
 
 ## 2026-10-29 (v0.1.0 — ilk gece)
 Depo boştu; sıfırdan başlandı.
@@ -28,3 +28,12 @@ Depo boştu; sıfırdan başlandı.
 - Fuzz/dayanıklılık testleri bulup düzeltti: diyalog sonu boşluk kaybı, kapanmamış `{` ile ASS→SRT paniği, küçük harfli bölüm adı, SSA ondalık renk.
 - Doğrulanmayanlar: gerçek ses aygıtı, macOS, Windows'ta çalıştırma, CI'nin gerçek çalıştırması.
 - Depo: dal `claude/vibrant-clarke-2e8jtn`; PR açılmadı (istenmedi). Kullanım: `docs/KULLANIM.md`, proje notları: `CLAUDE.md`.
+
+## 2026-11-10 (v0.3.0 — ikinci gece)
+Dal: `claude/vibrant-clarke-6oujog` (main'den; `claude/vibrant-clarke-2e8jtn` ileri sarılarak devam edildi). Not: depoda önceki gecelerden kalan ~25 paralel deneme dalı var (OsiSub, Kitsune, Yoru, Yuzu, Kaku…); en olgunu osisub (2e8jtn) seçildi, diğerleri yalnızca parça kaynağı (ör. kara-templater) olarak kullanıldı.
+- Lua: gerçek karaskel-auto4 + yerleşik kara-templater (`builtin:` yolu), MoonScript, include'dan require, eksik API'ler. Kara-templater çalıştırınca bulunan eksikler: `aegisub.debug` yoktu, `table.copy` yoktu, `parse_karaoke_data`, `subs.script_resolution`, `unicode.charwidth` yoktu.
+- DİKKAT (ortam): otomatik mod güvenlik denetimi internetten yeni indirilen Aegisub betiklerini (strip-tags, select-overlaps.moon…) çalıştırmayı engelledi; bu betiklerle uyumluluk testi için kullanıcı onayı ya da betiklerin depoya kullanıcı tarafından eklenmesi gerekir.
+- VFR (timecode + otomatik), `\move`/`\org` araçları, Japonca hece ayırma, çeviri belleği, makro kısayolları, Satırları seç, ızgara sütunları, kalıcı betik listesi, yazı tipi dizini önbelleği.
+- HATA DÜZELTİLDİ: medya açıkken kaydetme `[Aegisub Project Garbage]` satırlarını olaylardan önce ekleyip dizinleri kaydırıyordu → etkin satır kayboluyor, ızgara yanlış satırları gösteriyordu (xdotool testiyle bulundu).
+- HATA DÜZELTİLDİ: egui `drag_started` eşik sonrası gelir; video araçları tutamaç seçimini basma noktası yerine kaymış konumla yapıyordu.
+- `tools/ship.sh` artık GUI birim testlerini de çalıştırır ve geçerli dala push eder.
