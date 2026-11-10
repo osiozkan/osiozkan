@@ -58,5 +58,6 @@ fn media_state_visible_to_lua() {
             _ => {}
         }
     }
-    assert_eq!(log, "fps:24,1000 size:1920x1080 aud:1500-2500 pos:42");
+    // Aegisub gibi START anlambilimi: ms_from_frame(24) = 23 ile 24. karenin ortası (958..1000 → 979)
+    assert_eq!(log, "fps:24,979 size:1920x1080 aud:1500-2500 pos:42");
 }

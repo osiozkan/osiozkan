@@ -216,7 +216,7 @@ impl App {
                 ui.label(RichText::new(format!("{} anahtar kare", self.media.keyframes.len())).weak());
                 if ui.button("Uygula").clicked() {
                     let mut o = self.post.clone();
-                    o.keyframes = self.media.keyframes.clone();
+                    o.keyframes = match self.media.framerate() { Some(fr) => fr.keyframe_boundaries(&self.media.keyframes), None => self.media.keyframes.clone() };
                     o.only = if self.post_selection_only { Some(self.doc.selection.clone()) } else { None };
                     let mut s = self.doc.script.clone();
                     timing::post_process(&mut s, &o);

@@ -228,9 +228,11 @@ pub fn snap_to_frames(script: &mut Script, fps: f64) {
 
 /// Sabit ya da değişken (timecode) kare hızına göre kareye oturtur.
 pub fn snap_to_framerate(script: &mut Script, fr: &crate::vfr::Framerate) {
+    // Görünen kareler korunur; zamanlar santisaniye yuvarlamasına dayanıklı kare sınırlarına çekilir.
     for d in script.dialogues_mut() {
-        d.start_time = fr.snap(d.start_time);
-        d.end_time = fr.snap(d.end_time);
+        let (s, e) = (fr.snap_start(d.start_time), fr.snap_end(d.end_time));
+        d.start_time = s;
+        d.end_time = e.max(s);
     }
 }
 

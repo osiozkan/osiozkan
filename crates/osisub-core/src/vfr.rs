@@ -68,16 +68,44 @@ impl Framerate {
         }
     }
 
-    /// En yakın kare başlangıcına oturtur.
+    /// Aegisub `TimeAtFrame(n, START)`: kare n'de görünmeye başlayan bir satırın başlangıç zamanı.
+    /// Kare n-1 ile n'nin ortasıdır; ASS'in santisaniye yuvarlamasından sonra da doğru karede kalır
+    /// (tam kare zamanı yuvarlanınca bir sonraki kareye kayabilir: 23.976'da 125.1 ms → 0.13).
+    pub fn time_at_start(&self, n: i64) -> i64 {
+        let (prev, cur) = (self.time_at(n - 1), self.time_at(n));
+        (prev + (cur - prev + 1).div_euclid(2)).max(0)
+    }
+
+    /// Aegisub `TimeAtFrame(n, END)`: son görünen karesi n olan satırın bitiş zamanı.
+    pub fn time_at_end(&self, n: i64) -> i64 {
+        self.time_at_start(n + 1)
+    }
+
+    /// Aegisub `FrameAtTime(ms, START)`: `ms`'de başlayan satırın ilk görünen karesi.
+    pub fn frame_at_start(&self, ms: i64) -> i64 {
+        self.frame_at(ms - 1) + 1
+    }
+
+    /// Aegisub `FrameAtTime(ms, END)`: `ms`'de biten satırın son görünen karesi.
+    pub fn frame_at_end(&self, ms: i64) -> i64 {
+        self.frame_at(ms - 1)
+    }
+
+    /// En yakın kare sınırına (ASS-güvenli START zamanı) oturtur; sürüklerken kullanılır.
     pub fn snap(&self, ms: i64) -> i64 {
-        match self {
-            Framerate::Cfr(f) => crate::time::snap_to_frame(ms, *f),
-            Framerate::Vfr { .. } => {
-                let f = self.frame_at(ms);
-                let (a, b) = (self.time_at(f), self.time_at(f + 1));
-                if ms - a <= b - ms { a } else { b }
-            }
-        }
+        let f = self.frame_at(ms);
+        let (a, b) = (self.time_at_start(f), self.time_at_start(f + 1));
+        if (ms - a).abs() <= (b - ms).abs() { a } else { b }
+    }
+
+    /// Başlangıç zamanını, satırın şu an ilk göründüğü karenin ASS-güvenli zamanına çeker.
+    pub fn snap_start(&self, ms: i64) -> i64 {
+        self.time_at_start(self.frame_at_start(ms))
+    }
+
+    /// Bitiş zamanını, satırın şu an son göründüğü karenin ASS-güvenli bitişine çeker.
+    pub fn snap_end(&self, ms: i64) -> i64 {
+        self.time_at_end(self.frame_at_end(ms))
     }
 
     /// Videodan okunan kare zaman damgalarından (ms) kare hızı. Damgalar (ms yuvarlamasıyla)
@@ -98,6 +126,14 @@ impl Framerate {
         }
         let last = (ts[ts.len() - 1] - ts[ts.len() - 2]).max(1);
         Some(Framerate::Vfr { ts, tail_fps: 1000.0 / last as f64 })
+    }
+
+    /// Anahtar kare zamanlarını (tam kare zamanı, ms) ASS-güvenli START zamanlarına çevirir;
+    /// satırlar sahne değişiminde bir kare geç başlamasın/erken bitmesin ("sahne taşması").
+    pub fn keyframe_boundaries(&self, kf_ms: &[i64]) -> Vec<i64> {
+        let mut v: Vec<i64> = kf_ms.iter().map(|&k| self.time_at_start(self.frame_at(k))).collect();
+        v.dedup();
+        v
     }
 
     /// Aegisub/mkvmerge timecode dosyası (v1 ya da v2) okur.
@@ -197,8 +233,11 @@ mod tests {
         // sondan sonrası son aralıkla (20 ms) uzatılır
         assert_eq!(fr.time_at(5), 140);
         assert_eq!(fr.frame_at(145), 5);
-        assert_eq!(fr.snap(91), 100);
-        assert_eq!(fr.snap(89), 80);
+        // sınırlar: 70 (80'in START'ı = 40+(80-40+1)/2), 90 (100'ün START'ı)
+        assert_eq!(fr.time_at_start(2), 60);
+        assert_eq!(fr.time_at_start(3), 90);
+        assert_eq!(fr.snap(88), 90);
+        assert_eq!(fr.snap(70), 60);
         for f in -3..20 {
             assert_eq!(fr.frame_at(fr.time_at(f)), f, "kare {}", f);
         }
@@ -232,6 +271,24 @@ mod tests {
         assert!(fr.is_vfr());
         assert_eq!(fr.time_at(48), 2000);
         assert_eq!(fr.frame_at(2020), 49);
+    }
+
+    /// ASS santisaniye yuvarlamasından sonra START/END zamanları doğru karede kalmalı.
+    #[test]
+    fn start_end_survive_centisecond_rounding() {
+        let cs = |ms: i64| crate::time::parse_ass(&crate::time::format_ass(ms)).unwrap();
+        let mut v: Vec<i64> = (0..300).map(|i| (i as f64 * 1000.0 / 24.0).round() as i64).collect();
+        v.extend((0..300).map(|i| 12_500 + (i as f64 * 1000.0 / 60.0).round() as i64));
+        for fr in [Framerate::cfr(24000.0 / 1001.0), Framerate::cfr(30000.0 / 1001.0), Framerate::cfr(25.0), Framerate::from_timestamps(v).unwrap()] {
+            for n in 0..2000 {
+                assert_eq!(fr.frame_at_start(cs(fr.time_at_start(n))), n, "{:?} START {}", fr.fps(), n);
+                assert_eq!(fr.frame_at_end(cs(fr.time_at_end(n))), n, "{:?} END {}", fr.fps(), n);
+            }
+        }
+        // eski yöntemin hatası: tam kare zamanı 23.976'da 125 ms → "0:00:00.13" → kare 4'te başlar
+        let f = Framerate::cfr(24000.0 / 1001.0);
+        assert_eq!(f.frame_at_start(cs(f.time_at(3))), 4);
+        assert_eq!(f.frame_at_start(cs(f.snap_start(f.time_at(3)))), 3);
     }
 
     #[test]

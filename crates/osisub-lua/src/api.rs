@@ -323,12 +323,12 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         let inn = inner.clone();
         aegisub.set(
             "frame_from_ms",
-            lua.create_function(move |_, ms: f64| Ok(inn.borrow().host.framerate().map(|f| f.frame_at(ms as i64))))?,
+            lua.create_function(move |_, ms: f64| Ok(inn.borrow().host.framerate().map(|f| f.frame_at_start(ms as i64))))?,
         )?;
         let inn = inner.clone();
         aegisub.set(
             "ms_from_frame",
-            lua.create_function(move |_, fr: f64| Ok(inn.borrow().host.framerate().map(|f| f.time_at(fr as i64))))?,
+            lua.create_function(move |_, fr: f64| Ok(inn.borrow().host.framerate().map(|f| f.time_at_start(fr as i64))))?,
         )?;
         let inn = inner.clone();
         aegisub.set(

@@ -348,8 +348,8 @@ impl Media {
                             // Önbellek anahtarları: istenen zaman + sonraki karelerin tam başlangıç zamanları
                             // (kare adımı playhead'i tam kare başlangıcına koyar → önbellekten anında gelir).
                             let fr = self.framerate();
-                            // ffmpeg ilk olarak zamanı >= istenen olan kareyi verir: kare ortasındaysak bu bir sonraki karedir.
-                            let base = fr.as_ref().map(|f| { let b = f.frame_at(time); if f.time_at(b) == time { b } else { b + 1 } });
+                            // İstek, playhead'deki karenin tam başlangıcından yapılır (aşağıda) → ilk kare = frame_at(time).
+                            let base = fr.as_ref().map(|f| f.frame_at(time));
                             for (i, f) in frames.iter().enumerate() {
                                 let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
                                 let tex = ctx.load_texture("frame", img, egui::TextureOptions::LINEAR);
@@ -405,9 +405,11 @@ impl Media {
                 let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.start_time <= t0 + 1500 && d.end_time >= t0 - 1000));
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
+                // Playhead'de ekranda olan kare (mpv/Aegisub gibi): o karenin başlangıcından iste.
+                let t_render = self.framerate().map_or(t, |fr| fr.time_at(fr.frame_at(t)));
                 std::thread::spawn(move || {
                     // 6 kare birden: ileri kare adımları (.) önbellekten anında gösterilir
-                    let res = osisub_media::render_frames(&p, Some(&ass), t, 6, 960, &info);
+                    let res = osisub_media::render_frames(&p, Some(&ass), t_render, 6, 960, &info);
                     let _ = tx.send(Msg::Frame { time: t, rev, res });
                     ctx2.request_repaint();
                 });
@@ -438,7 +440,8 @@ impl Media {
         if self.snap_kf {
             let tol = (self.ms_per_px * 6.0) as i64;
             if let Some(k) = self.keyframes.iter().copied().filter(|k| (k - ms).abs() <= tol).min_by_key(|k| (k - ms).abs()) {
-                return k;
+                // tam kare zamanı yerine ASS-güvenli sınır (yoksa satır sahne değişiminden bir kare sonra başlayabilir)
+                return self.framerate().map_or(k, |fr| fr.time_at_start(fr.frame_at(k)));
             }
         }
         match (self.snap, self.framerate()) {
@@ -448,15 +451,19 @@ impl Media {
     }
 
     /// Playhead'i başlangıç/bitiş olarak ayarlar (kısayollar için).
+    /// F6: satır videoda görünen karede başlasın (Aegisub: TimeAtFrame(kare, START)).
     pub fn set_active_start(&self, doc: &mut Document) {
         if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
-            doc.set_times(doc.active, self.playhead.min(d.end_time), d.end_time);
+            let t = self.framerate().map_or(self.playhead, |fr| fr.time_at_start(fr.frame_at(self.playhead)));
+            doc.set_times(doc.active, t.min(d.end_time), d.end_time);
         }
     }
 
+    /// F7: satır videoda görünen kare DAHİL görünsün (Aegisub: TimeAtFrame(kare, END)).
     pub fn set_active_end(&self, doc: &mut Document) {
         if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
-            doc.set_times(doc.active, d.start_time, self.playhead.max(d.start_time));
+            let t = self.framerate().map_or(self.playhead, |fr| fr.time_at_end(fr.frame_at(self.playhead)));
+            doc.set_times(doc.active, d.start_time, t.max(d.start_time));
         }
     }
 

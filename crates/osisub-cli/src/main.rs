@@ -164,7 +164,14 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--lead-in") { o.lead_in_ms = v.parse().map_err(|_| "--lead-in sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--lead-out") { o.lead_out_ms = v.parse().map_err(|_| "--lead-out sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--gap") { o.adjacent_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
-            if let Some(v) = opt(&mut args, "--video") { o.keyframes = osisub_media::keyframes(Path::new(&v))?; println!("{} anahtar kare", o.keyframes.len()); }
+            if let Some(v) = opt(&mut args, "--video") {
+                let vp = Path::new(&v);
+                let kf = osisub_media::keyframes(vp)?;
+                // ASS-güvenli kare sınırları (VFR algılanır, yoksa videonun sabit hızı)
+                let fr = osisub_media::frame_timestamps(vp).ok().and_then(osisub_core::vfr::Framerate::from_timestamps).or_else(|| osisub_media::probe(vp).ok().map(|i| osisub_core::vfr::Framerate::cfr(i.fps)).filter(|f| f.fps() > 0.0));
+                o.keyframes = match fr { Some(fr) => fr.keyframe_boundaries(&kf), None => kf };
+                println!("{} anahtar kare", o.keyframes.len());
+            }
             let inp = args.first().ok_or("girdi gerekli")?.clone();
             let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
             let mut s = load(&inp)?;
