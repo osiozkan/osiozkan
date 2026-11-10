@@ -234,6 +234,21 @@ pub fn shift(script: &mut Script, ms: i64, only: Option<&[usize]>) {
     }
 }
 
+/// Kare cinsinden kaydırma (Aegisub "Shift Times" kare kipi): her satırın görünen ilk/son karesi
+/// `frames` kare kaydırılır; VFR'de doğru, santisaniye yuvarlamasında kayma birikmez.
+pub fn shift_frames(script: &mut Script, fr: &crate::vfr::Framerate, frames: i64, only: Option<&[usize]>) {
+    for (i, e) in script.entries.iter_mut().enumerate() {
+        if let Entry::Dialogue(d) = e {
+            if only.map_or(true, |s| s.contains(&i)) {
+                let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time));
+                let empty = d.end_time <= d.start_time;
+                d.start_time = fr.time_at_start((fs + frames).max(0));
+                d.end_time = if empty { d.start_time } else { fr.time_at_end((fe + frames).max(0)).max(d.start_time) };
+            }
+        }
+    }
+}
+
 /// Doğrusal zaman dönüşümü: iki bağlantı noktasından (kaynak→hedef) kaydırma + ölçekleme (senkron düzeltme).
 pub fn linear_retime(script: &mut Script, a: (i64, i64), b: (i64, i64)) {
     if a.0 == b.0 {
@@ -474,6 +489,21 @@ mod tests {
         assert_eq!(snap_to_keyframes(&mut s2, &fr, &kf, 3), 1);
         assert_eq!(s2.dialogues().next().unwrap().start_time, t(48));
         assert!(!frame_issues(&s2, &fr, &kf, 3).iter().any(|x| x.kind == Kind::NearKeyframe));
+    }
+
+    #[test]
+    fn frame_shift_vfr() {
+        let mut ts: Vec<i64> = (0..48).map(|i| (i as f64 * 1000.0 / 24.0).round() as i64).collect();
+        ts.extend((0..120).map(|i| 2000 + (i as f64 * 1000.0 / 60.0).round() as i64));
+        let fr = crate::vfr::Framerate::from_timestamps(ts).unwrap();
+        // 40-46. karelerde görünen satır → 10 kare ileri: 50-56 (60 fps bölgesine geçer)
+        let mut s = Script::from_dialogues(vec![d(fr.time_at_start(40), fr.time_at_end(46), "x")]);
+        shift_frames(&mut s, &fr, 10, None);
+        let x = s.dialogues().next().unwrap();
+        assert_eq!((fr.frame_at_start(x.start_time), fr.frame_at_end(x.end_time)), (50, 56));
+        shift_frames(&mut s, &fr, -10, None);
+        let x = s.dialogues().next().unwrap();
+        assert_eq!((fr.frame_at_start(x.start_time), fr.frame_at_end(x.end_time)), (40, 46));
     }
 
     #[test]

@@ -192,7 +192,14 @@ impl App {
                 }
                 ui.checkbox(&mut self.shift_all, "tüm satırlar");
                 if ui.button("Uygula").clicked() {
-                    if self.shift_all {
+                    // Kare kipi + video kare hızı: satır başına gerçek kare kaydırması (VFR doğru)
+                    let fr = if self.shift_use_frames { self.media.framerate() } else { None };
+                    if let Some(fr) = fr {
+                        let mut s = self.doc.script.clone();
+                        let only: Option<Vec<usize>> = if self.shift_all { None } else { Some(self.doc.selection.clone()) };
+                        qc::shift_frames(&mut s, &fr, self.shift_frames, only.as_deref());
+                        self.doc.apply_new_script("Kare kaydır", s);
+                    } else if self.shift_all {
                         let mut s = self.doc.script.clone();
                         qc::shift(&mut s, self.shift_ms, None);
                         self.doc.apply_new_script("Kaydır", s);
