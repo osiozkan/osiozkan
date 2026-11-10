@@ -25,6 +25,7 @@ pub enum VideoTool {
     Pos,
     Move,
     Clip,
+    VClip,
     Rotate,
     Scale,
 }
@@ -69,6 +70,8 @@ pub struct Media {
     vt_drag: Option<(u8, (f32, f32))>,
     /// \move aracı: sürükleme başındaki değer
     vt_move0: Option<osisub_core::overrides::Move>,
+    /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
+    vt_vdrag: Option<(usize, usize)>,
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
@@ -114,6 +117,7 @@ impl Media {
             tool: VideoTool::None,
             vt_drag: None,
             vt_move0: None,
+            vt_vdrag: None,
             spectrum: false,
             spec_tex: None,
             stream: None,
@@ -634,6 +638,90 @@ impl Media {
                     let nt = Move::to_pos(&d.text);
                     if nt != d.text {
                         doc.edit("\\move → \\pos", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
+            VideoTool::VClip => {
+                use osisub_core::drawing;
+                // Mevcut vektör kırpma: \clip(çizim) ya da \clip(ölçek,çizim); \iclip korunur
+                let (tag_name, existing) = ["clip", "iclip"].iter().find_map(|n| osisub_core::overrides::get_initial(&d.text, n).map(|t| (*n, t))).map(|(n, t)| (n, Some(t))).unwrap_or(("clip", None));
+                let (scale, mut cmds) = match &existing {
+                    Some(t) => {
+                        let a = t.args();
+                        let draw_arg = a.last().map(|s| s.trim().to_string()).unwrap_or_default();
+                        if draw_arg.chars().any(|c| c.is_ascii_alphabetic()) {
+                            let sc = if a.len() == 2 { a[0].trim().parse::<i32>().unwrap_or(1).max(1) } else { 1 };
+                            (sc, drawing::parse(&draw_arg))
+                        } else {
+                            (1, vec![]) // dikdörtgen kırpma: vektör aracı yeni çizim başlatır
+                        }
+                    }
+                    None => (1, vec![]),
+                };
+                let mul = 2f64.powi(scale - 1);
+                let scr = |p: (f64, f64)| to_screen((p.0 / mul) as f32, (p.1 / mul) as f32);
+                for shape in drawing::polylines(&cmds) {
+                    let pts: Vec<Pos2> = shape.iter().map(|&p| scr(p)).collect();
+                    for w in pts.windows(2) {
+                        p.line_segment([w[0], w[1]], Stroke::new(1.5, col));
+                    }
+                    if pts.len() > 2 {
+                        p.line_segment([*pts.last().unwrap(), pts[0]], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 120)));
+                    }
+                }
+                let handles = drawing::points(&cmds);
+                for (ci, _, q) in &handles {
+                    let s = scr(*q);
+                    let is_ctrl = cmds[*ci].kind == 'b';
+                    if is_ctrl { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
+                }
+                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
+                let mut changed = false;
+                if r.drag_started() {
+                    self.vt_vdrag = press.or(ptr).and_then(hit);
+                }
+                if r.dragged() {
+                    if let (Some((ci, pi)), Some(pos)) = (self.vt_vdrag, ptr) {
+                        let (x, y) = to_script(pos);
+                        if let Some(pt) = cmds.get_mut(ci).and_then(|c| c.pts.get_mut(pi)) {
+                            *pt = ((x as f64 * mul).round(), (y as f64 * mul).round());
+                            changed = true;
+                        }
+                    }
+                }
+                if r.drag_stopped() {
+                    self.vt_vdrag = None;
+                }
+                if r.clicked() {
+                    if let Some(pos) = ptr {
+                        if hit(pos).is_none() {
+                            let (x, y) = to_script(pos);
+                            drawing::push_point(&mut cmds, ((x as f64 * mul).round(), (y as f64 * mul).round()));
+                            changed = true;
+                        }
+                    }
+                }
+                if r.secondary_clicked() {
+                    match ptr.and_then(hit) {
+                        Some((ci, pi)) => { drawing::remove_point(&mut cmds, ci, pi); changed = true; }
+                        None => {
+                            let nt = osisub_core::overrides::remove_initial(&d.text, tag_name);
+                            if nt != d.text { doc.edit("Vektör kırpmayı kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt)); }
+                        }
+                    }
+                }
+                if changed {
+                    let body = drawing::to_string(&cmds);
+                    let nt = if body.is_empty() {
+                        osisub_core::overrides::remove_initial(&d.text, tag_name)
+                    } else {
+                        let arg = if scale > 1 { format!("({},{})", scale, body) } else { format!("({})", body) };
+                        osisub_core::overrides::set_initial(&d.text, tag_name, &arg)
+                    };
+                    if nt != d.text {
+                        let key = format!("vt:vclip:{}", at);
+                        doc.edit_keyed("Vektör kırpma", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
                     }
                 }
             }

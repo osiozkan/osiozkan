@@ -79,7 +79,8 @@
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)
 - [x] Video araçları: \org sürükleme (döndürme aracında beyaz nokta)
-- [ ] Video araçları: vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
+- [x] Video araçları: vektör \clip/\iclip (core::drawing: m/l/b korunur, ölçek parametresi; tıkla = nokta ekle, sürükle, sağ tık = sil)
+- [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [x] Satırları seç (Aegisub Select Lines): metin/stil/konuşan/efekt; içerir/tam/regex; ters; diyalog/yorum; yeni/ekle/çıkar/kesişim (Düzen menüsü)
