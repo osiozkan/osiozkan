@@ -361,6 +361,21 @@ pub fn write_keyframe_file(keyframes_ms: &[i64], fps: f64) -> String {
     out
 }
 
+/// Video karelerinin sunum zamanları (ms, sıralı). Paket başlıklarından okunur (çözme yok, hızlı).
+pub fn frame_timestamps(path: &Path) -> Result<Vec<i64>, String> {
+    let out = Command::new(ffprobe_bin())
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let mut v: Vec<i64> = String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().trim_end_matches(',').parse::<f64>().ok()).map(|s| (s * 1000.0).round() as i64).collect();
+    v.sort_unstable();
+    Ok(v)
+}
+
 /// Anahtar kare zamanları (ms). Büyük dosyalarda birkaç saniye sürebilir.
 pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
     let out = Command::new(ffprobe_bin())
@@ -430,6 +445,28 @@ mod tests {
         assert_eq!(w.duration_ms(), 1000);
         // Aralık dışı
         assert_eq!(w.peaks(5000.0, 10.0, 2), vec![(0, 0), (0, 0)]);
+    }
+
+    #[test]
+    fn vfr_timestamps_if_available() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("osisub_vfr_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| assert!(Command::new(ffmpeg_bin()).args(args).status().unwrap().success());
+        let (a, b, l, v) = (dir.join("a.mkv"), dir.join("b.mkv"), dir.join("l.txt"), dir.join("v.mkv"));
+        run(&["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=2", a.to_str().unwrap()]);
+        run(&["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=60:duration=1", b.to_str().unwrap()]);
+        std::fs::write(&l, format!("file '{}'\nfile '{}'\n", a.display(), b.display())).unwrap();
+        run(&["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", l.to_str().unwrap(), "-c", "copy", v.to_str().unwrap()]);
+        let ts = frame_timestamps(&v).unwrap();
+        assert_eq!(ts.len(), 48 + 60);
+        let fr = osisub_core::vfr::Framerate::from_timestamps(ts).expect("VFR algılanmalı");
+        assert_eq!(fr.frame_at(2010), 48);
+        // CFR dosyası VFR sayılmamalı
+        assert!(osisub_core::vfr::Framerate::from_timestamps(frame_timestamps(&a).unwrap()).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

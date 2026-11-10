@@ -14,6 +14,8 @@ enum Msg {
     Wave(Result<Waveform, String>),
     Frame { time: i64, rev: u64, res: Result<Frame, String> },
     Keyframes(Vec<i64>),
+    /// Videodan algılanan değişken kare hızı (VFR)
+    Vfr(osisub_core::vfr::Framerate),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,6 +60,8 @@ pub struct Media {
     pub keyframes: Vec<i64>,
     /// Yüklü timecode dosyası (VFR); varsa kare hesapları bunu kullanır.
     pub timecodes: Option<Arc<osisub_core::vfr::Framerate>>,
+    /// `timecodes` videodan otomatik mi geldi (yeni video açılınca sıfırlanır)
+    pub timecodes_auto: bool,
     pub snap_kf: bool,
     /// Videoda \pos sürükleme aracı.
     pub tool: VideoTool,
@@ -104,6 +108,7 @@ impl Media {
             snap: true,
             keyframes: vec![],
             timecodes: None,
+            timecodes_auto: false,
             snap_kf: true,
             tool: VideoTool::None,
             vt_drag: None,
@@ -161,6 +166,10 @@ impl Media {
         self.info = None;
         self.wave = None;
         self.keyframes.clear();
+        if self.timecodes_auto {
+            self.timecodes = None;
+            self.timecodes_auto = false;
+        }
         self.tex = None;
         self.frame_cache.clear();
         self.frame_shown = (-1, u64::MAX);
@@ -180,6 +189,10 @@ impl Media {
                 ctx2.request_repaint();
             }
             if info_has_video {
+                if let Some(fr) = osisub_media::frame_timestamps(&p).ok().and_then(osisub_core::vfr::Framerate::from_timestamps) {
+                    let _ = tx.send(Msg::Vfr(fr));
+                    ctx2.request_repaint();
+                }
                 if let Ok(k) = osisub_media::keyframes(&p) {
                     let _ = tx.send(Msg::Keyframes(k));
                     ctx2.request_repaint();
@@ -318,6 +331,14 @@ impl Media {
                 Msg::Info(Err(e)) => self.status = format!("Ortam açılamadı: {}", e),
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
                 Msg::Keyframes(k) => self.keyframes = k,
+                Msg::Vfr(fr) => {
+                    // Kullanıcının elle yüklediği timecode varsa ona dokunma
+                    if self.timecodes.is_none() || self.timecodes_auto {
+                        self.status = format!("Değişken kare hızı (VFR) algılandı: ortalama {:.3} fps — kare hesapları videonun zaman damgalarını kullanıyor", fr.fps());
+                        self.timecodes = Some(Arc::new(fr));
+                        self.timecodes_auto = true;
+                    }
+                }
                 Msg::Wave(Err(e)) => self.status = format!("Ses okunamadı: {}", e),
                 Msg::Frame { time, rev, res } => {
                     self.frame_busy = false;
@@ -451,7 +472,7 @@ impl Media {
                     let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
                 }
-                ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, time::format_ass(self.playhead), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, match &self.timecodes { Some(t) => format!("{}  kare {}  VFR{}", time::format_ass(self.playhead), t.frame_at(self.playhead), if self.timecodes_auto { "" } else { " (timecode)" }), None => time::format_ass(self.playhead) }, egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
             });
             if let (Some(img), true) = (img_rect, self.tool != VideoTool::None) {
                 self.tool_ui(ui, img, doc);

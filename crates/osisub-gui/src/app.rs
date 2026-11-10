@@ -1164,6 +1164,7 @@ impl App {
                             Ok(fr) => {
                                 self.status = format!("Timecode yüklendi: ortalama {:.3} fps", fr.fps());
                                 self.media.timecodes = Some(std::sync::Arc::new(fr));
+                                self.media.timecodes_auto = false;
                             }
                             Err(e) => self.status = format!("Timecode hatası: {}", e),
                         }
@@ -1181,6 +1182,7 @@ impl App {
                 if ui.add_enabled(self.media.timecodes.is_some(), egui::Button::new("Timecode'u kapat")).clicked() {
                     ui.close();
                     self.media.timecodes = None;
+                    self.media.timecodes_auto = false;
                     self.status = "Timecode kapatıldı (videonun sabit kare hızı kullanılıyor)".into();
                 }
                 ui.separator();

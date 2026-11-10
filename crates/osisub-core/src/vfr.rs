@@ -80,6 +80,26 @@ impl Framerate {
         }
     }
 
+    /// Videodan okunan kare zaman damgalarından (ms) kare hızı. Damgalar (ms yuvarlamasıyla)
+    /// tekdüzeyse `None` (CFR; sabit hız yeterli), değilse VFR döndürür.
+    pub fn from_timestamps(mut ts: Vec<i64>) -> Option<Framerate> {
+        ts.sort_unstable();
+        ts.dedup();
+        if ts.len() < 3 {
+            return None;
+        }
+        let mean = (ts[ts.len() - 1] - ts[0]) as f64 / (ts.len() - 1) as f64;
+        if mean <= 0.0 {
+            return None;
+        }
+        // Matroska ms yuvarlaması: 23.976 fps → 41/42 ms. ±1.5 ms içi sabit sayılır.
+        if ts.windows(2).all(|w| ((w[1] - w[0]) as f64 - mean).abs() <= 1.5) {
+            return None;
+        }
+        let last = (ts[ts.len() - 1] - ts[ts.len() - 2]).max(1);
+        Some(Framerate::Vfr { ts, tail_fps: 1000.0 / last as f64 })
+    }
+
     /// Aegisub/mkvmerge timecode dosyası (v1 ya da v2) okur.
     pub fn parse_timecodes(text: &str) -> Result<Framerate, String> {
         let mut lines = text.lines().map(|l| l.trim_start_matches('\u{feff}').trim()).filter(|l| !l.is_empty());
@@ -198,6 +218,20 @@ mod tests {
         assert!(Framerate::parse_timecodes("# timecode format v2\n10\n5\n").is_err());
         assert!(Framerate::parse_timecodes("merhaba").is_err());
         assert!(Framerate::parse_timecodes("# timecode format v1\n0,1,25\n").is_err());
+    }
+
+    #[test]
+    fn detect_vfr_from_timestamps() {
+        // 23.976 CFR, ms yuvarlamalı → CFR sayılır
+        let cfr: Vec<i64> = (0..200).map(|i| (i as f64 * 1001.0 / 24.0).round() as i64).collect();
+        assert_eq!(Framerate::from_timestamps(cfr), None);
+        // 24 fps + 60 fps bölümleri → VFR
+        let mut v: Vec<i64> = (0..48).map(|i| (i as f64 * 1000.0 / 24.0).round() as i64).collect();
+        v.extend((0..60).map(|i| 2000 + (i as f64 * 1000.0 / 60.0).round() as i64));
+        let fr = Framerate::from_timestamps(v).unwrap();
+        assert!(fr.is_vfr());
+        assert_eq!(fr.time_at(48), 2000);
+        assert_eq!(fr.frame_at(2020), 49);
     }
 
     #[test]

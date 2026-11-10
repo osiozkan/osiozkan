@@ -2431,6 +2431,7 @@ name = "osisub-media"
 version = "0.2.0"
 dependencies = [
  "cpal",
+ "osisub-core",
  "rustfft",
  "serde_json",
 ]
