@@ -16,6 +16,10 @@ pub enum Kind {
     UnknownStyle,
     DoubleSpace,
     EdgeSpace,
+    /// Başlangıç/bitiş sahne değişiminin (anahtar kare) birkaç kare yakınında ama üstünde değil
+    NearKeyframe,
+    /// Aynı stildeki ardışık satırlar arasında 1-2 karelik boşluk (titreme)
+    Flicker,
 }
 
 #[derive(Clone, Debug)]
@@ -48,6 +52,50 @@ pub fn cps(d: &Dialogue) -> f64 {
         return f64::INFINITY;
     }
     tags::visible_len(&d.text) as f64 * 1000.0 / dur as f64
+}
+
+/// Kareye dayalı zamanlama denetimleri (video gerekir): sahne değişimine yakın başlangıç/bitiş ve
+/// titreme. `keyframes_ms`: anahtar karelerin tam zamanları; `max_frames`: yakınlık eşiği (kare).
+pub fn frame_issues(script: &Script, fr: &crate::vfr::Framerate, keyframes_ms: &[i64], max_frames: i64) -> Vec<Issue> {
+    let mut kf: Vec<i64> = keyframes_ms.iter().map(|&k| fr.frame_at(k)).collect();
+    kf.sort_unstable();
+    kf.dedup();
+    let near = |f: i64| -> Option<i64> {
+        // f'ye en yakın anahtar kare ile işaretli uzaklık (anahtar kare - f)
+        let i = kf.partition_point(|&k| k < f);
+        [i.checked_sub(1), Some(i)].into_iter().flatten().filter_map(|j| kf.get(j)).map(|&k| k - f).min_by_key(|d| d.abs())
+    };
+    let mut out = vec![];
+    let mut groups: std::collections::HashMap<(&str, i32), Vec<(i64, i64, usize)>> = std::collections::HashMap::new();
+    for (i, e) in script.entries.iter().enumerate() {
+        let Entry::Dialogue(d) = e else { continue };
+        if d.comment || d.effect.eq_ignore_ascii_case("fx") || d.duration() <= 0 {
+            continue;
+        }
+        let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time) + 1);
+        if !kf.is_empty() {
+            if let Some(dl) = near(fs).filter(|dl| *dl != 0 && dl.abs() <= max_frames) {
+                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: format!("Başlangıç sahne değişiminden {} kare {}", dl.abs(), if dl > 0 { "önce" } else { "sonra" }) });
+            }
+            if let Some(dl) = near(fe).filter(|dl| *dl != 0 && dl.abs() <= max_frames) {
+                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: format!("Bitiş sahne değişiminden {} kare {}", dl.abs(), if dl > 0 { "önce" } else { "sonra" }) });
+            }
+        }
+        if !is_typeset(d) && !is_karaoke(d) {
+            groups.entry((d.style.as_str(), d.layer)).or_default().push((fs, fe, i));
+        }
+    }
+    for (_, mut v) in groups {
+        v.sort_unstable();
+        for w in v.windows(2) {
+            let gap = w[1].0 - w[0].1;
+            if (1..=2).contains(&gap) {
+                out.push(Issue { entry: w[1].2, kind: Kind::Flicker, message: format!("Önceki satırla arada {} kare boşluk (titreme)", gap) });
+            }
+        }
+    }
+    out.sort_by_key(|x| x.entry);
+    out
 }
 
 /// Tipografi (tabela/yazı) satırı: konumlandırılmış ya da çizim. Okuma hızı, uzunluk, süre ve
@@ -369,6 +417,27 @@ mod tests {
         assert_eq!(sc.dialogues().next().unwrap().end_time, 2500);
         assert_eq!(sc.dialogues().nth(1).unwrap(), &sign_before, "tabelaya dokunulmamalı");
         assert!(!check(&sc, &Rules::default()).iter().any(|x| x.kind == Kind::Overlap));
+    }
+
+    #[test]
+    fn keyframe_and_flicker() {
+        let fr = crate::vfr::Framerate::cfr(24.0);
+        let t = |f: i64| fr.time_at_start(f);
+        // anahtar kare: 48. kare (2000 ms)
+        let kf = vec![fr.time_at(48)];
+        let s = Script::from_dialogues(vec![
+            d(t(46), t(60), "iki kare önce başlıyor"),
+            d(t(48), t(70), "tam üstünde"),
+            d(t(71), t(90), "bir kare boşluk"),
+            d(t(90), t(100), "bitişik"),
+        ]);
+        let is = frame_issues(&s, &fr, &kf, 3);
+        let at = |n: usize| s.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).nth(n).unwrap().0;
+        assert!(is.iter().any(|x| x.entry == at(0) && x.kind == Kind::NearKeyframe && x.message.contains("2 kare önce")), "{:?}", is);
+        assert!(!is.iter().any(|x| x.entry == at(1)), "{:?}", is);
+        // d1 ve d2 farklı satırlar ama aynı stil: 70→71 = 1 kare boşluk
+        assert!(is.iter().any(|x| x.entry == at(2) && x.kind == Kind::Flicker), "{:?}", is);
+        assert!(!is.iter().any(|x| x.entry == at(3)), "{:?}", is);
     }
 
     #[test]

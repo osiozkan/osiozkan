@@ -10,7 +10,8 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
-  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N]
+  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv]
+                (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
   osisub macros <betik.lua>...            betiklerdeki makroları listele
@@ -97,8 +98,17 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--min-ms") { r.min_duration_ms = v.parse().map_err(|_| "--min-ms sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--max-ms") { r.max_duration_ms = v.parse().map_err(|_| "--max-ms sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--gap") { r.min_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
+            let video = opt(&mut args, "--video");
             let s = load(args.first().ok_or("dosya gerekli")?)?;
-            let issues = qc::check(&s, &r);
+            let mut issues = qc::check(&s, &r);
+            if let Some(v) = video {
+                // kareye dayalı denetimler: sahne değişimine yakınlık (≤3 kare), titreme
+                let vp = Path::new(&v);
+                let fr = osisub_media::frame_timestamps(vp).ok().and_then(osisub_core::vfr::Framerate::from_timestamps).or_else(|| osisub_media::probe(vp).ok().map(|i| osisub_core::vfr::Framerate::cfr(i.fps)).filter(|f| f.fps() > 0.0)).ok_or("videonun kare hızı okunamadı")?;
+                let kf = osisub_media::keyframes(vp)?;
+                issues.extend(qc::frame_issues(&s, &fr, &kf, 3));
+                issues.sort_by_key(|x| x.entry);
+            }
             for is in &issues {
                 if let Entry::Dialogue(d) = &s.entries[is.entry] {
                     println!("{} [{}] {:?}: {}", is.entry + 1, osisub_core::time::format_ass(d.start_time), is.kind, is.message);

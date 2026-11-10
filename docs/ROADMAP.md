@@ -15,6 +15,7 @@
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü
 - [x] QC: çakışma, süre, okuma hızı, satır uzunluğu, bilinmeyen stil, boşluk
+- [x] QC kare denetimleri (video açıkken): sahne değişimine ≤3 kare yakın başlangıç/bitiş (sahne taşması), aynı stilde 1-2 karelik boşluk (titreme); CLI `check --video`
 - [x] QC anime uyumu: tipografi (\pos/\move/\clip/\org/çizim), karaoke (\k) ve fx satırları okuma hızı/uzunluk/süre/çakışma uyarısı almaz; çakışma artık stil+katman başına ZAMAN sırasıyla (dosya sırası değil) denetlenir
 - [x] Toplu araçlar: kaydır, doğrusal senkron, fps dönüşümü, kareye oturt, sırala, yinelenen/boş sil, çakışma düzelt, Türkçe harf
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici

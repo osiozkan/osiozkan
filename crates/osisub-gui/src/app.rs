@@ -146,6 +146,8 @@ pub struct App {
     /// "Satırları seç" penceresi
     select_open: bool,
     select_crit: osisub_core::select::Criteria,
+    /// Kare denetimleri için medya durumu (anahtar kare sayısı, kare hızı var mı); değişince QC yenilenir
+    qc_media_key: (usize, bool),
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -301,6 +303,7 @@ impl App {
             hotkey_capture: None,
             lua_error: None,
             select_open: false,
+            qc_media_key: (0, false),
             select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
             tm_rev: 0,
@@ -843,16 +846,34 @@ impl App {
                 }
             }
         }
+        let mkey = (self.media.keyframes.len(), self.media.framerate().is_some());
+        if mkey != self.qc_media_key {
+            self.qc_media_key = mkey;
+            self.issues_key = u64::MAX;
+        }
         if self.issues_key != self.doc.rev {
+            // Video açıksa kareye dayalı denetimler (sahne değişimi yakınlığı, titreme) da eklenir.
+            let frame_ctx = self.media.framerate().map(|fr| (fr, self.media.keyframes.clone()));
             if self.doc.script.entries.len() < 5000 {
-                let issues = qc::check(&self.doc.script, &self.rules);
+                let mut issues = qc::check(&self.doc.script, &self.rules);
+                if let Some((fr, kf)) = &frame_ctx {
+                    issues.extend(qc::frame_issues(&self.doc.script, fr, kf, 3));
+                    issues.sort_by_key(|x| x.entry);
+                }
                 self.set_issues(issues, self.doc.rev);
             } else if self.qc_rx.is_none() && self.qc_changed_at.elapsed() >= std::time::Duration::from_millis(300) {
                 // Büyük belge: düzenleme durunca arka planda hesapla.
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.qc_rx = Some(rx);
                 let (script, rules, rev) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev);
-                std::thread::spawn(move || { let _ = tx.send((rev, qc::check(&script, &rules))); });
+                std::thread::spawn(move || {
+                    let mut issues = qc::check(&script, &rules);
+                    if let Some((fr, kf)) = &frame_ctx {
+                        issues.extend(qc::frame_issues(&script, fr, kf, 3));
+                        issues.sort_by_key(|x| x.entry);
+                    }
+                    let _ = tx.send((rev, issues));
+                });
             }
         }
     }
