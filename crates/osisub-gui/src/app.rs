@@ -1150,6 +1150,18 @@ impl App {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
+                ui.separator();
+                let fr = self.media.framerate();
+                if ui.add_enabled(fr.is_some(), egui::Button::new("Video karesinde böl")).on_hover_text("Etkin satırı videodaki karede ikiye böler (Aegisub: Split at video frame)").clicked() {
+                    ui.close();
+                    if let Some(fr) = &fr {
+                        if !self.doc.split_at_frame(fr, self.media.playhead) { self.status = "Bu kare satırın içinde değil".into(); }
+                    }
+                }
+                if ui.add_enabled(fr.is_some(), egui::Button::new("Çoğalt ve 1 kare kaydır")).on_hover_text("Kare kare tipografi: seçili satırların kopyası bir kare sonra").clicked() {
+                    ui.close();
+                    if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); }
+                }
                 ui.menu_button("Sırala", |ui| {
                     for (k, l) in [(qc::SortKey::Start, "Başlangıç zamanına göre"), (qc::SortKey::End, "Bitiş zamanına göre"), (qc::SortKey::Style, "Stile göre"), (qc::SortKey::Actor, "Konuşana göre"), (qc::SortKey::Effect, "Efekte göre"), (qc::SortKey::Layer, "Katmana göre"), (qc::SortKey::Text, "Metne göre")] {
                         if ui.button(l).clicked() {

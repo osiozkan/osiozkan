@@ -336,6 +336,38 @@ impl Document {
         self.select((last + 1..last + 1 + n).collect(), last + 1);
     }
 
+    /// Seçili satırları çoğaltır, kopyaları `frames` kare kaydırır (Aegisub "Duplicate and shift by 1 frame";
+    /// kare kare tipografide kullanılır). Kopyalar seçilir.
+    pub fn duplicate_shift_frames(&mut self, fr: &osisub_core::vfr::Framerate, frames: i64) {
+        let t = self.target_lines();
+        let Some(&last) = t.last() else { return };
+        let mut tmp = Script::from_dialogues(t.iter().filter_map(|&i| if let Entry::Dialogue(d) = &self.script.entries[i] { Some(d.clone()) } else { None }).collect());
+        osisub_core::qc::shift_frames(&mut tmp, fr, frames, None);
+        let copies: Vec<Entry> = tmp.dialogues().cloned().map(Entry::Dialogue).collect();
+        let n = copies.len();
+        self.edit("Çoğalt ve kare kaydır", |tx| tx.insert(last + 1, copies));
+        self.select((last + 1..last + 1 + n).collect(), last + 1);
+    }
+
+    /// Etkin satırı `ms` anındaki video karesinde ikiye böler (Aegisub "Split at video frame"):
+    /// ilk parça o kareden önce biter, ikincisi o karede başlar. Bölünemiyorsa `false`.
+    pub fn split_at_frame(&mut self, fr: &osisub_core::vfr::Framerate, ms: i64) -> bool {
+        let at = self.active;
+        let Some(Entry::Dialogue(d)) = self.script.entries.get(at).cloned() else { return false };
+        let b = fr.time_at_start(fr.frame_at(ms));
+        if fr.frame_at_start(b) <= fr.frame_at_start(d.start_time) || b >= d.end_time {
+            return false;
+        }
+        let mut second = d.clone();
+        second.start_time = b;
+        self.edit("Video karesinde böl", |tx| {
+            tx.dialogue_mut(at, |x| x.end_time = b);
+            tx.insert(at + 1, vec![Entry::Dialogue(second)]);
+        });
+        self.select(vec![at + 1], at + 1);
+        true
+    }
+
     pub fn delete_selected(&mut self) {
         let mut t = self.target_lines();
         if t.is_empty() {
@@ -545,6 +577,31 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn frame_split_and_duplicate_shift() {
+        let fr = osisub_core::vfr::Framerate::cfr(24.0);
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.select(vec![a], a);
+        // 1. satır 0–2000 ms; 1000 ms'deki kare 24 → sınır = 24. karenin START'ı
+        assert!(d.split_at_frame(&fr, 1000));
+        let ds: Vec<Dialogue> = d.script.dialogues().cloned().collect();
+        assert_eq!(ds.len(), 4);
+        assert_eq!(ds[0].end_time, fr.time_at_start(24));
+        assert_eq!(ds[1].start_time, fr.time_at_start(24));
+        assert_eq!(ds[1].text, "bir");
+        assert!(!d.split_at_frame(&fr, 100_000), "satır dışında bölünmemeli");
+        d.undo();
+        assert_eq!(d.script.dialogues().count(), 3);
+        // 1 karelik satırı çoğalt + 1 kare kaydır
+        d.set_times(a, fr.time_at_start(10), fr.time_at_end(10));
+        d.select(vec![a], a);
+        d.duplicate_shift_frames(&fr, 1);
+        let ds: Vec<Dialogue> = d.script.dialogues().cloned().collect();
+        assert_eq!((fr.frame_at_start(ds[1].start_time), fr.frame_at_end(ds[1].end_time)), (11, 11));
+        assert_eq!(d.selection, vec![a + 1]);
     }
 
     #[test]
