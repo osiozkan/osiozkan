@@ -351,7 +351,8 @@ impl Media {
             }
             None => {
                 let clock = self.play_started.unwrap_or(begin);
-                self.playhead = self.play_from + (begin.elapsed().as_secs_f64() * 1000.0) as i64;
+                // ses aygıtı yoksa saat: oynatma aralığının sonunu geçmesin
+                self.playhead = self.play_from + ((begin.elapsed().as_secs_f64() * 1000.0) as i64).min(self.play_dur);
                 (clock.elapsed().as_secs_f64(), begin.elapsed().as_millis() as i64 > self.play_dur + 800)
             }
         };
