@@ -150,6 +150,8 @@ pub struct App {
     qc_media_key: (usize, bool),
     /// Ekler (gömülü yazı tipleri/grafikler) penceresi
     attach_open: bool,
+    /// Karşılaştırma: (eski sürüm adı, eski betik, farklar)
+    compare: Option<(String, osisub_core::Script, Vec<osisub_core::compare::Change>)>,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -248,7 +250,7 @@ mod windows;
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, args: crate::Args) -> App {
-        let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference, shot_delay } = args;
+        let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference, shot_delay, compare } = args;
         theme::setup(&cc.egui_ctx);
         let mut include = vec![];
         if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
@@ -306,6 +308,7 @@ impl App {
             lua_error: None,
             select_open: false,
             attach_open: false,
+            compare: None,
             qc_media_key: (0, false),
             select_crit: Default::default(),
             tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
@@ -406,6 +409,12 @@ impl App {
         app.auto_load_dictionary();
         if !app.settings.glossary_path.is_empty() { app.load_glossary(PathBuf::from(app.settings.glossary_path.clone())); }
         if app.doc.path.is_none() { app.scan_recovery(); }
+        if let Some(c) = compare {
+            if let Ok(old) = osisub_core::io::load(&c) {
+                let ch = osisub_core::compare::compare(&old, &app.doc.script);
+                app.compare = Some((c.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), old, ch));
+            }
+        }
         if let Some(r) = reference {
             if let Ok(sc) = osisub_core::io::load(&r) {
                 app.ref_lines = { let mut v: Vec<(i64, i64, String)> = sc.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v };
@@ -1096,6 +1105,19 @@ impl App {
                         if ui.button(&r).clicked() { ui.close(); self.request(Guarded::OpenPath(PathBuf::from(&r))); }
                     }
                 });
+                if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "sbv", "lrc", "ttml"]).pick_file() {
+                        match osisub_core::io::load(&p) {
+                            Ok(old) => {
+                                let ch = osisub_core::compare::compare(&old, &self.doc.script);
+                                self.status = format!("{} fark", ch.len());
+                                self.compare = Some((p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), old, ch));
+                            }
+                            Err(e) => self.status = format!("Hata: {}", e),
+                        }
+                    }
+                }
                 if ui.button("Referans altyazı aç…").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
@@ -1460,6 +1482,7 @@ impl eframe::App for App {
         self.lua_error_window(&ctx);
         self.select_window(&ctx);
         self.attach_window(&ctx);
+        self.compare_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

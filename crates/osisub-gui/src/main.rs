@@ -22,6 +22,8 @@ pub struct Args {
     pub reference: Option<PathBuf>,
     /// Ekran görüntüsünü bu kadar saniye sonra al (xdotool senaryoları için).
     pub shot_delay: Option<f32>,
+    /// Açılışta bu dosyayla karşılaştır (eski sürüm)
+    pub compare: Option<PathBuf>,
 }
 
 fn install_panic_hook() {
@@ -48,6 +50,7 @@ fn main() -> eframe::Result {
             "--open" => a.open_win = args.next(),
             "--line" => a.line = args.next().and_then(|v| v.parse().ok()),
             "--tab" => a.tab = args.next(),
+            "--compare" => a.compare = args.next().map(PathBuf::from),
             "--shot-delay" => a.shot_delay = args.next().and_then(|v| v.parse().ok()),
             "--ref" => a.reference = args.next().map(PathBuf::from),
             "-h" | "--help" => {

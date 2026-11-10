@@ -207,6 +207,67 @@ impl App {
         if !open { self.attach_open = false; }
     }
 
+    /// Sürüm karşılaştırma sonuçları; tıklayınca açık belgedeki satıra gider.
+    pub(super) fn compare_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::compare::Change;
+        let Some((name, old, changes)) = self.compare.take() else { return };
+        let mut open = true;
+        let mut jump: Option<usize> = None;
+        let mut refresh = false;
+        let text_of = |s: &osisub_core::Script, i: usize| -> (String, String) {
+            match s.entries.get(i) {
+                Some(Entry::Dialogue(d)) => (format!("{}–{}", time::format_ass(d.start_time), time::format_ass(d.end_time)), d.text.clone()),
+                _ => (String::new(), String::new()),
+            }
+        };
+        egui::Window::new(format!("Karşılaştırma — {} → açık belge", name)).open(&mut open).default_width(640.0).default_height(420.0).show(ctx, |ui| {
+            let (mut a, mut r, mut m) = (0, 0, 0);
+            for c in &changes { match c { Change::Added { .. } => a += 1, Change::Removed { .. } => r += 1, Change::Modified { .. } => m += 1 } }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("+{} eklendi", a)).color(theme::ACCENT));
+                ui.label(RichText::new(format!("−{} silindi", r)).color(theme::BAD));
+                ui.label(RichText::new(format!("~{} değişti", m)).color(theme::WARN));
+                if ui.small_button("Yenile").on_hover_text("Açık belgedeki son düzenlemelerle yeniden karşılaştır").clicked() { refresh = true; }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for c in &changes {
+                    match c {
+                        Change::Added { new } => {
+                            let (t, x) = text_of(&self.doc.script, *new);
+                            if ui.selectable_label(false, RichText::new(format!("+ {}  {}", t, x)).color(theme::ACCENT)).clicked() { jump = Some(*new); }
+                        }
+                        Change::Removed { old: o } => {
+                            let (t, x) = text_of(&old, *o);
+                            ui.label(RichText::new(format!("− {}  {}", t, x)).color(theme::BAD).strikethrough());
+                        }
+                        Change::Modified { old: o, new, text, timing, style, actor } => {
+                            let (t0, x0) = text_of(&old, *o);
+                            let (t1, x1) = text_of(&self.doc.script, *new);
+                            let mut what = vec![];
+                            if *text { what.push("metin"); }
+                            if *timing { what.push("zaman"); }
+                            if *style { what.push("stil"); }
+                            if *actor { what.push("konuşan"); }
+                            let r = ui.selectable_label(false, RichText::new(format!("~ {}  [{}]", t1, what.join(", "))).color(theme::WARN));
+                            if *timing { ui.label(RichText::new(format!("    zaman: {} → {}", t0, t1)).monospace().small()); }
+                            if *text {
+                                ui.label(RichText::new(format!("    eski: {}", x0)).color(Color32::GRAY).strikethrough());
+                                ui.label(RichText::new(format!("    yeni: {}", x1)));
+                            }
+                            if r.clicked() { jump = Some(*new); }
+                        }
+                    }
+                }
+            });
+        });
+        if let Some(e) = jump { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
+        if open {
+            let ch = if refresh { osisub_core::compare::compare(&old, &self.doc.script) } else { changes };
+            self.compare = Some((name, old, ch));
+        }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

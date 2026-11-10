@@ -86,6 +86,7 @@
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
+- [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git
 - [x] Satırları seç (Aegisub Select Lines): metin/stil/konuşan/efekt; içerir/tam/regex; ters; diyalog/yorum; yeni/ekle/çıkar/kesişim (Düzen menüsü)
 - [x] Lua makrolarına kısayol atama (Otomasyon sekmesi; settings.json `macro_hotkeys`)
 - [x] Otomasyon: elle yüklenen betikler kalıcı (settings.json `scripts`), "Yüklü betik dosyaları" listesi + Kaldır; aynı betiği yeniden yüklemek motoru tazeler

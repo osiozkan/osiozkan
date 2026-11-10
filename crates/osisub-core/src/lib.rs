@@ -2,6 +2,7 @@
 pub mod ass;
 pub mod attach;
 pub mod color;
+pub mod compare;
 pub mod drawing;
 pub mod fixes;
 pub mod fonts_used;

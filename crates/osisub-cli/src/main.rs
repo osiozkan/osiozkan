@@ -12,6 +12,7 @@ KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
   osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
+  osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
   osisub macros <betik.lua>...            betiklerdeki makroları listele
@@ -80,6 +81,21 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
         "convert" => {
             let [i, o] = args.as_slice() else { return Err("kullanım: convert <girdi> <çıktı>".into()) };
             save(&load(i)?, o)
+        }
+        "compare" => {
+            if args.len() < 2 { return Err("kullanım: compare <eski> <yeni>".into()); }
+            let (a, b) = (load(&args[0])?, load(&args[1])?);
+            let ch = osisub_core::compare::compare(&a, &b);
+            let line = |s: &Script, i: usize| match &s.entries[i] { Entry::Dialogue(d) => format!("[{}] {}", osisub_core::time::format_ass(d.start_time), d.text), _ => String::new() };
+            for c in &ch {
+                match c {
+                    osisub_core::compare::Change::Added { new } => println!("+ {}", line(&b, *new)),
+                    osisub_core::compare::Change::Removed { old } => println!("- {}", line(&a, *old)),
+                    osisub_core::compare::Change::Modified { old, new, .. } => { println!("~ {}", line(&a, *old)); println!("  {}", line(&b, *new)); }
+                }
+            }
+            println!("{} fark", ch.len());
+            Ok(())
         }
         "info" => {
             let s = load(args.first().ok_or("dosya gerekli")?)?;
