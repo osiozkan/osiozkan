@@ -556,6 +556,14 @@ impl App {
             ui.horizontal(|ui| {
                 let enabled = self.running.is_none() && kind == MacroKind::Macro;
                 if ui.add_enabled(enabled, egui::Button::new("Çalıştır")).clicked() { self.run_macro(id); }
+                if kind == MacroKind::Macro {
+                    let cur = self.settings.macro_hotkeys.iter().find(|h| h.script == script && h.name == name).map(|h| h.keys.clone());
+                    let capturing = self.hotkey_capture.as_ref().map_or(false, |(s, n)| *s == script && *n == name);
+                    let label = if capturing { "tuşa basın…".to_string() } else { cur.clone().unwrap_or_else(|| "kısayol yok".into()) };
+                    if ui.add(egui::Button::new(RichText::new(label).monospace().small()).selected(capturing)).on_hover_text("Tıklayın, sonra tuş birleşimine basın (Esc = iptal, Backspace = kaldır)").clicked() {
+                        self.hotkey_capture = Some((script.clone(), name.clone()));
+                    }
+                }
                 ui.vertical(|ui| { ui.strong(&name); ui.label(RichText::new(format!("{} — {}", script, desc)).weak().small()); });
             });
         }

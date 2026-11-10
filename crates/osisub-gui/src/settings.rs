@@ -25,6 +25,15 @@ pub struct Settings {
     pub glossary_path: String,
     pub dict_aff: String,
     pub dict_dic: String,
+    /// Lua makro kısayolları: (tuş birleşimi "Ctrl+Shift+K", betik adı, makro adı)
+    pub macro_hotkeys: Vec<MacroHotkey>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MacroHotkey {
+    pub keys: String,
+    pub script: String,
+    pub name: String,
 }
 
 impl Default for Settings {
@@ -50,6 +59,7 @@ impl Default for Settings {
             glossary_path: String::new(),
             dict_aff: String::new(),
             dict_dic: String::new(),
+            macro_hotkeys: vec![],
         }
     }
 }

@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")/.."
 cargo build --workspace 2>&1 | grep -E "^(error|warning)" -A8 && { echo "DERLEME HATASI/UYARISI"; exit 1; } || true
-if cargo test --workspace --exclude osisub-gui 2>&1 | grep -E "test result: F|FAILED|^error" ; then echo "TEST HATASI"; exit 1; fi
+if cargo test --workspace 2>&1 | grep -E "test result: F|FAILED|^error" ; then echo "TEST HATASI"; exit 1; fi
 git add -A
 git commit -q -m "$1
 

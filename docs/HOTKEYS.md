@@ -26,3 +26,6 @@
 | Video aracı Kırpma: sağ tık | Kırpmayı kaldır |
 | Video aracı Döndürme: Shift+sürükle | 15° adımlarla döndür |
 | Karaoke sekmesi → Tuşla zamanla: Boşluk | Çalarken hecenin başlangıcını işaretle |
+
+## Lua makrolarına kısayol atama
+*Otomasyon* sekmesinde her makronun yanındaki **"kısayol yok"** düğmesine tıklayın ve tuş birleşimine basın (ör. `Ctrl+Shift+K`). **Esc** iptal eder, **Backspace** kısayolu kaldırır. Atamalar `settings.json` içinde (`macro_hotkeys`) betik adı + makro adıyla saklanır; betik yeniden yüklendiğinde de geçerlidir. Yerleşik bir kısayolu (ör. `Ctrl+S`) ezerseniz durum çubuğunda uyarı görünür. Metin kutusunda yazarken değiştiricisiz harf kısayolları çalışmaz (F tuşları çalışır).

@@ -133,6 +133,8 @@ pub struct App {
     min_gap_on: bool,
     font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+    /// Kısayol atanmak üzere tuş bekleyen makro (betik adı, makro adı)
+    hotkey_capture: Option<(String, String)>,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -276,6 +278,7 @@ impl App {
             status,
             tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("translate") => Tab::Translate, Some("karaoke") => Tab::Karaoke, Some("spell") => Tab::Spell, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
+            hotkey_capture: None,
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
             rules: Rules::default(),
@@ -822,6 +825,52 @@ impl App {
         let typing = ctx.memory(|m| m.focused().is_some()) && ctx.egui_wants_keyboard_input();
         let k = |m: Modifiers, key: Key| KeyboardShortcut::new(m, key);
         // Esc: küçük araç pencerelerini kapat (metin kutusu Esc'yi tüketmeden önce yakala).
+        // Makro kısayolu atama: sıradaki tuş birleşimini yakala (Esc = iptal, Backspace = kaldır)
+        if let Some((script, name)) = self.hotkey_capture.clone() {
+            let pressed = ctx.input(|i| i.events.iter().find_map(|e| match e {
+                egui::Event::Key { key, pressed: true, modifiers, .. } if !crate::hotkeys::is_modifier(*key) => Some((*key, *modifiers)),
+                _ => None,
+            }));
+            if let Some((key, mods)) = pressed {
+                self.hotkey_capture = None;
+                self.settings.macro_hotkeys.retain(|h| !(h.script == script && h.name == name));
+                if key == Key::Escape {
+                    self.status = "Kısayol atama iptal edildi".into();
+                } else if key == Key::Backspace {
+                    self.status = format!("Kısayol kaldırıldı: {}", name);
+                } else {
+                    let sc = KeyboardShortcut::new(mods, key);
+                    let keys = crate::hotkeys::format(&sc);
+                    // aynı tuş başka makroda varsa ondan al
+                    self.settings.macro_hotkeys.retain(|h| crate::hotkeys::parse(&h.keys) != Some(sc));
+                    self.settings.macro_hotkeys.push(crate::settings::MacroHotkey { keys: keys.clone(), script, name: name.clone() });
+                    self.status = if crate::hotkeys::conflicts_builtin(&sc) { format!("{} → {} (UYARI: yerleşik kısayolu ezer)", keys, name) } else { format!("{} → {}", keys, name) };
+                }
+                self.settings.save();
+                ctx.input_mut(|i| i.events.clear());
+            }
+            return;
+        }
+        // Lua makro kısayolları (yerleşiklerden önce: kullanıcı bilerek ezebilir)
+        if self.running.is_none() {
+            let binds: Vec<(KeyboardShortcut, String, String)> = self.settings.macro_hotkeys.iter().filter_map(|h| Some((crate::hotkeys::parse(&h.keys)?, h.script.clone(), h.name.clone()))).collect();
+            let typing_now = ctx.memory(|m| m.focused().is_some()) && ctx.egui_wants_keyboard_input();
+            for (sc, script, name) in binds {
+                // Metin yazarken değiştiricisiz harf kısayolları yazmayı bozmasın (F tuşları hariç)
+                let plain = !(sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
+                let fkey = sc.logical_key.name().starts_with('F') && sc.logical_key.name().len() > 1;
+                if typing_now && plain && !fkey {
+                    continue;
+                }
+                if ctx.input_mut(|i| i.consume_shortcut(&sc)) {
+                    let id = self.macros.iter().find(|m| m.info.kind == MacroKind::Macro && m.info.name == name && (m.script == script || script.is_empty())).map(|m| m.info.id);
+                    match id {
+                        Some(id) => self.run_macro(id),
+                        None => self.status = format!("Kısayol {}: makro yüklü değil ({})", crate::hotkeys::format(&sc), name),
+                    }
+                }
+            }
+        }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.find_open = false;
             self.goto_open = false;
