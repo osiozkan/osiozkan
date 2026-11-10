@@ -41,6 +41,7 @@
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [ ] Yazım: çok dilli sözlük seçimi, ızgarada hata göstergesi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
+- [x] Karaoke kipi dalga formunda: hece sınırları ve metinleri etkin satırda gösterilir, sınırlar sürüklenerek ayarlanır (toplam süre korunur)
 - [x] Karaoke: oynatırken Boşluk ile tuşla zamanlama (gecikme ayarlı; çekirdek `apply_taps` testli)
 - [x] Karaoke: otomatik Japonca hece (mora) ayırma — romaji (ki|t|to, shi|n|ji, kyo|u) ve kana (きょ|う, っ ayrı); şablonlayıcı: gerçek kara-templater yerleşik
 - [ ] Karaoke: gecikmeyi ses saatiyle otomatik kalibre et; kanji için okuma (furigana) yardımı

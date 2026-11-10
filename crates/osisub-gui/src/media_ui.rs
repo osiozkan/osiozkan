@@ -37,6 +37,8 @@ enum Drag {
     None,
     Start,
     End,
+    /// karaoke: `i` ile `i+1` hecesi arasındaki sınır
+    Syl(usize),
     Body(i64),
 }
 
@@ -1031,12 +1033,49 @@ impl Media {
                 p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], Stroke::new(2.0, Color32::from_rgb(0xe5, 0x6b, 0x9a)));
             }
         }
-        if resp.drag_started() {
-            if let Some(pos) = resp.interact_pointer_pos() {
-                self.drag = if (pos.x - xs).abs() <= 7.0 { Drag::Start } else if (pos.x - xe).abs() <= 7.0 { Drag::End } else if pos.x > xs && pos.x < xe && ui.input(|i| i.modifiers.alt) { Drag::Body(ms_of(pos.x) as i64 - d.start_time) } else { Drag::None };
+        // Karaoke kipi: \k heceleri dalga formunda; iç sınırlar sürüklenebilir (Aegisub karaoke modu)
+        let (k_lead, k_syls) = osisub_core::karaoke::parse_with_lead(&d.text);
+        let mut k_bounds: Vec<f32> = vec![]; // iç sınırların x konumları (i: i ile i+1 arası)
+        if k_syls.len() > 1 {
+            let mut t = d.start_time;
+            let top = rect.top() + 4.0;
+            for (i, s) in k_syls.iter().enumerate() {
+                let t2 = t + s.dur * 10;
+                let (xa, xb) = (x_of(t as f64, vs, mpp), x_of(t2 as f64, vs, mpp));
+                if xb > rect.left() && xa < rect.right() && xb - xa > 8.0 {
+                    p.text(Pos2::new((xa + xb) / 2.0, top + 14.0), egui::Align2::CENTER_TOP, osisub_core::tags::strip_tags(&s.text).trim(), egui::FontId::proportional(12.0), Color32::from_rgb(0xf0, 0xd0, 0x60));
+                }
+                if i + 1 < k_syls.len() {
+                    k_bounds.push(xb);
+                    if xb >= rect.left() && xb <= rect.right() {
+                        p.line_segment([Pos2::new(xb, top), Pos2::new(xb, rect.bottom())], Stroke::new(1.0, Color32::from_rgb(0xf0, 0xd0, 0x60)));
+                    }
+                }
+                t = t2;
             }
         }
-        if resp.dragged() && self.drag != Drag::None {
+        if resp.drag_started() {
+            if let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos()) {
+                let syl = k_bounds.iter().enumerate().filter(|(_, x)| (pos.x - **x).abs() <= 5.0).min_by(|a, b| (pos.x - a.1).abs().total_cmp(&(pos.x - b.1).abs())).map(|(i, _)| i);
+                self.drag = if (pos.x - xs).abs() <= 7.0 { Drag::Start } else if (pos.x - xe).abs() <= 7.0 { Drag::End } else if let Some(i) = syl { Drag::Syl(i) } else if pos.x > xs && pos.x < xe && ui.input(|i| i.modifiers.alt) { Drag::Body(ms_of(pos.x) as i64 - d.start_time) } else { Drag::None };
+            }
+        }
+        if let (true, Drag::Syl(i)) = (resp.dragged(), self.drag) {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                // sınırın şimdiki zamanı (cs) → yeni zaman; toplam süre korunur
+                let cur: i64 = k_syls.iter().take(i + 1).map(|s| s.dur).sum();
+                let want = ((ms_of(pos.x) as i64 - d.start_time) as f64 / 10.0).round() as i64;
+                let mut v = k_syls.clone();
+                osisub_core::karaoke::move_boundary(&mut v, i, want - cur);
+                let nt = osisub_core::karaoke::build_with_lead(&k_lead, &v);
+                if nt != d.text {
+                    let key = format!("kara-wave:{}", act);
+                    doc.edit_keyed("Hece sınırı", Some(&key), |tx| tx.dialogue_mut(act, |dd| dd.text = nt));
+                }
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+        }
+        if resp.dragged() && self.drag != Drag::None && !matches!(self.drag, Drag::Syl(_)) {
             if let Some(pos) = resp.interact_pointer_pos() {
                 let m = self.snap_ms(ms_of(pos.x) as i64).max(0);
                 match self.drag {
@@ -1046,7 +1085,7 @@ impl Media {
                         let ns = self.snap_ms(m - off).max(0);
                         doc.set_times(act, ns, ns + d.duration());
                     }
-                    Drag::None => {}
+                    Drag::Syl(_) | Drag::None => {}
                 }
                 self.playhead = m;
             }
@@ -1057,7 +1096,7 @@ impl Media {
         }
         if resp.hovered() {
             if let Some(pos) = resp.hover_pos() {
-                if (pos.x - xs).abs() <= 7.0 || (pos.x - xe).abs() <= 7.0 {
+                if (pos.x - xs).abs() <= 7.0 || (pos.x - xe).abs() <= 7.0 || k_bounds.iter().any(|x| (pos.x - x).abs() <= 5.0) {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
             }

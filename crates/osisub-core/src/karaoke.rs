@@ -84,6 +84,18 @@ pub fn has_lead(text: &str) -> bool {
     false
 }
 
+/// İlk `\\k` öncesi metni (ör. `{\\an8}`) ayrı döndürür; heceler yalnızca `\\k`'lı parçalardır.
+pub fn parse_with_lead(text: &str) -> (String, Vec<Syl>) {
+    let mut v = parse(text);
+    let lead = if has_lead(text) && !v.is_empty() { v.remove(0).text } else { String::new() };
+    (lead, v)
+}
+
+/// `parse_with_lead`'in tersi.
+pub fn build_with_lead(lead: &str, syls: &[Syl]) -> String {
+    format!("{}{}", lead, build(syls))
+}
+
 /// Hecelerden metin üretir (`{\kfNN<diğer etiketler>}metin`).
 pub fn build(syls: &[Syl]) -> String {
     let mut out = String::new();
@@ -388,5 +400,18 @@ mod tests {
         let v = equal_syllables(&["a".into(), "b".into(), "c".into()], 100, "kf");
         assert_eq!(v.iter().map(|s| s.dur).collect::<Vec<_>>(), vec![34, 33, 33]);
         assert_eq!(build(&v), "{\\kf34}a{\\kf33}b{\\kf33}c");
+    }
+
+    #[test]
+    fn lead_roundtrip_and_boundary_drag() {
+        let t = "{\\an8}{\\k20}ka{\\k30}ra{\\k50}te";
+        let (lead, mut v) = parse_with_lead(t);
+        assert_eq!(lead, "{\\an8}");
+        assert_eq!(v.len(), 3);
+        assert_eq!(build_with_lead(&lead, &v), t);
+        move_boundary(&mut v, 0, 5);
+        assert_eq!(build_with_lead(&lead, &v), "{\\an8}{\\k25}ka{\\k25}ra{\\k50}te");
+        let (l2, v2) = parse_with_lead("{\\k10}a");
+        assert_eq!((l2.as_str(), v2.len()), ("", 1));
     }
 }
