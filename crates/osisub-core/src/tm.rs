@@ -56,7 +56,8 @@ fn levenshtein(a: &[char], b: &[char]) -> usize {
 
 /// 0..=100 benzerlik (normalize edilmiş metinler üzerinde).
 pub fn similarity(a: &str, b: &str) -> u32 {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    // O(n·m): çok uzun satırlarda ilk 300 karakter yeterli (arayüz takılmasın)
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().take(300).collect(), b.chars().take(300).collect());
     let m = a.len().max(b.len());
     if m == 0 {
         return 100;
