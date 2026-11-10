@@ -69,7 +69,8 @@
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)
-- [ ] Video araçları: \org sürükleme, vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
+- [x] Video araçları: \org sürükleme (döndürme aracında beyaz nokta)
+- [ ] Video araçları:, vektör \clip/çizim, \fax/\fay, \t animasyon düzenleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [ ] Otomasyon yöneticisi (yükle/kaldır/yeniden yükle, kalıcı liste), kısayol atama

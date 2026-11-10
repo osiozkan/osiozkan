@@ -646,8 +646,23 @@ impl Media {
                 p.line_segment([o, hpos], Stroke::new(2.0, col));
                 p.circle_filled(hpos, 6.0, col);
                 p.circle_filled(o, 4.0, Color32::WHITE);
+                p.circle_stroke(o, 9.0, Stroke::new(1.5, Color32::WHITE));
                 p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frz {:.1}°", frz), egui::FontId::monospace(11.0), col);
-                if r.dragged() {
+                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                if r.drag_started() {
+                    // 1 = \org taşı, 0 = açı
+                    let on_org = press.or(ptr).map_or(false, |q| q.distance(o) < 10.0);
+                    self.vt_drag = Some((if on_org { 1 } else { 0 }, org));
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                }
+                if r.dragged() && matches!(self.vt_drag, Some((1, _))) {
+                    if let Some(pos) = ptr {
+                        let (x, y) = to_script(pos);
+                        Self::set_tag(doc, at, &d.text, "org", &format!("({},{})", x.round(), y.round()), "Döndürme merkezi");
+                    }
+                } else if r.dragged() {
                     if let Some(pos) = ptr {
                         let v = pos - o;
                         let mut a = -(v.y.atan2(v.x)).to_degrees();
