@@ -395,6 +395,7 @@ impl App {
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
+            Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
             Some("rotate") => app.media.tool = crate::media_ui::VideoTool::Rotate,
             Some("scale") => app.media.tool = crate::media_ui::VideoTool::Scale,
@@ -592,6 +593,9 @@ impl App {
             script_path.parent().and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
         };
         let has_video = self.media.info.as_ref().map_or(false, |i| i.has_video);
+        // Garbage satırları olay satırlarından önce eklenir: sonradan dizinleri (etkin satır, seçim) kaydırmak için.
+        let before = self.doc.script.entries.len();
+        let header_end = self.doc.script.entries.iter().position(|e| !matches!(e.section(), osisub_core::ass::SEC_INFO | osisub_core::ass::SEC_GARBAGE)).unwrap_or(before);
         if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
         self.doc.script.set_garbage("Audio File", &rel(&m));
         if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
@@ -599,6 +603,13 @@ impl App {
         }
         if let Some(f) = self.media.framerate() {
             self.doc.script.set_garbage("Video Position", &f.frame_at(self.media.playhead).to_string());
+        }
+        let added = self.doc.script.entries.len() - before;
+        if added > 0 {
+            let shift = |i: &mut usize| if *i >= header_end { *i += added };
+            shift(&mut self.doc.active);
+            self.doc.selection.iter_mut().for_each(shift);
+            self.doc.rev += 1; // ızgara önbelleği yenilensin
         }
     }
 
@@ -1043,7 +1054,7 @@ impl App {
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.menu_button("Video aracı", |ui| {
                     use crate::media_ui::VideoTool as T;
-                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
+                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
                         if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
                     }
                 });

@@ -20,6 +20,7 @@ enum Msg {
 pub enum VideoTool {
     None,
     Pos,
+    Move,
     Clip,
     Rotate,
     Scale,
@@ -61,6 +62,8 @@ pub struct Media {
     /// Videoda \pos sürükleme aracı.
     pub tool: VideoTool,
     vt_drag: Option<(u8, (f32, f32))>,
+    /// \move aracı: sürükleme başındaki değer
+    vt_move0: Option<osisub_core::overrides::Move>,
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
@@ -104,6 +107,7 @@ impl Media {
             snap_kf: true,
             tool: VideoTool::None,
             vt_drag: None,
+            vt_move0: None,
             spectrum: false,
             spec_tex: None,
             stream: None,
@@ -495,6 +499,7 @@ impl Media {
         let c = to_screen(cur.0, cur.1);
         let r = ui.interact(img, egui::Id::unique("video_tool"), Sense::click_and_drag());
         let ptr = r.interact_pointer_pos();
+        let press = ui.input(|i| i.pointer.press_origin());
         if r.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
@@ -516,6 +521,64 @@ impl Media {
                     }
                 }
             }
+            VideoTool::Move => {
+                use osisub_core::overrides::Move;
+                let mv = Move::get(&d.text).unwrap_or(Move { from: (cur.0 as f64, cur.1 as f64), to: (cur.0 as f64, cur.1 as f64), times: None });
+                let (a, b) = (to_screen(mv.from.0 as f32, mv.from.1 as f32), to_screen(mv.to.0 as f32, mv.to.1 as f32));
+                p.line_segment([a, b], Stroke::new(1.5, col));
+                if a.distance(b) > 12.0 {
+                    // ok başı
+                    let dir = (b - a).normalized();
+                    let n = egui::vec2(-dir.y, dir.x);
+                    p.line_segment([b, b - dir * 12.0 + n * 6.0], Stroke::new(1.5, col));
+                    p.line_segment([b, b - dir * 12.0 - n * 6.0], Stroke::new(1.5, col));
+                }
+                p.circle_stroke(a, 8.0, Stroke::new(2.0, col));
+                p.rect_stroke(Rect::from_center_size(b, egui::vec2(14.0, 14.0)), 1.0, Stroke::new(2.0, Color32::from_rgb(0x6b, 0xc5, 0xe5)), egui::StrokeKind::Middle);
+                let times = mv.times.map(|(t1, t2)| format!(" ({}–{} ms)", t1, t2)).unwrap_or_default();
+                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\move {:.0},{:.0} → {:.0},{:.0}{}", mv.from.0, mv.from.1, mv.to.0, mv.to.1, times), egui::FontId::monospace(11.0), col);
+                p.text(img.left_top() + egui::vec2(6.0, 22.0), egui::Align2::LEFT_TOP, "daire: başlangıç · kare: bitiş · boş alan: ikisi · sağ tık: \\pos", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                if r.drag_started() {
+                    // drag_started eşik aşıldıktan sonra gelir: isabet testi için basma noktası kullanılır.
+                    if let Some(pos) = press.or(ptr) {
+                        // mod 1 = başlangıç, 2 = bitiş, 3 = ikisi birden (tutulan nokta = ilk tıklama)
+                        let mode = if b.distance(pos) < 12.0 { 2 } else if a.distance(pos) < 12.0 { 1 } else { 3 };
+                        self.vt_drag = Some((mode, to_script(pos)));
+                        self.vt_move0 = Some(mv);
+                    }
+                }
+                if r.dragged() {
+                    if let (Some((mode, anchor)), Some(m0), Some(pos)) = (self.vt_drag, self.vt_move0, ptr) {
+                        let (x, y) = to_script(pos);
+                        let (x, y) = (x.clamp(0.0, rx) as f64, y.clamp(0.0, ry) as f64);
+                        let mut m = m0;
+                        match mode {
+                            1 => m.from = (x.round(), y.round()),
+                            2 => m.to = (x.round(), y.round()),
+                            _ => {
+                                let (dx, dy) = ((x - anchor.0 as f64).round(), (y - anchor.1 as f64).round());
+                                m.from = (m0.from.0 + dx, m0.from.1 + dy);
+                                m.to = (m0.to.0 + dx, m0.to.1 + dy);
+                            }
+                        }
+                        let nt = m.apply(&d.text);
+                        if nt != d.text {
+                            let key = format!("vt:move:{}", at);
+                            doc.edit_keyed("Hareket", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                        }
+                    }
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                    self.vt_move0 = None;
+                }
+                if r.secondary_clicked() {
+                    let nt = Move::to_pos(&d.text);
+                    if nt != d.text {
+                        doc.edit("\\move → \\pos", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
             VideoTool::Clip => {
                 let existing: Option<(f32, f32, f32, f32)> = osisub_core::overrides::get_initial(&d.text, "clip").and_then(|t| {
                     let a: Vec<f32> = t.args().iter().filter_map(|v| v.trim().parse().ok()).collect();
@@ -534,7 +597,8 @@ impl Media {
                     }
                 }
                 if r.drag_started() {
-                    if let Some(pos) = ptr {
+                    // drag_started eşik aşıldıktan sonra gelir: isabet testi için basma noktası kullanılır.
+                    if let Some(pos) = press.or(ptr) {
                         // Mevcut köşeye yakınsa onu taşı (modlar: 1=sol-üst, 2=sağ-alt, 3=sol-alt, 4=sağ-üst), değilse yeni dikdörtgen.
                         let mut mode = 0u8;
                         let anchor;

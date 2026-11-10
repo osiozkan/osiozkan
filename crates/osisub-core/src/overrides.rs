@@ -221,6 +221,49 @@ pub fn clean(text: &str) -> String {
     to_string(&out)
 }
 
+/// `\\move(x1,y1,x2,y2[,t1,t2])` başlangıç bloğundan okunur.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Move {
+    pub from: (f64, f64),
+    pub to: (f64, f64),
+    pub times: Option<(i64, i64)>,
+}
+
+impl Move {
+    pub fn get(text: &str) -> Option<Move> {
+        let a: Vec<f64> = get_initial(text, "move")?.args().iter().filter_map(|v| v.trim().parse().ok()).collect();
+        match a.len() {
+            4 => Some(Move { from: (a[0], a[1]), to: (a[2], a[3]), times: None }),
+            6 => Some(Move { from: (a[0], a[1]), to: (a[2], a[3]), times: Some((a[4] as i64, a[5] as i64)) }),
+            _ => None,
+        }
+    }
+
+    pub fn arg(&self) -> String {
+        let f = |v: f64| {
+            let r = (v * 100.0).round() / 100.0;
+            if r.fract() == 0.0 { format!("{}", r as i64) } else { format!("{}", r) }
+        };
+        match self.times {
+            Some((t1, t2)) => format!("({},{},{},{},{},{})", f(self.from.0), f(self.from.1), f(self.to.0), f(self.to.1), t1, t2),
+            None => format!("({},{},{},{})", f(self.from.0), f(self.from.1), f(self.to.0), f(self.to.1)),
+        }
+    }
+
+    /// Satıra yazar; `\\pos` ile çakıştığı için onu kaldırır.
+    pub fn apply(&self, text: &str) -> String {
+        set_initial(&remove_initial(text, "pos"), "move", &self.arg())
+    }
+
+    /// `\\move`'u başlangıç noktasında `\\pos`'a çevirir.
+    pub fn to_pos(text: &str) -> String {
+        match Move::get(text) {
+            Some(m) => set_initial(&remove_initial(text, "move"), "pos", &format!("({},{})", m.from.0.round() as i64, m.from.1.round() as i64)),
+            None => text.to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +323,20 @@ mod tests {
         assert_eq!(clean("{\\i1}{\\b1}a{}{\\i0}{\\i1}b"), "{\\i1\\b1}a{\\i0\\i1}b".replace("\\i0\\i1", "\\i1"));
         assert_eq!(clean("{\\an8\\an2}x"), "{\\an2}x");
         assert_eq!(clean("{\\k10}a{\\k10}b"), "{\\k10}a{\\k10}b");
+    }
+
+    #[test]
+    fn move_roundtrip() {
+        let t = "{\\an8\\move(10,20,30.5,40,100,900)}Merhaba";
+        let m = Move::get(t).unwrap();
+        assert_eq!(m.from, (10.0, 20.0));
+        assert_eq!(m.times, Some((100, 900)));
+        let m2 = Move { to: (300.0, 400.0), ..m };
+        assert_eq!(m2.apply(t), "{\\an8\\move(10,20,300,400,100,900)}Merhaba");
+        let p = "{\\pos(5,6)}x";
+        let m3 = Move { from: (5.0, 6.0), to: (7.0, 8.0), times: None };
+        assert_eq!(m3.apply(p), "{\\move(5,6,7,8)}x");
+        assert_eq!(Move::to_pos("{\\move(5.4,6,7,8)}x"), "{\\pos(5,6)}x");
+        assert_eq!(Move::get("{\\move(1,2,3)}x"), None);
     }
 }

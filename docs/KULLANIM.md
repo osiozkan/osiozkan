@@ -19,7 +19,7 @@ Gereken harici araçlar: **ffmpeg/ffprobe** (video önizleme, ses dalga formu, a
 
 **Karaoke.** *Karaoke* sekmesi: hece çubuğunu sürükle, hece metnine `|` yazarak böl, "Süreye ölçekle/Harfe göre dağıt", ya da *Tuşla zamanla* (oynarken her hecenin başında Boşluk).
 
-**Tipografi.** *Video → Video aracı:* Konum (`\pos`), Kırpma (`\clip`), Döndürme (`\frz`), Ölçek. Önizleme libass ile gerçek çıktıyı gösterir. Stiller sekmesinde görsel stil düzenleyici, kataloğa kaydetme ve dosyadan içe aktarma.
+**Tipografi.** *Video → Video aracı:* Konum (`\pos`), Hareket (`\move`: daire = başlangıç, kare = bitiş, boş alan = ikisini taşı, sağ tık = `\pos`a çevir), Kırpma (`\clip`), Döndürme (`\frz`), Ölçek. Önizleme libass ile gerçek çıktıyı gösterir. Stiller sekmesinde görsel stil düzenleyici, kataloğa kaydetme ve dosyadan içe aktarma.
 
 **Lua betikleri.** `~/.config/osisub/automation/autoload/*.lua` içine koyun ya da *Otomasyon → Lua betiği yükle…* ile yükleyin; makrolar *Otomasyon* menüsünde. Hata ve `aegisub.log` çıktısı *Otomasyon* sekmesindeki Günlük'te. Ayrıntı: `LUA_UYUMLULUK.md`.
 
