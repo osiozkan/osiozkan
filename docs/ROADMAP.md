@@ -77,7 +77,8 @@
 - [ ] Basılı tutarak oynat, sürekli oynatma (satır sınırı olmadan), hız ayarı, ses seviyesi
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
-- [ ] Stil yöneticisi, yazı tipi önizleme, renk seçici
+- [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)
+- [ ] Stil yöneticisi: renk seçici iyileştirmeleri
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)

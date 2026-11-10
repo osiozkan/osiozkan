@@ -16,8 +16,10 @@ pub fn ffprobe_bin() -> String {
     std::env::var("OSISUB_FFPROBE").unwrap_or_else(|_| "ffprobe".into())
 }
 
+/// ffmpeg çalıştırılabilir mi? (Süreç bir kez denenir, sonuç önbellekte; arayüz her karede sorabilir.)
 pub fn ffmpeg_available() -> bool {
-    Command::new(ffmpeg_bin()).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+    static AVAIL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAIL.get_or_init(|| Command::new(ffmpeg_bin()).arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -285,6 +287,26 @@ pub fn render_frames(video: &Path, ass: Option<&Path>, time_ms: i64, count: usiz
     Ok(out.stdout.chunks_exact(need).take(count).map(|c| Frame { width, height, rgba: c.to_vec() }).collect())
 }
 
+/// Stil önizlemesi: düz renkli arka plan üzerinde `ass_text` betiğini (tek satır) libass ile çizer.
+/// `ass_text` içinde PlayResX/Y = `width`/`height` olmalı. Video gerekmez.
+pub fn render_ass_preview(ass_text: &str, width: u32, height: u32, bg: &str, tmp: &Path) -> Result<Frame, String> {
+    let (width, height) = ((width.max(16) / 2) * 2, (height.max(16) / 2) * 2);
+    let _ = std::fs::create_dir_all(tmp);
+    let ass = tmp.join("style_preview.ass");
+    std::fs::write(&ass, ass_text).map_err(|e| e.to_string())?;
+    let vf = ass_filter(&ass, "");
+    let out = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-f", "lavfi", "-i", &format!("color=c={}:s={}x{}:d=1:r=1", bg, width, height), "-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    let need = (width * height * 4) as usize;
+    if out.stdout.len() < need {
+        return Err(format!("önizleme çizilemedi: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(Frame { width, height, rgba: out.stdout[..need].to_vec() })
+}
+
 /// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
 pub struct PlayStream {
     pub child: std::process::Child,
@@ -465,6 +487,21 @@ mod tests {
         assert_eq!(w.duration_ms(), 1000);
         // Aralık dışı
         assert_eq!(w.peaks(5000.0, 10.0, 2), vec![(0, 0), (0, 0)]);
+    }
+
+    #[test]
+    fn style_preview_draws_text_if_available() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("osisub_stylepv_{}", std::process::id()));
+        let ass = "[Script Info]\nPlayResX: 320\nPlayResY: 80\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: S,DejaVu Sans,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:10.00,S,,0,0,0,,Önizleme\n";
+        let f = render_ass_preview(ass, 320, 80, "0x202020", &tmp).unwrap();
+        assert_eq!((f.width, f.height), (320, 80));
+        // ortada beyaz metin pikselleri olmalı
+        let white = f.rgba.chunks_exact(4).filter(|p| p[0] > 200 && p[1] > 200 && p[2] > 200).count();
+        assert!(white > 100, "beyaz piksel {}", white);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

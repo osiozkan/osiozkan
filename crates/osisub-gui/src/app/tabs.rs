@@ -352,6 +352,7 @@ impl App {
         if let Some(&i) = idxs.get(self.style_sel) {
             if let Entry::Style(s) = self.doc.script.entries[i].clone() {
                 let mut ns = s.clone();
+                self.style_preview_ui(ui, &ns);
                 if style_ui::edit(ui, &mut ns) && ns != s {
                     // Ad değişirse diyalogları da güncelle.
                     let rename = (ns.name != s.name).then(|| (s.name.clone(), ns.name.clone()));
@@ -366,6 +367,51 @@ impl App {
                 }
             }
         }
+    }
+
+    /// libass ile çizilen stil önizlemesi (arka planda; stil/metin değişince yenilenir).
+    pub(super) fn style_preview_ui(&mut self, ui: &mut egui::Ui, st: &osisub_core::ass::Style) {
+        use std::hash::{Hash, Hasher};
+        let (w, h) = (((ui.available_width() - 24.0).min(420.0) as u32).max(160), 90u32);
+        // Büyük yazı tipleri sığsın: PlayRes'i büyüterek tekdüze küçült (kenar/gölge oranı korunur)
+        let k = (st.fontsize as f64 / (h as f64 * 0.45)).max(1.0);
+        let (rx, ry) = ((w as f64 * k).round() as u32, (h as f64 * k).round() as u32);
+        let line = osisub_core::ass::style_line(st);
+        let mut hs = std::collections::hash_map::DefaultHasher::new();
+        (line.as_str(), self.style_pv_text.as_str(), w).hash(&mut hs);
+        let key = hs.finish();
+        if let Some(rx) = &self.style_pv_rx {
+            if let Ok((k, res)) = rx.try_recv() {
+                self.style_pv_rx = None;
+                match res {
+                    Ok(f) => {
+                        let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
+                        self.style_pv = Some((k, ui.ctx().load_texture("style_pv", img, egui::TextureOptions::LINEAR)));
+                    }
+                    Err(e) => self.status = e,
+                }
+            }
+        }
+        if self.style_pv.as_ref().map(|x| x.0) != Some(key) && self.style_pv_rx.is_none() && osisub_media::ffmpeg_available() {
+            let text = self.style_pv_text.replace(['{', '}'], "");
+            let ass = format!("[Script Info]\nScriptType: v4.00+\nPlayResX: {rx}\nPlayResY: {ry}\nWrapStyle: 2\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n{line}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:10.00,{},,0,0,0,,{{\\an5\\pos({},{})}}{}\n", st.name, rx / 2, ry / 2, text);
+            let tmp = std::env::temp_dir().join(format!("osisub_stylepv_{}", std::process::id()));
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.style_pv_rx = Some(rx);
+            let ctx = ui.ctx().clone();
+            std::thread::spawn(move || {
+                let _ = tx.send((key, osisub_media::render_ass_preview(&ass, w, h, "0x3a3a46", &tmp)));
+                ctx.request_repaint();
+            });
+        }
+        egui::CollapsingHeader::new("Önizleme").id_salt("style_pv").default_open(true).show(ui, |ui| {
+            if let Some((_, t)) = &self.style_pv {
+                ui.image((t.id(), t.size_vec2()));
+            } else {
+                ui.label(RichText::new(if osisub_media::ffmpeg_available() { "çiziliyor…" } else { "önizleme için ffmpeg gerekli" }).weak());
+            }
+            ui.add(TextEdit::singleline(&mut self.style_pv_text).desired_width(f32::INFINITY).hint_text("önizleme metni"));
+        });
     }
 
     pub(super) fn start_tap(&mut self, ctx: &egui::Context) {
