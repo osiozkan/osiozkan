@@ -198,6 +198,10 @@ impl Framerate {
             }
             ranges.sort_by_key(|r| r.0);
             let end = ranges.iter().map(|r| r.1).max().unwrap_or(0);
+            // bozuk/kötü niyetli dosya milyarlarca kare ayırtmasın (10 M kare ≈ 24 fps'de 4.8 gün)
+            if end > 10_000_000 {
+                return Err(format!("aralık çok büyük: {} kare", end));
+            }
             let mut ts = Vec::with_capacity(end as usize + 2);
             let mut t = 0.0f64;
             let mut ri = 0;
@@ -268,6 +272,7 @@ mod tests {
         assert!(Framerate::parse_timecodes("# timecode format v2\n10\n5\n").is_err());
         assert!(Framerate::parse_timecodes("merhaba").is_err());
         assert!(Framerate::parse_timecodes("# timecode format v1\n0,1,25\n").is_err());
+        assert!(Framerate::parse_timecodes("# timecode format v1\nAssume 24\n0,1000000000,30\n").is_err());
     }
 
     #[test]

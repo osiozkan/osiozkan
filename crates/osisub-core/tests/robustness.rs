@@ -75,3 +75,54 @@ fn script_ops_never_panic_on_garbage_scripts() {
         let _ = osisub_core::srt::write(&s);
     }
 }
+
+const FRAGS2: &[&str] = &[
+    "m", "l", "b", "n", "s", "p", "c", " ", "0", "-5", "12.5", "1e9", "x", "\n", "# timecode format v1", "# timecode format v2", "Assume", "Assume 23.976", "0,10,30", ",", "-1", "nan", "inf",
+    "fontname: a.ttf", "filename: b.png", "[Fonts]", "[Graphics]", "!", "`", "[", "]", "\t", "kya", "n'", "tt", "っ", "ょ", "ー", "漢", "kitto", "ki", "a", "{\\k10}", "{\\an8}", "{\\kf5}", "ş",
+];
+
+fn random_text2(r: &mut impl FnMut(usize) -> usize) -> String {
+    (0..r(30)).map(|_| FRAGS2[r(FRAGS2.len())]).collect()
+}
+
+/// Bu gecenin yeni ayrıştırıcıları da rastgele girdide panik atmamalı.
+#[test]
+fn new_parsers_never_panic() {
+    use osisub_core::{attach, compare, drawing, karaoke, select, tm, vfr};
+    let mut r = rng(0x5EED_2026_1110);
+    for _ in 0..rounds(3000) {
+        let t = random_text2(&mut r);
+        let mut d = drawing::parse(&t);
+        let _ = drawing::to_string(&d);
+        let _ = drawing::polylines(&d);
+        let pts = drawing::points(&d);
+        if let Some(&(ci, pi, _)) = pts.get(r(pts.len().max(1))) {
+            drawing::remove_point(&mut d, ci, pi);
+        }
+        drawing::push_point(&mut d, (1.0, 2.0));
+        if let Ok(fr) = vfr::Framerate::parse_timecodes(&t) {
+            for f in [-3i64, 0, 1, 5, 1000] {
+                let ms = fr.time_at(f);
+                let _ = (fr.frame_at(ms), fr.time_at_start(f), fr.time_at_end(f), fr.frame_at_start(ms), fr.snap(ms), fr.snap_start(ms), fr.snap_end(ms));
+            }
+            let _ = fr.to_v2(3);
+        }
+        let _ = attach::decode(&t.lines().collect::<Vec<_>>());
+        let _ = tm::Memory::parse(&t).suggest(&t, 3, 50);
+        let _ = karaoke::auto_syllables(&t);
+        let (lead, syls) = karaoke::parse_with_lead(&t);
+        let _ = karaoke::build_with_lead(&lead, &syls);
+        let s1 = Script::parse(&format!("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:0{}.00,0:00:0{}.00,Default,,0,0,0,,{}\n", r(9), r(9), t.replace('\n', " ")));
+        let s2 = Script::parse(&random_text(&mut r));
+        let _ = compare::compare(&s1, &s2);
+        let _ = attach::list(&s2);
+        let c = select::Criteria { pattern: t.chars().take(5).collect(), mode: [select::Mode::Contains, select::Mode::Exact, select::Mode::Regex][r(3)], ..Default::default() };
+        let _ = select::select(&s1, &c, &[0, 5, 99]);
+        let fr = vfr::Framerate::cfr([23.976, 24.0, 29.97, 60.0][r(4)]);
+        let mut s3 = s1.clone();
+        let _ = osisub_core::qc::frame_issues(&s3, &fr, &[0, 1000, 2002], 3);
+        osisub_core::qc::snap_to_keyframes(&mut s3, &fr, &[0, 1000], 3);
+        osisub_core::qc::shift_frames(&mut s3, &fr, r(7) as i64 - 3, None);
+        osisub_core::qc::snap_to_framerate(&mut s3, &fr);
+    }
+}
