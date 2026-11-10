@@ -12,7 +12,8 @@ use std::sync::Arc;
 enum Msg {
     Info(Result<MediaInfo, String>),
     Wave(Result<Waveform, String>),
-    Frame { time: i64, rev: u64, res: Result<Frame, String> },
+    /// `time` anından başlayan ardışık kareler (ilk kare = istenen kare)
+    Frame { time: i64, rev: u64, res: Result<Vec<Frame>, String> },
     Keyframes(Vec<i64>),
     /// Videodan algılanan değişken kare hızı (VFR)
     Vfr(osisub_core::vfr::Framerate),
@@ -343,15 +344,33 @@ impl Media {
                 Msg::Frame { time, rev, res } => {
                     self.frame_busy = false;
                     match res {
-                        Ok(f) => {
-                            let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
-                            let tex = ctx.load_texture("frame", img, egui::TextureOptions::LINEAR);
-                            self.frame_cache.push_back(((time, rev), tex.clone()));
-                            if self.frame_cache.len() > 24 {
+                        Ok(frames) => {
+                            // Önbellek anahtarları: istenen zaman + sonraki karelerin tam başlangıç zamanları
+                            // (kare adımı playhead'i tam kare başlangıcına koyar → önbellekten anında gelir).
+                            let fr = self.framerate();
+                            // ffmpeg ilk olarak zamanı >= istenen olan kareyi verir: kare ortasındaysak bu bir sonraki karedir.
+                            let base = fr.as_ref().map(|f| { let b = f.frame_at(time); if f.time_at(b) == time { b } else { b + 1 } });
+                            for (i, f) in frames.iter().enumerate() {
+                                let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
+                                let tex = ctx.load_texture("frame", img, egui::TextureOptions::LINEAR);
+                                let mut keys = vec![];
+                                if i == 0 {
+                                    keys.push(time);
+                                    self.tex = Some(tex.clone());
+                                    self.frame_shown = (time, rev);
+                                }
+                                if let (Some(fr), Some(b)) = (&fr, base) {
+                                    let k = fr.time_at(b + i as i64);
+                                    if !keys.contains(&k) { keys.push(k); }
+                                }
+                                for k in keys {
+                                    self.frame_cache.retain(|(key, _)| *key != (k, rev));
+                                    self.frame_cache.push_back(((k, rev), tex.clone()));
+                                }
+                            }
+                            while self.frame_cache.len() > 48 {
                                 self.frame_cache.pop_front();
                             }
-                            self.tex = Some(tex);
-                            self.frame_shown = (time, rev);
                         }
                         Err(e) => {
                             self.status = e;
@@ -383,11 +402,12 @@ impl Media {
                 let (t, rev) = (self.playhead, doc.rev);
                 let ass = self.tmp_dir.join("preview.ass");
                 let t0 = self.playhead;
-                let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.start_time <= t0 + 1000 && d.end_time >= t0 - 1000));
+                let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.start_time <= t0 + 1500 && d.end_time >= t0 - 1000));
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
                 std::thread::spawn(move || {
-                    let res = osisub_media::render_frame(&p, Some(&ass), t, 960, &info);
+                    // 6 kare birden: ileri kare adımları (.) önbellekten anında gösterilir
+                    let res = osisub_media::render_frames(&p, Some(&ass), t, 6, 960, &info);
                     let _ = tx.send(Msg::Frame { time: t, rev, res });
                     ctx2.request_repaint();
                 });

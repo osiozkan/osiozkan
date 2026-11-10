@@ -65,7 +65,8 @@
 - [ ] Düzenleme kutusu: etiket renklendirme, karakter/CPS sayacı, stil seçici
 - [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
-- [ ] Akıcı video oynatma (libmpv ya da kalıcı ffmpeg boru hattı), kare önbelleği, ön-yükleme
+- [x] Oynatma sırasında akış (kalıcı ffmpeg boru hattı) — önceki geceden; kare önbelleği + 6 karelik ön-yükleme (ileri kare adımı anında)
+- [ ] Geri kare adımı için ön-yükleme; libmpv ile donanım hızlandırmalı oynatma
 - [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)
 - [x] Uygulama içi ses oynatma (cpal 0.18 + ffmpeg PCM; ses saati playhead/video/tuşla zamanlamayı sürer; aygıt yoksa ffplay'e düşer). HENÜZ GERÇEK AYGITTA TEST EDİLMEDİ (kum havuzunda ses aygıtı yok); mantık sahte çıkışla testli
 - [ ] Basılı tutarak oynat, sürekli oynatma (satır sınırı olmadan), hız ayarı, ses seviyesi

@@ -235,6 +235,13 @@ pub struct Frame {
 
 /// `time_ms` anındaki kareyi (varsa `ass` altyazısı libass ile işlenmiş olarak) `width` genişliğinde RGBA verir.
 pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, info: &MediaInfo) -> Result<Frame, String> {
+    render_frames(video, ass, time_ms, 1, width, info).map(|mut v| v.remove(0))
+}
+
+/// `time_ms` anından başlayarak art arda `count` kare (kare adımlamada önbellek için; tek ffmpeg süreci).
+/// En az bir kare dönerse başarılıdır (video sonuna yakınsa daha az kare gelebilir).
+pub fn render_frames(video: &Path, ass: Option<&Path>, time_ms: i64, count: usize, width: u32, info: &MediaInfo) -> Result<Vec<Frame>, String> {
+    let count = count.max(1);
     if !info.has_video || info.width == 0 {
         return Err("video yok".into());
     }
@@ -249,11 +256,12 @@ pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, 
     // Hızlı arama için önce kaba -ss (girdiden önce), sonra hassas -ss (girdiden sonra).
     // `-copyts` zaman damgalarını korur; yoksa ass filtresi kaba aramanın ofsetini görür ve yanlış satırı çizer.
     let coarse = (time_ms - 2000).max(0) as f64 / 1000.0;
-    let fine = time_ms.max(0) as f64 / 1000.0 - coarse;
+    // Yarım ms erken: ms'ye yuvarlanmış kare zamanı (ör. mp4'te 41.708 → 42) kaçırılmasın.
+    let fine = ((time_ms.max(0) as f64 - 0.5).max(0.0)) / 1000.0 - coarse;
     let out = Command::new(ffmpeg_bin())
         .args(["-v", "error", "-ss", &format!("{:.3}", coarse), "-copyts", "-i"])
         .arg(video)
-        .args(["-ss", &format!("{:.3}", coarse + fine), "-an", "-sn", "-vf", &vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .args(["-ss", &format!("{:.4}", (coarse + fine).max(0.0)), "-an", "-sn", "-vf", &vf, "-frames:v", &count.to_string(), "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
         .stderr(Stdio::piped())
         .output()
         .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
@@ -261,7 +269,7 @@ pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, 
     if out.stdout.len() < need {
         return Err(format!("kare okunamadı: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
-    Ok(Frame { width, height, rgba: out.stdout[..need].to_vec() })
+    Ok(out.stdout.chunks_exact(need).take(count).map(|c| Frame { width, height, rgba: c.to_vec() }).collect())
 }
 
 /// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
@@ -470,6 +478,26 @@ mod tests {
     }
 
     #[test]
+    fn frame_step_keys_match_on_ntsc_mp4() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("osisub_ntsc_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = dir.join("n.mp4");
+        assert!(Command::new(ffmpeg_bin()).args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=24000/1001:duration=2", "-pix_fmt", "yuv420p"]).arg(&v).status().unwrap().success());
+        let info = probe(&v).unwrap();
+        let ts = frame_timestamps(&v).unwrap();
+        // kare k'nın ms zamanından istenen kare, 0'dan başlayan topluluğun k'ncı karesiyle aynı olmalı
+        let batch = render_frames(&v, None, ts[0], 6, 160, &info).unwrap();
+        for k in 1..6 {
+            let one = render_frame(&v, None, ts[k], 160, &info).unwrap();
+            assert!(one.rgba == batch[k].rgba, "kare {} ({} ms) kaydı", k, ts[k]);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn ffmpeg_roundtrip_if_available() {
         if !ffmpeg_available() {
             return;
@@ -485,6 +513,13 @@ mod tests {
         assert!(st.success());
         let info = probe(&mp4).unwrap();
         assert!(info.has_video && info.has_audio);
+        // ardışık kareler: 4 kare, testsrc sayacı yüzünden birbirinden farklı
+        let fr = render_frames(&mp4, None, 1000, 4, 160, &info).unwrap();
+        assert_eq!(fr.len(), 4);
+        assert!(fr.windows(2).all(|w| w[0].rgba != w[1].rgba));
+        assert_eq!(render_frame(&mp4, None, 1000, 160, &info).unwrap().rgba, fr[0].rgba);
+        // video sonu: istenenden az kare
+        assert!(render_frames(&mp4, None, 3950, 10, 160, &info).unwrap().len() < 10);
         assert_eq!((info.width, info.height), (320, 180));
         assert!((info.fps - 24.0).abs() < 0.01);
         let w = load_waveform(&mp4).unwrap();
