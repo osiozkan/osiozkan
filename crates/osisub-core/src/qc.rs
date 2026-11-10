@@ -50,9 +50,24 @@ pub fn cps(d: &Dialogue) -> f64 {
     tags::visible_len(&d.text) as f64 * 1000.0 / dur as f64
 }
 
+/// Tipografi (tabela/yazı) satırı: konumlandırılmış ya da çizim. Okuma hızı, uzunluk, süre ve
+/// çakışma denetimleri bunlar için anlamsızdır (anime'de tabelalar diyalogla üst üste biner).
+pub fn is_typeset(d: &Dialogue) -> bool {
+    let t = &d.text;
+    t.contains("\\pos(") || t.contains("\\move(") || t.contains("\\p1") || t.contains("\\clip(") || t.contains("\\iclip(") || t.contains("\\org(")
+}
+
+/// Karaoke satırı (şarkı sözü; zamanlama müziğe bağlı, okuma hızı anlamsız).
+pub fn is_karaoke(d: &Dialogue) -> bool {
+    let t = &d.text;
+    t.contains("\\k") || t.contains("\\K")
+}
+
 pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
     let mut issues = Vec::new();
     let styles: Vec<&str> = script.styles().map(|s| s.name.as_str()).collect();
+    // Çakışma: aynı stil + katmandaki diyalog satırları zaman sırasıyla karşılaştırılır (dosya sırası değil).
+    let mut groups: std::collections::HashMap<(&str, i32), Vec<(i64, i64, usize)>> = std::collections::HashMap::new();
     let mut prev: Option<(usize, &Dialogue)> = None;
     for (i, e) in script.entries.iter().enumerate() {
         let Entry::Dialogue(d) = e else { continue };
@@ -60,29 +75,35 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
             continue;
         }
         let mut add = |kind: Kind, message: String| issues.push(Issue { entry: i, kind, message });
+        if !styles.contains(&d.style.as_str()) {
+            add(Kind::UnknownStyle, format!("Bilinmeyen stil: {}", d.style));
+        }
+        // Şablonlayıcı çıktısı (fx): yalnızca stil denetimi
+        if d.effect.eq_ignore_ascii_case("fx") {
+            continue;
+        }
+        let (typeset, karaoke) = (is_typeset(d), is_karaoke(d));
         let visible = tags::visible_text(&d.text);
         if visible.trim().is_empty() && !d.text.contains("\\p1") {
             add(Kind::Empty, "Boş metin".into());
         }
         if d.duration() < 0 {
             add(Kind::NegativeDuration, "Bitiş başlangıçtan önce".into());
+        } else if typeset || karaoke {
         } else if d.duration() < rules.min_duration_ms {
             add(Kind::TooShort, format!("Süre çok kısa ({} ms)", d.duration()));
         } else if d.duration() > rules.max_duration_ms {
             add(Kind::TooLong, format!("Süre çok uzun ({} ms)", d.duration()));
         }
         let c = cps(d);
-        if c > rules.max_cps && !visible.trim().is_empty() {
+        if c > rules.max_cps && !visible.trim().is_empty() && !typeset && !karaoke {
             add(Kind::ReadingSpeed, format!("Okuma hızı {:.1} kar/sn", c));
         }
-        if tags::max_line_len(&d.text) > rules.max_line_len {
+        if !typeset && tags::max_line_len(&d.text) > rules.max_line_len {
             add(Kind::LineTooLong, format!("Satır {} karakterden uzun", rules.max_line_len));
         }
-        if visible.lines().count() > rules.max_lines {
+        if !typeset && visible.lines().count() > rules.max_lines {
             add(Kind::TooManyLines, format!("{} satırdan fazla", rules.max_lines));
-        }
-        if !styles.contains(&d.style.as_str()) {
-            add(Kind::UnknownStyle, format!("Bilinmeyen stil: {}", d.style));
         }
         if visible.contains("  ") {
             add(Kind::DoubleSpace, "Çift boşluk".into());
@@ -90,15 +111,32 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
         if visible.lines().any(|l| l != l.trim()) {
             add(Kind::EdgeSpace, "Satır başı/sonu boşluğu".into());
         }
-        if let Some((_, p)) = prev {
-            if d.style == p.style && d.layer == p.layer && d.start_time < p.end_time {
-                add(Kind::Overlap, format!("Önceki satırla {} ms çakışıyor", p.end_time - d.start_time));
-            } else if d.start_time >= p.end_time && d.start_time - p.end_time < rules.min_gap_ms {
-                add(Kind::SmallGap, format!("Boşluk {} ms", d.start_time - p.end_time));
+        if !typeset && !karaoke {
+            groups.entry((d.style.as_str(), d.layer)).or_default().push((d.start_time, d.end_time, i));
+            if let Some((_, p)) = prev {
+                if d.style == p.style && d.layer == p.layer && d.start_time >= p.end_time && d.start_time - p.end_time < rules.min_gap_ms {
+                    add(Kind::SmallGap, format!("Boşluk {} ms", d.start_time - p.end_time));
+                }
+            }
+            prev = Some((i, d));
+        }
+    }
+    for (_, mut v) in groups {
+        v.sort_unstable();
+        // şimdiye kadarki en geç biten satır
+        let mut far: Option<(i64, usize)> = None;
+        for (s, e, i) in v {
+            if let Some((fe, _)) = far {
+                if s < fe {
+                    issues.push(Issue { entry: i, kind: Kind::Overlap, message: format!("Önceki satırla {} ms çakışıyor", fe.min(e) - s) });
+                }
+            }
+            if far.map_or(true, |(fe, _)| e > fe) {
+                far = Some((e, i));
             }
         }
-        prev = Some((i, d));
     }
+    issues.sort_by_key(|x| x.entry);
     issues
 }
 
@@ -297,6 +335,34 @@ mod tests {
 
     fn d(s: i64, e: i64, t: &str) -> Dialogue {
         Dialogue { start_time: s, end_time: e, text: t.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn anime_typesetting_is_not_flagged() {
+        let mk = |s: i64, e: i64, style: &str, t: &str| Dialogue { start_time: s, end_time: e, style: style.into(), text: t.into(), ..Default::default() };
+        let mut sc = Script::from_dialogues(vec![
+            mk(0, 3000, "Default", "Merhaba"),
+            // tabela: kısa, uzun, çok satırlı, diyalogla çakışıyor — işaretlenmemeli
+            mk(500, 700, "Default", "{\\pos(100,100)}OKUL GİRİŞİ ÇOK UZUN BİR TABELA YAZISI BURADA\\Nikinci\\Nüçüncü"),
+            // araya giren tabela yüzünden kaçırılan gerçek çakışma
+            mk(2500, 4000, "Default", "Dosya sırasında ikinci diyalog"),
+            // karaoke: hızlı ve kısa olabilir
+            mk(100, 400, "Default", "{\\k10}ka{\\k20}ra"),
+        ]);
+        let st = crate::ass::Style { name: "Default".into(), ..Default::default() };
+        sc.entries.insert(0, Entry::Style(st));
+        let issues = check(&sc, &Rules::default());
+        let at = |n: usize| sc.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).nth(n).unwrap().0;
+        assert!(!issues.iter().any(|x| x.entry == at(1)), "tabela işaretlendi: {:?}", issues);
+        assert!(!issues.iter().any(|x| x.entry == at(3)), "karaoke işaretlendi: {:?}", issues);
+        assert!(issues.iter().any(|x| x.entry == at(2) && x.kind == Kind::Overlap), "gerçek çakışma bulunmadı: {:?}", issues);
+    }
+
+    #[test]
+    fn overlap_uses_time_order_not_file_order() {
+        // dosyada ters sırada ama zamanda çakışmayan satırlar
+        let s = Script::from_dialogues(vec![d(5000, 6000, "b"), d(0, 2000, "a")]);
+        assert!(!check(&s, &Rules::default()).iter().any(|i| i.kind == Kind::Overlap));
     }
 
     #[test]
