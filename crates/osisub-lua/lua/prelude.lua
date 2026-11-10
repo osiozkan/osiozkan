@@ -27,6 +27,8 @@ function aegisub.log(...)
   end
   N.log(level, msg)
 end
+-- Aegisub: aegisub.debug.out(seviye?, biçim, ...) aegisub.log ile aynı anlambilime sahiptir.
+aegisub.debug = { out = aegisub.log }
 
 package.preload["aegisub.util"] = function()
   local src, chunk = N.find_include("utils.lua", "")
@@ -60,4 +62,29 @@ function ipairs(t)
     end, t, 0
   end
   return real_ipairs(t)
+end
+
+-- Aegisub unicode modülü: charwidth/chars (bayt tabanlı UTF-8, Aegisub ile aynı)
+do
+  local u = aegisub.__unicode
+  if u then
+    function u.charwidth(s, i)
+      local b = s:byte(i or 1)
+      if not b then return 1
+      elseif b < 128 then return 1
+      elseif b < 224 then return 2
+      elseif b < 240 then return 3
+      else return 4 end
+    end
+    function u.chars(s)
+      local curchar, i = 0, 1
+      return function()
+        if i > #s then return nil end
+        local j = i
+        curchar = curchar + 1
+        i = i + u.charwidth(s, i)
+        return s:sub(j, i - 1), curchar
+      end
+    end
+  end
 end

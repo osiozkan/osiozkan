@@ -185,6 +185,17 @@ impl Script {
         })
     }
 
+    /// PlayResX/PlayResY; Aegisub/libass kuralıyla eksik olan tamamlanır (yoksa 384x288).
+    pub fn script_resolution(&self) -> (i64, i64) {
+        let num = |k| self.info(k).and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v > 0.0).map(|v| v as i64);
+        match (num("PlayResX"), num("PlayResY")) {
+            (Some(x), Some(y)) => (x, y),
+            (Some(x), None) => (x, if x == 1280 { 1024 } else { x * 3 / 4 }),
+            (None, Some(y)) => (if y == 1024 { 1280 } else { y * 4 / 3 }, y),
+            (None, None) => (384, 288),
+        }
+    }
+
     pub fn set_info(&mut self, key: &str, value: &str) {
         for e in self.entries.iter_mut() {
             if let Entry::Info { key: k, value: v } = e {

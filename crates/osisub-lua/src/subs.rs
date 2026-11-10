@@ -217,6 +217,7 @@ impl UserData for Subs {
                             }
                             Ok(())
                         })?,
+                        "script_resolution" => lua.create_function(move |_, ()| Ok(sh.borrow().script_resolution()))?,
                         "delete" => lua.create_function(move |_, items: Variadic<i64>| {
                             let mut sc = sh.borrow_mut();
                             let mut v: Vec<i64> = items.into_iter().collect();

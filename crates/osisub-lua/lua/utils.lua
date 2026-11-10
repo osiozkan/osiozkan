@@ -168,3 +168,21 @@ end
 function string.words(s)
   return s:gmatch("%S+")
 end
+
+-- Aegisub include/utils.lua uyumluluğu: eski betiklerin kullandığı genel takma adlar.
+util.trim, util.headtail, util.words = string.trim, string.headtail, string.words
+table.copy = util.copy
+copy_line = util.copy
+table.copy_deep = util.deep_copy
+ass_color = util.ass_color
+ass_alpha = util.ass_alpha
+ass_style_color = util.ass_style_color
+extract_color = util.extract_color
+alpha_from_style = util.alpha_from_style
+color_from_style = util.color_from_style
+HSV_to_RGB = util.HSV_to_RGB
+HSL_to_RGB = util.HSL_to_RGB
+clamp = util.clamp
+interpolate = util.interpolate
+interpolate_color = util.interpolate_color
+interpolate_alpha = util.interpolate_alpha

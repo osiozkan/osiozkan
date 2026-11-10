@@ -243,6 +243,39 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
     }
     aegisub.set("dialog", dialog)?;
 
+    // ---- aegisub.parse_karaoke_data(line): Aegisub ile aynı biçim; [0] = ilk \k öncesi (boş olabilir)
+    aegisub.set(
+        "parse_karaoke_data",
+        lua.create_function(|lua, line: Table| {
+            let text: String = line.get::<Option<String>>("text")?.unwrap_or_default();
+            let mut syls = osisub_core::karaoke::parse(&text);
+            let out = lua.create_table()?;
+            let mk = |dur: i64, start: i64, tag: &str, t: &str| -> Result<Table> {
+                let s = lua.create_table()?;
+                s.set("duration", dur)?;
+                s.set("start_time", start)?;
+                s.set("end_time", start + dur)?;
+                s.set("tag", tag)?;
+                s.set("text", t)?;
+                s.set("text_stripped", osisub_core::tags::strip_tags(t))?;
+                Ok(s)
+            };
+            if osisub_core::karaoke::has_lead(&text) && !syls.is_empty() {
+                let lead = syls.remove(0);
+                out.raw_set(0, mk(0, 0, "k", &lead.text)?)?;
+            } else {
+                out.raw_set(0, mk(0, 0, "k", "")?)?;
+            }
+            let mut t = 0i64;
+            for (i, sy) in syls.iter().enumerate() {
+                let d = sy.dur * 10;
+                out.raw_set(i as i64 + 1, mk(d, t, &sy.kind, &sy.text)?)?;
+                t += d;
+            }
+            Ok(out)
+        })?,
+    )?;
+
     // ---- ölçüler, kareler, proje
     {
         let inn = inner.clone();

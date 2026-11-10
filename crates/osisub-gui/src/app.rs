@@ -246,13 +246,20 @@ impl App {
             None => Document::new(osisub_core::Script::new_default()),
         };
         let mut all = scripts;
+        let mut user_auto: Vec<PathBuf> = vec![];
         if let Some(d) = autoload_dir() {
             if let Ok(rd) = std::fs::read_dir(d) {
-                let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "lua")).collect();
-                v.sort();
-                all.extend(v);
+                user_auto = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "lua")).collect();
+                user_auto.sort();
             }
         }
+        // Yerleşik Aegisub betikleri (kara-templater); kullanıcı aynı adda dosya koyduysa onunki kullanılır.
+        for (name, _) in osisub_lua::BUILTIN_SCRIPTS {
+            if !user_auto.iter().any(|p| p.file_name().map_or(false, |f| f == *name)) {
+                all.push(PathBuf::from(format!("{}{}", osisub_lua::BUILTIN_PREFIX, name)));
+            }
+        }
+        all.extend(user_auto);
         let mut loaded_scripts = vec![];
         for s in all {
             loaded_scripts.push(s.clone());

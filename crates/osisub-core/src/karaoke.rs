@@ -64,6 +64,26 @@ pub fn parse(text: &str) -> Vec<Syl> {
     out
 }
 
+/// İlk `\\k` etiketinden önce metin ya da etiket bloğu var mı? (Aegisub'daki "0. hece".)
+pub fn has_lead(text: &str) -> bool {
+    for seg in overrides::parse(text) {
+        match seg {
+            Seg::Block(tags) => {
+                if tags.iter().any(|t| is_k(&t.name)) {
+                    return false;
+                }
+                return true;
+            }
+            Seg::Text(t) => {
+                if !t.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Hecelerden metin üretir (`{\kfNN<diğer etiketler>}metin`).
 pub fn build(syls: &[Syl]) -> String {
     let mut out = String::new();
@@ -237,5 +257,13 @@ mod tests {
         let s = parse("giriş {\\k10}a");
         assert_eq!(s.len(), 2);
         assert_eq!((s[0].dur, s[0].text.as_str()), (0, "giriş "));
+    }
+
+    #[test]
+    fn lead_detection() {
+        assert!(!has_lead("{\\k20}ka{\\k30}ra"));
+        assert!(has_lead("pre{\\k20}ka"));
+        assert!(has_lead("{\\an8}{\\k20}ka"));
+        assert!(!has_lead("{\\an8\\k20}ka"));
     }
 }

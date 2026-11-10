@@ -10,4 +10,4 @@ pub mod fonts;
 mod subs;
 
 pub use dialog::{Control, DialogResult, DialogSpec, DV};
-pub use engine::{Engine, EngineError, Host, HeadlessHost, MacroInfo, MacroKind, RunOutcome, ScriptInfo, StyleMetrics};
+pub use engine::{builtin_script, BUILTIN_PREFIX, BUILTIN_SCRIPTS, Engine, EngineError, Host, HeadlessHost, MacroInfo, MacroKind, RunOutcome, ScriptInfo, StyleMetrics};

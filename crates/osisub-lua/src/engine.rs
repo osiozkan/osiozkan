@@ -186,6 +186,15 @@ pub struct Engine {
     scripts: Vec<ScriptInfo>,
 }
 
+/// Yerleşik (pakete gömülü) betikler için yol öneki: `builtin:kara-templater.lua`.
+pub const BUILTIN_PREFIX: &str = "builtin:";
+/// Aegisub ile gelen ve osisub'a gömülü otomatik yüklenen betikler (dosya adı, kaynak).
+pub const BUILTIN_SCRIPTS: &[(&str, &str)] = &[("kara-templater.lua", include_str!("../lua/autoload/kara-templater.lua"))];
+
+pub fn builtin_script(name: &str) -> Option<&'static str> {
+    BUILTIN_SCRIPTS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
+
 const PRELUDE: &str = include_str!("../lua/prelude.lua");
 
 impl Engine {
@@ -248,8 +257,13 @@ impl Engine {
     }
 
     pub fn load_script(&mut self, path: &Path) -> Result<ScriptInfo, EngineError> {
-        let bytes = std::fs::read(path).map_err(|e| EngineError { message: format!("{}: {}", path.display(), e) })?;
-        let mut src = osisub_core::ass::decode_bytes(&bytes);
+        let ps = path.to_string_lossy();
+        let mut src = if let Some(name) = ps.strip_prefix(BUILTIN_PREFIX) {
+            builtin_script(name).ok_or_else(|| EngineError { message: format!("yerleşik betik yok: {}", name) })?.to_string()
+        } else {
+            let bytes = std::fs::read(path).map_err(|e| EngineError { message: format!("{}: {}", path.display(), e) })?;
+            osisub_core::ass::decode_bytes(&bytes)
+        };
         if src.starts_with('\u{feff}') {
             src.remove(0);
         }
