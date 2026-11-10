@@ -1311,6 +1311,7 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                if ui.add_enabled(self.media.video_zoom > 1.0, egui::Button::new(format!("Video yakınlaştırmasını sıfırla ({:.0}%)", self.media.video_zoom * 100.0))).on_hover_text("Videoda Ctrl+tekerlek: yakınlaştır, orta tuş: kaydır, orta çift tık: sıfırla").clicked() { self.media.video_zoom = 1.0; self.media.video_pan = egui::Vec2::ZERO; ui.close(); }
                 if ui.button("Anahtar kareleri yükle…").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Anahtar kare", &["txt", "log", "stats", "keyframes"]).pick_file() {

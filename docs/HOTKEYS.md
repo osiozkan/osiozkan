@@ -19,6 +19,7 @@
 | Dalga formu: Alt+sürükle | Satırı taşı |
 | Dalga formu: tıkla / Shift+tıkla / sağ tıkla | Playhead / başlangıç / bitiş |
 | Dalga formu: Ctrl+tekerlek | Yakınlaştır (tekerlek: kaydır) |
+| Video: Ctrl+tekerlek / orta tuşla sürükle / orta çift tık | Yakınlaştır (imleç etrafında) / kaydır / sıfırla |
 | Dalga formu: sarı hece sınırını sürükle | Karaoke hecesinin süresini ayarla (komşu heceyle paylaşır) |
 | Karaoke sekmesi: hece metnine `|` yaz | Heceyi böl |
 | Ctrl+G | Zamana git |

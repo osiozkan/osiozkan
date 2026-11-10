@@ -78,6 +78,9 @@ pub struct Media {
     vt_vdrag: Option<(usize, usize)>,
     /// önizleme klasörüne çıkarılmış gömülü yazı tiplerinin anahtarı (ad:boyut;…)
     fonts_key: String,
+    /// video önizleme yakınlaştırma (1 = sığdır) ve kaydırma (piksel)
+    pub video_zoom: f32,
+    pub video_pan: egui::Vec2,
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
@@ -125,6 +128,8 @@ impl Media {
             vt_move0: None,
             vt_vdrag: None,
             fonts_key: String::new(),
+            video_zoom: 1.0,
+            video_pan: egui::Vec2::ZERO,
             spectrum: false,
             spec_tex: None,
             stream: None,
@@ -531,24 +536,51 @@ impl Media {
             let h = ui.available_height();
             // Video
             let vid_w = (h * 16.0 / 9.0).min(ui.available_width() * 0.45);
-            let mut img_rect: Option<Rect> = None;
+            let mut img_rect: Option<(Rect, Rect)> = None;
             ui.allocate_ui(egui::vec2(vid_w, h), |ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(vid_w, h), Sense::hover());
                 ui.painter().rect_filled(rect, 4.0, Color32::BLACK);
+                // Yakınlaştır/kaydır: Ctrl+tekerlek (imleç etrafında), orta tuşla sürükle; orta çift tık = sıfırla
+                let hover = ui.rect_contains_pointer(rect);
+                if hover {
+                    let (zoom_d, scroll, ctrl, mid_down, mid_dbl, delta, pos) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta.y, i.modifiers.command, i.pointer.middle_down(), i.pointer.button_double_clicked(egui::PointerButton::Middle), i.pointer.delta(), i.pointer.hover_pos()));
+                    let f = if zoom_d != 1.0 { zoom_d.clamp(0.85, 1.18) } else if ctrl && scroll != 0.0 { (1.0 + scroll * 0.003).clamp(0.85, 1.18) } else { 1.0 };
+                    if f != 1.0 {
+                        let nz = (self.video_zoom * f).clamp(1.0, 16.0);
+                        let f = nz / self.video_zoom;
+                        if let Some(c) = pos {
+                            let center = rect.center() + self.video_pan;
+                            let nc = c - (c - center) * f;
+                            self.video_pan = nc - rect.center();
+                        }
+                        self.video_zoom = nz;
+                        if nz == 1.0 { self.video_pan = egui::Vec2::ZERO; }
+                    }
+                    if mid_down && delta != egui::Vec2::ZERO && self.video_zoom > 1.0 {
+                        self.video_pan += delta;
+                    }
+                    if mid_dbl {
+                        self.video_zoom = 1.0;
+                        self.video_pan = egui::Vec2::ZERO;
+                    }
+                }
                 if let Some(t) = &self.tex {
                     let sz = t.size_vec2();
-                    let scale = (rect.width() / sz.x).min(rect.height() / sz.y);
-                    let img = Rect::from_center_size(rect.center(), sz * scale);
-                    ui.painter().image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-                    img_rect = Some(img);
+                    let scale = (rect.width() / sz.x).min(rect.height() / sz.y) * self.video_zoom;
+                    let img = Rect::from_center_size(rect.center() + self.video_pan, sz * scale);
+                    ui.painter_at(rect).image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                    img_rect = Some((img, img.intersect(rect)));
+                    if self.video_zoom > 1.0 {
+                        ui.painter().text(rect.right_top() + egui::vec2(-6.0, 6.0), egui::Align2::RIGHT_TOP, format!("{:.0}%", self.video_zoom * 100.0), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 200));
+                    }
                 } else {
                     let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
                 }
                 ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, match &self.timecodes { Some(t) => format!("{}  kare {}  VFR{}", time::format_ass(self.playhead), t.frame_at(self.playhead), if self.timecodes_auto { "" } else { " (timecode)" }), None => time::format_ass(self.playhead) }, egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
             });
-            if let (Some(img), true) = (img_rect, self.tool != VideoTool::None) {
-                self.tool_ui(ui, img, doc);
+            if let (Some((img, vis)), true) = (img_rect, self.tool != VideoTool::None) {
+                self.tool_ui(ui, img, vis, doc);
             }
             // Dalga formu
             self.wave_ui(ui, doc);
@@ -580,7 +612,8 @@ impl Media {
     }
 
     /// Videodaki tipografi araçları: konum, kırpma, döndürme, ölçek.
-    fn tool_ui(&mut self, ui: &mut egui::Ui, img: Rect, doc: &mut Document) {
+    /// `img`: videonun ekrandaki tam dikdörtgeni (yakınlaştırmada panelden taşabilir), `vis`: görünen kısmı.
+    fn tool_ui(&mut self, ui: &mut egui::Ui, img: Rect, vis: Rect, doc: &mut Document) {
         let at = doc.active;
         let Some(Entry::Dialogue(d)) = doc.script.entries.get(at).cloned() else { return };
         let (rx, ry) = doc.script.res();
@@ -588,10 +621,10 @@ impl Media {
         let to_screen = |x: f32, y: f32| Pos2::new(img.left() + x / rx * img.width(), img.top() + y / ry * img.height());
         let to_script = |p: Pos2| ((p.x - img.left()) / img.width() * rx, (p.y - img.top()) / img.height() * ry);
         let col = Color32::from_rgb(0xe5, 0x6b, 0x9a);
-        let p = ui.painter_at(img);
+        let p = ui.painter_at(vis);
         let cur = Self::current_pos(doc, &d);
         let c = to_screen(cur.0, cur.1);
-        let r = ui.interact(img, egui::Id::unique("video_tool"), Sense::click_and_drag());
+        let r = ui.interact(vis, egui::Id::unique("video_tool"), Sense::click_and_drag());
         let ptr = r.interact_pointer_pos();
         let press = ui.input(|i| i.pointer.press_origin());
         if r.hovered() {
@@ -601,7 +634,7 @@ impl Media {
             VideoTool::None => {}
             VideoTool::Pos => {
                 if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
-                    p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
                     return;
                 }
                 p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
@@ -630,8 +663,8 @@ impl Media {
                 p.circle_stroke(a, 8.0, Stroke::new(2.0, col));
                 p.rect_stroke(Rect::from_center_size(b, egui::vec2(14.0, 14.0)), 1.0, Stroke::new(2.0, Color32::from_rgb(0x6b, 0xc5, 0xe5)), egui::StrokeKind::Middle);
                 let times = mv.times.map(|(t1, t2)| format!(" ({}–{} ms)", t1, t2)).unwrap_or_default();
-                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\move {:.0},{:.0} → {:.0},{:.0}{}", mv.from.0, mv.from.1, mv.to.0, mv.to.1, times), egui::FontId::monospace(11.0), col);
-                p.text(img.left_top() + egui::vec2(6.0, 22.0), egui::Align2::LEFT_TOP, "daire: başlangıç · kare: bitiş · boş alan: ikisi · sağ tık: \\pos", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\move {:.0},{:.0} → {:.0},{:.0}{}", mv.from.0, mv.from.1, mv.to.0, mv.to.1, times), egui::FontId::monospace(11.0), col);
+                p.text(vis.left_top() + egui::vec2(6.0, 22.0), egui::Align2::LEFT_TOP, "daire: başlangıç · kare: bitiş · boş alan: ikisi · sağ tık: \\pos", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     // drag_started eşik aşıldıktan sonra gelir: isabet testi için basma noktası kullanılır.
                     if let Some(pos) = press.or(ptr) {
@@ -707,7 +740,7 @@ impl Media {
                     let is_ctrl = cmds[*ci].kind == 'b';
                     if is_ctrl { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
                 }
-                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
                 let mut changed = false;
                 if r.drag_started() {
@@ -826,7 +859,7 @@ impl Media {
                 p.circle_filled(o, 4.0, Color32::WHITE);
                 p.circle_stroke(o, 9.0, Stroke::new(1.5, Color32::WHITE));
                 p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frz {:.1}°", frz), egui::FontId::monospace(11.0), col);
-                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     // 1 = \org taşı, 0 = açı
                     let on_org = press.or(ptr).map_or(false, |q| q.distance(o) < 10.0);
@@ -869,7 +902,7 @@ impl Media {
                 p.line_segment([o - egui::vec2(0.0, 60.0), o + egui::vec2(0.0, 60.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x6b, 0xc5, 0xe5, 160)));
                 p.circle_filled(o, 4.0, Color32::WHITE);
                 p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frx {:.1}°  fry {:.1}°", frx, fry), egui::FontId::monospace(11.0), col);
-                p.text(img.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "yatay sürükle: \\fry · dikey: \\frx · Shift: 15° adım · sağ tık: sıfırla", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "yatay sürükle: \\fry · dikey: \\frx · Shift: 15° adım · sağ tık: sıfırla", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     self.vt_drag = Some((0, (frx, fry)));
                 }

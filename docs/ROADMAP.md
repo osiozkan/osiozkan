@@ -83,6 +83,7 @@
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)
 - [x] Video araçları: \org sürükleme (döndürme aracında beyaz nokta)
 - [x] Video araçları: vektör \clip/\iclip (core::drawing: m/l/b korunur, ölçek parametresi; tıkla = nokta ekle, sürükle, sağ tık = sil)
+- [x] Video önizlemede yakınlaştırma (1600%e kadar, imleç etrafında) ve kaydırma; araçlar yakınlaştırılmış görüntüde doğru çalışır
 - [x] Video araçları: 3B döndürme \frx/\fry (yatay/dikey sürükle, Shift = 15°)
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
