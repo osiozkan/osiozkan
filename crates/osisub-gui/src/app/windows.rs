@@ -53,6 +53,39 @@ impl App {
         }
     }
 
+    /// Lua hata penceresi: ileti + hatanın olduğu kaynak satırı (±3 satır).
+    pub(super) fn lua_error_window(&mut self, ctx: &egui::Context) {
+        let Some((name, msg)) = self.lua_error.clone() else { return };
+        let mut open = true;
+        let mut close = false;
+        egui::Window::new(format!("Betik hatası — {}", name)).open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
+            let first = msg.lines().next().unwrap_or("").to_string();
+            ui.label(RichText::new(&first).color(theme::WARN).strong());
+            if let Some((file, line)) = osisub_lua::error_location(&msg) {
+                ui.label(RichText::new(format!("{} — satır {}", file, line)).weak());
+                if let Ok(src) = std::fs::read_to_string(&file) {
+                    let lines: Vec<&str> = src.lines().collect();
+                    let a = line.saturating_sub(4);
+                    let b = (line + 3).min(lines.len());
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        for (n, l) in lines.iter().enumerate().take(b).skip(a) {
+                            let t = RichText::new(format!("{:>5}  {}", n + 1, l)).monospace();
+                            ui.label(if n + 1 == line { t.color(theme::WARN).strong() } else { t });
+                        }
+                    });
+                }
+            }
+            egui::CollapsingHeader::new("Ayrıntı (yığın izi)").show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| { ui.label(RichText::new(&msg).monospace().small()); });
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Kopyala").clicked() { ui.ctx().copy_text(msg.clone()); }
+                if ui.button("Kapat").clicked() { close = true; }
+            });
+        });
+        if !open || close { self.lua_error = None; }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

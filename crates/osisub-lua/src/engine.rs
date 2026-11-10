@@ -204,6 +204,32 @@ pub fn builtin_script(name: &str) -> Option<&'static str> {
     BUILTIN_SCRIPTS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }
 
+/// Lua hata iletisindeki ilk `dosya.lua:SATIR:` konumu (gömülü/yerleşik betikler hariç).
+pub fn error_location(msg: &str) -> Option<(String, usize)> {
+    let mut rest = msg;
+    while let Some(i) = rest.find(".lua:") {
+        let (head, tail) = rest.split_at(i + 4);
+        let digits: String = tail[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        // dosya adının başı: satır başı (bilinen önekler atlanır); yol boşluk içerebilir (Windows).
+        let line_start = head.rfind('\n').map(|j| j + 1).unwrap_or(0);
+        let mut cand = head[line_start..].trim_start_matches(['\t', ' ', '@']);
+        for p in ["runtime error: ", "syntax error: ", "error: "] {
+            cand = cand.strip_prefix(p).unwrap_or(cand);
+        }
+        let file = if cand.contains(": ") || cand.contains('"') {
+            let start = head.rfind(|c: char| c == ' ' || c == '\t' || c == '\n' || c == '"' || c == '\'' || c == '@').map(|j| j + 1).unwrap_or(0);
+            &head[start..]
+        } else {
+            cand
+        };
+        if !digits.is_empty() && !file.starts_with("osisub/") && !file.starts_with("builtin:") && !file.is_empty() {
+            return Some((file.to_string(), digits.parse().ok()?));
+        }
+        rest = &tail[1..];
+    }
+    None
+}
+
 const PRELUDE: &str = include_str!("../lua/prelude.lua");
 
 impl Engine {
@@ -397,5 +423,22 @@ impl Engine {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::error_location;
+
+    #[test]
+    fn finds_error_location() {
+        let m = "runtime error: /home/u/auto/benim.lua:42: attempt to index nil\nstack traceback:\n\tosisub/karaskel.lua:10: in x";
+        assert_eq!(error_location(m), Some(("/home/u/auto/benim.lua".into(), 42)));
+        assert_eq!(error_location("osisub/karaskel.lua:10: x"), None);
+        assert_eq!(error_location("sözdizimi hatası yok"), None);
+        assert_eq!(error_location("[string \"x\"]:3: hata"), None);
+        assert_eq!(error_location("C:\\Betikler\\a b.lua:7: hata"), Some(("C:\\Betikler\\a b.lua".into(), 7)));
+        assert_eq!(error_location("runtime error: C:\\Users\\Ad Soyad\\x.lua:3: hata"), Some(("C:\\Users\\Ad Soyad\\x.lua".into(), 3)));
+        assert_eq!(error_location("hata: bir şey oldu /a/b.lua:5: x"), Some(("/a/b.lua".into(), 5)));
     }
 }

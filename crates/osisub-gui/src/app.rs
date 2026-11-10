@@ -135,6 +135,8 @@ pub struct App {
     font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
     /// Kısayol atanmak üzere tuş bekleyen makro (betik adı, makro adı)
     hotkey_capture: Option<(String, String)>,
+    /// Son Lua hatası (makro adı, ileti) — hata penceresinde gösterilir
+    lua_error: Option<(String, String)>,
 }
 
 /// Kaydedilmemiş değişiklik varken onay gerektiren işlemler.
@@ -279,6 +281,7 @@ impl App {
             tab: match tab.as_deref() { Some("quality") => Tab::Quality, Some("translate") => Tab::Translate, Some("karaoke") => Tab::Karaoke, Some("spell") => Tab::Spell, Some("automation") => Tab::Automation, Some("info") => Tab::Info, _ => Tab::Styles },
             filter: String::new(),
             hotkey_capture: None,
+            lua_error: None,
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
             rules: Rules::default(),
@@ -751,6 +754,7 @@ impl App {
                             self.log.push_str(&format!("HATA ({}): {}\n", name, msg));
                             self.status = format!("{}: hata (günlüğe bakın)", name);
                             self.tab = Tab::Automation;
+                            self.lua_error = Some((name.clone(), msg));
                         }
                     }
                 }
@@ -1312,6 +1316,7 @@ impl eframe::App for App {
         self.guard_window(&ctx);
         self.help_windows(&ctx);
         self.export_window(&ctx);
+        self.lua_error_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

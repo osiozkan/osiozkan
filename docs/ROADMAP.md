@@ -50,7 +50,8 @@
 - [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] Betikleri yeniden yükle (motoru sıfırlar)
-- [ ] Betik hata ayıklama: satır numaralı iz, günlük penceresi
+- [x] Betik hata penceresi: hata iletisi + hatalı kaynak satırı (±3), yığın izi, kopyala (Windows yollarındaki boşluklar dahil)
+- [ ] MoonScript hatalarında .moon satırına eşleme (şu an derlenmiş Lua satırı)
 - [ ] Kullanıcının Lua betikleriyle regresyon test paketi (kullanıcıdan betikler istenmeli)
 
 ## Arayüz (GUI)
