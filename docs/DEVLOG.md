@@ -37,3 +37,10 @@ Dal: `claude/vibrant-clarke-6oujog` (main'den; `claude/vibrant-clarke-2e8jtn` il
 - HATA DÜZELTİLDİ: medya açıkken kaydetme `[Aegisub Project Garbage]` satırlarını olaylardan önce ekleyip dizinleri kaydırıyordu → etkin satır kayboluyor, ızgara yanlış satırları gösteriyordu (xdotool testiyle bulundu).
 - HATA DÜZELTİLDİ: egui `drag_started` eşik sonrası gelir; video araçları tutamaç seçimini basma noktası yerine kaymış konumla yapıyordu.
 - `tools/ship.sh` artık GUI birim testlerini de çalıştırır ve geçerli dala push eder.
+- (aynı gece, devam) **Kare doğruluğu düzeltmeleri** (anime için kritik): (1) CFR `frame_at` `time_at`'in tersi değildi (floor) → 24/23.976 fps'de bazı karelerde bir önceki kare seçiliyordu; (2) tam kare zamanı santisaniyeye yuvarlanınca satır bir kare geç başlıyordu → Aegisub START/END (iki kare arası orta nokta) anlambilimi F6/F7, yapışma, anahtar kare, kareye oturt, son-işleyici ve Lua'ya uygulandı; (3) 23.976 mp4'te kare adımı bir sonraki kareyi gösteriyordu (yarım ms erken arama). Hepsi özellik/gidiş-dönüş testleriyle korunuyor.
+- QC anime uyumu: tipografi/karaoke/fx satırlarına okuma hızı/uzunluk/süre uyarısı yok; çakışma stil+katman başına zaman sırasıyla (eskiden dosya sırasıyla ve yalnızca bir önceki satırla — araya giren tabela gerçek çakışmayı gizliyordu). Aynı mantık çakışma düzeltme, sık hataları düzelt (süre zinciri) ve son-işleyiciye uygulandı.
+- QC kare denetimleri (sahne değişimine yakınlık, titreme) + "Sahne değişimlerine yapıştır"; CLI `check --video`.
+- Video araçları: vektör `\clip`, 3B döndürme (`\frx/\fry`); kare adımı için 6 karelik ön-yükleme; satır seçince ilk görünen kareye gidiliyor.
+- Ekler (yazı tipi gömme) + HATA: "[..]" görünümlü UUencode satırları bölüm başlığı sanılıyordu. Önizlemede gömülü yazı tipleri `fontsdir` ile.
+- Windows çapraz derleme yeniden doğrulandı (osisub.exe + osisub-gui.exe bağlandı; çalıştırılamadı).
+
