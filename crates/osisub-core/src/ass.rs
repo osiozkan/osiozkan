@@ -392,6 +392,12 @@ impl Script {
 
     /// Yalnızca `keep` diyalogları ve tüm diğer girdilerle yazar (önizleme için küçültülmüş betik).
     pub fn to_ass_string_where(&self, keep: impl Fn(&Dialogue) -> bool) -> String {
+        self.to_ass_string_filtered(keep, false)
+    }
+
+    /// Önizleme için: `keep` diyalogları; `skip_attachments` ise [Fonts]/[Graphics] verisi yazılmaz
+    /// (gömülü yazı tipleri ayrıca klasöre çıkarılıp libass'e `fontsdir` ile verilir).
+    pub fn to_ass_string_filtered(&self, keep: impl Fn(&Dialogue) -> bool, skip_attachments: bool) -> String {
         let nl = if self.crlf { "\r\n" } else { "\n" };
         let mut out = String::with_capacity(self.entries.len() * 80);
         let mut cur: Option<&str> = None;
@@ -399,6 +405,13 @@ impl Script {
             if let Entry::Dialogue(d) = e {
                 if !keep(d) {
                     continue;
+                }
+            }
+            if skip_attachments {
+                if let Entry::Unknown { section, .. } = e {
+                    if section == "Fonts" || section == "Graphics" {
+                        continue;
+                    }
                 }
             }
             let sec = e.section();

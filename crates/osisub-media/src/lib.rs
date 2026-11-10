@@ -233,6 +233,20 @@ pub struct Frame {
     pub rgba: Vec<u8>,
 }
 
+fn ff_escape(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'")
+}
+
+/// libass `ass` süzgeci. ASS dosyasının yanında `.osisub-fonts` klasörü varsa (gömülü yazı tipleri
+/// oraya çıkarılmışsa) `fontsdir` olarak verilir.
+fn ass_filter(ass: &Path, extra: &str) -> String {
+    let mut f = format!("ass='{}'{}", ff_escape(ass), extra);
+    if let Some(d) = ass.parent().map(|d| d.join(".osisub-fonts")).filter(|d| d.is_dir()) {
+        f.push_str(&format!(":fontsdir='{}'", ff_escape(&d)));
+    }
+    f
+}
+
 /// `time_ms` anındaki kareyi (varsa `ass` altyazısı libass ile işlenmiş olarak) `width` genişliğinde RGBA verir.
 pub fn render_frame(video: &Path, ass: Option<&Path>, time_ms: i64, width: u32, info: &MediaInfo) -> Result<Frame, String> {
     render_frames(video, ass, time_ms, 1, width, info).map(|mut v| v.remove(0))
@@ -249,8 +263,7 @@ pub fn render_frames(video: &Path, ass: Option<&Path>, time_ms: i64, count: usiz
     let height = ((width as f64 * info.height as f64 / info.width as f64 / 2.0).round() as u32).max(1) * 2;
     let mut vf = String::new();
     if let Some(a) = ass {
-        let p = a.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
-        vf.push_str(&format!("ass='{}',", p));
+        vf.push_str(&format!("{},", ass_filter(a, "")));
     }
     vf.push_str(&format!("scale={}:{}", width, height));
     // Hızlı arama için önce kaba -ss (girdiden önce), sonra hassas -ss (girdiden sonra).
@@ -300,8 +313,7 @@ pub fn spawn_play(video: &Path, ass: Option<&Path>, start_ms: i64, dur_ms: i64, 
     let fps = if info.fps > 0.0 { info.fps } else { 24.0 };
     let mut vf = format!("scale={}:{},", width, height);
     if let Some(a) = ass {
-        let p = a.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'");
-        vf.push_str(&format!("ass='{}':original_size={}x{},", p, width, height));
+        vf.push_str(&format!("{},", ass_filter(a, &format!(":original_size={}x{}", width, height))));
     }
     vf.push_str(&format!("fps={}", fps));
     let mut child = Command::new(ffmpeg_bin())

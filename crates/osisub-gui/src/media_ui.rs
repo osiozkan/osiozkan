@@ -74,6 +74,8 @@ pub struct Media {
     vt_move0: Option<osisub_core::overrides::Move>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
+    /// önizleme klasörüne çıkarılmış gömülü yazı tiplerinin anahtarı (ad:boyut;…)
+    fonts_key: String,
     pub spectrum: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
@@ -120,6 +122,7 @@ impl Media {
             vt_drag: None,
             vt_move0: None,
             vt_vdrag: None,
+            fonts_key: String::new(),
             spectrum: false,
             spec_tex: None,
             stream: None,
@@ -208,6 +211,29 @@ impl Media {
         });
     }
 
+    /// Gömülü yazı tiplerini (değiştiyse) önizleme klasörüne çıkarır; libass `fontsdir` ile okur.
+    fn sync_preview_fonts(&mut self, doc: &Document) {
+        let list = osisub_core::attach::list(&doc.script);
+        let key: String = list.iter().filter(|a| a.section == osisub_core::attach::SEC_FONTS).map(|a| format!("{}:{};", a.name, a.size)).collect();
+        if key == self.fonts_key {
+            return;
+        }
+        self.fonts_key = key;
+        let dir = self.tmp_dir.join(".osisub-fonts");
+        let _ = std::fs::remove_dir_all(&dir);
+        let fonts: Vec<_> = list.iter().filter(|a| a.section == osisub_core::attach::SEC_FONTS).collect();
+        if fonts.is_empty() {
+            return;
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        for a in fonts {
+            if let Some(data) = osisub_core::attach::extract(&doc.script, &a.name) {
+                let safe: String = a.name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
+                let _ = std::fs::write(dir.join(safe), data);
+            }
+        }
+    }
+
     pub fn stop_player(&mut self) {
         if let Some(mut c) = self.player.take() {
             let _ = c.kill();
@@ -261,7 +287,8 @@ impl Media {
         if let Some(info) = self.info.clone().filter(|i| i.has_video) {
             let ass = self.tmp_dir.join("play.ass");
             let (lo, hi) = (from - 1000, from + dur + 1000);
-            let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.end_time >= lo && d.start_time <= hi));
+            self.sync_preview_fonts(doc);
+            let _ = std::fs::write(&ass, doc.script.to_ass_string_filtered(|d| d.end_time >= lo && d.start_time <= hi, true));
             match osisub_media::spawn_play(&p, Some(&ass), from, dur, 640, &info) {
                 Ok(st) => {
                     self.stream = Some(st);
@@ -414,7 +441,8 @@ impl Media {
                 let (t, rev) = (self.playhead, doc.rev);
                 let ass = self.tmp_dir.join("preview.ass");
                 let t0 = self.playhead;
-                let _ = std::fs::write(&ass, doc.script.to_ass_string_where(|d| d.start_time <= t0 + 1500 && d.end_time >= t0 - 1000));
+                self.sync_preview_fonts(doc);
+                let _ = std::fs::write(&ass, doc.script.to_ass_string_filtered(|d| d.start_time <= t0 + 1500 && d.end_time >= t0 - 1000, true));
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
                 // Playhead'de ekranda olan kare (mpv/Aegisub gibi): o karenin başlangıcından iste.
