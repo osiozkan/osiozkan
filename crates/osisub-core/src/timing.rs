@@ -31,7 +31,15 @@ fn nearest_kf(kfs: &[i64], t: i64, before: i64, after: i64) -> Option<i64> {
 
 /// Seçili (veya tüm) satırlara lead-in/out, bitişik satır ve anahtar kare işlemlerini uygular.
 pub fn post_process(script: &mut Script, o: &PostOptions) {
-    let idxs: Vec<usize> = script.entries.iter().enumerate().filter(|(i, e)| matches!(e, Entry::Dialogue(d) if !d.comment) && o.only.as_ref().map_or(true, |v| v.contains(i))).map(|(i, _)| i).collect();
+    // Seçim verilmemişse tipografi/karaoke/fx satırları atlanır (videoya kare kare oturtulmuş tabelalar bozulmasın).
+    let special = |d: &crate::ass::Dialogue| crate::qc::is_typeset(d) || crate::qc::is_karaoke(d) || d.effect.eq_ignore_ascii_case("fx");
+    let idxs: Vec<usize> = script
+        .entries
+        .iter()
+        .enumerate()
+        .filter(|(i, e)| matches!(e, Entry::Dialogue(d) if !d.comment && match &o.only { Some(v) => v.contains(i), None => !special(d) }))
+        .map(|(i, _)| i)
+        .collect();
     // 1. lead in/out
     for &i in &idxs {
         if let Entry::Dialogue(d) = &mut script.entries[i] {
@@ -216,6 +224,19 @@ pub fn resample(script: &mut Script, new_x: i32, new_y: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_process_skips_signs_unless_selected() {
+        let mk = |a: i64, b: i64, t: &str| crate::ass::Dialogue { start_time: a, end_time: b, text: t.into(), ..Default::default() };
+        let mut sc = Script::from_dialogues(vec![mk(1000, 2000, "diyalog"), mk(1000, 1500, "{\\pos(1,1)}TABELA")]);
+        let o = PostOptions { lead_in_ms: 100, lead_out_ms: 100, adjacent_gap_ms: 0, keyframes: vec![], only: None, ..PostOptions::default() };
+        post_process(&mut sc, &o);
+        let v: Vec<_> = sc.dialogues().map(|d| (d.start_time, d.end_time)).collect();
+        assert_eq!(v, vec![(900, 2100), (1000, 1500)]);
+        let sign = sc.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text.contains("TABELA"))).unwrap();
+        post_process(&mut sc, &PostOptions { only: Some(vec![sign]), ..o });
+        assert_eq!(sc.dialogues().nth(1).map(|d| (d.start_time, d.end_time)), Some((900, 1600)));
+    }
     use crate::ass::Dialogue;
 
     fn d(s: i64, e: i64) -> Dialogue {
