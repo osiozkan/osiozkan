@@ -186,7 +186,7 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
         }
         let (typeset, karaoke) = (is_typeset(d), is_karaoke(d));
         let visible = tags::visible_text(&d.text);
-        if visible.trim().is_empty() && !d.text.contains("\\p1") {
+        if visible.trim().is_empty() && !(1..=9).any(|k| d.text.contains(&format!("\\p{k}"))) {
             add(Kind::Empty, "Boş metin".into());
         }
         if d.duration() < 0 {
@@ -396,7 +396,7 @@ pub fn remove_duplicates(script: &mut Script) -> usize {
 pub fn remove_empty(script: &mut Script) -> usize {
     let before = script.entries.len();
     script.entries.retain(|e| match e {
-        Entry::Dialogue(d) => d.comment || !tags::visible_text(&d.text).trim().is_empty() || d.text.contains("\\p1"),
+        Entry::Dialogue(d) => d.comment || !tags::visible_text(&d.text).trim().is_empty() || (1..=9).any(|k| d.text.contains(&format!("\\p{k}"))),
         _ => true,
     });
     before - script.entries.len()

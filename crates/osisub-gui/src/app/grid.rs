@@ -236,7 +236,11 @@ impl App {
             job.wrap.max_width = wrap_width;
             ui.fonts_mut(|f| f.layout_job(job))
         };
-        let out = TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N").show(ui);
+        // Çok uzun metin (ör. \p1 çizimi) kutuyu büyütüp ızgarayı itmesin: kaydırılabilir alan
+        let max_h = (ui.ctx().content_rect().height() * 0.3).max(90.0);
+        let out = egui::ScrollArea::vertical().id_salt("editor_text").max_height(max_h).show(ui, |ui| {
+            TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N").show(ui)
+        }).inner;
         if let Some(c) = out.cursor_range {
             self.editor_cursor = Some((at, c.primary.index.into()));
         }

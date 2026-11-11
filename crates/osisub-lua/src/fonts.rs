@@ -250,7 +250,8 @@ impl FontDb {
             let adv = *fd.adv.entry(c).or_insert_with(|| {
                 face.glyph_index(c).and_then(|g| face.glyph_hor_advance(g)).map(|a| a as f64).unwrap_or(fd.upem * 0.5)
             });
-            w += adv * ppu * st.scale_x / 100.0 + st.spacing;
+            // Aegisub/VSFilter/libass: harf aralığı da yatay ölçekle çarpılır
+            w += (adv * ppu + st.spacing) * st.scale_x / 100.0;
         }
         if bold_synth {
             w += text.chars().count() as f64 * st.fontsize / 24.0;
@@ -258,6 +259,180 @@ impl FontDb {
         let sy = st.scale_y / 100.0;
         Some((w, st.fontsize * sy, fd.descent * ppu * sy, fd.ext_lead * ppu * sy))
     }
+}
+
+/// ttf-parser konturunu ASS çizim komutlarına çevirir (y aşağı, birim piksel).
+struct ShapeBuilder {
+    out: String,
+    ox: f64,
+    oy: f64,
+    sx: f64,
+    sy: f64,
+    last: (f64, f64),
+}
+
+impl ShapeBuilder {
+    fn p(&self, x: f32, y: f32) -> (f64, f64) {
+        (self.ox + x as f64 * self.sx, self.oy - y as f64 * self.sy)
+    }
+    fn num(v: f64) -> String {
+        let r = (v * 100.0).round() / 100.0;
+        let s = format!("{r}");
+        if s == "-0" { "0".into() } else { s }
+    }
+    fn push(&mut self, cmd: &str, pts: &[(f64, f64)]) {
+        if !self.out.is_empty() {
+            self.out.push(' ');
+        }
+        self.out.push_str(cmd);
+        for (x, y) in pts {
+            self.out.push(' ');
+            self.out.push_str(&Self::num(*x));
+            self.out.push(' ');
+            self.out.push_str(&Self::num(*y));
+        }
+        if let Some(l) = pts.last() {
+            self.last = *l;
+        }
+    }
+}
+
+impl ttf_parser::OutlineBuilder for ShapeBuilder {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let p = self.p(x, y);
+        self.push("m", &[p]);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        let p = self.p(x, y);
+        self.push("l", &[p]);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        // ikinci derece → kübik Bezier
+        let (p0, q, p3) = (self.last, self.p(x1, y1), self.p(x, y));
+        let c1 = (p0.0 + 2.0 / 3.0 * (q.0 - p0.0), p0.1 + 2.0 / 3.0 * (q.1 - p0.1));
+        let c2 = (p3.0 + 2.0 / 3.0 * (q.0 - p3.0), p3.1 + 2.0 / 3.0 * (q.1 - p3.1));
+        self.push("b", &[c1, c2, p3]);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let pts = [self.p(x1, y1), self.p(x2, y2), self.p(x, y)];
+        self.push("b", &pts);
+    }
+    fn close(&mut self) {}
+}
+
+impl FontDb {
+    /// Metni ASS çizimine (`\p1`) çevirir: (0,0) = metin hücresinin sol üstü (taban çizgisi
+    /// `ascent` kadar aşağıda). Dönüş: (çizim, genişlik, yükseklik). Yazı tipi yoksa `None`.
+    /// Çekirdekleme yok (GDI/VSFilter gibi); `\fsp` her karakterden sonra eklenir.
+    pub fn text_shape(&mut self, st: &StyleMetrics, text: &str) -> Option<(String, f64, f64)> {
+        self.text_shape_at(st, text, 0.0, 0.0)
+    }
+
+    /// `text_shape` gibi, ama çizim (ox, oy) kadar kaydırılmış.
+    pub fn text_shape_at(&mut self, st: &StyleMetrics, text: &str, ox: f64, oy: f64) -> Option<(String, f64, f64)> {
+        let id = self.find(&st.fontname, st.bold, st.italic)?;
+        let fd = self.data(id)?;
+        let ppu = st.fontsize / fd.cell;
+        let (sx, sy) = (ppu * st.scale_x / 100.0, ppu * st.scale_y / 100.0);
+        let face = Face::parse(&fd.bytes, fd.index).ok()?;
+        let asc = fd.cell - fd.descent;
+        let mut b = ShapeBuilder { out: String::new(), ox: 0.0, oy: oy + asc * sy, sx, sy, last: (0.0, 0.0) };
+        let mut pen = ox;
+        for c in text.chars() {
+            let g = face.glyph_index(c);
+            b.ox = pen;
+            if let Some(g) = g {
+                face.outline_glyph(g, &mut b);
+            }
+            let adv = g.and_then(|g| face.glyph_hor_advance(g)).map(|a| a as f64).unwrap_or(fd.upem * 0.5);
+            pen += adv * sx + st.spacing * st.scale_x / 100.0;
+        }
+        Some((b.out, pen - ox, st.fontsize * st.scale_y / 100.0))
+    }
+}
+
+/// Bir altyazı satırını aynı görünümde `\\p1` çizimine çevirir (tipografide kırpma/şekil için).
+/// Yalnızca baştaki etiket bloğu desteklenir; metin ortasında yazı tipi değişimi varsa hata.
+/// Sonuç `\\an7\\pos` ile konumlanır, `\\fscx/\\fscy` 100'e sabitlenir, döndürme varsa `\\org`
+/// eski hizalama noktasına konur (görünüm aynı kalır).
+pub fn line_to_drawing(db: &mut FontDb, script: &osisub_core::Script, d: &osisub_core::ass::Dialogue) -> Result<String, String> {
+    use osisub_core::overrides::{self, Seg};
+    let segs = overrides::parse(&d.text);
+    let mut lead: Vec<osisub_core::overrides::Tag> = vec![];
+    let mut text = String::new();
+    let mut seen_text = false;
+    for s in &segs {
+        match s {
+            Seg::Block(t) if !seen_text => lead.extend(t.iter().cloned()),
+            Seg::Block(t) => {
+                if t.iter().any(|x| !x.name.is_empty()) {
+                    return Err("Metin ortasında etiket var; yalnızca baştaki etiket bloğu desteklenir".into());
+                }
+            }
+            Seg::Text(t) => {
+                seen_text = true;
+                text.push_str(t);
+            }
+        }
+    }
+    if lead.iter().any(|t| t.name == "p" && t.number().unwrap_or(0.0) > 0.0) {
+        return Err("Satır zaten çizim".into());
+    }
+    if lead.iter().any(|t| t.name == "move") {
+        return Err("\\move'lu satır desteklenmiyor (önce \\pos'a çevirin)".into());
+    }
+    let st = script.style_by_name(&d.style).cloned().unwrap_or_default();
+    let get = |n: &str| lead.iter().rev().find(|t| t.name == n);
+    let num = |n: &str, def: f64| get(n).and_then(|t| t.number()).unwrap_or(def);
+    let fontname = get("fn").map(|t| t.arg.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(st.fontname.clone());
+    let m = StyleMetrics {
+        fontname: fontname.clone(),
+        fontsize: num("fs", st.fontsize),
+        bold: get("b").and_then(|t| t.number()).map_or(st.bold, |v| v != 0.0),
+        italic: get("i").and_then(|t| t.number()).map_or(st.italic, |v| v != 0.0),
+        scale_x: num("fscx", st.scale_x),
+        scale_y: num("fscy", st.scale_y),
+        spacing: num("fsp", st.spacing),
+    };
+    let (px, py) = osisub_core::motion::line_position(script, d);
+    let an = num("an", st.align as f64) as i32;
+    let an = if (1..=9).contains(&an) { an } else { 2 };
+    let hfrac = [0.0, 0.5, 1.0][((an - 1) % 3) as usize];
+    let vfrac = [1.0, 0.5, 0.0][((an - 1) / 3) as usize];
+    let lines: Vec<String> = text.replace("\\n", "\\N").split("\\N").map(|l| l.replace("\\h", "\u{a0}")).collect();
+    let line_h = m.fontsize * m.scale_y / 100.0;
+    let widths: Vec<f64> = lines.iter().map(|l| db.extents(&m, l).map(|e| e.0).ok_or(format!("Yazı tipi bulunamadı: {fontname}"))).collect::<Result<_, _>>()?;
+    let w = widths.iter().cloned().fold(0.0, f64::max);
+    let h = line_h * lines.len() as f64;
+    let mut draw = String::new();
+    for (k, l) in lines.iter().enumerate() {
+        let ox = (w - widths[k]) * hfrac;
+        let (sh, _, _) = db.text_shape_at(&m, l, ox, k as f64 * line_h).ok_or(format!("Yazı tipi bulunamadı: {fontname}"))?;
+        if !sh.is_empty() {
+            if !draw.is_empty() {
+                draw.push(' ');
+            }
+            draw.push_str(&sh);
+        }
+    }
+    let (x7, y7) = (px - w * hfrac, py - h * vfrac);
+    let fmt = |v: f64| {
+        let s = format!("{:.2}", v);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    let rotated = lead.iter().any(|t| matches!(t.name.as_str(), "frz" | "fr" | "frx" | "fry")) || st.angle != 0.0;
+    let has_org = lead.iter().any(|t| t.name == "org");
+    let mut keep: Vec<String> = lead
+        .iter()
+        .filter(|t| !matches!(t.name.as_str(), "fn" | "fs" | "b" | "i" | "fscx" | "fscy" | "fsp" | "an" | "a" | "pos" | "p" | "q"))
+        .map(|t| t.to_ass())
+        .collect();
+    keep.retain(|t| !t.is_empty());
+    let mut head = format!("\\an7\\pos({},{})\\fscx100\\fscy100", fmt(x7), fmt(y7));
+    if rotated && !has_org {
+        head.push_str(&format!("\\org({},{})", fmt(px), fmt(py)));
+    }
+    Ok(format!("{{{}{}\\p1}}{}", head, keep.join(""), draw))
 }
 
 #[cfg(test)]

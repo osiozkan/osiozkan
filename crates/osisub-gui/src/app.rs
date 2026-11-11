@@ -168,6 +168,10 @@ pub struct App {
     batch: Option<BatchWin>,
     /// Tipografi yardımcıları penceresi (degrade, parıltı)
     tsw: Option<TypesetWin>,
+    /// Metin → çizim için yazı tipi dizini (ilk kullanımda taranır)
+    font_db: Option<osisub_lua::fonts::FontDb>,
+    /// Bir sonraki karede panoya kopyalanacak metin (bağlamı olmayan işlevlerden)
+    ctx_copy: Option<String>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -386,6 +390,8 @@ impl App {
             motion: None,
             batch: None,
             tsw: None,
+            font_db: None,
+            ctx_copy: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -1542,6 +1548,10 @@ impl App {
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
+                ui.menu_button("Metin → çizim", |ui| {
+                    if ui.button("Seçili satırları çizime (\\p1) dönüştür").on_hover_text("Gerçek yazı tipi konturlarıyla; görünüm aynı kalır (libass ile doğrulandı)").clicked() { ui.close(); self.text_to_drawing(false); }
+                    if ui.button("Etkin satırı vektör kırpma olarak kopyala").on_hover_text("Metnin şeklini \\clip(...) olarak panoya kopyalar; başka bir satıra yapıştırın").clicked() { ui.close(); self.text_to_drawing(true); }
+                });
                 if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
                     ui.close();
@@ -1700,6 +1710,7 @@ impl eframe::App for App {
         self.refresh_caches();
         if self.issues_key != self.doc.rev { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         self.shortcuts(&ctx);
+        if let Some(t) = self.ctx_copy.take() { ctx.copy_text(t); }
         self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
@@ -1819,6 +1830,42 @@ impl Default for TypesetWin {
 pub(crate) struct MotionWin {
     pub text: String,
     pub opts: osisub_core::motion::MotionOptions,
+}
+
+impl App {
+    /// Seçili satırları `\p1` çizimine çevirir; `as_clip` ise etkin satırın şeklini mutlak `\clip(...)` olarak panoya koyar.
+    fn text_to_drawing(&mut self, as_clip: bool) {
+        let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+        let targets: Vec<usize> = if as_clip { vec![self.doc.active] } else { self.doc.target_lines() };
+        let mut s = self.doc.script.clone();
+        let mut n = 0;
+        for &i in &targets {
+            let Some(Entry::Dialogue(d)) = s.entries.get(i) else { continue };
+            match osisub_lua::fonts::line_to_drawing(db, &s, d) {
+                Ok(t) => {
+                    if as_clip {
+                        // \an7\pos(x,y) + çizim → mutlak koordinatlı vektör kırpma
+                        let pos = osisub_core::overrides::get_initial(&t, "pos").map(|p| p.args()).unwrap_or_default();
+                        let (x, y) = (pos.first().and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0), pos.get(1).and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(0.0));
+                        let draw = t.rsplit('}').next().unwrap_or("");
+                        let mut cmds = osisub_core::drawing::parse(draw);
+                        for c in cmds.iter_mut() { for p in c.pts.iter_mut() { p.0 += x; p.1 += y; } }
+                        let clip = format!("\\clip({})", osisub_core::drawing::to_string(&cmds));
+                        self.ctx_copy = Some(clip);
+                        self.status = "Vektör kırpma panoya kopyalandı (döndürme/eğme uygulanmaz)".into();
+                        return;
+                    }
+                    if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) { d.text = t; }
+                    n += 1;
+                }
+                Err(e) => { self.status = e; return; }
+            }
+        }
+        if n > 0 {
+            self.doc.apply_new_script("Metin → çizim", s);
+            self.status = format!("{n} satır çizime dönüştürüldü");
+        }
+    }
 }
 
 /// Makro adlarını "/" ile iç içe menülere böler (Aegisub automation menüsü). `prefix` = geçerli düzey.

@@ -100,7 +100,8 @@
 - [x] Hareket izleme: \clip/\iclip izleme (dikdörtgen; dönüşte vektöre çevrilir; vektör kırpma ölçek parametresiyle)
 - [ ] Hareket izleme: doğrusal kip (\move+\t), köşe pini (CC Power Pin)
 - [x] Tipografi yardımcıları (core::typeset; Araçlar → Degrade / parıltı…): kırpma şeritleriyle degrade (renk/saydamlık/sayısal etiketler, yatay/dikey, ivme), parıltı katmanı
-- [ ] Perspektif aracı (4 köşe → \frx\fry\fax\org), metin → çizim (\p1) dönüştürme
+- [x] Metin → çizim (\p1) dönüştürme (gerçek yazı tipi konturları; hizalama, çok satır, \fscx/\fscy/\fsp, döndürmede \org korunur; libass çıktısıyla piksel karşılaştırması IoU ≥ 0.97, sınır kutuları birebir) + vektör kırpma olarak kopyalama; CLI `to-drawing`, `shape`
+- [ ] Perspektif aracı (4 köşe → \frx\fry\fax\org)
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme

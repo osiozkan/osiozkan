@@ -31,9 +31,38 @@ pub fn split(text: &str) -> Vec<Part<'_>> {
     parts
 }
 
-/// Tüm `{...}` bloklarını kaldırır.
+/// Bloktaki son `\pN` çizim kipi ayarı (`\pos`/`\pbo` değil): Some(açık mı).
+fn drawing_mode(block: &str) -> Option<bool> {
+    let b = block.as_bytes();
+    let mut res = None;
+    let mut i = 0;
+    while let Some(k) = block[i..].find("\\p") {
+        let j = i + k + 2;
+        let digits: String = block[j..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() && b.get(j + digits.len()).map_or(true, |&c| c == b'\\' || c == b'}' || c == b' ') {
+            res = Some(digits.parse::<u32>().unwrap_or(0) > 0);
+        }
+        i = j;
+    }
+    res
+}
+
+/// Tüm `{...}` bloklarını kaldırır; `\p1` çizim kipindeki metin (şekil koordinatları) görünmez sayılır.
 pub fn strip_tags(text: &str) -> String {
-    split(text).into_iter().filter_map(|p| if let Part::Text(t) = p { Some(t) } else { None }).collect()
+    let mut out = String::new();
+    let mut drawing = false;
+    for p in split(text) {
+        match p {
+            Part::Block(b) => {
+                if let Some(d) = drawing_mode(b) {
+                    drawing = d;
+                }
+            }
+            Part::Text(t) if !drawing => out.push_str(t),
+            Part::Text(_) => {}
+        }
+    }
+    out
 }
 
 /// `\N`, `\n`, `\h` dönüşümleriyle görünür düz metin.
@@ -101,6 +130,14 @@ mod tests {
         assert_eq!(visible_text("a\\Nb\\hc"), "a\nb c");
         assert_eq!(visible_len("ab c"), 3);
     }
+    #[test]
+    fn drawings_are_not_visible_text() {
+        assert_eq!(strip_tags("{\\an7\\pos(1,2)\\p1}m 0 0 l 10 0 10 10{\\p0}Metin"), "Metin");
+        assert_eq!(visible_len("{\\p2}m 0 0 l 100 100"), 0);
+        assert_eq!(strip_tags("{\\pos(1,2)\\pbo3}Yazı"), "Yazı");
+        assert_eq!(strip_tags("{\\p1\\fs20}m 0 0{\\fs30}l 5 5"), "");
+    }
+
     #[test]
     fn karaoke() {
         let k = karaoke_syllables("{\\k20}ka{\\k30}ra");

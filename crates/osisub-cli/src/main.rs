@@ -13,6 +13,9 @@ KULLANIM:
   osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
+  osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
+  osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
+                          metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
@@ -122,6 +125,38 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             println!("{} satır → {} kare satırı (iz {} kare, ilk kare {})", lines.len(), new.len(), data.frames.len(), o.start_frame);
             s.entries.splice(at..at, new.into_iter().map(Entry::Dialogue));
             save(&s, &out)
+        }
+        "to-drawing" => {
+            // satırları aynı görünümde \p1 çizimine çevir
+            let lines_arg = opt(&mut args, "--lines").ok_or("--lines gerekli (ör. --lines 5,6)")?;
+            if args.is_empty() { return Err("kullanım: to-drawing <girdi> --lines 5,6 [çıktı]".into()); }
+            let out = args.get(1).cloned().unwrap_or_else(|| args[0].clone());
+            let mut s = load(&args[0])?;
+            let dl: Vec<usize> = s.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+            let mut db = osisub_lua::fonts::FontDb::default();
+            for n in lines_arg.split(',') {
+                let k: usize = n.trim().parse().map_err(|_| format!("geçersiz satır no: {n}"))?;
+                let i = *dl.get(k.wrapping_sub(1)).ok_or(format!("satır yok: {k}"))?;
+                let Entry::Dialogue(d) = &s.entries[i] else { continue };
+                let t = osisub_lua::fonts::line_to_drawing(&mut db, &s, d).map_err(|e| format!("satır {k}: {e}"))?;
+                if let Entry::Dialogue(d) = &mut s.entries[i] { d.text = t; }
+            }
+            save(&s, &out)
+        }
+        "shape" => {
+            // metni ASS çizimine çevir: shape "Metin" [--font Arial] [--size 64] [--bold] [--italic] [--fscx 100] [--fscy 100] [--fsp 0]
+            let mut st = osisub_lua::StyleMetrics { fontname: opt(&mut args, "--font").unwrap_or_else(|| "Arial".into()), fontsize: opt(&mut args, "--size").and_then(|v| v.parse().ok()).unwrap_or(64.0), scale_x: 100.0, scale_y: 100.0, ..Default::default() };
+            st.bold = flag(&mut args, "--bold");
+            st.italic = flag(&mut args, "--italic");
+            if let Some(v) = opt(&mut args, "--fscx") { st.scale_x = v.parse().map_err(|_| "--fscx sayı")?; }
+            if let Some(v) = opt(&mut args, "--fscy") { st.scale_y = v.parse().map_err(|_| "--fscy sayı")?; }
+            if let Some(v) = opt(&mut args, "--fsp") { st.spacing = v.parse().map_err(|_| "--fsp sayı")?; }
+            let text = args.first().ok_or("metin gerekli")?;
+            let mut db = osisub_lua::fonts::FontDb::default();
+            let (d, w, h) = db.text_shape(&st, text).ok_or(format!("yazı tipi bulunamadı: {}", st.fontname))?;
+            eprintln!("genişlik {w:.2}, yükseklik {h:.2}");
+            println!("{d}");
+            Ok(())
         }
         "merge" => {
             let out = opt(&mut args, "-o").or_else(|| opt(&mut args, "--out")).ok_or("çıktı gerekli: -o <dosya>")?;
