@@ -756,7 +756,7 @@ impl App {
 
     /// Seçili satırları arka planda çevirir. Kaynak: referans altyazı yüklüyse zamanca en çok örtüşen
     /// referans satırı, değilse satırın kendi metni.
-    fn start_mt(&mut self) {
+    pub(super) fn start_mt(&mut self) {
         let Some(cfg) = self.mt_config() else { return };
         let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment)).collect();
         let mut idx = vec![];

@@ -99,6 +99,11 @@ impl App {
         ui.horizontal(|ui| {
             if ui.button("◀ Önceki").clicked() { step(self, -1); }
             if ui.button("Sonraki ▶").clicked() { step(self, 1); }
+            if ui.add_enabled(self.mt_rx.is_none(), egui::Button::new("Makine çevirisi")).on_hover_text("Bu satırı (referans varsa referans metnini) seçili sağlayıcıyla çevirir; ayarlar: Araçlar → Makine çevirisi").clicked() {
+                let a = self.doc.active;
+                self.doc.select(vec![a], a);
+                self.start_mt();
+            }
             if ui.button("Sonraki boş satır").on_hover_text("Metni boş olan sonraki satıra atla (ör. sesten oluşturulanlar)").clicked() {
                 let p = self.rows.iter().position(|&r| r == at).unwrap_or(0);
                 let next = self.rows.iter().enumerate().skip(p + 1).find(|(_, &r)| matches!(&self.doc.script.entries[r], Entry::Dialogue(x) if osisub_core::tags::visible_text(&x.text).trim().is_empty())).map(|(_, &r)| r);
