@@ -25,6 +25,29 @@ impl App {
             ui.vertical_centered(|ui| {
                 ui.label(RichText::new("Henüz altyazı satırı yok").size(18.0).weak());
                 ui.label(RichText::new("Bir altyazı dosyasını (.ass .srt .vtt …) buraya sürükleyin, Ctrl+O ile açın ya da Ctrl+Enter ile ilk satırı ekleyin.").weak());
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    ui.add_space((ui.available_width() - 470.0).max(0.0) / 2.0);
+                    if ui.button("Altyazı aç…").clicked() {
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() { self.request(super::Guarded::OpenPath(p)); }
+                    }
+                    if ui.button("Videodaki altyazıyı aç…").clicked() {
+                        if let Some(v) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file() {
+                            match osisub_media::mux::subtitle_tracks(&v) { Ok(t) => self.tracks_win = Some((v, t)), Err(e) => self.status = e }
+                        }
+                    }
+                    if ui.button("İlk satırı ekle").clicked() { let at = self.doc.insert_after_active(); self.scroll_to = Some(at); }
+                    if ui.button("Komut paleti").on_hover_text("Ctrl+Shift+P").clicked() { self.palette = Some((String::new(), 0)); }
+                });
+                let recent: Vec<String> = self.settings.recent.iter().filter(|r| std::path::Path::new(r).is_file()).take(8).cloned().collect();
+                if !recent.is_empty() {
+                    ui.add_space(16.0);
+                    ui.label(RichText::new("Son açılanlar").strong());
+                    for r in recent {
+                        let name = std::path::Path::new(&r).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_else(|| r.clone());
+                        if ui.link(name).on_hover_text(&r).clicked() { self.request(super::Guarded::OpenPath(std::path::PathBuf::from(r))); }
+                    }
+                }
             });
             return;
         }
