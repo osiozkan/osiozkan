@@ -164,6 +164,8 @@ pub struct App {
     merge_win: Option<(PathBuf, osisub_core::merge::MergeOptions, String)>,
     /// Hareket izleme penceresi
     motion: Option<MotionWin>,
+    /// Toplu satır işlemleri penceresi
+    batch: Option<BatchWin>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -380,6 +382,7 @@ impl App {
             hotkeys_open: false,
             merge_win: None,
             motion: None,
+            batch: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -522,6 +525,7 @@ impl App {
             Some("attach") => app.attach_open = true,
             Some("hotkeys") => app.hotkeys_open = true,
             Some("motion") => app.open_motion(),
+            Some("batch") => app.batch = Some(BatchWin::default()),
             Some(w) if w.starts_with("motion:") => {
                 app.open_motion();
                 if let (Some(m), Ok(t)) = (app.motion.as_mut(), std::fs::read_to_string(&w[7..])) { m.text = t; }
@@ -1349,6 +1353,7 @@ impl App {
             });
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
+                if ui.button("Toplu satır işlemleri…").on_hover_text("Aynı metinli/kısa satırları birleştir, süreleri okuma hızına göre hesapla (Subtitle Edit)").clicked() { self.batch = Some(BatchWin::default()); ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
                 ui.separator();
@@ -1727,6 +1732,7 @@ impl eframe::App for App {
         self.hotkeys_window(&ctx);
         self.merge_window(&ctx);
         self.motion_window(&ctx);
+        self.batch_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
@@ -1759,6 +1765,24 @@ impl eframe::App for App {
         }
         if self.play_wait > 0 { self.play_wait -= 1; ctx.request_repaint(); }
         self.handle_screenshot(&ctx);
+    }
+}
+
+/// Toplu satır işlemleri penceresinin ayarları.
+pub(crate) struct BatchWin {
+    pub same_gap: i64,
+    pub short_chars: usize,
+    pub short_gap: i64,
+    pub cps: f64,
+    pub min_ms: i64,
+    pub max_ms: i64,
+    pub gap_ms: i64,
+    pub extend_only: bool,
+}
+
+impl Default for BatchWin {
+    fn default() -> Self {
+        BatchWin { same_gap: 250, short_chars: 40, short_gap: 250, cps: 15.0, min_ms: 1000, max_ms: 7000, gap_ms: 84, extend_only: true }
     }
 }
 

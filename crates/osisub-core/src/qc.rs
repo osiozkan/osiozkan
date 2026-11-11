@@ -304,9 +304,7 @@ pub fn sort_by_start(script: &mut Script) {
         Entry::Dialogue(d) => (d.start_time, d.layer),
         _ => (i64::MAX, 0),
     });
-    for (k, e) in slice.into_iter().enumerate() {
-        script.entries.insert(first + k, e);
-    }
+    script.entries.splice(first..first, slice);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

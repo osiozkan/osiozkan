@@ -16,6 +16,7 @@ KULLANIM:
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
+                          [--merge-same BOŞLUK_MS] [--merge-short KAR] [--recalc KAR/SN]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
   osisub macros <betik.lua>...            betiklerdeki makroları listele
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
@@ -187,7 +188,10 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if issues.is_empty() { Ok(()) } else { Err(format!("{} sorun bulundu", issues.len())) }
         }
         "fix" => {
-            let all = !["--overlaps", "--dupes", "--empty", "--clean", "--sort", "--snap"].iter().any(|f| args.contains(&f.to_string()));
+            let all = !["--overlaps", "--dupes", "--empty", "--clean", "--sort", "--snap", "--merge-same", "--merge-short", "--recalc"].iter().any(|f| args.contains(&f.to_string()));
+            let merge_same: Option<i64> = opt(&mut args, "--merge-same").and_then(|v| v.parse().ok());
+            let merge_short: Option<usize> = opt(&mut args, "--merge-short").and_then(|v| v.parse().ok());
+            let recalc: Option<f64> = opt(&mut args, "--recalc").and_then(|v| v.parse().ok());
             let (ov, du, em, cl, so, sn) = (flag(&mut args, "--overlaps"), flag(&mut args, "--dupes"), flag(&mut args, "--empty"), flag(&mut args, "--clean"), flag(&mut args, "--sort"), flag(&mut args, "--snap"));
             let fps: Option<f64> = opt(&mut args, "--fps").and_then(|v| v.parse().ok());
             let tc = load_timecodes(&mut args)?;
@@ -205,6 +209,9 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                     (None, None) => return Err("--snap için --fps ya da --timecodes gerekli".into()),
                 }
             }
+            if let Some(g) = merge_same { println!("aynı metin birleştirildi: {}", osisub_core::batch::merge_same_text(&mut s, g, None)); }
+            if let Some(c) = merge_short { println!("kısa satır birleştirildi: {}", osisub_core::batch::merge_short_lines(&mut s, c, 250, None)); }
+            if let Some(c) = recalc { println!("süre yeniden hesaplandı: {}", osisub_core::batch::recalc_durations(&mut s, c, 1000, 7000, 84, true, None)); }
             if all || ov { println!("çakışma düzeltildi: {}", qc::fix_overlaps(&mut s)); }
             save(&s, &out)
         }

@@ -443,6 +443,59 @@ impl App {
         if open { self.motion = Some(m); }
     }
 
+    pub(super) fn batch_window(&mut self, ctx: &egui::Context) {
+        let Some(mut b) = self.batch.take() else { return };
+        let mut open = true;
+        // birden çok satır seçiliyse yalnızca seçim, yoksa tüm belge
+        let sel = self.doc.selection.clone();
+        let scope: Option<Vec<usize>> = (sel.len() > 1).then_some(sel);
+        let mut action: Option<u8> = None;
+        egui::Window::new("Toplu satır işlemleri").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.label(RichText::new(match &scope { Some(s) => format!("Kapsam: seçili {} satır", s.len()), None => "Kapsam: tüm belge (birden çok satır seçerek daraltın)".into() }).small().weak());
+            ui.label(RichText::new("Yorum, tipografi, karaoke ve fx satırlarına dokunulmaz.").small().weak());
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Aynı metinli ardışık satırları birleştir; en çok boşluk");
+                ui.add(egui::DragValue::new(&mut b.same_gap).range(0..=5000).suffix(" ms"));
+                if ui.button("Uygula").clicked() { action = Some(1); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Kısa satırları birleştir; toplam ≤");
+                ui.add(egui::DragValue::new(&mut b.short_chars).range(4..=120).suffix(" kar"));
+                ui.label("boşluk ≤");
+                ui.add(egui::DragValue::new(&mut b.short_gap).range(0..=5000).suffix(" ms"));
+                if ui.button("Uygula").clicked() { action = Some(2); }
+            });
+            ui.separator();
+            ui.label("Süreleri okuma hızına göre yeniden hesapla");
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut b.cps).range(5.0..=40.0).speed(0.5).suffix(" kar/sn"));
+                ui.label("en az");
+                ui.add(egui::DragValue::new(&mut b.min_ms).range(100..=10000).suffix(" ms"));
+                ui.label("en çok");
+                ui.add(egui::DragValue::new(&mut b.max_ms).range(500..=30000).suffix(" ms"));
+            });
+            ui.horizontal(|ui| {
+                ui.label("sonraki satıra boşluk");
+                ui.add(egui::DragValue::new(&mut b.gap_ms).range(0..=2000).suffix(" ms"));
+                ui.checkbox(&mut b.extend_only, "yalnızca uzat");
+                if ui.button("Uygula").clicked() { action = Some(3); }
+            });
+        });
+        if let Some(a) = action {
+            let mut s = self.doc.script.clone();
+            let only = scope.as_deref();
+            let (n, what) = match a {
+                1 => (osisub_core::batch::merge_same_text(&mut s, b.same_gap, only), "Aynı metinli satırları birleştir"),
+                2 => (osisub_core::batch::merge_short_lines(&mut s, b.short_chars, b.short_gap, only), "Kısa satırları birleştir"),
+                _ => (osisub_core::batch::recalc_durations(&mut s, b.cps, b.min_ms, b.max_ms, b.gap_ms, b.extend_only, only), "Süreleri yeniden hesapla"),
+            };
+            self.doc.apply_new_script(what, s);
+            self.status = format!("{what}: {n} satır");
+        }
+        if open { self.batch = Some(b); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
