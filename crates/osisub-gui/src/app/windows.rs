@@ -403,6 +403,7 @@ impl App {
                 ui.checkbox(&mut m.opts.scale, "Ölçek");
                 ui.add_enabled(m.opts.scale, egui::Checkbox::new(&mut m.opts.scale_border, "Kenar/gölge/bulanıklık da"));
                 ui.checkbox(&mut m.opts.rotation, "Döndürme");
+                ui.checkbox(&mut m.opts.clip, "Kırpma (\\clip)");
             });
             ui.horizontal(|ui| {
                 ui.label("İzin ilk karesi = video karesi");

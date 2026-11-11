@@ -20,7 +20,7 @@ KULLANIM:
   osisub macros <betik.lua>...            betiklerdeki makroları listele
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
   osisub info <dosya>                     özet bilgi
-  osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot]
+  osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip]
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
@@ -96,6 +96,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             o.position = !flag(&mut args, "--no-pos");
             o.scale = !flag(&mut args, "--no-scale");
             o.rotation = !flag(&mut args, "--no-rot");
+            o.clip = !flag(&mut args, "--no-clip");
             if args.len() < 2 { return Err("kullanım: motion <girdi> <iz.txt> --lines 5,6 [çıktı]".into()); }
             let out = args.get(2).cloned().unwrap_or_else(|| args[0].clone());
             let mut s = load(&args[0])?;

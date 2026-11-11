@@ -36,11 +36,13 @@ pub struct MotionOptions {
     pub scale_border: bool,
     /// izin 0. karesinin denk geldiği video karesi (Aegisub-Motion: seçimin ilk karesi)
     pub start_frame: i64,
+    /// `\clip`/`\iclip`'i de izle (dikdörtgen; dönüş varsa vektöre çevrilir)
+    pub clip: bool,
 }
 
 impl Default for MotionOptions {
     fn default() -> Self {
-        MotionOptions { position: true, scale: true, rotation: true, scale_border: true, start_frame: 0 }
+        MotionOptions { position: true, scale: true, rotation: true, scale_border: true, start_frame: 0, clip: true }
     }
 }
 
@@ -194,6 +196,42 @@ fn shift_timed_tags(text: &str, off: i64, dur: i64) -> String {
     overrides::to_string(&segs)
 }
 
+/// Kırpmayı izle: her nokta p → T + R·S·(p − T0). Dikdörtgen kırpma dönüş yoksa dikdörtgen kalır.
+fn track_clip(text: &str, map: &dyn Fn((f64, f64)) -> (f64, f64), rotated: bool) -> String {
+    let mut out = text.to_string();
+    for name in ["clip", "iclip"] {
+        let Some(t) = overrides::get_initial(&out, name) else { continue };
+        let a = t.args();
+        let nums: Option<Vec<f64>> = if a.len() == 4 { a.iter().map(|x| x.trim().parse().ok()).collect() } else { None };
+        let new_arg = if let Some(v) = nums {
+            let (p1, p2) = (map((v[0], v[1])), map((v[2], v[3])));
+            if rotated {
+                let (q1, q2) = (map((v[2], v[1])), map((v[0], v[3])));
+                format!("(m {} {} l {} {} {} {} {} {})", r2(p1.0), r2(p1.1), r2(q1.0), r2(q1.1), r2(p2.0), r2(p2.1), r2(q2.0), r2(q2.1))
+            } else {
+                format!("({},{},{},{})", r2(p1.0.min(p2.0)), r2(p1.1.min(p2.1)), r2(p1.0.max(p2.0)), r2(p1.1.max(p2.1)))
+            }
+        } else {
+            // vektör: (çizim) ya da (ölçek, çizim); ölçek 2^(s-1) koordinat çarpanı
+            let (scale, draw) = match a.len() {
+                1 => (1.0, a[0].clone()),
+                2 => (a[0].trim().parse::<f64>().map(|s| 2f64.powf(s - 1.0)).unwrap_or(1.0), a[1].clone()),
+                _ => continue,
+            };
+            let mut cmds = crate::drawing::parse(&draw);
+            for c in cmds.iter_mut() {
+                for p in c.pts.iter_mut() {
+                    let q = map((p.0 / scale, p.1 / scale));
+                    *p = (q.0, q.1);
+                }
+            }
+            format!("({})", crate::drawing::to_string(&cmds))
+        };
+        out = overrides::set_initial(&out, name, &new_arg);
+    }
+    out
+}
+
 /// İzi `lines` satırlarına uygular; her satır göründüğü kare sayısı kadar satıra bölünür.
 /// Satırlar kendi içlerinde sıralı döner. Hata: iz satırın karelerini kapsamıyorsa.
 pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framerate, opts: &MotionOptions) -> Result<Vec<Dialogue>, String> {
@@ -237,6 +275,17 @@ pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framer
             let ratio_y = t.sy / base.sy.max(1e-9);
             let drot = t.rot - base.rot;
             let mut text = text0.clone();
+            if opts.clip {
+                let (sx, sy) = if opts.scale { (ratio_x, ratio_y) } else { (1.0, 1.0) };
+                let a = if opts.rotation { drot.to_radians() } else { 0.0 };
+                let (c, s) = (a.cos(), a.sin());
+                let (tx, ty) = if opts.position { (t.x * kx, t.y * ky) } else { (bx, by) };
+                let map = |p: (f64, f64)| {
+                    let (dx, dy) = ((p.0 - bx) * sx, (p.1 - by) * sy);
+                    (tx + dx * c - dy * s, ty + dx * s + dy * c)
+                };
+                text = track_clip(&text, &map, a != 0.0);
+            }
             if opts.position {
                 // başlangıçtaki iz noktasına göre ofset; ölçek ve dönüşle birlikte dönüştürülür
                 let (mut dx, mut dy) = (ox - bx, oy - by);
@@ -330,5 +379,25 @@ mod tests {
         assert_eq!(line_position(&s, &d), (960.0, 540.0)); // \an5
         let d = Dialogue { style: "Sign".into(), text: "{\\an7}x".into(), ..Default::default() };
         assert_eq!(line_position(&s, &d), (10.0, 10.0));
+    }
+
+    #[test]
+    fn tracks_clips() {
+        let s = script();
+        let fr = Framerate::cfr(24.0);
+        let m = parse_ae(AE).unwrap();
+        let d = Dialogue { start_time: fr.time_at_start(10), end_time: fr.time_at_end(12), style: "Sign".into(), text: "{\\pos(165,150)\\clip(150,140,180,160)}x".into(), ..Default::default() };
+        let mut o = MotionOptions { start_frame: 10, ..Default::default() };
+        let out = apply(&s, &[d.clone()], &m, &fr, &o).unwrap();
+        assert!(out[0].text.contains("\\clip(150,140,180,160)"), "{}", out[0].text);
+        assert!(out[1].text.contains("\\clip(165,140,195,160)"), "{}", out[1].text); // +15 x
+        // kare 2: 90° dönüş → vektöre çevrilir; iz noktası (180,156), (150,140)−(150,150)=(0,−10) ×2 → (0,−20) → döndür (20,0)
+        assert!(out[2].text.contains("\\clip(m 200 156 "), "{}", out[2].text);
+        // vektör kırpma ölçek parametresiyle
+        let d2 = Dialogue { text: "{\\pos(165,150)\\iclip(2,m 300 280 l 360 280)}x".into(), ..d };
+        o.rotation = false;
+        o.scale = false;
+        let out = apply(&s, &[d2], &m, &fr, &o).unwrap();
+        assert!(out[1].text.contains("\\iclip(m 165 140 l 195 140)"), "{}", out[1].text);
     }
 }

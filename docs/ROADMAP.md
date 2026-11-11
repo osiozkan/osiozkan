@@ -95,7 +95,8 @@
 - [x] Video önizlemede yakınlaştırma (1600%e kadar, imleç etrafında) ve kaydırma; araçlar yakınlaştırılmış görüntüde doğru çalışır
 - [x] Video araçları: 3B döndürme \frx/\fry (yatay/dikey sürükle, Shift = 15°)
 - [x] Hareket izleme verisi uygulama (core::motion; Araçlar → Hareket izleme verisi uygula…, CLI `motion`): Mocha/AE Transform Data → kare kare \pos/\fscx/\fscy/\frz (+\bord/\shad/\blur), kaynak çözünürlük ölçeklemesi, \t/\fad kaydırma, \move → \pos; VFR uyumlu
-- [ ] Hareket izleme: doğrusal kip (\move+\t), \clip izleme, köşe pini (CC Power Pin)
+- [x] Hareket izleme: \clip/\iclip izleme (dikdörtgen; dönüşte vektöre çevrilir; vektör kırpma ölçek parametresiyle)
+- [ ] Hareket izleme: doğrusal kip (\move+\t), köşe pini (CC Power Pin)
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
