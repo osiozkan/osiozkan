@@ -565,6 +565,56 @@ impl App {
         if open { self.tsw = Some(w); }
     }
 
+    pub(super) fn tracks_window(&mut self, ctx: &egui::Context) {
+        let Some((video, tracks)) = self.tracks_win.take() else { return };
+        let mut open = true;
+        let mut action: Option<(usize, bool)> = None; // (iz, aç mı)
+        let mut fonts = false;
+        egui::Window::new("Videodaki altyazı izleri").open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label(RichText::new(video.display().to_string()).small().weak());
+            if tracks.is_empty() { ui.label("Altyazı izi yok."); }
+            for (k, t) in tracks.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(t.label());
+                    let text = t.text_ext().is_some();
+                    if ui.add_enabled(text, egui::Button::new("Aç")).on_disabled_hover_text("Resim tabanlı (PGS/VobSub): OCR gerekir").clicked() { action = Some((k, true)); }
+                    if ui.add_enabled(text, egui::Button::new("Kaydet…")).clicked() { action = Some((k, false)); }
+                });
+            }
+            ui.separator();
+            if ui.button("Ekli yazı tiplerini klasöre çıkar…").clicked() { fonts = true; }
+        });
+        if fonts {
+            if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                match osisub_media::mux::extract_attachments(&video, &d) {
+                    Ok(f) => self.status = format!("{} ek çıkarıldı → {}", f.len(), d.display()),
+                    Err(e) => self.status = e,
+                }
+            }
+        }
+        if let Some((k, open_it)) = action {
+            let t = &tracks[k];
+            let ext = t.text_ext().unwrap_or("ass");
+            let stem = video.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let out = if open_it {
+                Some(osisub_core::paths::data_dir().unwrap_or_else(std::env::temp_dir).join("extracted").join(format!("{stem}.{}.{ext}", t.index)))
+            } else {
+                rfd::FileDialog::new().add_filter(ext, &[ext]).set_file_name(format!("{stem}.{}.{ext}", t.index)).save_file()
+            };
+            if let Some(out) = out {
+                if let Some(d) = out.parent() { let _ = std::fs::create_dir_all(d); }
+                match osisub_media::mux::extract_subtitle(&video, t, &out) {
+                    Ok(()) => {
+                        self.status = format!("Çıkarıldı: {}", out.display());
+                        if open_it { self.request(super::Guarded::OpenPath(out)); return; }
+                    }
+                    Err(e) => self.status = e,
+                }
+            }
+        }
+        if open { self.tracks_win = Some((video, tracks)); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

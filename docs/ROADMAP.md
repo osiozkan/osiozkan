@@ -34,6 +34,8 @@
 - [x] Kare doğruluğu: Aegisub START/END anlambilimi (iki kare arasının ortası) — F6/F7, kareye yapışma, anahtar kare yapışması, "Kareye oturt", son-işleyici ve Lua `frame_from_ms/ms_from_frame` santisaniye yuvarlamasına dayanıklı (eskiden 23.976'da bazı satırlar bir kare geç başlıyordu); önizleme playhead'deki kareyi gösterir
 - [x] VFR: videodan otomatik algılama (ffprobe paket PTS; ms yuvarlaması toleranslı), videoda "kare N VFR" göstergesi; elle yüklenen timecode önceliklidir
 - [x] Matroska timestamp v4 dosyaları (sırasız satırlar sıralanır)
+- [x] Video ile (osisub-media::mux; Dosya → Video ile, CLI `tracks/extract/mux/burn`): gömülü altyazı izlerini listele/aç/kaydet (ASS kayıpsız), ekli yazı tiplerini çıkar, MKV'ye göm (dil/başlık/varsayılan, mevcut izler korunur, kullanılan yazı tipleri eklenir), videoya yak (x264, ilerleme + iptal, gömülü yazı tipleri fontsdir ile)
+- [ ] Resim tabanlı altyazı (PGS/VobSub) OCR
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
 - [x] Dosya birleştirme (core::merge; Dosya → Başka dosyayı birleştir…, CLI `merge`): stil çakışmasında "Ad (2)" + `\r` başvuruları, farklı çözünürlükte otomatik yeniden örnekleme, zaman kaydırma (OP/ED), gömülü yazı tipleri; toplu işlemlerden sonra etkin satır/seçim içeriğe göre korunur
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)

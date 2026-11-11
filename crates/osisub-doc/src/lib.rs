@@ -83,9 +83,15 @@ impl Tx<'_> {
     }
 }
 
+/// Her yeni belge farklı bir `rev` aralığından başlar: arayüz önbellekleri (ızgara satırları, QC,
+/// yazım) `rev` ile anahtarlanır; iki belgenin ikisi de 0'dan başlarsa yeni açılan belge eskisinin
+/// önbelleğiyle gösteriliyordu (HATA: ikinci dosyayı açınca ızgara boş/yanlış kalıyordu).
+static NEXT_REV_BASE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl Document {
     pub fn new(script: Script) -> Document {
-        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500, rev: 0 }
+        let rev = NEXT_REV_BASE.fetch_add(1 << 32, std::sync::atomic::Ordering::Relaxed);
+        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500, rev }
     }
 
     pub fn open(path: impl Into<PathBuf>) -> Result<Document, String> {
@@ -611,6 +617,12 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn new_documents_have_distinct_revisions() {
+        let (a, b) = (doc(), doc());
+        assert_ne!(a.rev, b.rev);
     }
 
     #[test]

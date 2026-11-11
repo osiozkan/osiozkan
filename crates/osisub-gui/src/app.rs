@@ -172,6 +172,10 @@ pub struct App {
     font_db: Option<osisub_lua::fonts::FontDb>,
     /// Bir sonraki karede panoya kopyalanacak metin (bağlamı olmayan işlevlerden)
     ctx_copy: Option<String>,
+    /// Arka plan video işi (MKV'ye gömme / yakma): (ad, ilerleme 0..1000, iptal, sonuç kanalı)
+    job: Option<VideoJob>,
+    /// Videodaki altyazı izleri penceresi: (video, izler)
+    tracks_win: Option<(PathBuf, Vec<osisub_media::mux::SubTrack>)>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -393,6 +397,8 @@ impl App {
             tsw: None,
             font_db: None,
             ctx_copy: None,
+            job: None,
+            tracks_win: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -537,6 +543,7 @@ impl App {
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
+            Some(w) if w.starts_with("tracks:") => { let v = PathBuf::from(&w[7..]); if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); } }
             Some(w) if w.starts_with("motion:") => {
                 app.open_motion();
                 if let (Some(m), Ok(t)) = (app.motion.as_mut(), std::fs::read_to_string(&w[7..])) { m.text = t; }
@@ -1349,6 +1356,21 @@ impl App {
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
                 if ui.button("Dışa aktar (filtreler)…").clicked() { ui.close(); self.export_open = true; }
+                ui.menu_button("Video ile", |ui| {
+                    if ui.button("Videodaki altyazı izleri…").on_hover_text("MKV/MP4 içindeki altyazıyı aç; ekli yazı tiplerini çıkar").clicked() {
+                        ui.close();
+                        let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
+                        if let Some(v) = v {
+                            match osisub_media::mux::subtitle_tracks(&v) {
+                                Ok(t) => self.tracks_win = Some((v, t)),
+                                Err(e) => self.status = e,
+                            }
+                        }
+                    }
+                    let busy = self.job.is_some();
+                    if ui.add_enabled(!busy, egui::Button::new("MKV'ye göm (softsub)…")).on_hover_text("Açık videoya bu altyazıyı iz olarak ekler; kullanılan yazı tipleri de eklenir. Yeniden kodlama yok.").clicked() { ui.close(); self.start_video_job(false); }
+                    if ui.add_enabled(!busy, egui::Button::new("Videoya yak (hardsub)…")).on_hover_text("x264 ile yeniden kodlar (CRF 18); ses kopyalanır").clicked() { ui.close(); self.start_video_job(true); }
+                });
                 ui.separator();
                 if ui.button("Çıkış").clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
             });
@@ -1714,6 +1736,7 @@ impl eframe::App for App {
         if self.issues_key != self.doc.rev { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         self.shortcuts(&ctx);
         if let Some(t) = self.ctx_copy.take() { ctx.copy_text(t); }
+        self.poll_job(&ctx);
         self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
@@ -1725,6 +1748,11 @@ impl eframe::App for App {
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
+                if let Some(j) = &self.job {
+                    let p = j.progress.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0;
+                    ui.add(egui::ProgressBar::new(p).desired_width(160.0).text(format!("{} %{:.0}", j.label, p * 100.0)));
+                    if ui.small_button("İptal").clicked() { j.cancel.store(true, std::sync::atomic::Ordering::Relaxed); }
+                }
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     let (w, h) = self.doc.script.res();
@@ -1758,6 +1786,7 @@ impl eframe::App for App {
         self.motion_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
+        self.tracks_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
@@ -1829,6 +1858,14 @@ impl Default for TypesetWin {
     }
 }
 
+/// Arka planda çalışan video işi.
+pub(crate) struct VideoJob {
+    pub label: String,
+    pub progress: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub rx: std::sync::mpsc::Receiver<Result<String, String>>,
+}
+
 /// Hareket izleme penceresinin durumu.
 pub(crate) struct MotionWin {
     pub text: String,
@@ -1836,6 +1873,60 @@ pub(crate) struct MotionWin {
 }
 
 impl App {
+    /// MKV'ye gömme (`burn` = false) ya da videoya yakma işini arka planda başlatır.
+    fn start_video_job(&mut self, burn: bool) {
+        let Some(video) = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file()) else { return };
+        let stem = video.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "cikti".into());
+        let (ext, filt) = if burn { ("mp4", "MP4") } else { ("mkv", "Matroska") };
+        let Some(out) = rfd::FileDialog::new().add_filter(filt, &[ext]).set_file_name(format!("{stem}.osisub.{ext}")).save_file() else { return };
+        // Belgenin şu anki hali (kaydedilmemiş değişiklikler dahil) geçici ASS'e
+        let tmp = std::env::temp_dir().join(format!("osisub-job-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let ass = tmp.join("altyazi.ass");
+        if let Err(e) = std::fs::write(&ass, self.doc.script.to_ass_string()) { self.status = e.to_string(); return; }
+        // Gömülü yazı tipleri klasöre (yakma için fontsdir), kurulu yazı tipleri dosya listesine (gömme için)
+        let fonts_dir = tmp.join("fonts");
+        let _ = std::fs::remove_dir_all(&fonts_dir);
+        let _ = std::fs::create_dir_all(&fonts_dir);
+        for a in osisub_core::attach::list(&self.doc.script).into_iter().filter(|a| a.section == osisub_core::attach::SEC_FONTS) {
+            if let Some(d) = osisub_core::attach::extract(&self.doc.script, &a.name) { let _ = std::fs::write(fonts_dir.join(a.name.replace(['/', '\\'], "_")), d); }
+        }
+        let mut font_files = vec![];
+        if !burn {
+            let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+            for u in osisub_core::fonts_used::used_fonts(&self.doc.script) {
+                for f in db.files_for(&u.family) { if !font_files.contains(&f) { font_files.push(f); } }
+            }
+        }
+        let duration = self.media.info.as_ref().map(|i| i.duration_ms).unwrap_or(0);
+        let progress = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (p2, c2) = (progress.clone(), cancel.clone());
+        std::thread::spawn(move || {
+            let r = if burn {
+                let dur = if duration > 0 { duration } else { osisub_media::probe(&video).map(|i| i.duration_ms).unwrap_or(0) };
+                let o = osisub_media::mux::BurnOptions { fonts_dir: Some(fonts_dir), ..Default::default() };
+                osisub_media::mux::burn(&video, &ass, &out, &o, dur, |p| p2.store((p * 1000.0) as u32, std::sync::atomic::Ordering::Relaxed), || c2.load(std::sync::atomic::Ordering::Relaxed))
+            } else {
+                let o = osisub_media::mux::MuxOptions { language: "tur".into(), title: "Türkçe".into(), fonts: font_files, default_track: true, keep_existing_subs: true };
+                osisub_media::mux::mux_mkv(&video, &ass, &out, &o)
+            };
+            let _ = tx.send(r.map(|_| out.display().to_string()));
+        });
+        self.job = Some(VideoJob { label: if burn { "Videoya yakılıyor".into() } else { "MKV'ye gömülüyor".into() }, progress, cancel, rx });
+    }
+
+    /// Video işinin durumunu yoklar (her kare).
+    fn poll_job(&mut self, ctx: &egui::Context) {
+        let Some(j) = &self.job else { return };
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        if let Ok(r) = j.rx.try_recv() {
+            self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
+            self.job = None;
+        }
+    }
+
     /// Etkin satırın 4 noktalı vektör kırpmasını hedef dörtgen alıp satırı perspektifle oturtur.
     fn perspective_fit(&mut self) {
         use osisub_core::{overrides, perspective};

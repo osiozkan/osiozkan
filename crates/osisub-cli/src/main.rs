@@ -33,6 +33,11 @@ KULLANIM:
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
   osisub find <girdi> <desen> [--regex] [--case] [--replace METİN [çıktı]]
+  osisub tracks <video>                   gömülü altyazı izleri
+  osisub extract <video> [iz no] [çıktı] [--fonts klasör]   altyazı izini (ve yazı tiplerini) çıkar
+  osisub mux <video> <altyazı> -o çıktı.mkv [--lang tur] [--title T] [--keep] [--default] [--no-fonts]
+                          MKV'ye göm (kullanılan yazı tipleri otomatik eklenir)
+  osisub burn <video> <altyazı.ass> -o çıktı.mp4 [--crf 18] [--preset medium] [--fonts klasör]   videoya yak
   osisub fonts <girdi>                    kullanılan yazı tipleri ve kurulu mu
   osisub batch <klasör> <uzantı> [--recursive]   klasördeki altyazıları toplu dönüştür
 
@@ -356,6 +361,71 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 println!("{} eşleşme", hits.len());
                 Ok(())
             }
+        }
+        "tracks" => {
+            let v = args.first().ok_or("video gerekli")?;
+            let t = osisub_media::mux::subtitle_tracks(Path::new(v))?;
+            for x in &t { println!("{}", x.label()); }
+            if t.is_empty() { println!("altyazı izi yok"); }
+            Ok(())
+        }
+        "extract" => {
+            // extract <video> [iz no] [çıktı] [--fonts klasör]
+            let fonts = opt(&mut args, "--fonts");
+            let v = PathBuf::from(args.first().ok_or("video gerekli")?);
+            let tracks = osisub_media::mux::subtitle_tracks(&v)?;
+            let t = match args.get(1).and_then(|n| n.parse::<u32>().ok()) {
+                Some(n) => tracks.iter().find(|t| t.index == n).ok_or(format!("iz yok: #{n}"))?,
+                None => tracks.iter().find(|t| t.text_ext().is_some()).ok_or("metin tabanlı altyazı izi yok")?,
+            };
+            let out = args.get(2).map(PathBuf::from).unwrap_or_else(|| v.with_extension(format!("{}.{}", t.index, t.text_ext().unwrap_or("ass"))));
+            osisub_media::mux::extract_subtitle(&v, t, &out)?;
+            println!("{} → {}", t.label(), out.display());
+            if let Some(d) = fonts {
+                let f = osisub_media::mux::extract_attachments(&v, Path::new(&d))?;
+                println!("{} yazı tipi → {}", f.len(), d);
+            }
+            Ok(())
+        }
+        "mux" => {
+            // mux <video> <altyazı> -o çıktı.mkv [--lang tur] [--title T] [--keep] [--no-fonts] [--default]
+            let out = opt(&mut args, "-o").ok_or("-o <çıktı.mkv> gerekli")?;
+            let mut o = osisub_media::mux::MuxOptions { language: opt(&mut args, "--lang").unwrap_or_else(|| "tur".into()), title: opt(&mut args, "--title").unwrap_or_default(), ..Default::default() };
+            o.keep_existing_subs = flag(&mut args, "--keep");
+            o.default_track = flag(&mut args, "--default");
+            let no_fonts = flag(&mut args, "--no-fonts");
+            if args.len() < 2 { return Err("kullanım: mux <video> <altyazı> -o çıktı.mkv".into()); }
+            if !no_fonts {
+                let s = load(&args[1])?;
+                let mut db = osisub_lua::fonts::FontDb::default();
+                let mut warned: Vec<String> = vec![];
+                for u in osisub_core::fonts_used::used_fonts(&s) {
+                    let files = db.files_for(&u.family);
+                    if files.is_empty() && !warned.contains(&u.family) { eprintln!("uyarı: yazı tipi bulunamadı: {}", u.family); warned.push(u.family.clone()); }
+                    for f in files { if !o.fonts.contains(&f) { o.fonts.push(f); } }
+                }
+            }
+            osisub_media::mux::mux_mkv(Path::new(&args[0]), Path::new(&args[1]), Path::new(&out), &o)?;
+            println!("{} ({} yazı tipi eklendi)", out, o.fonts.len());
+            Ok(())
+        }
+        "burn" => {
+            // burn <video> <altyazı.ass> -o çıktı.mp4 [--crf 18] [--preset medium] [--fonts klasör]
+            let out = opt(&mut args, "-o").ok_or("-o <çıktı> gerekli")?;
+            let mut o = osisub_media::mux::BurnOptions::default();
+            if let Some(v) = opt(&mut args, "--crf") { o.crf = v.parse().map_err(|_| "--crf sayı")?; }
+            if let Some(v) = opt(&mut args, "--preset") { o.preset = v; }
+            o.fonts_dir = opt(&mut args, "--fonts").map(PathBuf::from);
+            if args.len() < 2 { return Err("kullanım: burn <video> <altyazı.ass> -o çıktı.mp4".into()); }
+            let dur = osisub_media::probe(Path::new(&args[0]))?.duration_ms;
+            let mut last = -1i64;
+            osisub_media::mux::burn(Path::new(&args[0]), Path::new(&args[1]), Path::new(&out), &o, dur, |p| {
+                let pc = (p * 100.0) as i64;
+                if pc / 5 != last / 5 { eprint!("\r%{pc}  "); last = pc; }
+            }, || false)?;
+            eprintln!();
+            println!("{out}");
+            Ok(())
         }
         "fonts" => {
             let s = load(args.first().ok_or("girdi gerekli")?)?;
