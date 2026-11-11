@@ -166,6 +166,8 @@ pub struct App {
     motion: Option<MotionWin>,
     /// Toplu satır işlemleri penceresi
     batch: Option<BatchWin>,
+    /// Tipografi yardımcıları penceresi (degrade, parıltı)
+    tsw: Option<TypesetWin>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -383,6 +385,7 @@ impl App {
             merge_win: None,
             motion: None,
             batch: None,
+            tsw: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -526,6 +529,7 @@ impl App {
             Some("hotkeys") => app.hotkeys_open = true,
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
+            Some("typeset") => app.tsw = Some(TypesetWin::default()),
             Some(w) if w.starts_with("motion:") => {
                 app.open_motion();
                 if let (Some(m), Ok(t)) = (app.motion.as_mut(), std::fs::read_to_string(&w[7..])) { m.text = t; }
@@ -1538,6 +1542,7 @@ impl App {
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
+                if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
                     ui.close();
                     self.open_motion();
@@ -1733,6 +1738,7 @@ impl eframe::App for App {
         self.merge_window(&ctx);
         self.motion_window(&ctx);
         self.batch_window(&ctx);
+        self.typeset_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
@@ -1783,6 +1789,24 @@ pub(crate) struct BatchWin {
 impl Default for BatchWin {
     fn default() -> Self {
         BatchWin { same_gap: 250, short_chars: 40, short_gap: 250, cps: 15.0, min_ms: 1000, max_ms: 7000, gap_ms: 84, extend_only: true }
+    }
+}
+
+/// Degrade / parıltı penceresinin ayarları.
+pub(crate) struct TypesetWin {
+    pub vertical: bool,
+    pub strip: f64,
+    pub from: String,
+    pub to: String,
+    pub accel: f64,
+    pub glow_blur: f64,
+    pub glow_color: String,
+    pub glow_alpha: u8,
+}
+
+impl Default for TypesetWin {
+    fn default() -> Self {
+        TypesetWin { vertical: false, strip: 4.0, from: "\\c&HFFFFFF&".into(), to: "\\c&H00A5FF&".into(), accel: 1.0, glow_blur: 5.0, glow_color: "&HFFFFFF&".into(), glow_alpha: 0x80 }
     }
 }
 

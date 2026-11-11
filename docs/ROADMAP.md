@@ -98,6 +98,8 @@
 - [x] Hareket izleme verisi uygulama (core::motion; Araçlar → Hareket izleme verisi uygula…, CLI `motion`): Mocha/AE Transform Data → kare kare \pos/\fscx/\fscy/\frz (+\bord/\shad/\blur), kaynak çözünürlük ölçeklemesi, \t/\fad kaydırma, \move → \pos; VFR uyumlu
 - [x] Hareket izleme: \clip/\iclip izleme (dikdörtgen; dönüşte vektöre çevrilir; vektör kırpma ölçek parametresiyle)
 - [ ] Hareket izleme: doğrusal kip (\move+\t), köşe pini (CC Power Pin)
+- [x] Tipografi yardımcıları (core::typeset; Araçlar → Degrade / parıltı…): kırpma şeritleriyle degrade (renk/saydamlık/sayısal etiketler, yatay/dikey, ivme), parıltı katmanı
+- [ ] Perspektif aracı (4 köşe → \frx\fry\fax\org), metin → çizim (\p1) dönüştürme
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme

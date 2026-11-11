@@ -496,6 +496,75 @@ impl App {
         if open { self.batch = Some(b); }
     }
 
+    pub(super) fn typeset_window(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.tsw.take() else { return };
+        let mut open = true;
+        let mut action: Option<u8> = None;
+        egui::Window::new("Degrade / parıltı").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.label(RichText::new("Seçili satırlara uygulanır. Degrade için satırda dikdörtgen \\clip olmalı (Video aracı: Kırpma).").small().weak());
+            ui.heading("Degrade");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut w.vertical, false, "Soldan sağa");
+                ui.radio_value(&mut w.vertical, true, "Yukarıdan aşağıya");
+                ui.label("şerit");
+                ui.add(egui::DragValue::new(&mut w.strip).range(1.0..=200.0).suffix(" px"));
+                ui.label("ivme");
+                ui.add(egui::DragValue::new(&mut w.accel).range(0.1..=10.0).speed(0.05));
+            });
+            egui::Grid::new("grad").num_columns(2).show(ui, |ui| {
+                ui.label("Başlangıç");
+                ui.add(egui::TextEdit::singleline(&mut w.from).font(egui::TextStyle::Monospace).desired_width(320.0));
+                ui.end_row();
+                ui.label("Bitiş");
+                ui.add(egui::TextEdit::singleline(&mut w.to).font(egui::TextStyle::Monospace).desired_width(320.0));
+                ui.end_row();
+            });
+            ui.label(RichText::new("Ortak etiketler enterpole edilir: \\c \\1c-4c, \\alpha \\1a-4a, \\bord \\shad \\blur \\fscx \\frz …").small().weak());
+            if ui.button("Degrade uygula").clicked() { action = Some(1); }
+            ui.separator();
+            ui.heading("Parıltı (glow)");
+            ui.horizontal(|ui| {
+                ui.label("bulanıklık");
+                ui.add(egui::DragValue::new(&mut w.glow_blur).range(0.0..=50.0).speed(0.2));
+                ui.label("kenar rengi");
+                ui.add(egui::TextEdit::singleline(&mut w.glow_color).font(egui::TextStyle::Monospace).desired_width(100.0));
+                ui.label("saydamlık");
+                ui.add(egui::DragValue::new(&mut w.glow_alpha).range(0..=255).hexadecimal(2, false, true));
+            });
+            if ui.button("Parıltı katmanı ekle").on_hover_text("Her satırın altına bulanık bir kopya ekler (asıl satır bir üst katmana geçer)").clicked() { action = Some(2); }
+        });
+        if let Some(a) = action {
+            let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+            let mut s = self.doc.script.clone();
+            let mut err = None;
+            let mut made = 0;
+            for &i in targets.iter().rev() {
+                let Entry::Dialogue(d) = &s.entries[i] else { continue };
+                let new: Result<Vec<osisub_core::ass::Dialogue>, String> = if a == 1 {
+                    let o = osisub_core::typeset::GradientOptions { direction: if w.vertical { osisub_core::typeset::Direction::Vertical } else { osisub_core::typeset::Direction::Horizontal }, strip: w.strip, from: w.from.clone(), to: w.to.clone(), accel: w.accel };
+                    osisub_core::typeset::gradient(d, None, &o)
+                } else {
+                    Ok(osisub_core::typeset::glow(d, w.glow_blur, Some(&w.glow_color), w.glow_alpha))
+                };
+                match new {
+                    Ok(v) => { made += v.len(); s.entries.splice(i..=i, v.into_iter().map(Entry::Dialogue)); }
+                    Err(e) => { err = Some(e); break; }
+                }
+            }
+            match err {
+                Some(e) => self.status = e,
+                None if !targets.is_empty() => {
+                    let first = targets[0];
+                    self.doc.apply_new_script(if a == 1 { "Degrade" } else { "Parıltı" }, s);
+                    self.doc.select((first..first + made).collect(), first);
+                    self.status = format!("{} satır → {} satır", targets.len(), made);
+                }
+                None => {}
+            }
+        }
+        if open { self.tsw = Some(w); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

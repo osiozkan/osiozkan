@@ -25,6 +25,7 @@ pub mod tags;
 pub mod time;
 pub mod timing;
 pub mod tm;
+pub mod typeset;
 pub mod vfr;
 pub mod vtt;
 
