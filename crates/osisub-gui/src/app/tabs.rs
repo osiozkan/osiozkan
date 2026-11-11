@@ -344,6 +344,12 @@ impl App {
                     }
                 }
             }
+            if ui.button("Kullanılmayanları sil").on_hover_text("Hiçbir satırın (stil ya da \\r ile) kullanmadığı stiller; Default korunur").clicked() {
+                let mut sc = self.doc.script.clone();
+                let removed = osisub_core::merge::remove_unused_styles(&mut sc);
+                if !removed.is_empty() { self.doc.apply_new_script("Kullanılmayan stilleri sil", sc); self.style_sel = 0; }
+                self.status = if removed.is_empty() { "Kullanılmayan stil yok".into() } else { format!("Silindi: {}", removed.join(", ")) };
+            }
             if ui.button("Sil").clicked() && idxs.len() > 1 {
                 if let Some(&i) = idxs.get(self.style_sel) { self.doc.edit("Stil sil", |tx| tx.remove(i, 1)); }
             }
@@ -362,6 +368,10 @@ impl App {
                         if let Some((old, new)) = rename {
                             let affected: Vec<usize> = tx.script().entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.style == old)).map(|(k, _)| k).collect();
                             for k in affected { tx.dialogue_mut(k, |d| d.style = new.clone()); }
+                            // \r<eski> başvuruları da
+                            let map = [(old.clone(), new.clone())];
+                            let refs: Vec<usize> = tx.script().entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.text.contains("\\r"))).map(|(k, _)| k).collect();
+                            for k in refs { tx.dialogue_mut(k, |d| d.text = osisub_core::merge::rename_r_refs(&d.text, &map)); }
                         }
                     });
                 }

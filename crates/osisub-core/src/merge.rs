@@ -32,7 +32,7 @@ fn same_style(a: &Style, b: &Style) -> bool {
 }
 
 /// `\r<Stil>` başvurularını yeniden adlandırır.
-fn rename_r_refs(text: &str, map: &[(String, String)]) -> String {
+pub fn rename_r_refs(text: &str, map: &[(String, String)]) -> String {
     if map.is_empty() || !text.contains("\\r") {
         return text.to_string();
     }
@@ -49,6 +49,33 @@ fn rename_r_refs(text: &str, map: &[(String, String)]) -> String {
         }
     }
     crate::overrides::to_string(&segs)
+}
+
+/// Hiçbir satırın (stil ya da `\r` ile) kullanmadığı stilleri siler; silinen adlar döner.
+/// `Default` korunur.
+pub fn remove_unused_styles(script: &mut Script) -> Vec<String> {
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for d in script.dialogues() {
+        used.insert(d.style.clone());
+        if d.text.contains("\\r") {
+            for s in crate::overrides::parse(&d.text) {
+                if let crate::overrides::Seg::Block(tags) = s {
+                    for t in tags.iter().filter(|t| t.name == "r" && !t.arg.trim().is_empty()) {
+                        used.insert(t.arg.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    let mut removed = vec![];
+    script.entries.retain(|e| match e {
+        Entry::Style(s) if !used.contains(&s.name) && s.name != "Default" => {
+            removed.push(s.name.clone());
+            false
+        }
+        _ => true,
+    });
+    removed
 }
 
 /// `other`'ı `base`'e ekler.
@@ -171,6 +198,14 @@ mod tests {
         let mut b2 = script(1920, 1080, &style("Default", 60), "");
         let r = merge_into(&mut b2, &script(1920, 1080, &style("Default", 60), "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,x\n"), &MergeOptions::default());
         assert!(r.styles_renamed.is_empty() && r.styles_added == 0 && r.lines == 1);
+    }
+
+    #[test]
+    fn unused_styles() {
+        let mut s = script(1920, 1080, &(style("Default", 60) + &style("Sign", 40) + &style("Eski", 30) + &style("Ref", 30)), "Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,a{\\rRef}b\n");
+        assert_eq!(remove_unused_styles(&mut s), vec!["Eski".to_string()]);
+        assert_eq!(s.styles().count(), 3);
+        assert_eq!(rename_r_refs("x{\\rRef\\i1}y", &[("Ref".into(), "Yeni".into())]), "x{\\rYeni\\i1}y");
     }
 
     #[test]

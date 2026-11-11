@@ -90,6 +90,7 @@
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)
+- [x] Stil yöneticisi: yeniden adlandırma `\r` başvurularını da günceller; "Kullanılmayanları sil"
 - [ ] Stil yöneticisi: renk seçici iyileştirmeleri
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
