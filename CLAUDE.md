@@ -41,7 +41,8 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - `cargo test -p osisub-gui` GUI ikilisini (target/debug/osisub-gui) güncellemez; ekran görüntüsünden önce `cargo build -p osisub-gui`.
 - Ayarlar `$HOME/.config/osisub` altında: GUI testlerinde `HOME=<geçici>` ver (gerçek ayarları kirletme).
 - Windows: `tools/win-check.sh` (mingw + wine64 + xvfb) CLI çıktısını Linux'la bayt bayt karşılaştırır ve GUI'yi wine'da açar (2026-11-11 hepsi TAMAM). Wine tuzağı: ekransız başlamış wineserver varken GUI takılır → `wineserver -w`.
-- Doğrulanmamış: gerçek ses aygıtı (cpal), macOS, CI'nin gerçek çalıştırması, gerçek Windows makinesi (wine dışında).
+- CI her push'ta çalışır (Linux/macOS/Windows testleri + ui-e2e); push sonrası `mcp__github__actions_list` ile sonucuna bak.
+- Doğrulanmamış: gerçek ses aygıtı (cpal), macOS'ta GUI'yi elle kullanma, gerçek Windows makinesi (wine dışında), release iş akışı.
 
 ## Stil
 Yorum ve belgeler Türkçe; kod yapısı çevresindekiyle uyumlu; gereksiz soyutlama yok. Testi olmayan çekirdek mantık ekleme.

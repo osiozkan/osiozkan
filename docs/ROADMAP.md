@@ -3,7 +3,7 @@
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
 ## Sıradaki geceler için öncelikli öneriler
-1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), macOS çalıştırma, GitHub Actions'ın ilk gerçek çalışması (CI + release iş akışları hiç çalıştırılmadı). Windows: wine altında CLI + GUI doğrulandı (`tools/win-check.sh`); gerçek Windows makinesinde ses/video denenmedi.
+1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), macOS'ta GUI'yi elle çalıştırma, release iş akışı (etiket gerekir; hiç çalıştırılmadı). CI GitHub Actions'ta her push'ta çalışıyor: Linux/macOS/Windows testleri + GUI derlemesi + uçtan uca GUI testi yeşil (2026-11-11). Windows: wine altında CLI + GUI doğrulandı (`tools/win-check.sh`); gerçek Windows makinesinde ses/video denenmedi.
 2. **Kullanıcının kendi Lua betikleri** ile regresyon testi (betikler depoya eklenip `crates/osisub-lua/tests/fixtures/`'a konmalı; çalışmayan API'ler `docs/LUA_UYUMLULUK.md`'e işlenmeli). `kara-templater.lua` uyumluluğu.
 3. **Video araçları:** vektör `\clip`/çizim, `\t` animasyon düzenleme.
 4. Çevrimiçi çeviri bağlayıcıları (anahtar gerektirir; kullanıcıya sorulmalı).
@@ -121,5 +121,5 @@
 - [ ] Lua çağrıları için toplu (batch) API ile satır kopyası azaltma
 
 ## Dağıtım
-- [x] GitHub Actions: Linux/Windows/macOS derleme + test (.github/workflows/ci.yml; henüz çalıştırılmadı)
+- [x] GitHub Actions: Linux/Windows/macOS derleme + test + ui-e2e (.github/workflows/ci.yml; her push'ta yeşil)
 - [ ] Sürüm etiketleri, değişiklik günlüğü
