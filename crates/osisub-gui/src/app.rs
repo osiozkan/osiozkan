@@ -180,6 +180,9 @@ pub struct App {
     palette: Option<(String, usize)>,
     history_open: bool,
     /// Sesle yeniden zamanlama sonucu (arka plan)
+    mt_open: bool,
+    /// Makine çevirisi sonucu: (entry dizinleri, sonuç)
+    mt_rx: Option<std::sync::mpsc::Receiver<(Vec<usize>, Result<Vec<String>, String>)>>,
     resync_rx: Option<std::sync::mpsc::Receiver<Result<Vec<osisub_media::resync::Group>, String>>>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
@@ -411,6 +414,8 @@ impl App {
             palette: None,
             history_open: false,
             resync_rx: None,
+            mt_open: false,
+            mt_rx: None,
             editor_cursor: None,
             editor_sel: None,
             style_pv: None,
@@ -1601,6 +1606,7 @@ impl App {
                     if ui.button("Seçili satırları çizime (\\p1) dönüştür").on_hover_text("Gerçek yazı tipi konturlarıyla; görünüm aynı kalır (libass ile doğrulandı)").clicked() { ui.close(); self.text_to_drawing(false); }
                     if ui.button("Etkin satırı vektör kırpma olarak kopyala").on_hover_text("Metnin şeklini \\clip(...) olarak panoya kopyalar; başka bir satıra yapıştırın").clicked() { ui.close(); self.text_to_drawing(true); }
                 });
+                if ui.button("Makine çevirisi…").on_hover_text("DeepL / Google / LibreTranslate / Claude ile seçili satırları çevir (kendi API anahtarınızla)").clicked() { ui.close(); self.mt_open = true; }
                 if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
                     ui.close();
@@ -1763,6 +1769,7 @@ impl eframe::App for App {
         if let Some(t) = self.ctx_copy.take() { ctx.copy_text(t); }
         self.poll_job(&ctx);
         self.poll_resync(&ctx);
+        self.poll_mt(&ctx);
         self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
@@ -1815,6 +1822,7 @@ impl eframe::App for App {
         self.tracks_window(&ctx);
         self.palette_window(&ctx);
         self.history_window(&ctx);
+        self.mt_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

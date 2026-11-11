@@ -40,6 +40,13 @@ pub struct Settings {
     pub volume: f64,
     /// Uygulanan varsayılan kısayol sürümü (yeni varsayılanlar bir kez eklenir; kullanıcı silerse geri gelmez)
     pub hotkey_defaults: u32,
+    /// Makine çevirisi: sağlayıcı ("deepl" | "google" | "libre" | "claude"), anahtar, sunucu, diller, bağlam
+    pub mt_provider: String,
+    pub mt_key: String,
+    pub mt_url: String,
+    pub mt_target: String,
+    pub mt_source: String,
+    pub mt_context: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -81,6 +88,12 @@ impl Default for Settings {
             play_speed: 1.0,
             volume: 1.0,
             hotkey_defaults: 0,
+            mt_provider: "deepl".into(),
+            mt_key: String::new(),
+            mt_url: "http://localhost:5000".into(),
+            mt_target: "tr".into(),
+            mt_source: String::new(),
+            mt_context: String::new(),
         }
     }
 }

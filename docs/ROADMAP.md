@@ -45,7 +45,8 @@
 - [x] Terim sözlüğü denetimi (kaynak = hedef; ekli biçimler kabul; Çeviri sekmesinde satır uyarısı + toplu denetim)
 - [x] Noktadan senkron, FPS dönüştürme, kare cinsinden kaydırma, anahtar kare dosyası, Aegisub proje bilgisi (Video File/Active Line), kodlama seçimi/tespiti
 - [x] Çeviri belleği (TM): Çeviri sekmesinde bulanık öneriler (%60+, "Kullan"), Enter ile öğrenme, Araçlar → Çeviri belleği (belgeden ekle, TSV içe/dışa aktar); `<veri>/tm.tsv`
-- [ ] Otomatik çeviri bağlayıcıları (DeepL/Google; API anahtarı kullanıcıdan)
+- [x] Makine çevirisi bağlayıcıları (osisub-media::mt; Araçlar → Makine çevirisi): DeepL, Google v2, LibreTranslate, Claude (claude-opus-5-5, yapılandırılmış JSON çıktı, effort low, sunucu tarafı fallback); etiketler korunur, referans altyazı kaynak olarak kullanılır; istek/yanıt çevrimdışı testli. CANLI DENENMEDİ (anahtar yok)
+- [ ] Çeviri sekmesinde satır başına MT önerisi
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [x] Yazım: ızgarada hata göstergesi (satır numarası kırmızı; sürüm başına önbellekli)
 - [ ] Yazım: çok dilli sözlük seçimi

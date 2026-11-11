@@ -623,7 +623,7 @@ impl App {
             ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur / konuşmaya yapıştır"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
-            ("merge", "Başka dosyayı birleştir"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
+            ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -671,6 +671,7 @@ impl App {
                 "lua" => { if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); } }
                 "reload" => self.reload_scripts(),
                 "history" => self.history_open = true,
+                "mt" => self.mt_open = true,
                 "resync" => self.start_resync(),
                 "quality" => self.tab = super::Tab::Quality,
                 "styles" => self.tab = super::Tab::Styles,
@@ -739,6 +740,113 @@ impl App {
             self.status = format!("Geçmiş: {} adım", n);
         }
         if !open { self.history_open = false; }
+    }
+
+    fn mt_config(&self) -> Option<osisub_media::mt::MtConfig> {
+        let st = &self.settings;
+        Some(osisub_media::mt::MtConfig {
+            provider: osisub_media::mt::Provider::from_id(&st.mt_provider)?,
+            key: st.mt_key.clone(),
+            url: st.mt_url.clone(),
+            target: st.mt_target.clone(),
+            source: st.mt_source.clone(),
+            context: st.mt_context.clone(),
+        })
+    }
+
+    /// Seçili satırları arka planda çevirir. Kaynak: referans altyazı yüklüyse zamanca en çok örtüşen
+    /// referans satırı, değilse satırın kendi metni.
+    fn start_mt(&mut self) {
+        let Some(cfg) = self.mt_config() else { return };
+        let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment)).collect();
+        let mut idx = vec![];
+        let mut texts = vec![];
+        for i in targets {
+            let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) else { continue };
+            let src = if self.ref_lines.is_empty() {
+                d.text.clone()
+            } else {
+                self.ref_lines.iter().filter(|r| r.1 > d.start_time && r.0 < d.end_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time)).map(|r| r.2.replace('\n', "\\N")).unwrap_or_default()
+            };
+            if src.trim().is_empty() { continue; }
+            idx.push(i);
+            texts.push(src);
+        }
+        if texts.is_empty() { self.status = "Çevrilecek metin yok (satır seçin; referans kullanıyorsanız eşleşen referans satırı olmalı)".into(); return; }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut out = vec![];
+            for chunk in texts.chunks(40) {
+                match osisub_media::mt::translate(&cfg, chunk) {
+                    Ok(v) => out.extend(v),
+                    Err(e) => { let _ = tx.send((idx, Err(e))); return; }
+                }
+            }
+            let _ = tx.send((idx, Ok(out)));
+        });
+        self.mt_rx = Some(rx);
+        self.status = "Makine çevirisi çalışıyor…".into();
+    }
+
+    pub(super) fn poll_mt(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.mt_rx else { return };
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        let Ok((idx, r)) = rx.try_recv() else { return };
+        self.mt_rx = None;
+        match r {
+            Ok(tr) => {
+                let mut s = self.doc.script.clone();
+                for (&i, t) in idx.iter().zip(tr.iter()) {
+                    if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) { d.text = t.clone(); }
+                }
+                self.doc.apply_new_script("Makine çevirisi", s);
+                self.status = format!("{} satır çevrildi (gözden geçirin!)", tr.len());
+            }
+            Err(e) => self.status = format!("Makine çevirisi: {e}"),
+        }
+    }
+
+    pub(super) fn mt_window(&mut self, ctx: &egui::Context) {
+        if !self.mt_open { return; }
+        let mut open = true;
+        let mut go = false;
+        let mut changed = false;
+        egui::Window::new("Makine çevirisi").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            let st = &mut self.settings;
+            egui::Grid::new("mt_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Sağlayıcı");
+                egui::ComboBox::from_id_salt("mt_prov").selected_text(osisub_media::mt::Provider::ALL.iter().find(|p| p.0 == st.mt_provider).map(|p| p.1).unwrap_or("—")).show_ui(ui, |ui| {
+                    for (id, l) in osisub_media::mt::Provider::ALL { changed |= ui.selectable_value(&mut st.mt_provider, id.to_string(), *l).changed(); }
+                });
+                ui.end_row();
+                ui.label("API anahtarı");
+                changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_key).password(true).desired_width(260.0)).changed();
+                ui.end_row();
+                if st.mt_provider == "libre" {
+                    ui.label("Sunucu");
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_url).desired_width(260.0)).changed();
+                    ui.end_row();
+                }
+                ui.label("Kaynak / hedef dil");
+                ui.horizontal(|ui| {
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_source).hint_text("otomatik").desired_width(70.0)).changed();
+                    ui.label("→");
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_target).desired_width(70.0)).changed();
+                });
+                ui.end_row();
+                if st.mt_provider == "claude" {
+                    ui.label("Bağlam / sözlük");
+                    changed |= ui.add(egui::TextEdit::multiline(&mut st.mt_context).desired_rows(3).desired_width(260.0).hint_text("Dizi adı, karakterler, terimler (senpai = senpai)…")).changed();
+                    ui.end_row();
+                }
+            });
+            ui.label(RichText::new("Anahtar settings.json'da düz metin saklanır. Kaynak: referans altyazı yüklüyse eşleşen referans satırı, değilse satırın metni. Etiketler korunur. Sonucu mutlaka gözden geçirin.").small().weak());
+            let n = self.doc.target_lines().len();
+            if ui.add_enabled(self.mt_rx.is_none(), egui::Button::new(format!("Seçili {n} satırı çevir"))).clicked() { go = true; }
+        });
+        if changed { self.settings.save(); }
+        if go { self.start_mt(); }
+        if !open { self.mt_open = false; }
     }
 
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
