@@ -34,6 +34,7 @@
 - [x] VFR: videodan otomatik algılama (ffprobe paket PTS; ms yuvarlaması toleranslı), videoda "kare N VFR" göstergesi; elle yüklenen timecode önceliklidir
 - [x] Matroska timestamp v4 dosyaları (sırasız satırlar sıralanır)
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
+- [x] Dosya birleştirme (core::merge; Dosya → Başka dosyayı birleştir…, CLI `merge`): stil çakışmasında "Ad (2)" + `\r` başvuruları, farklı çözünürlükte otomatik yeniden örnekleme, zaman kaydırma (OP/ED), gömülü yazı tipleri; toplu işlemlerden sonra etkin satır/seçim içeriğe göre korunur
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
 - [x] Yazım denetimi: Hunspell uyumlu (spellbook), tr_TR indir/seç, öneriler, yoksay, kullanıcı sözlüğü; `FLAG num` bayrak-0 uyumluluğu (LibreOffice tr_TR ile doğrulandı, ~1 sn yükleme)
 - [x] Çeviri sekmesi (büyük referans, Enter = kaydet+sonraki, sonraki boş satır), referans sütunu, uzun satır bölme

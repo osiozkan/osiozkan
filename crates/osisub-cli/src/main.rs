@@ -13,6 +13,8 @@ KULLANIM:
   osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
+  osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
+                          diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
   osisub macros <betik.lua>...            betiklerdeki makroları listele
@@ -26,7 +28,7 @@ KULLANIM:
   osisub fonts <girdi>                    kullanılan yazı tipleri ve kurulu mu
   osisub batch <klasör> <uzantı> [--recursive]   klasördeki altyazıları toplu dönüştür
 
-Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD), sbv, ttml/dfxp; yazma: txt, csv.
+Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD / SubViewer), sbv, smi (SAMI), ttml/dfxp; yazma: txt, csv.
 ";
 
 fn main() -> ExitCode {
@@ -82,6 +84,22 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
         "convert" => {
             let [i, o] = args.as_slice() else { return Err("kullanım: convert <girdi> <çıktı>".into()) };
             save(&load(i)?, o)
+        }
+        "merge" => {
+            let out = opt(&mut args, "-o").or_else(|| opt(&mut args, "--out")).ok_or("çıktı gerekli: -o <dosya>")?;
+            let mut o = osisub_core::merge::MergeOptions::default();
+            if let Some(v) = opt(&mut args, "--offset") { o.offset_ms = v.parse().map_err(|_| "--offset ms olmalı")?; }
+            o.sort = flag(&mut args, "--sort");
+            o.skip_comments = flag(&mut args, "--no-comments");
+            if args.len() < 2 { return Err("kullanım: merge <ana.ass> <ek.ass>... -o <çıktı>".into()); }
+            let mut base = load(&args[0])?;
+            for f in &args[1..] {
+                let r = osisub_core::merge::merge_into(&mut base, &load(f)?, &o);
+                println!("{}: {} satır, {} yeni stil, {} yazı tipi{}{}", f, r.lines, r.styles_added, r.fonts_added,
+                    r.resampled_from.map(|(w, h)| format!(", {w}×{h}'den yeniden örneklendi")).unwrap_or_default(),
+                    if r.styles_renamed.is_empty() { String::new() } else { format!(", yeniden adlandırılan: {}", r.styles_renamed.iter().map(|(a, b)| format!("{a}→{b}")).collect::<Vec<_>>().join(", ")) });
+            }
+            save(&base, &out)
         }
         "compare" => {
             if args.len() < 2 { return Err("kullanım: compare <eski> <yeni>".into()); }

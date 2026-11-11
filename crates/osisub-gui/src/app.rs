@@ -160,6 +160,8 @@ pub struct App {
     compare: Option<(String, osisub_core::Script, Vec<osisub_core::compare::Change>)>,
     /// Kısayol düzenleyici penceresi (yerleşik komutlar)
     hotkeys_open: bool,
+    /// Betik birleştirme penceresi: (eklenecek dosya, seçenekler, kaydırma metni)
+    merge_win: Option<(PathBuf, osisub_core::merge::MergeOptions, String)>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -374,6 +376,7 @@ impl App {
             attach_open: false,
             compare: None,
             hotkeys_open: false,
+            merge_win: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -515,6 +518,7 @@ impl App {
             Some("select") => app.select_open = true,
             Some("attach") => app.attach_open = true,
             Some("hotkeys") => app.hotkeys_open = true,
+            Some(w) if w.starts_with("merge:") => app.merge_win = Some((PathBuf::from(&w[6..]), osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into())),
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
             Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
             Some("clip") => app.media.tool = crate::media_ui::VideoTool::Clip,
@@ -1288,6 +1292,12 @@ impl App {
                         if ui.button(&r).clicked() { ui.close(); self.request(Guarded::OpenPath(PathBuf::from(&r))); }
                     }
                 });
+                if ui.button("Başka dosyayı birleştir…").on_hover_text("Tabela / OP-ED / diyalog dosyalarını bu belgeye ekler: stil çakışmaları çözülür, farklı çözünürlük yeniden örneklenir, gömülü yazı tipleri taşınır").clicked() {
+                    ui.close();
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
+                        self.merge_win = Some((p, osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into()));
+                    }
+                }
                 if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
@@ -1703,6 +1713,7 @@ impl eframe::App for App {
         self.attach_window(&ctx);
         self.compare_window(&ctx);
         self.hotkeys_window(&ctx);
+        self.merge_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

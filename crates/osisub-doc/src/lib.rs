@@ -252,10 +252,44 @@ impl Document {
                     }
                 }
             } else {
-                tx.changes.push(Change::All { old: before, new: new_entries.clone() });
+                tx.changes.push(Change::All { old: before.clone(), new: new_entries.clone() });
                 tx.script.entries = new_entries;
             }
         });
+        if self.script.entries.len() != before.len() {
+            self.remap_selection(&before);
+        }
+    }
+
+    /// Satır sayısı değişen toplu işlemden sonra etkin satırı ve seçimi içeriğe göre yeniden bulur
+    /// (bulunamazsa etkin satır aynı sıradaki diyaloğa yakın kalır).
+    fn remap_selection(&mut self, before: &[Entry]) {
+        let find = |entries: &[Entry], e: &Entry, hint: usize| -> Option<usize> {
+            // önce eski konumun yakınında ara (yinelenen satırlarda doğru olanı seçmek için)
+            let n = entries.len();
+            for d in 0..n {
+                for i in [hint.checked_add(d), hint.checked_sub(d)].into_iter().flatten() {
+                    if i < n && entries[i] == *e {
+                        return Some(i);
+                    }
+                }
+                if hint + d >= n && d > hint {
+                    break;
+                }
+            }
+            None
+        };
+        let entries = &self.script.entries;
+        let new_active = before.get(self.active).and_then(|e| find(entries, e, self.active)).unwrap_or_else(|| {
+            // eski etkin satırdan önceki diyalog sayısına göre yakın bir diyalog
+            let nth = before[..self.active.min(before.len())].iter().filter(|e| matches!(e, Entry::Dialogue(_))).count();
+            let ds: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+            ds.get(nth.min(ds.len().saturating_sub(1))).copied().unwrap_or(0)
+        });
+        // büyük seçimlerde (ör. tümü seçili) içerik araması O(n²) olur: yalnızca etkin satır korunur
+        let sel: Vec<usize> = if self.selection.len() > 200 { vec![] } else { self.selection.iter().filter_map(|&i| before.get(i).and_then(|e| find(entries, e, i))).collect() };
+        let sel = if sel.is_empty() { vec![new_active] } else { sel };
+        self.select(sel, new_active);
     }
 
     // ------------------------------------------------------------ seçim
@@ -577,6 +611,30 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn bulk_change_keeps_active_line_by_content() {
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.select(vec![a + 1, a + 2], a + 2); // "iki", "üç"; etkin "üç"
+        // başa bir stil ekleyip ilk satırı silen toplu işlem
+        let mut s = d.script.clone();
+        let st = s.styles().next().cloned().map(|mut x| { x.name = "Yeni".into(); x }).unwrap();
+        let si = s.entries.iter().position(|e| matches!(e, Entry::Style(_))).unwrap();
+        s.entries.insert(si + 1, Entry::Style(st));
+        let first = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        s.entries.remove(first);
+        d.apply_new_script("toplu", s);
+        let txt = |i: usize| match &d.script.entries[i] { Entry::Dialogue(x) => x.text.clone(), _ => "?".into() };
+        assert_eq!(txt(d.active), "üç");
+        assert_eq!(d.selection.iter().map(|&i| txt(i)).collect::<Vec<_>>(), vec!["iki", "üç"]);
+        // etkin satır silinirse aynı sıradaki diyaloğa düşer
+        let mut s = d.script.clone();
+        let act = d.active;
+        s.entries.remove(act);
+        d.apply_new_script("sil", s);
+        assert!(matches!(d.script.entries.get(d.active), Some(Entry::Dialogue(_))));
     }
 
     #[test]

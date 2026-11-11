@@ -319,6 +319,48 @@ impl App {
         }
     }
 
+    pub(super) fn merge_window(&mut self, ctx: &egui::Context) {
+        let Some((path, mut opts, mut offset)) = self.merge_win.take() else { return };
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("Dosya birleştir").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.label(RichText::new(path.display().to_string()).monospace().small());
+            ui.horizontal(|ui| {
+                ui.label("Zaman kaydırma");
+                ui.add(egui::TextEdit::singleline(&mut offset).desired_width(110.0).font(egui::TextStyle::Monospace))
+                    .on_hover_text("Eklenen satırlara eklenir (ör. OP'yi 0:01:30.00'a yerleştirmek için). Negatif için başına '-'");
+            });
+            ui.checkbox(&mut opts.sort, "Satırları zamana göre sırala");
+            ui.checkbox(&mut opts.skip_comments, "Yorum satırlarını alma");
+            ui.label(RichText::new("Aynı adlı farklı stiller \"Ad (2)\" olarak eklenir; farklı çözünürlük bu belgeninkine örneklenir.").small().weak());
+            if ui.button("Birleştir").clicked() { go = true; }
+        });
+        if go {
+            let (neg, t) = match offset.trim().strip_prefix('-') { Some(r) => (true, r), None => (false, offset.trim()) };
+            let Some(ms) = osisub_core::time::parse_generic(t).or_else(|| t.parse::<i64>().ok()) else {
+                self.status = format!("Geçersiz zaman: {offset}");
+                self.merge_win = Some((path, opts, offset));
+                return;
+            };
+            opts.offset_ms = if neg { -ms } else { ms };
+            match osisub_core::io::load(&path) {
+                Ok(other) => {
+                    let mut s = self.doc.script.clone();
+                    let r = osisub_core::merge::merge_into(&mut s, &other, &opts);
+                    self.doc.apply_new_script("Dosya birleştir", s);
+                    self.scroll_to = Some(self.doc.active);
+                    let mut msg = format!("Birleştirildi: {} satır, {} yeni stil, {} yazı tipi", r.lines, r.styles_added, r.fonts_added);
+                    if let Some((w, h)) = r.resampled_from { msg.push_str(&format!(", {w}×{h}'den örneklendi")); }
+                    if !r.styles_renamed.is_empty() { msg.push_str(&format!(", yeniden adlandırılan stil: {}", r.styles_renamed.iter().map(|(a, b)| format!("{a}→{b}")).collect::<Vec<_>>().join(", "))); }
+                    self.status = msg;
+                }
+                Err(e) => self.status = e,
+            }
+            return;
+        }
+        if open { self.merge_win = Some((path, opts, offset)); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
