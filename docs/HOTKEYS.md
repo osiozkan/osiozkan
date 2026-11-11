@@ -29,6 +29,7 @@
 | Dalga formu: heceye çift tıkla | Yalnızca o heceyi oynat |
 | Karaoke sekmesi: hece metnine `|` yaz | Heceyi böl |
 | Ctrl+G | Zamana git |
+| Ctrl+Shift+P | Komut paleti: tüm komutlar, pencereler ve Lua makroları (Türkçe karakter duyarsız arama) |
 | , / . | Playhead'i 1 kare geri / ileri (metin kutusunda değilken) |
 | Ctrl + / Ctrl - | Yakınlaştır / uzaklaştır (arayüz) |
 | Video aracı Kırpma: sağ tık | Kırpmayı kaldır |

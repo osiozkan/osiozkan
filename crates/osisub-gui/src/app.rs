@@ -176,6 +176,8 @@ pub struct App {
     job: Option<VideoJob>,
     /// Videodaki altyazı izleri penceresi: (video, izler)
     tracks_win: Option<(PathBuf, Vec<osisub_media::mux::SubTrack>)>,
+    /// Komut paleti: (arama, seçili sıra)
+    palette: Option<(String, usize)>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -399,6 +401,7 @@ impl App {
             ctx_copy: None,
             job: None,
             tracks_win: None,
+            palette: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -543,6 +546,7 @@ impl App {
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
+            Some(w) if w.starts_with("palette") => app.palette = Some((w.strip_prefix("palette:").unwrap_or("").to_string(), 0)),
             Some(w) if w.starts_with("tracks:") => { let v = PathBuf::from(&w[7..]); if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); } }
             Some(w) if w.starts_with("motion:") => {
                 app.open_motion();
@@ -1261,6 +1265,7 @@ impl App {
             self.scroll_to = Some(r);
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::G))) { self.goto_open = true; self.goto_focus = true; }
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::P))) { self.palette = Some((String::new(), 0)); }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Equals)) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Plus))) { self.settings.zoom = (self.settings.zoom + 0.1).min(2.5); self.theme_dirty = true; }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Minus))) { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
         if self.tap.is_some() && !typing && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space)) {
@@ -1597,6 +1602,7 @@ impl App {
             });
             ui.menu_button("Yardım", |ui| {
                 if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
+                if ui.add(egui::Button::new("Komut paleti…").shortcut_text("Ctrl+Shift+P")).clicked() { ui.close(); self.palette = Some((String::new(), 0)); }
                 if ui.button("Kısayolları düzenle…").clicked() { self.hotkeys_open = true; ui.close(); }
                 if ui.button("Hakkında").clicked() { self.about_open = true; ui.close(); }
             });
@@ -1787,6 +1793,7 @@ impl eframe::App for App {
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);
+        self.palette_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
@@ -1864,6 +1871,46 @@ pub(crate) struct VideoJob {
     pub progress: std::sync::Arc<std::sync::atomic::AtomicU32>,
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub rx: std::sync::mpsc::Receiver<Result<String, String>>,
+}
+
+/// Komut paletindeki bir öğenin eylemi.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum PalAct {
+    Cmd(&'static str),
+    Win(&'static str),
+    Macro(usize),
+}
+
+/// Türkçe duyarsız arama anahtarı: küçük harf + ı/İ/ş/ğ/ü/ö/ç → ASCII.
+pub(crate) fn fold(s: &str) -> String {
+    osisub_core::qc::tr_lower(s).chars().map(|c| match c { 'ı' => 'i', 'ş' => 's', 'ğ' => 'g', 'ü' => 'u', 'ö' => 'o', 'ç' => 'c', 'â' => 'a', 'î' => 'i', 'û' => 'u', c => c }).collect()
+}
+
+/// Sorgunun tüm sözcükleri etikette geçiyorsa puan (küçük = iyi), yoksa None.
+pub(crate) fn palette_score(label: &str, query: &str) -> Option<usize> {
+    let l = fold(label);
+    let mut score = 0;
+    for w in fold(query).split_whitespace() {
+        let p = l.find(w)?;
+        // sözcük başında eşleşme daha iyi
+        score += if p == 0 || l[..p].ends_with(' ') { p / 4 } else { p + 20 };
+    }
+    Some(score)
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+    #[test]
+    fn turkish_insensitive_fuzzy() {
+        assert!(palette_score("Sahne değişimlerine yapıştır", "degisim").is_some());
+        assert!(palette_score("İstatistikler", "istat").is_some());
+        assert!(palette_score("Yazı tipi denetimi", "YAZI denet").is_some());
+        assert!(palette_score("Bul / Değiştir", "kaydet").is_none());
+        // sözcük başı eşleşmesi daha iyi puan alır
+        assert!(palette_score("Kaydet", "kay").unwrap() < palette_score("Satırı kaydır", "kay").unwrap() + 1);
+        assert!(palette_score("Videoya yak", "yak").unwrap() < palette_score("Yakınlaştır menüsü bayrak", "rak").unwrap());
+    }
 }
 
 /// Hareket izleme penceresinin durumu.

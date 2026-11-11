@@ -615,6 +615,101 @@ impl App {
         if open { self.tracks_win = Some((video, tracks)); }
     }
 
+    fn palette_items(&self) -> Vec<(String, super::PalAct)> {
+        use super::PalAct::*;
+        let mut v: Vec<(String, super::PalAct)> = super::COMMANDS.iter().map(|(id, l)| (l.to_string(), Cmd(id))).collect();
+        for (w, l) in [
+            ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"),
+            ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
+            ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"),
+            ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
+            ("merge", "Başka dosyayı birleştir"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
+            ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
+        ] {
+            v.push((l.to_string(), Win(w)));
+        }
+        for m in self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro) {
+            v.push((format!("Makro: {}", m.info.name), Macro(m.info.id)));
+        }
+        v
+    }
+
+    fn run_palette(&mut self, a: super::PalAct, ctx: &egui::Context) {
+        use super::PalAct::*;
+        match a {
+            Cmd(id) => self.run_command(id, ctx),
+            Macro(id) => self.run_macro(id),
+            Win(w) => match w {
+                "find" => { self.find_open = true; self.find_focus = true; }
+                "goto" => { self.goto_open = true; self.goto_focus = true; }
+                "timing" => self.timing_open = true,
+                "post" => self.timing_open = true,
+                "resample" => self.resample_open = true,
+                "fixes" => self.fixes_open = true,
+                "stats" => self.stats_open = true,
+                "vad" => self.vad_open = true,
+                "export" => self.export_open = true,
+                "fonts" => { self.fonts_open = true; self.start_font_scan(); }
+                "hotkeys" => self.hotkeys_open = true,
+                "batch" => self.batch = Some(super::BatchWin::default()),
+                "typeset" => self.tsw = Some(super::TypesetWin::default()),
+                "motion" => self.open_motion(),
+                "todraw" => self.text_to_drawing(false),
+                "tracks" => {
+                    let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
+                    if let Some(v) = v { match osisub_media::mux::subtitle_tracks(&v) { Ok(t) => self.tracks_win = Some((v, t)), Err(e) => self.status = e } }
+                }
+                "mux" => self.start_video_job(false),
+                "burn" => self.start_video_job(true),
+                "merge" => {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
+                        self.merge_win = Some((p, osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into()));
+                    }
+                }
+                "open" => { if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() { self.request(super::Guarded::OpenPath(p)); } }
+                "save" => self.save(false),
+                "lua" => { if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); } }
+                "reload" => self.reload_scripts(),
+                "quality" => self.tab = super::Tab::Quality,
+                "styles" => self.tab = super::Tab::Styles,
+                "karaoke" => self.tab = super::Tab::Karaoke,
+                "translate" => self.tab = super::Tab::Translate,
+                "spell" => self.tab = super::Tab::Spell,
+                _ => {}
+            },
+        }
+    }
+
+    pub(super) fn palette_window(&mut self, ctx: &egui::Context) {
+        let Some((mut q, mut sel)) = self.palette.take() else { return };
+        let mut items: Vec<(usize, String, super::PalAct)> = self.palette_items().into_iter().filter_map(|(l, a)| super::palette_score(&l, &q).map(|s| (s, l, a))).collect();
+        items.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        let (up, down, enter, esc) = ctx.input(|i| (i.key_pressed(Key::ArrowUp), i.key_pressed(Key::ArrowDown), i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        if down { sel = (sel + 1).min(items.len().saturating_sub(1)); }
+        if up { sel = sel.saturating_sub(1); }
+        let mut chosen: Option<super::PalAct> = None;
+        egui::Window::new("Komut paleti").title_bar(false).collapsible(false).resizable(false).fixed_size([480.0, 360.0]).anchor(egui::Align2::CENTER_TOP, [0.0, 60.0]).show(ctx, |ui| {
+            let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Komut, pencere ya da makro ara… (↑↓, Enter, Esc)").desired_width(f32::INFINITY));
+            r.request_focus();
+            if r.changed() { sel = 0; }
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                for (k, (_, l, a)) in items.iter().enumerate().take(60) {
+                    let resp = ui.selectable_label(k == sel, l);
+                    if k == sel && (up || down) { resp.scroll_to_me(None); }
+                    if resp.clicked() { chosen = Some(a.clone()); }
+                }
+                if items.is_empty() { ui.label(RichText::new("Eşleşme yok").weak()); }
+            });
+        });
+        if enter { chosen = items.get(sel).map(|x| x.2.clone()); }
+        if let Some(a) = chosen {
+            self.run_palette(a, ctx);
+            return;
+        }
+        if !esc { self.palette = Some((q, sel)); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
