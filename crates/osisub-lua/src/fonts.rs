@@ -351,6 +351,38 @@ impl FontDb {
     }
 }
 
+/// Satırın %100 ölçekteki kutusu (genişlik, yükseklik): `\\p` çizimiyse noktaların sınırı (0'dan),
+/// değilse yazı tipi ölçüsüyle metin hücresi (çok satırda en geniş satır × satır sayısı).
+pub fn line_box(db: &mut FontDb, script: &osisub_core::Script, d: &osisub_core::ass::Dialogue) -> Result<(f64, f64), String> {
+    use osisub_core::overrides;
+    let st = script.style_by_name(&d.style).cloned().unwrap_or_default();
+    let get = |n: &str| overrides::get_initial(&d.text, n);
+    if get("p").and_then(|t| t.number()).unwrap_or(0.0) > 0.0 {
+        let draw = d.text.rsplit('}').next().unwrap_or("");
+        let pts = osisub_core::drawing::points(&osisub_core::drawing::parse(draw));
+        let w = pts.iter().map(|p| p.2 .0).fold(0.0, f64::max);
+        let h = pts.iter().map(|p| p.2 .1).fold(0.0, f64::max);
+        return if w > 0.0 && h > 0.0 { Ok((w, h)) } else { Err("Boş çizim".into()) };
+    }
+    let fontname = get("fn").map(|t| t.arg.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(st.fontname.clone());
+    let m = StyleMetrics {
+        fontname: fontname.clone(),
+        fontsize: get("fs").and_then(|t| t.number()).unwrap_or(st.fontsize),
+        bold: get("b").and_then(|t| t.number()).map_or(st.bold, |v| v != 0.0),
+        italic: get("i").and_then(|t| t.number()).map_or(st.italic, |v| v != 0.0),
+        scale_x: 100.0,
+        scale_y: 100.0,
+        spacing: get("fsp").and_then(|t| t.number()).unwrap_or(st.spacing),
+    };
+    let text = osisub_core::tags::visible_text(&d.text);
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut w: f64 = 0.0;
+    for l in &lines {
+        w = w.max(db.extents(&m, l).map(|e| e.0).ok_or(format!("Yazı tipi bulunamadı: {fontname}"))?);
+    }
+    Ok((w, m.fontsize * lines.len() as f64))
+}
+
 /// Bir altyazı satırını aynı görünümde `\\p1` çizimine çevirir (tipografide kırpma/şekil için).
 /// Yalnızca baştaki etiket bloğu desteklenir; metin ortasında yazı tipi değişimi varsa hata.
 /// Sonuç `\\an7\\pos` ile konumlanır, `\\fscx/\\fscy` 100'e sabitlenir, döndürme varsa `\\org`

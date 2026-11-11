@@ -243,6 +243,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
+    ("perspective", "Perspektife oturt (4 noktalı vektör kırpmadan)"),
     ("split_cursor", "İmleçte böl (süre metne orantılı)"),
     ("split_cursor_frame", "İmleçte böl (video karesinde)"),
     ("snap_scenes", "Sahne değişimlerine yapıştır (≤3 kare)"),
@@ -1081,6 +1082,7 @@ impl App {
             "line_next" => step_line(self, 1),
             "line_prev" => step_line(self, -1),
             "select_lines" => self.select_open = true,
+            "perspective" => self.perspective_fit(),
             "split_cursor" => self.split_at_cursor(false),
             "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
@@ -1548,6 +1550,7 @@ impl App {
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
+                if ui.button("Perspektife oturt").on_hover_text("Etkin satıra 4 noktalı vektör kırpma çizin (sol üst, sağ üst, sağ alt, sol alt); satır o dörtgene \\frx\\fry\\frz\\fscx\\fscy\\fax\\org ile oturtulur").clicked() { ui.close(); self.perspective_fit(); }
                 ui.menu_button("Metin → çizim", |ui| {
                     if ui.button("Seçili satırları çizime (\\p1) dönüştür").on_hover_text("Gerçek yazı tipi konturlarıyla; görünüm aynı kalır (libass ile doğrulandı)").clicked() { ui.close(); self.text_to_drawing(false); }
                     if ui.button("Etkin satırı vektör kırpma olarak kopyala").on_hover_text("Metnin şeklini \\clip(...) olarak panoya kopyalar; başka bir satıra yapıştırın").clicked() { ui.close(); self.text_to_drawing(true); }
@@ -1833,6 +1836,50 @@ pub(crate) struct MotionWin {
 }
 
 impl App {
+    /// Etkin satırın 4 noktalı vektör kırpmasını hedef dörtgen alıp satırı perspektifle oturtur.
+    fn perspective_fit(&mut self) {
+        use osisub_core::{overrides, perspective};
+        let at = self.doc.active;
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() else { return };
+        let quad = overrides::get_initial(&d.text, "clip")
+            .map(|t| t.args())
+            .and_then(|a| a.last().cloned())
+            .and_then(|draw| perspective::quad_from_clip(&draw));
+        let Some(quad) = quad else {
+            self.status = "Önce satıra 4 noktalı vektör kırpma çizin (Video aracı: Vektör kırpma): sol üst → sağ üst → sağ alt → sol alt".into();
+            return;
+        };
+        let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+        let (w, h) = match osisub_lua::fonts::line_box(db, &self.doc.script, &d) { Ok(b) => b, Err(e) => { self.status = e; return; } };
+        let mut s = self.doc.script.clone();
+        let (_, play_y) = s.res();
+        // LayoutRes: betikte varsa o, yoksa video çözünürlüğü (yazılır), o da yoksa PlayRes
+        let layout_y = match s.info("LayoutResY").and_then(|v| v.trim().parse::<f64>().ok()) {
+            Some(v) => v,
+            None => match self.media.info.as_ref().filter(|i| i.has_video) {
+                Some(i) => {
+                    s.set_info("LayoutResX", &i.width.to_string());
+                    s.set_info("LayoutResY", &i.height.to_string());
+                    i.height as f64
+                }
+                None => play_y as f64,
+            },
+        };
+        let dist = perspective::dist_for(play_y as f64, layout_y);
+        let Some((p, org, err)) = perspective::fit(&quad, w, h, dist) else { self.status = "Perspektif çözümü bulunamadı".into(); return };
+        let mut text = d.text.clone();
+        for n in ["clip", "iclip", "pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {
+            text = overrides::remove_initial(&text, n);
+        }
+        for t in overrides::parse_block(&perspective::tags(&p, org)) {
+            text = overrides::set_initial(&text, &t.name, &t.arg);
+        }
+        let idx = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(x) if *x == d)).unwrap_or(at);
+        if let Some(Entry::Dialogue(x)) = s.entries.get_mut(idx) { x.text = text; }
+        self.doc.apply_new_script("Perspektife oturt", s);
+        self.status = format!("Perspektif: köşe hatası {:.2} px, frx {:.1}° fry {:.1}°", err, p.frx, p.fry);
+    }
+
     /// Seçili satırları `\p1` çizimine çevirir; `as_clip` ise etkin satırın şeklini mutlak `\clip(...)` olarak panoya koyar.
     fn text_to_drawing(&mut self, as_clip: bool) {
         let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
