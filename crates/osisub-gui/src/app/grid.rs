@@ -127,7 +127,14 @@ impl App {
                         let best = refs[..end].iter().rev().take(8).filter(|r| r.1 > d.start_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time));
                         row.col(|ui| { if let Some(r) = best { ui.add(egui::Label::new(RichText::new(&r.2).italics().color(theme::ACCENT)).truncate()); } });
                     }
-                    row.col(|ui| { ui.add(egui::Label::new(Self::highlighted(&d.text, dim)).truncate()); });
+                    let tag_err = flags.map_or(false, |f| f.contains(&Kind::TagError));
+                    row.col(|ui| {
+                        let r = ui.add(egui::Label::new(Self::highlighted(&d.text, dim)).truncate());
+                        if tag_err {
+                            // etiket hatası: metnin altında kırmızı çizgi
+                            ui.painter().hline(r.rect.x_range(), r.rect.bottom() - 1.0, egui::Stroke::new(1.5, theme::BAD));
+                        }
+                    });
                     let resp = row.response();
                     if resp.clicked() { clicked = Some(pos); }
                     if resp.secondary_clicked() && sel_snapshot.binary_search(&ei).is_err() { ctx_row = Some(ei); }

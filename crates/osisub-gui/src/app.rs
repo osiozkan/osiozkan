@@ -48,6 +48,8 @@ pub struct App {
     rows_key: (u64, String),
     rules: Rules,
     issues: Vec<Issue>,
+    /// Kalite sekmesi süzgeci ("" = tümü, yoksa Kind::category)
+    qc_filter: &'static str,
     issue_map: HashMap<usize, Vec<Kind>>,
     issues_key: u64,
     qc_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<Issue>)>>,
@@ -373,6 +375,7 @@ impl App {
             rows_key: (u64::MAX, String::new()),
             rules: Rules::default(),
             issues: vec![],
+            qc_filter: "",
             issue_map: HashMap::new(),
             issues_key: u64::MAX,
             qc_rx: None,

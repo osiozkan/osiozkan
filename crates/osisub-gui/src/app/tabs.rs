@@ -614,8 +614,15 @@ impl App {
             }
         });
         ui.separator();
-        ui.label(RichText::new(format!("{} sorun", self.issues.len())).strong());
-        let issues = self.issues.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(format!("{} sorun", self.issues.len())).strong());
+            for (cat, label) in [("", "Tümü"), ("zaman", "Zamanlama"), ("metin", "Metin"), ("etiket", "Etiket"), ("not", "Notlar")] {
+                let n = if cat.is_empty() { self.issues.len() } else { self.issues.iter().filter(|i| i.kind.category() == cat).count() };
+                if (n > 0 || cat.is_empty()) && ui.selectable_label(self.qc_filter == cat, format!("{label} {n}")).clicked() { self.qc_filter = cat; }
+            }
+        });
+        let filter = self.qc_filter;
+        let issues: Vec<Issue> = self.issues.iter().filter(|i| filter.is_empty() || i.kind.category() == filter).cloned().collect();
         let mut jump = None;
         egui::ScrollArea::vertical().id_salt("issues").show_rows(ui, 20.0, issues.len(), |ui, range| {
             for i in range {

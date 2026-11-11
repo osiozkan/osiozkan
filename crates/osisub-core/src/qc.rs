@@ -20,6 +20,22 @@ pub enum Kind {
     NearKeyframe,
     /// Aynı stildeki ardışık satırlar arasında 1-2 karelik boşluk (titreme)
     Flicker,
+    /// Etiket hatası (bozuk/bilinmeyen etiket, süreyle çelişen \fad/\move/\t, karaoke süresi…)
+    TagError,
+    /// Metinde unutulmuş not/yorum bloğu ya da küçük uyarı (core::taglint)
+    Note,
+}
+
+impl Kind {
+    /// Kalite sekmesindeki süzgeç grubu: "zaman", "metin", "etiket", "not".
+    pub fn category(&self) -> &'static str {
+        match self {
+            Kind::Overlap | Kind::TooShort | Kind::TooLong | Kind::SmallGap | Kind::NegativeDuration | Kind::NearKeyframe | Kind::Flicker => "zaman",
+            Kind::ReadingSpeed | Kind::LineTooLong | Kind::TooManyLines | Kind::Empty | Kind::DoubleSpace | Kind::EdgeSpace | Kind::UnknownStyle => "metin",
+            Kind::TagError => "etiket",
+            Kind::Note => "not",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +177,12 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
         // Şablonlayıcı çıktısı (fx): yalnızca stil denetimi
         if d.effect.eq_ignore_ascii_case("fx") {
             continue;
+        }
+        for f in crate::taglint::lint(d, &styles) {
+            match f {
+                crate::taglint::Finding::Error(m) => add(Kind::TagError, m),
+                crate::taglint::Finding::Note(m) => add(Kind::Note, m),
+            }
         }
         let (typeset, karaoke) = (is_typeset(d), is_karaoke(d));
         let visible = tags::visible_text(&d.text);
