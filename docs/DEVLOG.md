@@ -1,6 +1,6 @@
 # Geliştirme günlüğü
 
-Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç o gecenin görevinin verdiği dala push edilir (`tools/ship.sh` geçerli dalı kullanır; 2026-10-29: `claude/vibrant-clarke-2e8jtn`, 2026-11-10: `claude/vibrant-clarke-6oujog`); PR yalnızca kullanıcı isterse açılır.
+Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç o gecenin görevinin verdiği dala push edilir (`tools/ship.sh` geçerli dalı kullanır; 2026-10-29: `claude/vibrant-clarke-2e8jtn`, 2026-11-10: `claude/vibrant-clarke-6oujog`, 2026-11-11: `claude/vibrant-clarke-dsxf2y`); PR yalnızca kullanıcı isterse açılır.
 
 ## 2026-10-29 (v0.1.0 — ilk gece)
 Depo boştu; sıfırdan başlandı.
@@ -44,3 +44,15 @@ Dal: `claude/vibrant-clarke-6oujog` (main'den; `claude/vibrant-clarke-2e8jtn` il
 - Ekler (yazı tipi gömme) + HATA: "[..]" görünümlü UUencode satırları bölüm başlığı sanılıyordu. Önizlemede gömülü yazı tipleri `fontsdir` ile.
 - Windows çapraz derleme yeniden doğrulandı (osisub.exe + osisub-gui.exe bağlandı; çalıştırılamadı).
 
+
+## 2026-11-11 (v0.4.0 — üçüncü gece)
+Dal: `claude/vibrant-clarke-dsxf2y` (main'den; `claude/vibrant-clarke-6oujog` ileri sarılarak devam edildi). Ortam: `libasound2-dev xvfb xdotool libxkbcommon-x11-0` yeniden kuruldu.
+- **DependencyControl uyumluluk katmanı** (`l0.DependencyControl` gömülü; gerçek DepCtrl'ün yerine geçer): requireModules/registerMacro(s)/ConfigHandler/Logger/sürüm denetimi; yedek `json` modülü. Kurulu Aegisub'ın `automation/include` + `autoload` klasörleri otomatik. Makro adlarındaki `/` iç içe menü.
+- Aegisub `hotkey.json` içe aktarma; Aegisub ses kipi komutları + varsayılan S/H/Q/W/E/D/Z/X tuşları.
+- **Etiket denetimi** (core::taglint): QC'de Etiket/Notlar süzgeci; Etiketleri onar / Notları sil; CLI `fixes --tags --notes`.
+- Belgeye bağlı betikler (Aegisub "Automation Scripts").
+- Ses: oynatma hızı (atempo, perde korunur) + ses seviyesi.
+- Biçimler: SAMI, SubViewer 2, timestamp v4.
+- **Dosya birleştirme** (core::merge, GUI + CLI `merge`).
+- HATA DÜZELTİLDİ: satır sayısını değiştiren toplu işlemlerden sonra etkin satır/seçim yanlış satırı (ya da stil satırını) gösteriyordu → içerik eşlemesiyle korunuyor.
+- Not: GUI testinden önce `cargo build -p osisub-gui` şart (`cargo test` ikiliyi güncellemez).
