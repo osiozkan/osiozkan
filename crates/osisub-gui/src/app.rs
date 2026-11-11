@@ -183,6 +183,8 @@ pub struct App {
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
     editor_cursor: Option<(usize, usize)>,
+    /// Düzenleme kutusundaki seçim: (satır, başlangıç, bitiş) karakter dizinleri (araç çubuğu için)
+    editor_sel: Option<(usize, usize, usize)>,
     /// Stil önizlemesi: (anahtar, doku), bekleyen istek, örnek metin
     style_pv: Option<(u64, egui::TextureHandle)>,
     style_pv_rx: Option<std::sync::mpsc::Receiver<(u64, Result<osisub_media::Frame, String>)>>,
@@ -405,6 +407,7 @@ impl App {
             palette: None,
             history_open: false,
             editor_cursor: None,
+            editor_sel: None,
             style_pv: None,
             style_pv_rx: None,
             style_pv_text: "Aa Iı İi Ğğ Şş Çç Öö Üü 123".into(),

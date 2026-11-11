@@ -76,7 +76,7 @@
 - [x] Izgara sütunları: Katman, Efekt, Kenar boşlukları (Görünüm → Izgara sütunları; kalıcı); yorum satırlarında KSS gösterilmez
 - [x] Pencere boyutu/konumu ve ızgara sütun genişlikleri kalıcı (`<veri>/ui-state.ron`; test kipinde kapalı)
 - [ ] Izgara: sütun sırası
-- [ ] Düzenleme kutusu: etiket renklendirme, karakter/CPS sayacı, stil seçici
+- [x] Düzenleme kutusu araç çubuğu (Aegisub gibi): Kalın/İtalik/Altı/Üstü çizili (seçimi sarar, imleçte çevirir, stil varsayılanını bilir), birincil/kenar/gölge rengi (seçimde önceki renk geri yüklenir), \N; ardışık düğmeler aynı seçime uygulanır; etiket renklendirme, KSS sayacı, stil seçici
 - [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
 - [x] Oynatma sırasında akış (kalıcı ffmpeg boru hattı) — önceki geceden; kare önbelleği + 6 karelik ön-yükleme (ileri kare adımı anında)

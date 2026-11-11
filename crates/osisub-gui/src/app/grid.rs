@@ -236,13 +236,60 @@ impl App {
             job.wrap.max_width = wrap_width;
             ui.fonts_mut(|f| f.layout_job(job))
         };
+        // Aegisub düzenleme kutusu düğmeleri: seçimi sarar ya da imleçte durumu çevirir
+        let mut tag_used = false;
+        {
+            let st = self.doc.script.style_by_name(&nd.style).cloned().unwrap_or_default();
+            let (a, b) = self.editor_sel.filter(|s| s.0 == at).map(|s| (s.1, s.2)).unwrap_or_else(|| { let n = nd.text.chars().count(); (n, n) });
+            ui.horizontal(|ui| {
+                for (name, label, tip, on) in [("b", "K", "Kalın (\\b)", st.bold), ("i", "İ", "İtalik (\\i)", st.italic), ("u", "A", "Altı çizili (\\u)", st.underline), ("s", "Ü", "Üstü çizili (\\s)", st.strikeout)] {
+                    let mut t = RichText::new(label).strong();
+                    if name == "i" { t = t.italics(); }
+                    if name == "u" { t = t.underline(); }
+                    if name == "s" { t = t.strikethrough(); }
+                    if ui.small_button(t).on_hover_text(format!("{tip} — seçimi sarar, seçim yoksa imleçte açar/kapatır")).clicked() {
+                        nd.text = osisub_core::overrides::toggle_bool_tag(&nd.text, a, b, name, on);
+                        tag_used = true;
+                    }
+                }
+                ui.separator();
+                for (name, label) in [("1c", "Renk"), ("3c", "Kenar"), ("4c", "Gölge")] {
+                    let cur = osisub_core::overrides::tag_value_before(&nd.text, a, name).or_else(|| if name == "1c" { osisub_core::overrides::tag_value_before(&nd.text, a, "c") } else { None })
+                        .and_then(|v| osisub_core::color::Color::parse(&v))
+                        .or_else(|| osisub_core::color::Color::parse(match name { "1c" => &st.color1, "3c" => &st.color3, _ => &st.color4 }))
+                        .unwrap_or(osisub_core::color::Color::WHITE);
+                    let mut rgb = [cur.r, cur.g, cur.b];
+                    ui.label(RichText::new(label).small());
+                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                        let c = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 };
+                        let t = osisub_core::overrides::set_tag_range(&nd.text, a, b, if name == "1c" && nd.text.contains("\\c&") { "c" } else { name }, &c.to_tag_string());
+                        nd.text = t;
+                        tag_used = true;
+                    }
+                }
+                ui.separator();
+                if ui.small_button("\\N").on_hover_text("Satır sonu ekle").clicked() {
+                    let chars: Vec<char> = nd.text.chars().collect();
+                    let p = a.min(chars.len());
+                    nd.text = chars[..p].iter().collect::<String>() + "\\N" + &chars[p..].iter().collect::<String>();
+                    tag_used = true;
+                }
+            });
+        }
         // Çok uzun metin (ör. \p1 çizimi) kutuyu büyütüp ızgarayı itmesin: kaydırılabilir alan
         let max_h = (ui.ctx().content_rect().height() * 0.3).max(90.0);
         let out = egui::ScrollArea::vertical().id_salt("editor_text").max_height(max_h).show(ui, |ui| {
             TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text("Altyazı metni — satır sonu için \\N").show(ui)
         }).inner;
-        if let Some(c) = out.cursor_range {
+        if tag_used {
+            // eklenen etiketlerden sonra seçim aynı metni göstersin (ardışık düğmeler için)
+            if let Some((_, a, b)) = self.editor_sel.filter(|s| s.0 == at) {
+                self.editor_sel = osisub_core::overrides::remap_selection(&d.text, &nd.text, a, b).map(|(x, y)| (at, x, y));
+            }
+        } else if let Some(c) = out.cursor_range {
             self.editor_cursor = Some((at, c.primary.index.into()));
+            let (p, q): (usize, usize) = (c.primary.index.into(), c.secondary.index.into());
+            self.editor_sel = Some((at, p.min(q), p.max(q)));
         }
         let mut split_req: Option<bool> = None; // Some(false) = orantılı süre, Some(true) = video karesi
         out.response.context_menu(|ui| {
@@ -275,8 +322,8 @@ impl App {
             }
         }
         if nd != d {
-            let key = if nd.text != d.text { format!("text:{}", at) } else if nd.start_time != d.start_time || nd.end_time != d.end_time { format!("time:{}", at) } else { String::new() };
-            let desc = if nd.text != d.text { "Metin düzenle" } else { "Satırı düzenle" };
+            let key = if tag_used { String::new() } else if nd.text != d.text { format!("text:{}", at) } else if nd.start_time != d.start_time || nd.end_time != d.end_time { format!("time:{}", at) } else { String::new() };
+            let desc = if tag_used { "Etiket ekle" } else if nd.text != d.text { "Metin düzenle" } else { "Satırı düzenle" };
             self.doc.edit_keyed(desc, if key.is_empty() { None } else { Some(&key) }, |tx| tx.replace(at, Entry::Dialogue(nd)));
         }
     }

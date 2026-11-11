@@ -264,6 +264,116 @@ impl Move {
     }
 }
 
+
+/// `pos` (karakter dizini) metin içinde bir `{...}` bloğunun içindeyse o bloğun kapanışına,
+/// hemen önünde bir blok bitiyorsa o bloğa ekler; değilse yeni `{tag}` bloğu açar.
+pub fn insert_tag_at(text: &str, pos: usize, tag: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let pos = pos.min(chars.len());
+    // pos bir bloğun içinde mi?
+    let mut open: Option<usize> = None;
+    for (i, &c) in chars[..pos].iter().enumerate() {
+        match c {
+            '{' => open = Some(i),
+            '}' => open = None,
+            _ => {}
+        }
+    }
+    let insert_at = if open.is_some() {
+        chars[pos..].iter().position(|&c| c == '}').map(|k| pos + k)
+    } else if pos > 0 && chars[pos - 1] == '}' {
+        Some(pos - 1)
+    } else if pos < chars.len() && chars[pos] == '{' {
+        // hemen ardından blok başlıyorsa onun başına
+        Some(pos + 1)
+    } else {
+        None
+    };
+    let mut out: String;
+    match insert_at {
+        Some(k) => {
+            out = chars[..k].iter().collect();
+            out.push_str(tag);
+            out.extend(chars[k..].iter());
+        }
+        None => {
+            out = chars[..pos].iter().collect();
+            out.push('{');
+            out.push_str(tag);
+            out.push('}');
+            out.extend(chars[pos..].iter());
+        }
+    }
+    out
+}
+
+/// `pos`'tan önceki son `\name` değeri (yoksa None).
+pub fn tag_value_before(text: &str, pos: usize, name: &str) -> Option<String> {
+    // imleç bir bloğun içindeyse bloğun tamamı sayılır
+    let chars: Vec<char> = text.chars().collect();
+    let pos = pos.min(chars.len());
+    let inside = chars[..pos].iter().rposition(|&c| c == '{').map_or(false, |o| !chars[o..pos].contains(&'}'));
+    let end = if inside { chars[pos..].iter().position(|&c| c == '}').map_or(chars.len(), |k| pos + k + 1) } else { pos };
+    let prefix: String = chars[..end].iter().collect();
+    let mut last = None;
+    for seg in parse(&prefix) {
+        if let Seg::Block(tags) = seg {
+            for t in tags {
+                if t.name == name {
+                    last = Some(t.arg.trim().to_string());
+                }
+                if t.name == "r" {
+                    last = None;
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Etiket eklendikten sonra seçimi yeni metinde yeniden bulur: eski seçimin metni, `a`'dan itibaren
+/// ilk geçtiği yer (etiket eklemek seçili metni değiştirmez). Bulunamazsa None.
+pub fn remap_selection(old: &str, new: &str, a: usize, b: usize) -> Option<(usize, usize)> {
+    let oc: Vec<char> = old.chars().collect();
+    let (a, b) = (a.min(oc.len()), b.min(oc.len()));
+    let sel: String = oc[a..b].iter().collect();
+    let nc: Vec<char> = new.chars().collect();
+    let n = sel.chars().count();
+    if n == 0 {
+        // imleç: eklenen bloğun ardına
+        let delta = nc.len().saturating_sub(oc.len());
+        return Some((a + delta, a + delta));
+    }
+    (a..=nc.len().saturating_sub(n)).find(|&i| nc[i..i + n].iter().collect::<String>() == sel).map(|i| (i, i + n))
+}
+
+/// Aegisub düzenleme kutusu düğmeleri (Kalın/İtalik/Altı çizili/Üstü çizili): seçim boşsa imleçte
+/// durumu tersine çevirir; seçim varsa seçimi sarar (sonda önceki durum geri yüklenir).
+/// `style_on`: stilin bu özelliği açık mı. Karakter dizinleriyle çalışır.
+pub fn toggle_bool_tag(text: &str, a: usize, b: usize, name: &str, style_on: bool) -> String {
+    let (a, b) = (a.min(b), a.max(b));
+    let state = tag_value_before(text, a, name).map(|v| v.parse::<i32>().map_or(style_on, |n| n != 0)).unwrap_or(style_on);
+    let on = format!("\\{}{}", name, if state { 0 } else { 1 });
+    let off = format!("\\{}{}", name, if state { 1 } else { 0 });
+    if a == b {
+        return insert_tag_at(text, a, &on);
+    }
+    let t = insert_tag_at(text, b, &off);
+    insert_tag_at(&t, a, &on)
+}
+
+/// Seçimi (ya da imleçten sonrasını) bir değerle işaretler: başa `\name<value>`, seçim varsa
+/// sona önceki değer (`restore`; yoksa `\name` = stil varsayılanı) eklenir. Renk/yazı tipi için.
+pub fn set_tag_range(text: &str, a: usize, b: usize, name: &str, value: &str) -> String {
+    let (a, b) = (a.min(b), a.max(b));
+    if a == b {
+        return insert_tag_at(text, a, &format!("\\{name}{value}"));
+    }
+    let prev = tag_value_before(text, a, name).unwrap_or_default();
+    let t = insert_tag_at(text, b, &format!("\\{name}{prev}"));
+    insert_tag_at(&t, a, &format!("\\{name}{value}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,5 +448,30 @@ mod tests {
         assert_eq!(m3.apply(p), "{\\move(5,6,7,8)}x");
         assert_eq!(Move::to_pos("{\\move(5.4,6,7,8)}x"), "{\\pos(5,6)}x");
         assert_eq!(Move::get("{\\move(1,2,3)}x"), None);
+    }
+
+    #[test]
+    fn edit_box_tag_buttons() {
+        // imleçte: açık değil → aç
+        assert_eq!(toggle_bool_tag("Merhaba dünya", 8, 8, "i", false), "Merhaba {\\i1}dünya");
+        // seçim: sarar
+        assert_eq!(toggle_bool_tag("Merhaba dünya", 8, 13, "b", false), "Merhaba {\\b1}dünya{\\b0}");
+        // italik içindeyken kapatır; bloğun hemen arkasındaysa bloğa ekler
+        assert_eq!(toggle_bool_tag("{\\i1}Merhaba dünya", 4, 4, "i", false), "{\\i1\\i0}Merhaba dünya");
+        assert_eq!(toggle_bool_tag("{\\i1}Merhaba dünya", 13, 13, "i", false), "{\\i1}Merhaba {\\i0}dünya");
+        // stil zaten kalınsa ilk tıklama kapatır
+        assert_eq!(toggle_bool_tag("abc", 0, 0, "b", true), "{\\b0}abc");
+        // blok içindeki imleç bloğun sonuna yazar
+        assert_eq!(insert_tag_at("{\\pos(1,2)}x", 3, "\\i1"), "{\\pos(1,2)\\i1}x");
+        // renk: seçimde önceki değer geri yüklenir
+        assert_eq!(set_tag_range("{\\c&H0000FF&}ab cd", 16, 18, "c", "&HFFFFFF&"), "{\\c&H0000FF&}ab {\\c&HFFFFFF&}cd{\\c&H0000FF&}");
+        assert_eq!(set_tag_range("ab cd", 3, 5, "c", "&HFFFFFF&"), "ab {\\c&HFFFFFF&}cd{\\c}");
+        assert_eq!(set_tag_range("ab", 0, 0, "fn", "Arial"), "{\\fnArial}ab");
+        // ardışık iki düğme aynı seçime uygulanır
+        let t0 = "Merhaba dünya";
+        let t1 = toggle_bool_tag(t0, 8, 13, "b", false);
+        let (a, b) = remap_selection(t0, &t1, 8, 13).unwrap();
+        let t2 = toggle_bool_tag(&t1, a, b, "i", false);
+        assert_eq!(t2, "Merhaba {\\b1\\i1}dünya{\\i0\\b0}");
     }
 }
