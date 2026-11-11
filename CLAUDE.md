@@ -40,7 +40,8 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - `osisub_media::ffmpeg_available()` önbellekli; ffmpeg çağıran şeyleri arayüz karesinde doğrudan çağırma, iş parçacığına at.
 - `cargo test -p osisub-gui` GUI ikilisini (target/debug/osisub-gui) güncellemez; ekran görüntüsünden önce `cargo build -p osisub-gui`.
 - Ayarlar `$HOME/.config/osisub` altında: GUI testlerinde `HOME=<geçici>` ver (gerçek ayarları kirletme).
-- Doğrulanmamış: gerçek ses aygıtı (cpal), macOS, CI'nin gerçek çalıştırması, Windows'ta çalıştırma (yalnızca derleme+bağlama doğrulandı).
+- Windows: `tools/win-check.sh` (mingw + wine64 + xvfb) CLI çıktısını Linux'la bayt bayt karşılaştırır ve GUI'yi wine'da açar (2026-11-11 hepsi TAMAM). Wine tuzağı: ekransız başlamış wineserver varken GUI takılır → `wineserver -w`.
+- Doğrulanmamış: gerçek ses aygıtı (cpal), macOS, CI'nin gerçek çalıştırması, gerçek Windows makinesi (wine dışında).
 
 ## Stil
 Yorum ve belgeler Türkçe; kod yapısı çevresindekiyle uyumlu; gereksiz soyutlama yok. Testi olmayan çekirdek mantık ekleme.

@@ -3,7 +3,7 @@
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
 ## Sıradaki geceler için öncelikli öneriler
-1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows/macOS çalıştırma, GitHub Actions'ın ilk gerçek çalışması (CI + release iş akışları hiç çalıştırılmadı).
+1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), macOS çalıştırma, GitHub Actions'ın ilk gerçek çalışması (CI + release iş akışları hiç çalıştırılmadı). Windows: wine altında CLI + GUI doğrulandı (`tools/win-check.sh`); gerçek Windows makinesinde ses/video denenmedi.
 2. **Kullanıcının kendi Lua betikleri** ile regresyon testi (betikler depoya eklenip `crates/osisub-lua/tests/fixtures/`'a konmalı; çalışmayan API'ler `docs/LUA_UYUMLULUK.md`'e işlenmeli). `kara-templater.lua` uyumluluğu.
 3. **Video araçları:** vektör `\clip`/çizim, `\t` animasyon düzenleme.
 4. Çevrimiçi çeviri bağlayıcıları (anahtar gerektirir; kullanıcıya sorulmalı).

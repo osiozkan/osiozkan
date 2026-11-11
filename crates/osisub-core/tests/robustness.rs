@@ -13,7 +13,7 @@ fn rng(seed: u64) -> impl FnMut(usize) -> usize {
 const FRAGS: &[&str] = &[
     "1", "2", "00:00:01,000", "-->", "00:00:02.500", "0:00:01.00", "\n", "\n\n", "\r\n", "[Events]", "[Script Info]", "[V4+ Styles]", "Dialogue: ", "Comment: ", "Style: ", "Format: ",
     "Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ",", ",,,,,", "0", "Default", "{", "}", "\\", "\\N", "\\k20", "\\pos(", ")", "<i>", "</i>", "<font color=\"#ff0000\">",
-    "<", ">", "&", "&amp;", "[00:01.50]", "<00:01.50>", "{25}{50}", "|", "ş", "İ", "日本語", "♪", "…", "\u{feff}", "WEBVTT", "NOTE", "<p begin=\"1s\" end=\"2s\">", "</p>", "<br/>", "begin=\"", "\"", ":", ";", ".", " ", "x", "<SYNC Start=", "<sync start=\"", "<P Class=ENCC>", "class=", "&nbsp;", "</body>", "[INFORMATION]", "[br]", "<br",
+    "<", ">", "&", "&amp;", "[00:01.50]", "<00:01.50>", "{25}{50}", "|", "ş", "İ", "日本語", "♪", "…", "\u{feff}", "WEBVTT", "NOTE", "<p begin=\"1s\" end=\"2s\">", "</p>", "<br/>", "begin=\"", "\"", ":", ";", ".", " ", "x", "<SYNC Start=", "<sync start=\"", "<P Class=ENCC>", "class=", "&nbsp;", "</body>", "[INFORMATION]", "[br]", "<br", "\\fad(", "\\t(", "\\move(", "\\clip(", "(", "-5", "\\fscx", "\\c&H", "{note}",
 ];
 
 fn rounds(default: usize) -> usize {
@@ -41,6 +41,12 @@ fn parsers_never_panic() {
         let _ = formats::parse_ttml(&t);
         let _ = overrides::parse(&t);
         let _ = overrides::clean(&t);
+        {
+            let d = osisub_core::ass::Dialogue { start_time: 0, end_time: 1000, text: t.clone(), ..Default::default() };
+            let _ = osisub_core::taglint::lint(&d, &["Default"]);
+            let _ = osisub_core::taglint::repair(&d);
+            let _ = osisub_core::taglint::strip_notes(&t);
+        }
         let _ = tags::visible_text(&t);
         let _ = tags::karaoke_syllables(&t);
         let _ = osisub_core::karaoke::parse(&t);

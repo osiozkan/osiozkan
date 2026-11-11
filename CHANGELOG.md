@@ -1,5 +1,14 @@
 # Değişiklik günlüğü
 
+## 0.4.0 — 2026-11-11 (üçüncü gece)
+
+**Aegisub'dan geçiş:** `l0.DependencyControl` uyumluluk katmanı (requireModules, registerMacro(s), ConfigHandler, Logger, sürüm denetimi; güncelleme indirmez) + yedek `json` modülü; kurulu Aegisub'ın `automation/include` ve `autoload` klasörleri otomatik; `/` ile iç içe makro menüleri; Aegisub `hotkey.json` içe aktarma; belgeye bağlı betikler ("Automation Scripts"); Aegisub ses kipi komutları ve varsayılan S/H/Q/W/E/D/Z/X tuşları.
+**Tipografi:** hareket izleme verisi uygulama (Mocha/AE Transform Data → kare kare `\pos`/ölçek/dönüş/`\clip`; GUI + CLI `motion`); kırpma şeritleriyle degrade; parıltı (glow) katmanı.
+**Kalite:** anime etiket denetimi (bozuk/bilinmeyen etiket, süreyle çelişen `\fad`/`\move`/`\t`, karaoke süresi, unutulmuş `{notlar}`), Kalite sekmesinde kategori süzgeci, "Etiketleri onar", "Notları sil", CLI `fixes --tags --notes`.
+**Dosyalar:** dosya birleştirme (diyalog + tabela + OP/ED; stil çakışması, çözünürlük, zaman kaydırma, yazı tipleri; GUI + CLI `merge`); SAMI okuma/yazma, SubViewer 2 okuma, Matroska timestamp v4.
+**Zamanlama:** oynatma hızı (0.25–2×, perde korunur) ve ses seviyesi; Subtitle Edit toplu işlemleri (aynı metinli/kısa satırları birleştir, okuma hızına göre süre).
+**Hata düzeltmeleri:** satır sayısını değiştiren toplu işlemlerden sonra etkin satır/seçim yanlış satıra kayıyordu; "yalnızca uzat" süre hesabı çakışan satırı kısaltıyordu (yayın öncesi yakalandı); `sort_by_start` büyük dosyada karesel zamanlıydı.
+
 ## 0.3.0 — 2026-11-10 (ikinci gece)
 
 **Lua uyumluluğu:** gerçek Aegisub `karaskel-auto4.lua` gömülü; **`kara-templater.lua` yerleşik** (gerçek betikle uçtan uca test); **MoonScript (`.moon`) betikleri** (gömülü moonscript 0.5.0 + LuLPeg); include klasörlerinden `require` (.lua/.moon); yeni API'ler: `aegisub.debug.out`, `aegisub.parse_karaoke_data`, `subs.script_resolution`, `unicode.charwidth/chars`, `utils.lua` genel takma adları, `cleantags.lua`; Aegisub izleme düzeyi (debug iletileri gizli); betik hata penceresi (hatalı satır + çevresi).

@@ -31,6 +31,9 @@ KULLANIM:
   osisub fonts <girdi>                    kullanılan yazı tipleri ve kurulu mu
   osisub batch <klasör> <uzantı> [--recursive]   klasördeki altyazıları toplu dönüştür
 
+Lua include klasörleri: <yapılandırma>/osisub/automation/include, kurulu Aegisub'ın automation/include'u,
+programın yanındaki include/ ve OSISUB_INCLUDE (yol listesi).
+
 Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD / SubViewer), sbv, smi (SAMI), ttml/dfxp; yazma: txt, csv.
 ";
 
@@ -397,9 +400,18 @@ fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
 
 fn new_engine(host: HeadlessHost) -> Result<Engine, String> {
     let mut e = Engine::new(Box::new(host)).map_err(|e| e.to_string())?;
+    // GUI ile aynı arama sırası: osisub automation/include, kurulu Aegisub'ın include'u, programın yanındaki include
+    for d in osisub_core::paths::automation_include_dirs() {
+        e.add_include_dir(d);
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(d) = exe.parent() {
             e.add_include_dir(PathBuf::from(d).join("include"));
+        }
+    }
+    if let Ok(extra) = std::env::var("OSISUB_INCLUDE") {
+        for d in std::env::split_paths(&extra) {
+            e.add_include_dir(d);
         }
     }
     Ok(e)
