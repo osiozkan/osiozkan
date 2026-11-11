@@ -14,6 +14,8 @@ KULLANIM:
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
+  osisub perspective <dörtgen: x,y x,y x,y x,y> --size G,Y [--playres-y N --layoutres-y N]
+                          w×h kutuyu 4 köşeye oturtan \\frx\\fry\\frz\\fscx\\fscy\\fax\\org etiketleri
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
@@ -142,6 +144,23 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 if let Entry::Dialogue(d) = &mut s.entries[i] { d.text = t; }
             }
             save(&s, &out)
+        }
+        "perspective" => {
+            // perspective "x0,y0 x1,y1 x2,y2 x3,y3" --size G,Y  → dörtgene oturan etiketler
+            let size = opt(&mut args, "--size").ok_or("--size genişlik,yükseklik gerekli")?;
+            // kamera uzaklığı: 312.5 × PlayResY / LayoutResY (varsayılan ikisi eşit)
+            let dist = match (opt(&mut args, "--playres-y"), opt(&mut args, "--layoutres-y")) {
+                (Some(p), Some(l)) => osisub_core::perspective::dist_for(p.parse().map_err(|_| "--playres-y")?, l.parse().map_err(|_| "--layoutres-y")?),
+                _ => osisub_core::perspective::DIST_PX,
+            };
+            let (w, h) = size.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?))).ok_or("--size G,Y")?;
+            let pts: Vec<(f64, f64)> = args.first().ok_or("dörtgen gerekli")?.split_whitespace().filter_map(|p| { let (a, b) = p.split_once(',')?; Some((a.parse().ok()?, b.parse().ok()?)) }).collect();
+            if pts.len() != 4 { return Err("4 nokta gerekli: \"x,y x,y x,y x,y\"".into()); }
+            let q = osisub_core::perspective::quad_from_clip(&format!("m {} {} l {} {} {} {} {} {}", pts[0].0, pts[0].1, pts[1].0, pts[1].1, pts[2].0, pts[2].1, pts[3].0, pts[3].1)).ok_or("dörtgen")?;
+            let (p, org, err) = osisub_core::perspective::fit(&q, w, h, dist).ok_or("çözüm bulunamadı")?;
+            eprintln!("en büyük köşe hatası {err:.3} px");
+            println!("{}", osisub_core::perspective::tags(&p, org));
+            Ok(())
         }
         "shape" => {
             // metni ASS çizimine çevir: shape "Metin" [--font Arial] [--size 64] [--bold] [--italic] [--fscx 100] [--fscy 100] [--fsp 0]

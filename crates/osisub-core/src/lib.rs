@@ -14,6 +14,7 @@ pub mod karaoke;
 pub mod merge;
 pub mod motion;
 pub mod overrides;
+pub mod perspective;
 pub mod paths;
 pub mod qc;
 pub mod search;
