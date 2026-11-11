@@ -526,6 +526,7 @@ impl App {
         self.rules = self.settings.rules();
         self.media.snap = self.settings.snap_frames;
         self.media.snap_kf = self.settings.snap_keyframes;
+        self.media.play_opts = osisub_media::audio::PlayOpts { speed: self.settings.play_speed, volume: self.settings.volume };
         self.post.lead_in_ms = self.settings.lead_in_ms;
         self.post.lead_out_ms = self.settings.lead_out_ms;
         self.post.adjacent_gap_ms = self.settings.adjacent_gap_ms;
@@ -543,6 +544,8 @@ impl App {
         s.min_gap_ms = self.rules.min_gap_ms;
         s.snap_frames = self.media.snap;
         s.snap_keyframes = self.media.snap_kf;
+        s.play_speed = self.media.play_opts.speed;
+        s.volume = self.media.play_opts.volume;
         s.lead_in_ms = self.post.lead_in_ms;
         s.lead_out_ms = self.post.lead_out_ms;
         s.adjacent_gap_ms = self.post.adjacent_gap_ms;
@@ -1401,6 +1404,26 @@ impl App {
                     self.status = "Timecode kapatıldı (videonun sabit kare hızı kullanılıyor)".into();
                 }
                 ui.separator();
+                ui.menu_button(format!("Oynatma hızı ({}x)", self.media.play_opts.speed), |ui| {
+                    for sp in [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0] {
+                        if ui.radio(self.media.play_opts.speed == sp, format!("{sp}x")).clicked() {
+                            self.media.play_opts.speed = sp;
+                            self.save_settings();
+                            ui.close();
+                        }
+                    }
+                    ui.label(RichText::new("Perde korunur; zamanlamada yavaş dinlemek için").small().weak());
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Ses");
+                    let mut v = (self.media.play_opts.volume * 100.0) as f32;
+                    if ui.add(egui::Slider::new(&mut v, 0.0..=200.0).suffix("%").integer()).drag_stopped() {
+                        self.media.play_opts.volume = v as f64 / 100.0;
+                        self.save_settings();
+                    } else {
+                        self.media.play_opts.volume = v as f64 / 100.0;
+                    }
+                });
                 ui.checkbox(&mut self.media.spectrum, "Spektrum göster");
                 ui.checkbox(&mut self.media.snap, "Karelere yapış");
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");

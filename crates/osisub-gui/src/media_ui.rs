@@ -83,6 +83,8 @@ pub struct Media {
     pub video_zoom: f32,
     pub video_pan: egui::Vec2,
     pub spectrum: bool,
+    /// Oynatma hızı ve ses seviyesi (bir sonraki oynatmada geçerli)
+    pub play_opts: osisub_media::audio::PlayOpts,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
     audio: Option<osisub_media::audio::AudioPlayer>,
@@ -132,6 +134,7 @@ impl Media {
             video_zoom: 1.0,
             video_pan: egui::Vec2::ZERO,
             spectrum: false,
+            play_opts: Default::default(),
             spec_tex: None,
             stream: None,
             audio: None,
@@ -290,14 +293,14 @@ impl Media {
     fn play_range(&mut self, doc: &Document, ctx: &egui::Context, from: i64, dur: i64) {
         let Some(p) = self.path.clone() else { return };
         // Önce uygulama içi ses motoru (hassas ses saati); olmazsa harici ffplay.
-        match osisub_media::audio::AudioPlayer::start(&p, from, dur) {
+        match osisub_media::audio::AudioPlayer::start(&p, from, dur, self.play_opts) {
             Ok(a) => self.audio = Some(a),
             Err(why) => {
-                let child = Command::new("ffplay")
-                    .args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)])
-                    .arg(&p)
-                    .stdin(Stdio::null())
-                    .spawn();
+                let mut cmd = Command::new("ffplay");
+                cmd.args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)]);
+                let af = self.play_opts.filter();
+                if !af.is_empty() { cmd.args(["-af", &af]); }
+                let child = cmd.arg(&p).stdin(Stdio::null()).spawn();
                 match child {
                     Ok(c) => {
                         self.player = Some(c);
@@ -352,9 +355,10 @@ impl Media {
             }
             None => {
                 let clock = self.play_started.unwrap_or(begin);
-                // ses aygıtı yoksa saat: oynatma aralığının sonunu geçmesin
-                self.playhead = self.play_from + ((begin.elapsed().as_secs_f64() * 1000.0) as i64).min(self.play_dur);
-                (clock.elapsed().as_secs_f64(), begin.elapsed().as_millis() as i64 > self.play_dur + 800)
+                let sp = self.play_opts.speed.clamp(0.25, 4.0);
+                // ses aygıtı yoksa saat (hızla ölçekli): oynatma aralığının sonunu geçmesin
+                self.playhead = self.play_from + ((begin.elapsed().as_secs_f64() * 1000.0 * sp) as i64).min(self.play_dur);
+                (clock.elapsed().as_secs_f64() * sp, (begin.elapsed().as_millis() as f64 * sp) as i64 > self.play_dur + 800)
             }
         };
         if let Some(st) = &self.stream {
@@ -376,7 +380,7 @@ impl Media {
                 }
             }
         }
-        if ended || begin.elapsed().as_millis() as i64 > self.play_dur + 3000 {
+        if ended || (begin.elapsed().as_millis() as f64 * self.play_opts.speed.clamp(0.25, 4.0)) as i64 > self.play_dur + 3000 {
             self.stop_all();
             self.frame_shown = (-1, u64::MAX);
         }

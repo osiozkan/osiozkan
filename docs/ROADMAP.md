@@ -79,7 +79,8 @@
 - [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)
 - [x] Uygulama içi ses oynatma (cpal 0.18 + ffmpeg PCM; ses saati playhead/video/tuşla zamanlamayı sürer; aygıt yoksa ffplay'e düşer). HENÜZ GERÇEK AYGITTA TEST EDİLMEDİ (kum havuzunda ses aygıtı yok); mantık sahte çıkışla testli
 - [x] Playhead'den sürekli oynatma (Shift+F5, Video menüsü, kısayol komutu)
-- [ ] Basılı tutarak oynat, hız ayarı, ses seviyesi
+- [x] Oynatma hızı (0.25–2x, perde korunur; ffmpeg atempo) ve ses seviyesi (Video menüsü, kalıcı); ses saati hızla ölçekli
+- [ ] Basılı tutarak oynat
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)

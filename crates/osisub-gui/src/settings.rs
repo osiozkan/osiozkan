@@ -35,6 +35,9 @@ pub struct Settings {
     pub scripts: Vec<String>,
     /// Kurulu Aegisub'ın automation/autoload betiklerini de yükle
     pub aegisub_autoload: bool,
+    /// Oynatma hızı (0.25–2; perde korunur) ve ses seviyesi (0–2)
+    pub play_speed: f64,
+    pub volume: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -73,6 +76,8 @@ impl Default for Settings {
             grid_margins: false,
             scripts: vec![],
             aegisub_autoload: true,
+            play_speed: 1.0,
+            volume: 1.0,
         }
     }
 }
