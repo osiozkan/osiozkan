@@ -38,6 +38,8 @@ pub struct Settings {
     /// Oynatma hızı (0.25–2; perde korunur) ve ses seviyesi (0–2)
     pub play_speed: f64,
     pub volume: f64,
+    /// Uygulanan varsayılan kısayol sürümü (yeni varsayılanlar bir kez eklenir; kullanıcı silerse geri gelmez)
+    pub hotkey_defaults: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -78,6 +80,7 @@ impl Default for Settings {
             aegisub_autoload: true,
             play_speed: 1.0,
             volume: 1.0,
+            hotkey_defaults: 0,
         }
     }
 }

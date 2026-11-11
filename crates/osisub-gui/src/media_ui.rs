@@ -43,6 +43,31 @@ enum Drag {
     Body(i64),
 }
 
+/// Etkin satıra göre oynatılacak bölüm (Aegisub audio/play/selection/*).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlayPart {
+    Selection,
+    Before,
+    After,
+    Begin,
+    End,
+}
+
+impl PlayPart {
+    /// (başlangıç, süre) ms
+    pub fn range(self, start: i64, end: i64) -> (i64, i64) {
+        let dur = (end - start).max(0);
+        let half = dur.min(500);
+        match self {
+            PlayPart::Selection => (start, dur),
+            PlayPart::Before => ((start - 500).max(0), start.min(500)),
+            PlayPart::After => (end, 500),
+            PlayPart::Begin => (start, half),
+            PlayPart::End => (end - half, half),
+        }
+    }
+}
+
 pub struct Media {
     pub path: Option<PathBuf>,
     pub info: Option<MediaInfo>,
@@ -276,6 +301,26 @@ impl Media {
             _ => (self.playhead, self.playhead + 5000),
         };
         self.play_range(doc, ctx, (s - 300).max(0), e - s + 600);
+    }
+
+    /// Aegisub ses kipi oynatmaları (etkin satıra göre): seçim, başlangıçtan önceki/bitişten
+    /// sonraki 500 ms, seçimin ilk/son 500 ms'si. Çalarken çağrılırsa durdurur.
+    pub fn play_part(&mut self, doc: &Document, ctx: &egui::Context, part: PlayPart) {
+        if self.is_playing() {
+            self.stop_all();
+            return;
+        }
+        let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active) else { return };
+        let (from, dur) = part.range(d.start_time, d.end_time);
+        if dur > 0 {
+            self.play_range(doc, ctx, from, dur);
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if self.is_playing() {
+            self.stop_all();
+        }
     }
 
     /// Playhead'den itibaren (satır sınırı olmadan) oynatır; çalarken çağrılırsa durdurur.
@@ -1201,5 +1246,19 @@ impl Drop for Media {
     fn drop(&mut self) {
         self.stop_all();
         let _ = std::fs::remove_dir_all(&self.tmp_dir);
+    }
+}
+
+#[cfg(test)]
+mod play_part_tests {
+    use super::PlayPart;
+    #[test]
+    fn ranges() {
+        assert_eq!(PlayPart::Selection.range(1000, 3000), (1000, 2000));
+        assert_eq!(PlayPart::Before.range(1000, 3000), (500, 500));
+        assert_eq!(PlayPart::Before.range(200, 3000), (0, 200));
+        assert_eq!(PlayPart::After.range(1000, 3000), (3000, 500));
+        assert_eq!(PlayPart::Begin.range(1000, 1300), (1000, 300));
+        assert_eq!(PlayPart::End.range(1000, 3000), (2500, 500));
     }
 }

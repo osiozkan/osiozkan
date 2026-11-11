@@ -83,7 +83,7 @@
 - [x] Oynatma hızı (0.25–2x, perde korunur; ffmpeg atempo) ve ses seviyesi (Video menüsü, kalıcı); ses saati hızla ölçekli
 - [ ] Basılı tutarak oynat
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
-- [ ] Ses zamanlama: sürükle, snap, kısayol odaklı akış (Aegisub kısayollarıyla uyumlu)
+- [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)
 - [ ] Stil yöneticisi: renk seçici iyileştirmeleri
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)

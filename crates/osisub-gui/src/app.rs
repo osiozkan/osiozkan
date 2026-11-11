@@ -217,6 +217,13 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("dup_shift", "Çoğalt ve 1 kare kaydır"),
     ("play_line", "Satırı oynat / durdur"),
     ("play_head", "Playhead'den oynat / durdur"),
+    ("play_sel", "Ses: seçimi oynat (dolgusuz)"),
+    ("play_before", "Ses: başlangıçtan önceki 500 ms"),
+    ("play_after", "Ses: bitişten sonraki 500 ms"),
+    ("play_begin", "Ses: ilk 500 ms"),
+    ("play_end", "Ses: son 500 ms"),
+    ("play_stop", "Ses: durdur"),
+    ("commit_next", "Sonraki satır (sonuncudaysa yeni satır ekle)"),
     ("set_start", "Başlangıcı video karesine al"),
     ("set_end", "Bitişi video karesine al"),
     ("frame_next", "Sonraki kare"),
@@ -322,7 +329,12 @@ impl App {
             }
         }
         all.extend(user_auto.iter().cloned());
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        if settings.hotkey_defaults < 1 {
+            crate::hotkeys::apply_defaults(&mut settings.macro_hotkeys, COMMAND_SCRIPT);
+            settings.hotkey_defaults = 1;
+            settings.save();
+        }
         // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
         if settings.aegisub_autoload {
             for d in osisub_core::paths::aegisub_automation_dirs() {
@@ -1025,6 +1037,21 @@ impl App {
             "set_end" => self.media.set_active_end(&mut self.doc),
             "frame_next" => self.media.step_frames(1),
             "frame_prev" => self.media.step_frames(-1),
+            "play_sel" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Selection),
+            "play_before" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Before),
+            "play_after" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::After),
+            "play_begin" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Begin),
+            "play_end" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::End),
+            "play_stop" => self.media.stop(),
+            "commit_next" => {
+                // Aegisub time/next: son satırdaysa bitişinden başlayan yeni satır
+                if self.rows.last() == Some(&self.doc.active) || self.rows.is_empty() {
+                    let at = self.doc.insert_after_active();
+                    self.scroll_to = Some(at);
+                } else {
+                    step_line(self, 1);
+                }
+            }
             "line_next" => step_line(self, 1),
             "line_prev" => step_line(self, -1),
             "select_lines" => self.select_open = true,

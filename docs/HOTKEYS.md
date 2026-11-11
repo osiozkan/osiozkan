@@ -16,6 +16,10 @@
 | F5 | Etkin satırı oynat/durdur (video+ses) |
 | Shift+F5 | Playhead'den oynat/durdur (satır sınırı olmadan, en çok 10 dk) |
 | F6 / F7 | Playhead'i başlangıç / bitiş yap |
+| S / H | Etkin satırı dolgusuz oynat / durdur (Aegisub ses kipi; metin yazılmıyorken) |
+| Q / W | Başlangıçtan önceki / bitişten sonraki 500 ms'yi oynat |
+| E / D | Satırın ilk / son 500 ms'sini oynat |
+| Z / X | Önceki satır / sonraki satır (sonuncudaysa bitişinden başlayan yeni satır) |
 | Dalga formu: sürükle (kenar tutamaçları) | Başlangıç/bitiş ayarla (kareye/anahtar kareye yapışır) |
 | Dalga formu: Alt+sürükle | Satırı taşı |
 | Dalga formu: tıkla / Shift+tıkla / sağ tıkla | Playhead / başlangıç / bitiş |

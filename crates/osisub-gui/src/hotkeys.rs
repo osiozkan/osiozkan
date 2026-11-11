@@ -76,6 +76,14 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("time/snap/start_video", "set_start"),
     ("time/snap/end_video", "set_end"),
     ("video/play/line", "play_line"),
+    ("audio/play/selection", "play_sel"),
+    ("audio/play/selection/before", "play_before"),
+    ("audio/play/selection/after", "play_after"),
+    ("audio/play/selection/begin", "play_begin"),
+    ("audio/play/selection/end", "play_end"),
+    ("audio/stop", "play_stop"),
+    ("time/next", "commit_next"),
+    ("time/prev", "line_prev"),
     ("video/play", "play_head"),
     ("edit/line/split/estimate", "split_cursor"),
     ("edit/line/split/video", "split_cursor_frame"),
@@ -89,6 +97,33 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/tool/rotate/xy", "tool_rotatexy"),
     ("video/tool/scale", "tool_scale"),
 ];
+
+/// Aegisub'ın ses kipindeki varsayılan tuşları (osisub'da metin yazılmıyorken çalışır).
+/// İlk açılışta, kullanıcının o komuta ya da tuşa ataması yoksa eklenir.
+pub const DEFAULT_COMMAND_KEYS: &[(&str, &str)] = &[
+    ("play_sel", "S"),
+    ("play_before", "Q"),
+    ("play_after", "W"),
+    ("play_begin", "E"),
+    ("play_end", "D"),
+    ("play_stop", "H"),
+    ("commit_next", "X"),
+    ("line_prev", "Z"),
+];
+
+/// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
+pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {
+    let mut n = 0;
+    for (cmd, keys) in DEFAULT_COMMAND_KEYS {
+        let taken_cmd = binds.iter().any(|h| h.script == command_script && h.name == *cmd);
+        let taken_key = binds.iter().any(|h| parse(&h.keys) == parse(keys));
+        if !taken_cmd && !taken_key {
+            binds.push(crate::settings::MacroHotkey { keys: keys.to_string(), script: command_script.to_string(), name: cmd.to_string() });
+            n += 1;
+        }
+    }
+    n
+}
 
 /// Aegisub tuş adını ("Ctrl-Shift-K", "Return", "Page_Up", "KP_Enter") osisub biçimine çevirir.
 pub fn from_aegisub_combo(modifiers: &[String], key: &str) -> Option<String> {
@@ -210,5 +245,20 @@ mod tests {
         assert!(skipped.iter().any(|s| s.contains("F5")));
         assert_eq!(got.iter().filter(|(_, k)| k == "Right").count(), 1);
         assert!(import_aegisub("[").is_err());
+    }
+
+    #[test]
+    fn defaults_respect_user_bindings() {
+        use crate::settings::MacroHotkey;
+        let mut b = vec![
+            MacroHotkey { keys: "S".into(), script: "".into(), name: "Benim makrom".into() },
+            MacroHotkey { keys: "Ctrl+Q".into(), script: "@komut".into(), name: "play_before".into() },
+        ];
+        let n = apply_defaults(&mut b, "@komut");
+        assert_eq!(n, DEFAULT_COMMAND_KEYS.len() - 2);
+        assert!(!b.iter().any(|h| h.name == "play_sel"));
+        assert!(!b.iter().any(|h| h.keys == "Q"));
+        assert!(b.iter().any(|h| h.name == "commit_next" && h.keys == "X"));
+        assert_eq!(apply_defaults(&mut b, "@komut"), 0);
     }
 }
