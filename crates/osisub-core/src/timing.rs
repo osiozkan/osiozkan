@@ -221,6 +221,31 @@ pub fn resample(script: &mut Script, new_x: i32, new_y: i32) {
     script.set_info("PlayResY", &new_y.to_string());
 }
 
+
+/// Satır başlangıç/bitişlerini en yakın konuşma sınırına (VAD bölgesi başı/sonu) çeker; yalnızca
+/// `max_ms` içindeki sınırlar dikkate alınır. Tipografi/karaoke/fx ve yorum satırları atlanır.
+/// `only`: işlenecek entry indeksleri (None = tümü). Değişen satır sayısı.
+pub fn snap_to_speech(script: &mut Script, segs: &[(i64, i64)], max_ms: i64, only: Option<&[usize]>) -> usize {
+    let starts: Vec<i64> = segs.iter().map(|s| s.0).collect();
+    let ends: Vec<i64> = segs.iter().map(|s| s.1).collect();
+    let nearest = |v: &[i64], t: i64| v.iter().copied().filter(|x| (x - t).abs() <= max_ms).min_by_key(|x| (x - t).abs());
+    let mut n = 0;
+    for (i, e) in script.entries.iter_mut().enumerate() {
+        let Entry::Dialogue(d) = e else { continue };
+        if only.map_or(false, |o| !o.contains(&i)) || d.comment || crate::qc::is_typeset(d) || crate::qc::is_karaoke(d) || d.effect.eq_ignore_ascii_case("fx") {
+            continue;
+        }
+        let ns = nearest(&starts, d.start_time).unwrap_or(d.start_time);
+        let ne = nearest(&ends, d.end_time).unwrap_or(d.end_time);
+        if ne > ns && (ns, ne) != (d.start_time, d.end_time) {
+            d.start_time = ns;
+            d.end_time = ne;
+            n += 1;
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +290,18 @@ mod tests {
         assert!(t.contains("\\pos(640,360)") && t.contains("\\fs60") && t.contains("\\t(0,500,\\fs120)") && t.contains("\\clip(0,0,1280,720)"), "{}", t);
         assert!(t.contains("m 0 0 l 20 40"), "{}", t);
         assert_eq!(s.dialogues().next().unwrap().margin_t, 10);
+    }
+
+    #[test]
+    fn snaps_to_speech_boundaries() {
+        let mut s = Script::from_dialogues(vec![
+            Dialogue { start_time: 1100, end_time: 2900, text: "a".into(), ..Default::default() },
+            Dialogue { start_time: 5000, end_time: 6000, text: "uzak".into(), ..Default::default() },
+            Dialogue { start_time: 1050, end_time: 2950, text: "{\\pos(1,1)}tabela".into(), ..Default::default() },
+        ]);
+        let n = snap_to_speech(&mut s, &[(1000, 3000), (7000, 8000)], 200, None);
+        assert_eq!(n, 1);
+        let t: Vec<(i64, i64)> = s.dialogues().map(|d| (d.start_time, d.end_time)).collect();
+        assert_eq!(t, vec![(1000, 3000), (5000, 6000), (1050, 2950)]);
     }
 }

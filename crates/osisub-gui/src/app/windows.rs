@@ -620,7 +620,7 @@ impl App {
         let mut v: Vec<(String, super::PalAct)> = super::COMMANDS.iter().map(|(id, l)| (l.to_string(), Cmd(id))).collect();
         for (w, l) in [
             ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"),
-            ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
+            ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur / konuşmaya yapıştır"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
@@ -1059,6 +1059,22 @@ impl App {
                 ui.label("En kısa sessizlik (ms)"); ui.add(egui::DragValue::new(&mut self.vad.min_silence_ms).speed(10)); ui.end_row();
                 ui.label("Kenar payı (ms)"); ui.add(egui::DragValue::new(&mut self.vad.pad_ms).speed(5)); ui.end_row();
             });
+            ui.horizontal(|ui| {
+                if ui.button("Satırları konuşmaya yapıştır").on_hover_text("Seçili (yoksa tüm) satırların başlangıç/bitişini ±250 ms içindeki en yakın konuşma sınırına çeker").clicked() {
+                    if let Some(w) = self.media.waveform() {
+                        let segs = osisub_media::detect_speech(&w, &self.vad);
+                        let sel = self.doc.selection.clone();
+                        let only = (sel.len() > 1).then_some(sel);
+                        let mut s = self.doc.script.clone();
+                        let n = osisub_core::timing::snap_to_speech(&mut s, &segs, 250, only.as_deref());
+                        self.doc.apply_new_script("Konuşmaya yapıştır", s);
+                        self.status = format!("{n} satır konuşma sınırına yapıştırıldı");
+                    } else {
+                        self.status = "Önce video/ses açın (dalga formu gerekli)".into();
+                    }
+                }
+            });
+            ui.separator();
             ui.checkbox(&mut self.vad_skip_existing, "Zaten satır olan bölgeleri atla");
             if ui.button("Oluştur").clicked() {
                 if let Some(w) = self.media.waveform() {
