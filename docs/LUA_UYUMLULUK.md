@@ -52,3 +52,6 @@ osisub gerçek DepCtrl yerine **yerleşik bir uyumluluk katmanı** kullanır (ge
 
 ## Belgeye bağlı betikler
 Aegisub'ın `[Aegisub Project Garbage]` → `Automation Scripts:` alanı okunur ve yazılır: dosya açılınca betikler yüklenir; Otomasyon sekmesindeki "belgeye bağlı" kutusu betiği bu alana ekler/çıkarır (kaydedince yazılır).
+
+## aegisub.get_frame (Aegisub 3.3+ / arch1t3cht)
+`aegisub.get_frame(kare, altyazılı?)` açık videodan tam çözünürlükte kare döndürür: `frame:width()`, `frame:height()`, `frame:getPixel(x, y)` (0xRRGGBB), `frame:getPixelFormatted(x, y)` ("&HBBGGRR&"). Videodan renk alan betikler çalışır. Video açık değilse `nil`.

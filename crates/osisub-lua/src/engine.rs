@@ -62,6 +62,10 @@ pub trait Host {
     fn save_dialog(&mut self, _title: &str, _dir: &str, _file: &str, _wildcard: &str) -> Option<String> {
         None
     }
+    /// Video karesi (RGBA, tam çözünürlük): `aegisub.get_frame` için. `subs_ass`: altyazılı isteniyorsa betik.
+    fn get_frame(&mut self, _frame: i64, _subs_ass: Option<String>) -> Option<(u32, u32, Vec<u8>)> {
+        None
+    }
     fn clipboard_get(&mut self) -> Option<String> {
         None
     }

@@ -342,6 +342,16 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             })?,
         )?;
         let inn = inner.clone();
+        let sc = script.clone();
+        aegisub.set(
+            "get_frame",
+            lua.create_function(move |_, (frame, with_subs): (i64, Option<bool>)| {
+                let ass = if with_subs.unwrap_or(false) { Some(sc.borrow().to_ass_string()) } else { None };
+                let r = inn.borrow_mut().host.get_frame(frame, ass);
+                Ok(r.map(|(w, h, rgba)| VideoFrame { w, h, rgba }))
+            })?,
+        )?;
+        let inn = inner.clone();
         aegisub.set(
             "keyframes",
             lua.create_function(move |lua, ()| {
@@ -650,4 +660,31 @@ fn install_lfs(lua: &Lua, l: &Table) -> Result<()> {
     l.set("rmdir", lua.create_function(|_, p: String| Ok(std::fs::remove_dir(&p).is_ok()))?)?;
     l.set("currentdir", lua.create_function(|_, ()| Ok(std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string())))?)?;
     Ok(())
+}
+
+/// `aegisub.get_frame` sonucu (arch1t3cht Aegisub API'si): `frame:width()`, `frame:height()`,
+/// `frame:getPixel(x, y)` (0xRRGGBB tamsayı), `frame:getPixelFormatted(x, y)` ("&HBBGGRR&").
+pub struct VideoFrame {
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+}
+
+impl VideoFrame {
+    fn px(&self, x: i64, y: i64) -> Option<(u8, u8, u8)> {
+        if x < 0 || y < 0 || x >= self.w as i64 || y >= self.h as i64 {
+            return None;
+        }
+        let i = ((y as usize) * self.w as usize + x as usize) * 4;
+        Some((self.rgba[i], self.rgba[i + 1], self.rgba[i + 2]))
+    }
+}
+
+impl mlua::UserData for VideoFrame {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(m: &mut M) {
+        m.add_method("width", |_, f, ()| Ok(f.w));
+        m.add_method("height", |_, f, ()| Ok(f.h));
+        m.add_method("getPixel", |_, f, (x, y): (i64, i64)| Ok(f.px(x, y).map(|(r, g, b)| ((r as i64) << 16) | ((g as i64) << 8) | b as i64)));
+        m.add_method("getPixelFormatted", |_, f, (x, y): (i64, i64)| Ok(f.px(x, y).map(|(r, g, b)| format!("&H{:02X}{:02X}{:02X}&", b, g, r))));
+    }
 }

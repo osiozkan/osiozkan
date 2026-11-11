@@ -900,6 +900,7 @@ impl App {
             m.fps = self.media.fps();
             m.timecodes = self.media.timecodes.clone();
             m.video_size = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width as i32, i.height as i32));
+            m.video = match (&self.media.path, &self.media.info) { (Some(p), Some(i)) if i.has_video => Some((p.clone(), i.clone())), _ => None };
             m.keyframes = self.media.framerate().map(|f| self.media.keyframes.iter().map(|&ms| f.frame_at(ms)).collect()).unwrap_or_default();
             m.audio_selection = match self.doc.script.entries.get(self.doc.active) {
                 Some(Entry::Dialogue(d)) => Some((d.start_time, d.end_time)),

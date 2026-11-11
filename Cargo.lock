@@ -2442,6 +2442,7 @@ version = "0.3.0"
 dependencies = [
  "osisub-core",
  "osisub-lua",
+ "osisub-media",
 ]
 
 [[package]]

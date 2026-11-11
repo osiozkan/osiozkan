@@ -18,6 +18,8 @@ pub struct MediaState {
     pub keyframes: Vec<i64>,
     /// Arayüz iptal isterse `true`; betikler `aegisub.progress.is_cancelled()` ile görür.
     pub cancel: bool,
+    /// Açık video (yol, bilgi): `aegisub.get_frame` için
+    pub video: Option<(PathBuf, osisub_media::MediaInfo)>,
 }
 
 pub enum Cmd {
@@ -92,6 +94,24 @@ impl Host for ChannelHost {
     }
     fn log(&mut self, _level: i64, msg: &str) {
         let _ = self.tx.send(Event::Log(msg.to_string()));
+    }
+    fn get_frame(&mut self, frame: i64, subs_ass: Option<String>) -> Option<(u32, u32, Vec<u8>)> {
+        let (video, info, fr) = {
+            let m = self.media.lock().ok()?;
+            let (v, i) = m.video.clone()?;
+            let fr = m.timecodes.clone().or(m.fps.map(|f| Arc::new(osisub_core::vfr::Framerate::cfr(f))))?;
+            (v, i, fr)
+        };
+        let ass = match subs_ass {
+            Some(t) => {
+                let p = std::env::temp_dir().join(format!("osisub-getframe-{}.ass", std::process::id()));
+                std::fs::write(&p, t).ok()?;
+                Some(p)
+            }
+            None => None,
+        };
+        let f = osisub_media::render_frame(&video, ass.as_deref(), fr.time_at(frame), info.width, &info).ok()?;
+        Some((f.width, f.height, f.rgba))
     }
 }
 

@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 osisub-core = { path = "../osisub-core" }
 osisub-lua = { path = "../osisub-lua" }
+osisub-media = { path = "../osisub-media" }

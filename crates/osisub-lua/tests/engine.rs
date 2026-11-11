@@ -161,3 +161,34 @@ fn dependency_control_shim() {
     assert!(saved.contains("\"kalinlik\":3"), "{saved}");
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn get_frame_api() {
+    struct FrameHost;
+    impl osisub_lua::Host for FrameHost {
+        fn get_frame(&mut self, frame: i64, subs: Option<String>) -> Option<(u32, u32, Vec<u8>)> {
+            // 2×1 kare: (255,0,0) ve (1,2,3); altyazılı istenirse ikinci piksel beyaz
+            let white = subs.map_or(false, |s| s.contains("[Events]"));
+            (frame == 5).then(|| (2, 1, vec![255, 0, 0, 255, if white { 255 } else { 1 }, if white { 255 } else { 2 }, if white { 255 } else { 3 }, 255]))
+        }
+    }
+    let mut e = Engine::new(Box::new(FrameHost)).unwrap();
+    e.set_script(Script::parse(ASS));
+    let dir = std::env::temp_dir().join(format!("osisub-gf-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("gf.lua");
+    std::fs::write(&f, r#"
+script_name = "gf"
+aegisub.register_macro("gf", "", function()
+  local fr = aegisub.get_frame(5, false)
+  aegisub.log("%d %d %06X %s %s\n", fr:width(), fr:height(), fr:getPixel(0, 0), fr:getPixelFormatted(1, 0), tostring(fr:getPixel(9, 9)))
+  aegisub.log("%s %s\n", aegisub.get_frame(5, true):getPixelFormatted(1, 0), tostring(aegisub.get_frame(6)))
+end)
+"#).unwrap();
+    e.load_script(&f).unwrap();
+    e.run_macro(0, &[], 0).unwrap();
+    let log = e.take_log();
+    assert!(log.contains("2 1 FF0000 &H030201& nil"), "{log}");
+    assert!(log.contains("&HFFFFFF& nil"), "{log}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

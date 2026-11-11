@@ -67,6 +67,7 @@
 - [ ] Gerçek ASSFoundation / Aegisub-Motion ile doğrulama (ffi DLL yerine yerel karşılıklar: BadMutex, PreciseTimer)
 - [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
+- [x] `aegisub.get_frame` (arch1t3cht API: width/height/getPixel/getPixelFormatted; altyazılı kare)
 - [x] Betikleri yeniden yükle (motoru sıfırlar)
 - [x] Betik hata penceresi: hata iletisi + hatalı kaynak satırı (±3), yığın izi, kopyala (Windows yollarındaki boşluklar dahil)
 - [x] MoonScript hatalarında .moon satırına eşleme (yükleme ve çalıştırma hataları; hata penceresi .moon kaynağını gösterir)
