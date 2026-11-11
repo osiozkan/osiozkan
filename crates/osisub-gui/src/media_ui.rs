@@ -110,6 +110,8 @@ pub struct Media {
     pub spectrum: bool,
     /// Oynatma hızı ve ses seviyesi (bir sonraki oynatmada geçerli)
     pub play_opts: osisub_media::audio::PlayOpts,
+    /// Video ayrı pencerede (Aegisub "Detach video")
+    pub detached: bool,
     spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
     audio: Option<osisub_media::audio::AudioPlayer>,
@@ -160,6 +162,7 @@ impl Media {
             video_pan: egui::Vec2::ZERO,
             spectrum: false,
             play_opts: Default::default(),
+            detached: false,
             spec_tex: None,
             stream: None,
             audio: None,
@@ -605,59 +608,69 @@ impl Media {
                 }
             }
         }
+        if self.detached && self.info.as_ref().map_or(false, |i| i.has_video) {
+            // video ayrı pencerede: panelde yalnızca dalga formu
+            self.wave_ui(ui, doc);
+            return;
+        }
         ui.horizontal_top(|ui| {
             let h = ui.available_height();
             // Video
             let vid_w = (h * 16.0 / 9.0).min(ui.available_width() * 0.45);
-            let mut img_rect: Option<(Rect, Rect)> = None;
-            ui.allocate_ui(egui::vec2(vid_w, h), |ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(vid_w, h), Sense::hover());
-                ui.painter().rect_filled(rect, 4.0, Color32::BLACK);
-                // Yakınlaştır/kaydır: Ctrl+tekerlek (imleç etrafında), orta tuşla sürükle; orta çift tık = sıfırla
-                let hover = ui.rect_contains_pointer(rect);
-                if hover {
-                    let (zoom_d, scroll, ctrl, mid_down, mid_dbl, delta, pos) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta.y, i.modifiers.command, i.pointer.middle_down(), i.pointer.button_double_clicked(egui::PointerButton::Middle), i.pointer.delta(), i.pointer.hover_pos()));
-                    let f = if zoom_d != 1.0 { zoom_d.clamp(0.85, 1.18) } else if ctrl && scroll != 0.0 { (1.0 + scroll * 0.003).clamp(0.85, 1.18) } else { 1.0 };
-                    if f != 1.0 {
-                        let nz = (self.video_zoom * f).clamp(1.0, 16.0);
-                        let f = nz / self.video_zoom;
-                        if let Some(c) = pos {
-                            let center = rect.center() + self.video_pan;
-                            let nc = c - (c - center) * f;
-                            self.video_pan = nc - rect.center();
-                        }
-                        self.video_zoom = nz;
-                        if nz == 1.0 { self.video_pan = egui::Vec2::ZERO; }
-                    }
-                    if mid_down && delta != egui::Vec2::ZERO && self.video_zoom > 1.0 {
-                        self.video_pan += delta;
-                    }
-                    if mid_dbl {
-                        self.video_zoom = 1.0;
-                        self.video_pan = egui::Vec2::ZERO;
-                    }
-                }
-                if let Some(t) = &self.tex {
-                    let sz = t.size_vec2();
-                    let scale = (rect.width() / sz.x).min(rect.height() / sz.y) * self.video_zoom;
-                    let img = Rect::from_center_size(rect.center() + self.video_pan, sz * scale);
-                    ui.painter_at(rect).image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-                    img_rect = Some((img, img.intersect(rect)));
-                    if self.video_zoom > 1.0 {
-                        ui.painter().text(rect.right_top() + egui::vec2(-6.0, 6.0), egui::Align2::RIGHT_TOP, format!("{:.0}%", self.video_zoom * 100.0), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 200));
-                    }
-                } else {
-                    let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
-                }
-                ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, match &self.timecodes { Some(t) => format!("{}  kare {}  VFR{}", time::format_ass(self.playhead), t.frame_at(self.playhead), if self.timecodes_auto { "" } else { " (timecode)" }), None => time::format_ass(self.playhead) }, egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
-            });
-            if let (Some((img, vis)), true) = (img_rect, self.tool != VideoTool::None) {
-                self.tool_ui(ui, img, vis, doc);
-            }
+            self.video_ui(ui, doc, vid_w, h);
             // Dalga formu
             self.wave_ui(ui, doc);
         });
+    }
+
+    /// Video önizlemesi ve video araçları (`w`×`h` alanında; ayrı pencerede de kullanılır).
+    pub fn video_ui(&mut self, ui: &mut egui::Ui, doc: &mut Document, vid_w: f32, h: f32) {
+            let mut img_rect: Option<(Rect, Rect)> = None;
+        ui.allocate_ui(egui::vec2(vid_w, h), |ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(vid_w, h), Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, Color32::BLACK);
+            // Yakınlaştır/kaydır: Ctrl+tekerlek (imleç etrafında), orta tuşla sürükle; orta çift tık = sıfırla
+            let hover = ui.rect_contains_pointer(rect);
+            if hover {
+                let (zoom_d, scroll, ctrl, mid_down, mid_dbl, delta, pos) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta.y, i.modifiers.command, i.pointer.middle_down(), i.pointer.button_double_clicked(egui::PointerButton::Middle), i.pointer.delta(), i.pointer.hover_pos()));
+                let f = if zoom_d != 1.0 { zoom_d.clamp(0.85, 1.18) } else if ctrl && scroll != 0.0 { (1.0 + scroll * 0.003).clamp(0.85, 1.18) } else { 1.0 };
+                if f != 1.0 {
+                    let nz = (self.video_zoom * f).clamp(1.0, 16.0);
+                    let f = nz / self.video_zoom;
+                    if let Some(c) = pos {
+                        let center = rect.center() + self.video_pan;
+                        let nc = c - (c - center) * f;
+                        self.video_pan = nc - rect.center();
+                    }
+                    self.video_zoom = nz;
+                    if nz == 1.0 { self.video_pan = egui::Vec2::ZERO; }
+                }
+                if mid_down && delta != egui::Vec2::ZERO && self.video_zoom > 1.0 {
+                    self.video_pan += delta;
+                }
+                if mid_dbl {
+                    self.video_zoom = 1.0;
+                    self.video_pan = egui::Vec2::ZERO;
+                }
+            }
+            if let Some(t) = &self.tex {
+                let sz = t.size_vec2();
+                let scale = (rect.width() / sz.x).min(rect.height() / sz.y) * self.video_zoom;
+                let img = Rect::from_center_size(rect.center() + self.video_pan, sz * scale);
+                ui.painter_at(rect).image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                img_rect = Some((img, img.intersect(rect)));
+                if self.video_zoom > 1.0 {
+                    ui.painter().text(rect.right_top() + egui::vec2(-6.0, 6.0), egui::Align2::RIGHT_TOP, format!("{:.0}%", self.video_zoom * 100.0), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 200));
+                }
+            } else {
+                let msg = if self.info.as_ref().map_or(false, |i| !i.has_video) { "Yalnızca ses" } else if self.is_open() { "Kare yükleniyor…" } else { "Video yok" };
+                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), Color32::GRAY);
+            }
+            ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, match &self.timecodes { Some(t) => format!("{}  kare {}  VFR{}", time::format_ass(self.playhead), t.frame_at(self.playhead), if self.timecodes_auto { "" } else { " (timecode)" }), None => time::format_ass(self.playhead) }, egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+        });
+        if let (Some((img, vis)), true) = (img_rect, self.tool != VideoTool::None) {
+            self.tool_ui(ui, img, vis, doc);
+        }
     }
 
     /// Etkin satırın konumu: `\\pos` ya da stil/hizalamadan türetilen varsayılan.

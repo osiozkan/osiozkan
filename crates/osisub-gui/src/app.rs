@@ -561,6 +561,7 @@ impl App {
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
+            Some("detach") => app.media.detached = true,
             Some("history") => app.history_open = true,
             Some(w) if w.starts_with("palette") => app.palette = Some((w.strip_prefix("palette:").unwrap_or("").to_string(), 0)),
             Some(w) if w.starts_with("tracks:") => { let v = PathBuf::from(&w[7..]); if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); } }
@@ -1467,6 +1468,7 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                ui.checkbox(&mut self.media.detached, "Videoyu ayrı pencerede göster").on_hover_text("Çift monitör için (Aegisub: Detach video); pencereyi kapatınca panele döner");
                 if ui.add_enabled(self.media.video_zoom > 1.0, egui::Button::new(format!("Video yakınlaştırmasını sıfırla ({:.0}%)", self.media.video_zoom * 100.0))).on_hover_text("Videoda Ctrl+tekerlek: yakınlaştır, orta tuş: kaydır, orta çift tık: sıfırla").clicked() { self.media.video_zoom = 1.0; self.media.video_pan = egui::Vec2::ZERO; ui.close(); }
                 if ui.button("Anahtar kareleri yükle…").clicked() {
                     ui.close();
@@ -1795,6 +1797,16 @@ impl eframe::App for App {
         });
         if self.show_media || self.media.is_open() {
             egui::Panel::top("media").resizable(true).default_size(280.0).show(ui, |ui| self.media.ui(ui, &mut self.doc));
+            if self.media.detached && self.media.info.as_ref().map_or(false, |i| i.has_video) {
+                let ctx = ui.ctx().clone();
+                ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("osisub_video"), egui::ViewportBuilder::default().with_title("osisub — video").with_inner_size([960.0, 560.0]), |ui, _| {
+                    egui::CentralPanel::default_margins().show(ui, |ui| {
+                        let (w, h) = (ui.available_width(), ui.available_height());
+                        self.media.video_ui(ui, &mut self.doc, w, h);
+                    });
+                    if ui.input(|i| i.viewport().close_requested()) { self.media.detached = false; }
+                });
+            }
         }
         if self.tap.is_some() && !self.media.is_playing() { self.finish_tap(); }
         egui::Panel::bottom("editor").resizable(true).default_size(190.0).show(ui, |ui| self.editor(ui));
