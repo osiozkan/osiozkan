@@ -132,6 +132,17 @@ impl Document {
         self.undo.last().map(|t| t.desc.as_str())
     }
 
+    /// Geçmiş: (geri alınabilir adımlar eskiden yeniye, yinelenebilir adımlar yakından uzağa).
+    pub fn history(&self) -> (Vec<&str>, Vec<&str>) {
+        (self.undo.iter().map(|t| t.desc.as_str()).collect(), self.redo.iter().rev().map(|t| t.desc.as_str()).collect())
+    }
+
+    /// Geçmişte `n` adım uygulanmış duruma gider (n < geri-al sayısı → geri al, büyükse yinele).
+    pub fn goto_history(&mut self, n: usize) {
+        while self.undo.len() > n && self.undo().is_some() {}
+        while self.undo.len() < n && self.redo().is_some() {}
+    }
+
     fn sel_state(&self) -> (Vec<usize>, usize) {
         (self.selection.clone(), self.active)
     }
@@ -617,6 +628,26 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn history_jump() {
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.set_text(a, "x");
+        d.set_text(a + 1, "y");
+        d.set_text(a + 2, "z");
+        let (u, r) = d.history();
+        assert_eq!((u.len(), r.len()), (3, 0));
+        d.goto_history(1);
+        assert_eq!(d.history().0.len(), 1);
+        assert_eq!(d.history().1.len(), 2);
+        let txt = |d: &Document, i: usize| match &d.script.entries[i] { Entry::Dialogue(x) => x.text.clone(), _ => String::new() };
+        assert_eq!((txt(&d, a), txt(&d, a + 1)), ("x".into(), "iki".into()));
+        d.goto_history(3);
+        assert_eq!(txt(&d, a + 2), "z");
+        d.goto_history(0);
+        assert_eq!(txt(&d, a), "bir");
     }
 
     #[test]

@@ -623,7 +623,7 @@ impl App {
             ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
-            ("merge", "Başka dosyayı birleştir"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
+            ("merge", "Başka dosyayı birleştir"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -670,6 +670,7 @@ impl App {
                 "save" => self.save(false),
                 "lua" => { if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); } }
                 "reload" => self.reload_scripts(),
+                "history" => self.history_open = true,
                 "quality" => self.tab = super::Tab::Quality,
                 "styles" => self.tab = super::Tab::Styles,
                 "karaoke" => self.tab = super::Tab::Karaoke,
@@ -708,6 +709,35 @@ impl App {
             return;
         }
         if !esc { self.palette = Some((q, sel)); }
+    }
+
+    pub(super) fn history_window(&mut self, ctx: &egui::Context) {
+        if !self.history_open { return; }
+        let mut open = true;
+        let mut jump: Option<usize> = None;
+        let (undo, redo): (Vec<String>, Vec<String>) = {
+            let (u, r) = self.doc.history();
+            (u.iter().map(|x| x.to_string()).collect(), r.iter().map(|x| x.to_string()).collect())
+        };
+        egui::Window::new("Geçmiş").open(&mut open).default_width(300.0).show(ctx, |ui| {
+            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                if ui.selectable_label(undo.is_empty(), "• Açılış durumu").clicked() { jump = Some(0); }
+                for (k, d) in undo.iter().enumerate() {
+                    let cur = k + 1 == undo.len();
+                    let r = ui.selectable_label(cur, format!("{}. {}", k + 1, d));
+                    if cur { r.scroll_to_me(None); }
+                    if r.clicked() { jump = Some(k + 1); }
+                }
+                for (k, d) in redo.iter().enumerate() {
+                    if ui.selectable_label(false, RichText::new(format!("{}. {}", undo.len() + k + 1, d)).weak().italics()).on_hover_text("Geri alındı — tıklayınca yinelenir").clicked() { jump = Some(undo.len() + k + 1); }
+                }
+            });
+        });
+        if let Some(n) = jump {
+            self.doc.goto_history(n);
+            self.status = format!("Geçmiş: {} adım", n);
+        }
+        if !open { self.history_open = false; }
     }
 
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {

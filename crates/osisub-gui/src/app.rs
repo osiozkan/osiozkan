@@ -178,6 +178,7 @@ pub struct App {
     tracks_win: Option<(PathBuf, Vec<osisub_media::mux::SubTrack>)>,
     /// Komut paleti: (arama, seçili sıra)
     palette: Option<(String, usize)>,
+    history_open: bool,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -402,6 +403,7 @@ impl App {
             job: None,
             tracks_win: None,
             palette: None,
+            history_open: false,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -546,6 +548,7 @@ impl App {
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
+            Some("history") => app.history_open = true,
             Some(w) if w.starts_with("palette") => app.palette = Some((w.strip_prefix("palette:").unwrap_or("").to_string(), 0)),
             Some(w) if w.starts_with("tracks:") => { let v = PathBuf::from(&w[7..]); if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); } }
             Some(w) if w.starts_with("motion:") => {
@@ -1383,6 +1386,7 @@ impl App {
                 if ui.add_enabled(self.doc.can_undo(), egui::Button::new(format!("Geri al{}", self.doc.undo_desc().map(|d| format!(": {}", d)).unwrap_or_default())).shortcut_text("Ctrl+Z")).clicked() { self.doc.undo(); ui.close(); }
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new("Yinele").shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
+                if ui.button("Geçmiş…").on_hover_text("Geri alma geçmişi: bir adıma tıklayarak o duruma dönün").clicked() { ui.close(); self.history_open = true; }
                 if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
                 if ui.add(egui::Button::new("Satır ekle").shortcut_text("Ctrl+Enter")).clicked() { self.doc.insert_after_active(); self.scroll_to = Some(self.doc.active); ui.close(); }
                 if ui.add(egui::Button::new("Çoğalt").shortcut_text("Ctrl+D")).clicked() { self.doc.duplicate_selected(); ui.close(); }
@@ -1794,6 +1798,7 @@ impl eframe::App for App {
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);
         self.palette_window(&ctx);
+        self.history_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);

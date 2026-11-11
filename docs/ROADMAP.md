@@ -120,6 +120,7 @@
 - [x] Belgeye bağlı betikler (Aegisub "Automation Scripts" alanı: `~` göreli, `$` otomasyon tabanı, `/` mutlak; açılışta yüklenir, Otomasyon sekmesinde "belgeye bağlı")
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
+- [x] Geçmiş penceresi (Düzen → Geçmiş…): geri alma listesi, tıklayınca o duruma git (geri al/yinele)
 - [x] Komut paleti (Ctrl+Shift+P; komutlar, pencereler, sekmeler, Lua makroları; Türkçe duyarsız bulanık arama)
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
