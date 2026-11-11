@@ -101,7 +101,7 @@
 - [x] Otomasyon: elle yüklenen betikler kalıcı (settings.json `scripts`), "Yüklü betik dosyaları" listesi + Kaldır; aynı betiği yeniden yüklemek motoru tazeler
 - [x] Yerleşik komutlara kısayol atama (Yardım → Kısayolları düzenle; 19 komut)
 - [x] Aegisub kısayol profilini içe aktarma (hotkey.json; 3.0 nesne ve 3.2 "Ctrl-K" biçimleri, Lua makro kısayolları dahil)
-- [ ] Belge başına betikler (Project Garbage "Automation Scripts")
+- [x] Belgeye bağlı betikler (Aegisub "Automation Scripts" alanı: `~` göreli, `$` otomasyon tabanı, `/` mutlak; açılışta yüklenir, Otomasyon sekmesinde "belgeye bağlı")
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema

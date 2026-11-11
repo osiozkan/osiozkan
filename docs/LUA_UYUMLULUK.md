@@ -49,3 +49,6 @@ osisub gerçek DepCtrl yerine **yerleşik bir uyumluluk katmanı** kullanır (ge
 - **Aegisub klasörleri otomatik:** kurulu Aegisub'ın `automation/include` klasörü her zaman aranır, `automation/autoload` betikleri de (Otomasyon sekmesinden kapatılabilir) yüklenir. Windows `%APPDATA%\Aegisub`, Linux `~/.aegisub`, macOS `~/Library/Application Support/Aegisub`; `OSISUB_AEGISUB_DIR` ile değiştirilebilir.
 - Makro adlarındaki `/` Aegisub gibi iç içe alt menü oluşturur.
 - Doğrulanmayan: gerçek ASSFoundation / Aegisub-Motion modülleriyle çalıştırma (ffi DLL'leri — BadMutex, PreciseTimer — Linux'ta yok).
+
+## Belgeye bağlı betikler
+Aegisub'ın `[Aegisub Project Garbage]` → `Automation Scripts:` alanı okunur ve yazılır: dosya açılınca betikler yüklenir; Otomasyon sekmesindeki "belgeye bağlı" kutusu betiği bu alana ekler/çıkarır (kaydedince yazılır).

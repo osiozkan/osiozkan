@@ -660,6 +660,13 @@ impl App {
                     } else {
                         ui.label(RichText::new("otomatik").small().weak()).on_hover_text("Otomatik yükleme klasöründen ya da komut satırından");
                     }
+                    if !ps.starts_with(osisub_lua::BUILTIN_PREFIX) {
+                        let mut bound = self.doc_scripts.contains(&p);
+                        if ui.checkbox(&mut bound, "belgeye bağlı").on_hover_text("Aegisub gibi: kaydederken betik bu altyazı dosyasına yazılır, dosya açılınca otomatik yüklenir").changed() {
+                            if bound { self.doc_scripts.push(p.clone()); } else { self.doc_scripts.retain(|x| x != &p); }
+                            self.doc.mark_dirty();
+                        }
+                    }
                     ui.label(RichText::new(&ps).monospace().small());
                 });
             }

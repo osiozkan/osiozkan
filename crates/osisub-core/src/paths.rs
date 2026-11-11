@@ -62,9 +62,51 @@ pub fn automation_include_dirs() -> Vec<PathBuf> {
     v
 }
 
+/// Aegisub `[Aegisub Project Garbage]` → `Automation Scripts:` değerini çözer (Aegisub
+/// LocalScriptManager ile aynı). Ayraç `|`; önekler: `~` = altyazı dosyasının klasörüne göre,
+/// `$` = otomasyon tabanına göre (Aegisub'ın `?user/automation`'ı), `/` = mutlak yol. Diğerleri atlanır.
+pub fn decode_automation_scripts(value: &str, script_dir: Option<&std::path::Path>, automation_base: Option<&std::path::Path>) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for item in value.split('|').map(str::trim).filter(|s| !s.is_empty()) {
+        let rest = &item[1..];
+        let rel = rest.trim_start_matches(['/', '\\']);
+        let p = match item.as_bytes()[0] {
+            b'~' => match script_dir { Some(d) => d.join(rel), None => continue },
+            b'$' => match automation_base { Some(d) => d.join(rel), None => continue },
+            // "/" + mutlak yol: Linux'ta "//a/b.lua", Windows'ta "/C:\a.lua"
+            b'/' => PathBuf::from(if rest.starts_with('/') { rest } else if cfg!(windows) { rest } else { item }),
+            _ => continue,
+        };
+        out.push(p);
+    }
+    out
+}
+
+/// `decode_automation_scripts`'in tersi: altyazı klasöründeki betikler `~` ile göreli, diğerleri `/` ile mutlak.
+pub fn encode_automation_scripts(paths: &[PathBuf], script_dir: Option<&std::path::Path>) -> String {
+    paths
+        .iter()
+        .map(|p| match script_dir.and_then(|d| p.strip_prefix(d).ok()) {
+            Some(r) => format!("~/{}", r.to_string_lossy().replace('\\', "/")),
+            None => format!("/{}", p.to_string_lossy()),
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn automation_scripts_field() {
+        let sd = PathBuf::from("/proj/ep01");
+        let base = PathBuf::from("/home/u/.aegisub/automation");
+        let v = decode_automation_scripts("~/scripts/a.lua|//abs/b.moon|$autoload/c.lua| |?bad", Some(&sd), Some(&base));
+        assert_eq!(v, vec![sd.join("scripts/a.lua"), PathBuf::from("/abs/b.moon"), base.join("autoload/c.lua")]);
+        let enc = encode_automation_scripts(&[sd.join("scripts/a.lua"), PathBuf::from("/abs/b.moon")], Some(&sd));
+        assert_eq!(enc, "~/scripts/a.lua|//abs/b.moon");
+        assert_eq!(decode_automation_scripts(&enc, Some(&sd), None), vec![sd.join("scripts/a.lua"), PathBuf::from("/abs/b.moon")]);
+    }
     #[test]
     fn aegisub_dir_override() {
         let tmp = std::env::temp_dir().join(format!("osisub-aegi-{}", std::process::id()));

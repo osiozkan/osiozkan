@@ -131,6 +131,8 @@ pub struct App {
     autoplay: bool,
     play_wait: u32,
     loaded_scripts: Vec<PathBuf>,
+    /// Belgeye bağlı betikler (Aegisub "Automation Scripts" proje alanı)
+    doc_scripts: Vec<PathBuf>,
     fixes: osisub_core::fixes::Fixes,
     fixes_selection_only: bool,
     min_dur_on: bool,
@@ -456,6 +458,7 @@ impl App {
             autoplay: false,
             play_wait: 0,
             loaded_scripts,
+            doc_scripts: vec![],
             fixes: osisub_core::fixes::Fixes::default(),
             fixes_selection_only: false,
             min_dur_on: false,
@@ -685,6 +688,15 @@ impl App {
             let idx = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).nth(n.saturating_sub(1));
             if let Some(i) = idx { self.doc.select(vec![i], i); self.scroll_to = Some(i); }
         }
+        // Belgeye bağlı Lua betikleri (Aegisub "Automation Scripts")
+        let base_aut = osisub_core::paths::aegisub_automation_dirs().into_iter().next();
+        self.doc_scripts = self.doc.script.garbage("Automation Scripts")
+            .map(|v| osisub_core::paths::decode_automation_scripts(v, base.as_deref(), base_aut.as_deref()))
+            .unwrap_or_default();
+        for p in self.doc_scripts.clone() {
+            if !p.is_file() { self.log.push_str(&format!("Belgeye bağlı betik bulunamadı: {}\n", p.display())); continue; }
+            if !self.loaded_scripts.contains(&p) { self.loaded_scripts.push(p.clone()); self.worker.send(Cmd::Load(p)); }
+        }
         let video = self.doc.script.garbage("Video File").and_then(resolve);
         let audio = self.doc.script.garbage("Audio File").and_then(resolve);
         if let Some(m) = video.or(audio) {
@@ -696,21 +708,26 @@ impl App {
 
     /// Kaydederken Aegisub uyumlu proje bilgisini güncelle (yalnızca ortam açıkken).
     fn write_project_garbage(&mut self, script_path: &std::path::Path) {
-        let Some(m) = self.media.path.clone() else { return };
-        let rel = |p: &std::path::Path| -> String {
-            script_path.parent().and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
-        };
-        let has_video = self.media.info.as_ref().map_or(false, |i| i.has_video);
         // Garbage satırları olay satırlarından önce eklenir: sonradan dizinleri (etkin satır, seçim) kaydırmak için.
         let before = self.doc.script.entries.len();
         let header_end = self.doc.script.entries.iter().position(|e| !matches!(e.section(), osisub_core::ass::SEC_INFO | osisub_core::ass::SEC_GARBAGE)).unwrap_or(before);
-        if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
-        self.doc.script.set_garbage("Audio File", &rel(&m));
-        if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
-            self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
+        if !self.doc_scripts.is_empty() || self.doc.script.garbage("Automation Scripts").is_some() {
+            let v = osisub_core::paths::encode_automation_scripts(&self.doc_scripts, script_path.parent());
+            self.doc.script.set_garbage("Automation Scripts", &v);
         }
-        if let Some(f) = self.media.framerate() {
-            self.doc.script.set_garbage("Video Position", &f.frame_at(self.media.playhead).to_string());
+        if let Some(m) = self.media.path.clone() {
+            let rel = |p: &std::path::Path| -> String {
+                script_path.parent().and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
+            };
+            let has_video = self.media.info.as_ref().map_or(false, |i| i.has_video);
+            if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
+            self.doc.script.set_garbage("Audio File", &rel(&m));
+            if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
+                self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
+            }
+            if let Some(f) = self.media.framerate() {
+                self.doc.script.set_garbage("Video Position", &f.frame_at(self.media.playhead).to_string());
+            }
         }
         let added = self.doc.script.entries.len() - before;
         if added > 0 {
