@@ -252,6 +252,8 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
+    ("merge_keep", "Birleştir (ilkini koru)"),
+    ("merge_kara", "Karaoke olarak birleştir"),
     ("perspective", "Perspektife oturt (4 noktalı vektör kırpmadan)"),
     ("split_cursor", "İmleçte böl (süre metne orantılı)"),
     ("split_cursor_frame", "İmleçte böl (video karesinde)"),
@@ -1100,6 +1102,10 @@ impl App {
             "line_prev" => step_line(self, -1),
             "select_lines" => self.select_open = true,
             "perspective" => self.perspective_fit(),
+            "merge_keep" | "merge_kara" => {
+                let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
+                if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
+            }
             "split_cursor" => self.split_at_cursor(false),
             "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
@@ -1395,6 +1401,8 @@ impl App {
                 if ui.add(egui::Button::new("Çoğalt").shortcut_text("Ctrl+D")).clicked() { self.doc.duplicate_selected(); ui.close(); }
                 if ui.add(egui::Button::new("Sil").shortcut_text("Del")).clicked() { self.doc.delete_selected(); ui.close(); }
                 if ui.add(egui::Button::new("Seçilenleri birleştir").shortcut_text("Ctrl+M")).clicked() { self.doc.merge_selected(); ui.close(); }
+                if ui.button("Birleştir (ilkini koru)").on_hover_text("Zaman aralığı birleşir, metin ilk satırınki kalır").clicked() { self.run_command("merge_keep", ui.ctx()); ui.close(); }
+                if ui.button("Karaoke olarak birleştir").on_hover_text("Her satır bir hece olur; \\k = satırın süresi").clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
                 if ui.button("Satırları dengele").clicked() { self.doc.balance_selected(self.rules.max_line_len); ui.close(); }
             });
             ui.menu_button("Zamanlama", |ui| {

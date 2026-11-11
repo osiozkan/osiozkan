@@ -25,6 +25,17 @@ struct Txn {
     sel_after: (Vec<usize>, usize),
 }
 
+/// Satır birleştirme türü.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MergeMode {
+    /// metinler `\N` ile art arda
+    Concat,
+    /// yalnızca ilk satırın metni
+    KeepFirst,
+    /// her satır bir karaoke hecesi (`\k` = satır süresi)
+    Karaoke,
+}
+
 pub struct Document {
     pub script: Script,
     pub path: Option<PathBuf>,
@@ -462,16 +473,41 @@ impl Document {
 
     /// Ardışık seçili satırları tek satırda birleştirir (metinler `\N` ile).
     pub fn merge_selected(&mut self) -> bool {
+        self.merge_selected_as(MergeMode::Concat)
+    }
+
+    /// Ardışık seçili satırları birleştirir (Aegisub: Join concatenate / keep first / as karaoke).
+    /// Başlangıç en erken, bitiş en geç olanınki olur.
+    pub fn merge_selected_as(&mut self, mode: MergeMode) -> bool {
         let t = self.target_lines();
         if t.len() < 2 || t.windows(2).any(|w| w[1] != w[0] + 1) {
             return false;
         }
         let ds: Vec<Dialogue> = t.iter().filter_map(|&i| if let Entry::Dialogue(d) = &self.script.entries[i] { Some(d.clone()) } else { None }).collect();
         let mut m = ds[0].clone();
+        m.start_time = ds.iter().map(|d| d.start_time).min().unwrap();
         m.end_time = ds.iter().map(|d| d.end_time).max().unwrap();
-        m.text = ds.iter().map(|d| d.text.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\\N");
+        m.text = match mode {
+            MergeMode::Concat => ds.iter().map(|d| d.text.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\\N"),
+            MergeMode::KeepFirst => ds[0].text.clone(),
+            MergeMode::Karaoke => {
+                // her satır bir hece: süresi (ve önündeki boşluk) \k ile; etiketler atılır
+                let mut out = String::new();
+                let mut cur = m.start_time;
+                for d in &ds {
+                    if d.start_time > cur {
+                        out.push_str(&format!("{{\\k{}}}", (d.start_time - cur + 5) / 10));
+                    }
+                    let dur = (d.end_time - d.start_time.max(cur)).max(0);
+                    out.push_str(&format!("{{\\k{}}}{}", (dur + 5) / 10, osisub_core::tags::strip_tags(&d.text).trim()));
+                    cur = cur.max(d.end_time);
+                }
+                out
+            }
+        };
+        let desc = match mode { MergeMode::Concat => "Birleştir", MergeMode::KeepFirst => "Birleştir (ilkini koru)", MergeMode::Karaoke => "Karaoke olarak birleştir" };
         let first = t[0];
-        self.edit("Birleştir", |tx| {
+        self.edit(desc, |tx| {
             tx.replace(first, Entry::Dialogue(m));
             tx.remove(first + 1, t.len() - 1);
         });
@@ -628,6 +664,24 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn merge_modes() {
+        let mk = || {
+            let mut d = doc();
+            let a = first_dlg(&d);
+            d.select(vec![a, a + 1, a + 2], a);
+            (d, a)
+        };
+        let txt = |d: &Document, i: usize| match &d.script.entries[i] { Entry::Dialogue(x) => (x.start_time, x.end_time, x.text.clone()), _ => (0, 0, String::new()) };
+        let (mut d, a) = mk();
+        assert!(d.merge_selected_as(MergeMode::KeepFirst));
+        assert_eq!(txt(&d, a), (0, 6000, "bir".into()));
+        let (mut d, a) = mk();
+        assert!(d.merge_selected_as(MergeMode::Karaoke));
+        assert_eq!(txt(&d, a), (0, 6000, "{\\k200}bir{\\k200}iki{\\k200}üç".into()));
+        assert_eq!(d.script.dialogues().count(), 1);
     }
 
     #[test]
