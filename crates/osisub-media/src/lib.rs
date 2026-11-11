@@ -4,6 +4,7 @@
 //! codec/kapsayıcı (MKV, MP4, ...) desteklenir ve altyazı önizlemesi gerçek libass çıktısıdır.
 pub mod audio;
 pub mod mux;
+pub mod resync;
 
 use std::io::Read;
 use std::path::Path;

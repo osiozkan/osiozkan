@@ -88,6 +88,7 @@
 - [x] Oynatma hızı (0.25–2x, perde korunur; ffmpeg atempo) ve ses seviyesi (Video menüsü, kalıcı); ses saati hızla ölçekli
 - [ ] Basılı tutarak oynat
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
+- [x] Sesle yeniden zamanlama (TV → BD; osisub-media::resync, Zamanlama menüsü, CLI `resync`): satır grupları eski seste → yeni seste FFT çapraz-ilinti; eklenen/çıkarılan sahne ve gecikme; güvensiz eşleşmede önceki kayma (günlükte raporlanır)
 - [x] Konuşmaya yapıştır (Zamanlama → Sesten satır oluştur penceresi): başlangıç/bitiş ±250 ms içindeki konuşma sınırına
 - [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)

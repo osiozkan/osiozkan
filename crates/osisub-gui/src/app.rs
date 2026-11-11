@@ -179,6 +179,8 @@ pub struct App {
     /// Komut paleti: (arama, seçili sıra)
     palette: Option<(String, usize)>,
     history_open: bool,
+    /// Sesle yeniden zamanlama sonucu (arka plan)
+    resync_rx: Option<std::sync::mpsc::Receiver<Result<Vec<osisub_media::resync::Group>, String>>>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -408,6 +410,7 @@ impl App {
             tracks_win: None,
             palette: None,
             history_open: false,
+            resync_rx: None,
             editor_cursor: None,
             editor_sel: None,
             style_pv: None,
@@ -1407,6 +1410,7 @@ impl App {
             });
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
+                if ui.add_enabled(self.resync_rx.is_none(), egui::Button::new("Sesle yeniden zamanla (TV → BD)…")).on_hover_text("Altyazı eski videoya göre zamanlanmışsa: açık (yeni) videonun sesiyle eşleyip her satır grubunu kaydırır (farklı kurgu, eklenen/çıkarılan sahneler, gecikme)").clicked() { ui.close(); self.start_resync(); }
                 if ui.button("Toplu satır işlemleri…").on_hover_text("Aynı metinli/kısa satırları birleştir, süreleri okuma hızına göre hesapla (Subtitle Edit)").clicked() { self.batch = Some(BatchWin::default()); ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
@@ -1758,6 +1762,7 @@ impl eframe::App for App {
         self.shortcuts(&ctx);
         if let Some(t) = self.ctx_copy.take() { ctx.copy_text(t); }
         self.poll_job(&ctx);
+        self.poll_resync(&ctx);
         self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
 
@@ -1978,6 +1983,50 @@ impl App {
             let _ = tx.send(r.map(|_| out.display().to_string()));
         });
         self.job = Some(VideoJob { label: if burn { "Videoya yakılıyor".into() } else { "MKV'ye gömülüyor".into() }, progress, cancel, rx });
+    }
+
+    fn start_resync(&mut self) {
+        let Some(new) = self.media.path.clone() else { self.status = "Önce yeni videoyu açın (Video → Video / ses aç)".into(); return };
+        let Some(old) = rfd::FileDialog::new().set_title("Altyazının zamanlandığı ESKİ video/ses").add_filter("Video / ses", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts", "wav", "flac", "mka", "aac", "opus", "mp3"]).pick_file() else { return };
+        let lines: Vec<(i64, i64)> = self.doc.script.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time)).collect();
+        let new_wave = self.media.waveform();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let r = (|| {
+                let o = osisub_media::load_waveform(&old)?;
+                let n = match new_wave { Some(w) => (*w).clone(), None => osisub_media::load_waveform(&new)? };
+                Ok(osisub_media::resync::compute_offsets(&o, &n, &lines, &Default::default()))
+            })();
+            let _ = tx.send(r);
+        });
+        self.resync_rx = Some(rx);
+        self.status = "Sesle yeniden zamanlanıyor…".into();
+    }
+
+    fn poll_resync(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.resync_rx else { return };
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        let Ok(r) = rx.try_recv() else { return };
+        self.resync_rx = None;
+        match r {
+            Ok(groups) => {
+                let mut s = self.doc.script.clone();
+                for d in s.dialogues_mut() {
+                    let off = osisub_media::resync::offset_for(&groups, d.start_time);
+                    d.start_time = (d.start_time + off).max(0);
+                    d.end_time = (d.end_time + off).max(0);
+                }
+                self.doc.apply_new_script("Sesle yeniden zamanla", s);
+                let weak = groups.iter().filter(|g| g.fallback).count();
+                let mut offs: Vec<i64> = groups.iter().map(|g| g.offset_ms).collect();
+                offs.dedup();
+                self.status = format!("Yeniden zamanlandı: {} grup, {} farklı kayma{}", groups.len(), offs.len(), if weak > 0 { format!(", {weak} grup GÜVENSİZ (günlüğe bakın)") } else { String::new() });
+                for g in groups.iter().filter(|g| g.fallback) {
+                    self.log.push_str(&format!("Yeniden zamanlama güvensiz: {} – {} (ilinti {:.2}), önceki kayma {:+} ms kullanıldı\n", time::format_ass(g.start_ms), time::format_ass(g.end_ms), g.score, g.offset_ms));
+                }
+            }
+            Err(e) => self.status = format!("Yeniden zamanlama başarısız: {e}"),
+        }
     }
 
     /// Video işinin durumunu yoklar (her kare).

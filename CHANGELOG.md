@@ -7,7 +7,7 @@
 **Kalite:** anime etiket denetimi (bozuk/bilinmeyen etiket, süreyle çelişen `\fad`/`\move`/`\t`, karaoke süresi, unutulmuş `{notlar}`), Kalite sekmesinde kategori süzgeci, "Etiketleri onar", "Notları sil", CLI `fixes --tags --notes`.
 **Video ile:** MKV/MP4'teki altyazı izlerini aç/çıkar, ekli yazı tiplerini çıkar, MKV'ye göm (yazı tipleriyle), videoya yak (ilerlemeli); CLI `tracks/extract/mux/burn`.
 **Dosyalar:** dosya birleştirme (diyalog + tabela + OP/ED; stil çakışması, çözünürlük, zaman kaydırma, yazı tipleri; GUI + CLI `merge`); SAMI okuma/yazma, SubViewer 2 okuma, Matroska timestamp v4.
-**Zamanlama:** oynatma hızı (0.25–2×, perde korunur) ve ses seviyesi; Subtitle Edit toplu işlemleri (aynı metinli/kısa satırları birleştir, okuma hızına göre süre).
+**Zamanlama:** sesle yeniden zamanlama (TV → BD: FFT çapraz-ilintiyle satır grupları; GUI + CLI `resync`); konuşma sınırlarına yapıştırma; oynatma hızı (0.25–2×, perde korunur) ve ses seviyesi; Subtitle Edit toplu işlemleri (aynı metinli/kısa satırları birleştir, okuma hızına göre süre).
 **Hata düzeltmeleri:** ikinci bir dosya açıldığında ızgara/QC önbellekleri yenilenmiyordu (iki belgenin sürüm sayacı 0'dan başlıyordu → boş ya da eski ızgara); Lua `text_extents` harf aralığını `\fscx` ile ölçeklemiyordu (karaskel düzenleri `\fsp`+`\fscx`'li stillerde kayıyordu); çizim (`\p1`) satırlarının koordinatları okuma hızı/uzunluk sayılıyordu; satır sayısını değiştiren toplu işlemlerden sonra etkin satır/seçim yanlış satıra kayıyordu; "yalnızca uzat" süre hesabı çakışan satırı kısaltıyordu (yayın öncesi yakalandı); `sort_by_start` büyük dosyada karesel zamanlıydı.
 
 ## 0.3.0 — 2026-11-10 (ikinci gece)

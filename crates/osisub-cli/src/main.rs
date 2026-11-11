@@ -33,6 +33,8 @@ KULLANIM:
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
   osisub find <girdi> <desen> [--regex] [--case] [--replace METİN [çıktı]]
+  osisub resync <eski-video> <yeni-video> <girdi> [çıktı] [--search ms]
+                          sesle yeniden zamanla (TV→BD: farklı kurgu/gecikme; satır grupları sesle eşlenir)
   osisub tracks <video>                   gömülü altyazı izleri
   osisub extract <video> [iz no] [çıktı] [--fonts klasör]   altyazı izini (ve yazı tiplerini) çıkar
   osisub mux <video> <altyazı> -o çıktı.mkv [--lang tur] [--title T] [--keep] [--default] [--no-fonts]
@@ -361,6 +363,30 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 println!("{} eşleşme", hits.len());
                 Ok(())
             }
+        }
+        "resync" => {
+            // resync <eski video/ses> <yeni video/ses> <girdi> [çıktı] [--search ms]
+            let mut o = osisub_media::resync::ResyncOptions::default();
+            if let Some(v) = opt(&mut args, "--search") { o.search_ms = v.parse().map_err(|_| "--search ms")?; }
+            if args.len() < 3 { return Err("kullanım: resync <eski-video> <yeni-video> <girdi> [çıktı]".into()); }
+            let out = args.get(3).cloned().unwrap_or_else(|| args[2].clone());
+            let mut s = load(&args[2])?;
+            eprintln!("ses okunuyor…");
+            let old = osisub_media::load_waveform(Path::new(&args[0]))?;
+            let new = osisub_media::load_waveform(Path::new(&args[1]))?;
+            let lines: Vec<(i64, i64)> = s.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time)).collect();
+            let groups = osisub_media::resync::compute_offsets(&old, &new, &lines, &o);
+            let weak = groups.iter().filter(|g| g.fallback).count();
+            for g in &groups {
+                println!("{} – {}  {:+} ms  (ilinti {:.2}{})", osisub_core::time::format_ass(g.start_ms), osisub_core::time::format_ass(g.end_ms), g.offset_ms, g.score, if g.fallback { ", GÜVENSİZ: önceki kayma" } else { "" });
+            }
+            for d in s.dialogues_mut() {
+                let off = osisub_media::resync::offset_for(&groups, d.start_time);
+                d.start_time = (d.start_time + off).max(0);
+                d.end_time = (d.end_time + off).max(0);
+            }
+            println!("{} grup, {} güvensiz", groups.len(), weak);
+            save(&s, &out)
         }
         "tracks" => {
             let v = args.first().ok_or("video gerekli")?;
