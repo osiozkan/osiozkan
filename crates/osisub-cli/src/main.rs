@@ -20,6 +20,8 @@ KULLANIM:
   osisub macros <betik.lua>...            betiklerdeki makroları listele
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
   osisub info <dosya>                     özet bilgi
+  osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot]
+                          Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
@@ -84,6 +86,37 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
         "convert" => {
             let [i, o] = args.as_slice() else { return Err("kullanım: convert <girdi> <çıktı>".into()) };
             save(&load(i)?, o)
+        }
+        "motion" => {
+            let lines_arg = opt(&mut args, "--lines").ok_or("--lines gerekli (ör. --lines 5,6)")?;
+            let start = opt(&mut args, "--start-frame").map(|v| v.parse::<i64>().map_err(|_| "--start-frame sayı olmalı")).transpose()?;
+            let fps: Option<f64> = opt(&mut args, "--fps").and_then(|v| v.parse().ok());
+            let tc = load_timecodes(&mut args)?;
+            let mut o = osisub_core::motion::MotionOptions::default();
+            o.position = !flag(&mut args, "--no-pos");
+            o.scale = !flag(&mut args, "--no-scale");
+            o.rotation = !flag(&mut args, "--no-rot");
+            if args.len() < 2 { return Err("kullanım: motion <girdi> <iz.txt> --lines 5,6 [çıktı]".into()); }
+            let out = args.get(2).cloned().unwrap_or_else(|| args[0].clone());
+            let mut s = load(&args[0])?;
+            let data = osisub_core::motion::parse_ae(&std::fs::read_to_string(&args[1]).map_err(|e| format!("{}: {}", args[1], e))?)?;
+            let fr = tc.unwrap_or_else(|| osisub_core::vfr::Framerate::cfr(fps.unwrap_or(data.fps)));
+            let dl: Vec<usize> = s.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+            let mut targets: Vec<usize> = vec![];
+            for n in lines_arg.split(',') {
+                let k: usize = n.trim().parse().map_err(|_| format!("geçersiz satır no: {n}"))?;
+                targets.push(*dl.get(k.wrapping_sub(1)).ok_or(format!("satır yok: {k}"))?);
+            }
+            targets.sort_unstable();
+            targets.dedup();
+            let lines: Vec<_> = targets.iter().filter_map(|&i| match &s.entries[i] { Entry::Dialogue(d) => Some(d.clone()), _ => None }).collect();
+            o.start_frame = start.unwrap_or_else(|| lines.iter().map(|d| fr.frame_at_start(d.start_time)).min().unwrap_or(0));
+            let new = osisub_core::motion::apply(&s, &lines, &data, &fr, &o)?;
+            let at = targets[0];
+            for &i in targets.iter().rev() { s.entries.remove(i); }
+            println!("{} satır → {} kare satırı (iz {} kare, ilk kare {})", lines.len(), new.len(), data.frames.len(), o.start_frame);
+            s.entries.splice(at..at, new.into_iter().map(Entry::Dialogue));
+            save(&s, &out)
         }
         "merge" => {
             let out = opt(&mut args, "-o").or_else(|| opt(&mut args, "--out")).ok_or("çıktı gerekli: -o <dosya>")?;

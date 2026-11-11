@@ -37,6 +37,7 @@ fn parsers_never_panic() {
         let _ = formats::parse_sbv(&t);
         let _ = formats::parse_sami(&t);
         let _ = formats::parse_subviewer(&t);
+        let _ = osisub_core::motion::parse_ae(&t);
         let _ = formats::parse_ttml(&t);
         let _ = overrides::parse(&t);
         let _ = overrides::clean(&t);

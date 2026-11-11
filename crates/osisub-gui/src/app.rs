@@ -162,6 +162,8 @@ pub struct App {
     hotkeys_open: bool,
     /// Betik birleştirme penceresi: (eklenecek dosya, seçenekler, kaydırma metni)
     merge_win: Option<(PathBuf, osisub_core::merge::MergeOptions, String)>,
+    /// Hareket izleme penceresi
+    motion: Option<MotionWin>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
     /// Düzenleme kutusundaki imleç (satır, karakter konumu) — "imleçte böl" için
@@ -377,6 +379,7 @@ impl App {
             compare: None,
             hotkeys_open: false,
             merge_win: None,
+            motion: None,
             editor_cursor: None,
             style_pv: None,
             style_pv_rx: None,
@@ -518,6 +521,11 @@ impl App {
             Some("select") => app.select_open = true,
             Some("attach") => app.attach_open = true,
             Some("hotkeys") => app.hotkeys_open = true,
+            Some("motion") => app.open_motion(),
+            Some(w) if w.starts_with("motion:") => {
+                app.open_motion();
+                if let (Some(m), Ok(t)) = (app.motion.as_mut(), std::fs::read_to_string(&w[7..])) { m.text = t; }
+            }
             Some(w) if w.starts_with("merge:") => app.merge_win = Some((PathBuf::from(&w[6..]), osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into())),
             Some("pos") => app.media.tool = crate::media_ui::VideoTool::Pos,
             Some("move") => app.media.tool = crate::media_ui::VideoTool::Move,
@@ -1525,6 +1533,10 @@ impl App {
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
+                if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
+                    ui.close();
+                    self.open_motion();
+                }
                 if ui.button("Çözünürlüğü yeniden örnekle…").clicked() {
                     let (x, y) = self.doc.script.res();
                     self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
@@ -1714,6 +1726,7 @@ impl eframe::App for App {
         self.compare_window(&ctx);
         self.hotkeys_window(&ctx);
         self.merge_window(&ctx);
+        self.motion_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.import_window(&ctx);
@@ -1747,6 +1760,12 @@ impl eframe::App for App {
         if self.play_wait > 0 { self.play_wait -= 1; ctx.request_repaint(); }
         self.handle_screenshot(&ctx);
     }
+}
+
+/// Hareket izleme penceresinin durumu.
+pub(crate) struct MotionWin {
+    pub text: String,
+    pub opts: osisub_core::motion::MotionOptions,
 }
 
 /// Makro adlarını "/" ile iç içe menülere böler (Aegisub automation menüsü). `prefix` = geçerli düzey.

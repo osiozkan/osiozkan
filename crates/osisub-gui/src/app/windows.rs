@@ -361,6 +361,87 @@ impl App {
         if open { self.merge_win = Some((path, opts, offset)); }
     }
 
+    /// Seçimin ilk karesini izin başlangıcı yaparak hareket izleme penceresini açar.
+    pub(crate) fn open_motion(&mut self) {
+        let fr = self.motion_framerate(None);
+        let first = self.doc.target_lines().iter().filter_map(|&i| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None }).min();
+        let start_frame = first.map(|t| fr.frame_at_start(t)).unwrap_or(0);
+        let text = self.motion.take().map(|m| m.text).unwrap_or_default();
+        self.motion = Some(super::MotionWin { text, opts: osisub_core::motion::MotionOptions { start_frame, ..Default::default() } });
+    }
+
+    /// Video açıksa onun kare zamanları (VFR dahil), yoksa ayarlardaki kare hızı (başlangıç karesiyle tutarlı olsun diye iz verisinin fps'i kullanılmaz).
+    fn motion_framerate(&self, _data_fps: Option<f64>) -> osisub_core::vfr::Framerate {
+        self.media.framerate().map(|f| (*f).clone()).unwrap_or_else(|| osisub_core::vfr::Framerate::cfr(self.fps))
+    }
+
+    pub(super) fn motion_window(&mut self, ctx: &egui::Context) {
+        let Some(mut m) = self.motion.take() else { return };
+        let mut open = true;
+        let mut apply = false;
+        let parsed = osisub_core::motion::parse_ae(&m.text);
+        egui::Window::new("Hareket izleme verisi").open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
+            ui.label(RichText::new("Mocha: Export Tracking Data → \"After Effects Transform Data\" → panoya kopyala, aşağıdaki kutuya Ctrl+V.").small().weak());
+            ui.horizontal(|ui| {
+                if ui.button("Dosyadan yükle…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Keyframe verisi", &["txt", "*"]).pick_file() {
+                        if let Ok(t) = std::fs::read_to_string(&p) { m.text = t; }
+                    }
+                }
+                if ui.button("Temizle").clicked() { m.text.clear(); }
+            });
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut m.text).font(egui::TextStyle::Monospace).desired_rows(8).desired_width(f32::INFINITY).hint_text("Adobe After Effects 6.0 Keyframe Data …"));
+            });
+            match &parsed {
+                Ok(d) => { ui.label(RichText::new(format!("{} kare · kaynak {}×{} · {} fps", d.frames.len(), d.width, d.height, d.fps)).color(theme::ACCENT)); }
+                Err(e) if !m.text.trim().is_empty() => { ui.label(RichText::new(e).color(theme::BAD)); }
+                _ => {}
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut m.opts.position, "Konum");
+                ui.checkbox(&mut m.opts.scale, "Ölçek");
+                ui.add_enabled(m.opts.scale, egui::Checkbox::new(&mut m.opts.scale_border, "Kenar/gölge/bulanıklık da"));
+                ui.checkbox(&mut m.opts.rotation, "Döndürme");
+            });
+            ui.horizontal(|ui| {
+                ui.label("İzin ilk karesi = video karesi");
+                ui.add(egui::DragValue::new(&mut m.opts.start_frame).range(0..=10_000_000));
+                if ui.small_button("seçimin ilk karesi").clicked() {
+                    let fr = self.motion_framerate(parsed.as_ref().ok().map(|d| d.fps));
+                    if let Some(t) = self.doc.target_lines().iter().filter_map(|&i| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None }).min() {
+                        m.opts.start_frame = fr.frame_at_start(t);
+                    }
+                }
+            });
+            let n = self.doc.target_lines().len();
+            if ui.add_enabled(parsed.is_ok() && n > 0, egui::Button::new(format!("{n} satıra uygula"))).clicked() { apply = true; }
+        });
+        if apply {
+            if let Ok(data) = &parsed {
+                let fr = self.motion_framerate(Some(data.fps));
+                let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+                let lines: Vec<osisub_core::ass::Dialogue> = targets.iter().filter_map(|&i| match &self.doc.script.entries[i] { Entry::Dialogue(d) => Some(d.clone()), _ => None }).collect();
+                match osisub_core::motion::apply(&self.doc.script, &lines, data, &fr, &m.opts) {
+                    Ok(new_lines) => {
+                        let at = targets[0];
+                        let mut s = self.doc.script.clone();
+                        for &i in targets.iter().rev() { s.entries.remove(i); }
+                        let n = new_lines.len();
+                        s.entries.splice(at..at, new_lines.into_iter().map(Entry::Dialogue));
+                        self.doc.apply_new_script("Hareket izleme", s);
+                        self.doc.select((at..at + n).collect(), at);
+                        self.scroll_to = Some(at);
+                        self.status = format!("Hareket izleme: {} satır → {} kare satırı", lines.len(), n);
+                        return; // pencere kapanır
+                    }
+                    Err(e) => self.status = e,
+                }
+            }
+        }
+        if open { self.motion = Some(m); }
+    }
+
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
         egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {

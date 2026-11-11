@@ -11,6 +11,7 @@ pub mod glossary;
 pub mod io;
 pub mod karaoke;
 pub mod merge;
+pub mod motion;
 pub mod overrides;
 pub mod paths;
 pub mod qc;
