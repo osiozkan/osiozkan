@@ -99,30 +99,48 @@ pub fn compute_offsets(old: &Waveform, new: &Waveform, lines: &[(i64, i64)], o: 
     let (src, dst) = (decimate(old), decimate(new));
     let mut iv: Vec<(i64, i64)> = lines.iter().copied().filter(|(a, b)| b > a).collect();
     iv.sort_unstable();
-    let mut groups: Vec<(i64, i64)> = vec![];
+    // gruplar: (aralık, üye satırlar)
+    let mut groups: Vec<((i64, i64), Vec<(i64, i64)>)> = vec![];
     for (a, b) in iv {
         match groups.last_mut() {
-            Some(g) if a - g.1 < o.group_gap_ms => g.1 = g.1.max(b),
-            _ => groups.push((a, b)),
+            Some((g, m)) if a - g.1 < o.group_gap_ms => {
+                g.1 = g.1.max(b);
+                m.push((a, b));
+            }
+            _ => groups.push(((a, b), vec![(a, b)])),
         }
     }
     let mut planner = FftPlanner::new();
     let mut out = vec![];
     let mut prev: Option<i64> = None;
-    for (a, b) in groups {
+    let find = |a: i64, b: i64, prev: Option<i64>, planner: &mut FftPlanner<f32>| -> (i64, f64, bool) {
         let (ta, tb) = (ms_to_idx(a - o.pad_ms, rate).max(0), ms_to_idx(b + o.pad_ms, rate).min(src.len() as i64));
         let center = prev.unwrap_or(0);
         let search = if prev.is_some() { o.search_ms } else { o.first_search_ms };
         let (ra, rb) = (ms_to_idx(a - o.pad_ms + center - search, rate).max(0), ms_to_idx(b + o.pad_ms + center + search, rate).min(dst.len() as i64));
-        let found = if tb > ta && rb > ra { best_match(&src[ta as usize..tb as usize], &dst[ra as usize..rb as usize], &mut planner) } else { None };
-        let (offset, score, fallback) = match found {
+        let found = if tb > ta && rb > ra { best_match(&src[ta as usize..tb as usize], &dst[ra as usize..rb as usize], planner) } else { None };
+        match found {
             Some((k, s)) if s >= o.min_score => {
                 let off_idx = ra + k as i64 - ta;
                 ((off_idx as f64 * 1000.0 / rate).round() as i64, s, false)
             }
             Some((_, s)) => (center, s, true),
             None => (center, 0.0, true),
-        };
+        }
+    };
+    for ((a, b), members) in groups {
+        let (offset, score, fallback) = find(a, b, prev, &mut planner);
+        // grup bir kurgu kesimine denk gelmiş olabilir: zayıfsa satır satır yeniden dene
+        if (fallback || score < 0.7) && members.len() > 1 {
+            for (ma, mb) in members {
+                let (off, sc, fb) = find(ma, mb, prev, &mut planner);
+                if !fb {
+                    prev = Some(off);
+                }
+                out.push(Group { start_ms: ma, end_ms: mb, offset_ms: off, score: sc, fallback: fb });
+            }
+            continue;
+        }
         if !fallback {
             prev = Some(offset);
         }
@@ -177,6 +195,19 @@ mod tests {
             assert!(!x.fallback && x.score > 0.9, "{x:?}");
         }
         assert_eq!(offset_for(&g, 26_000), g[2].offset_ms);
+    }
+
+    #[test]
+    fn group_spanning_a_cut_is_split() {
+        let src = speechy(40, 0xabcdef);
+        // 10.5 sn'de 2 sn ek sahne: 9-10 ve 11-12 sn satırları aynı grupta ama farklı kayma
+        let mut dst = src[..10_500 * 8].to_vec();
+        dst.extend(speechy(2, 0x55));
+        dst.extend_from_slice(&src[10_500 * 8..]);
+        let (old, new) = (Waveform { sample_rate: 8000, samples: src }, Waveform { sample_rate: 8000, samples: dst });
+        let g = compute_offsets(&old, &new, &[(9000, 10_000), (11_000, 12_000)], &ResyncOptions::default());
+        assert_eq!(g.len(), 2, "{g:?}");
+        assert!(g[0].offset_ms.abs() <= 2 && (g[1].offset_ms - 2000).abs() <= 2, "{g:?}");
     }
 
     #[test]
