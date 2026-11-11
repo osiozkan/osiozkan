@@ -594,6 +594,28 @@ impl App {
     }
 
     pub(super) fn quality_tab(&mut self, ui: &mut egui::Ui) {
+        // Betik başlığı denetimleri (PlayRes, ScaledBorderAndShadow, YCbCr Matrix…)
+        let video = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width, i.height));
+        let head = qc::script_issues(&self.doc.script, video);
+        if !head.is_empty() {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                for m in &head {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(m).color(theme::WARN));
+                        if m.starts_with("ScaledBorderAndShadow") && ui.small_button("Düzelt").clicked() {
+                            let mut s = self.doc.script.clone();
+                            s.set_info("ScaledBorderAndShadow", "yes");
+                            self.doc.apply_new_script("ScaledBorderAndShadow: yes", s);
+                        }
+                        if m.starts_with("YCbCr Matrix") && ui.small_button("Düzelt").clicked() {
+                            let mut s = self.doc.script.clone();
+                            s.set_info("YCbCr Matrix", if video.map_or(false, |v| v.1 >= 720) { "TV.709" } else { "TV.601" });
+                            self.doc.apply_new_script("YCbCr Matrix", s);
+                        }
+                    });
+                }
+            });
+        }
         let mut changed = false;
         egui::Grid::new("rules").num_columns(2).show(ui, |ui| {
             ui.label("Azami kar/sn"); changed |= ui.add(egui::DragValue::new(&mut self.rules.max_cps).range(5.0..=60.0)).changed(); ui.end_row();

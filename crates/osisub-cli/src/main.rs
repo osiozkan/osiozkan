@@ -234,6 +234,9 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--gap") { r.min_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
             let video = opt(&mut args, "--video");
             let s = load(args.first().ok_or("dosya gerekli")?)?;
+            let vsize = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video).map(|i| (i.width, i.height));
+            let head = qc::script_issues(&s, vsize);
+            for m in &head { println!("başlık: {m}"); }
             let mut issues = qc::check(&s, &r);
             if let Some(v) = video {
                 // kareye dayalı denetimler: sahne değişimine yakınlık (≤3 kare), titreme

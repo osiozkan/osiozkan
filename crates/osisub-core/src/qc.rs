@@ -242,6 +242,49 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
     issues
 }
 
+
+/// Betik geneli (başlık) denetimleri: satıra bağlı olmayan, yayından önce düzeltilmesi gereken
+/// ayarlar. `video`: açık videonun (genişlik, yükseklik).
+pub fn script_issues(script: &Script, video: Option<(u32, u32)>) -> Vec<String> {
+    let mut out = vec![];
+    let px = script.info("PlayResX").and_then(|v| v.trim().parse::<f64>().ok());
+    let py = script.info("PlayResY").and_then(|v| v.trim().parse::<f64>().ok());
+    if px.is_none() || py.is_none() {
+        out.push("PlayResX/PlayResY yok: oynatıcılar 384×288 varsayar, konum ve boyutlar kayar".into());
+    }
+    if !script.info("ScaledBorderAndShadow").map_or(false, |v| v.trim().eq_ignore_ascii_case("yes")) {
+        out.push("ScaledBorderAndShadow: yes değil — kenar/gölge kalınlığı video çözünürlüğüne göre değişir".into());
+    }
+    if let (Some(x), Some(y), Some((vw, vh))) = (px, py, video) {
+        if vw > 0 && vh > 0 {
+            let (ra, rv) = (x / y, vw as f64 / vh as f64);
+            if (ra - rv).abs() / rv > 0.02 {
+                out.push(format!("PlayRes en-boy oranı ({}×{}) videoyla ({}×{}) uyuşmuyor: yazılar yatayda esner", x, y, vw, vh));
+            }
+        }
+    }
+    if let Some(m) = script.info("YCbCr Matrix") {
+        let m = m.trim();
+        if let Some((_, vh)) = video {
+            if vh >= 720 && m.eq_ignore_ascii_case("TV.601") {
+                out.push(format!("YCbCr Matrix: {m}, ama video HD ({vh}p, BT.709) — tabela renkleri kayar; TV.709 olmalı"));
+            }
+            if vh > 0 && vh < 720 && m.eq_ignore_ascii_case("TV.709") {
+                out.push(format!("YCbCr Matrix: {m}, ama video SD ({vh}p, genelde BT.601)"));
+            }
+        }
+    }
+    let mut names: Vec<&str> = script.styles().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    for w in names.windows(2) {
+        if w[0] == w[1] {
+            out.push(format!("Yinelenen stil adı: {} (yalnızca biri kullanılır)", w[0]));
+        }
+    }
+    out.dedup();
+    out
+}
+
 // ---------------------------------------------------------------- düzeltmeler
 
 /// Seçili (indeks listesi) satırları kaydırır. `None` = tümü.
@@ -576,5 +619,16 @@ mod tests {
     #[test]
     fn balance() {
         assert_eq!(balance_lines("bir iki üç dört beş altı yedi sekiz dokuz on on bir on iki", 30), "bir iki üç dört beş altı yedi\\Nsekiz dokuz on on bir on iki");
+    }
+
+    #[test]
+    fn script_header_checks() {
+        let base = "[Script Info]\nScriptType: v4.00+\n{RES}\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: A,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\nStyle: A,Arial,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n";
+        let bad = Script::parse(&base.replace("{RES}", "YCbCr Matrix: TV.601"));
+        let v = script_issues(&bad, Some((1920, 1080)));
+        assert!(v.iter().any(|m| m.contains("PlayResX")) && v.iter().any(|m| m.contains("ScaledBorder")) && v.iter().any(|m| m.contains("TV.709")) && v.iter().any(|m| m.contains("Yinelenen")), "{v:?}");
+        let ok = Script::parse(&base.replace("{RES}", "PlayResX: 1920\nPlayResY: 1080\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709").replace("Style: A,Arial,30", "Style: B,Arial,30"));
+        assert!(script_issues(&ok, Some((1920, 1080))).is_empty());
+        assert!(script_issues(&ok, Some((1440, 1080))).iter().any(|m| m.contains("en-boy")));
     }
 }
