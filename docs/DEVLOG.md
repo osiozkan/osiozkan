@@ -56,3 +56,10 @@ Dal: `claude/vibrant-clarke-dsxf2y` (main'den; `claude/vibrant-clarke-6oujog` il
 - **Dosya birleştirme** (core::merge, GUI + CLI `merge`).
 - HATA DÜZELTİLDİ: satır sayısını değiştiren toplu işlemlerden sonra etkin satır/seçim yanlış satırı (ya da stil satırını) gösteriyordu → içerik eşlemesiyle korunuyor.
 - Not: GUI testinden önce `cargo build -p osisub-gui` şart (`cargo test` ikiliyi güncellemez).
+- (aynı gece, devam) **Tipografi:** hareket izleme (Mocha/AE verisi; konum/ölçek/dönüş/\clip), metin → çizim (gerçek konturlar), **perspektife oturt** (4 noktalı kırpma), degrade, parıltı. Hepsi libass render'ıyla piksel düzeyinde doğrulandı (IoU ≥ 0.97–0.999).
+- libass bulguları (kaynaktan doğrulandı): perspektif kamera uzaklığı 20000/64 = **312.5 render pikseli** (betikte 312.5×PlayResY/LayoutResY; LayoutRes yoksa oynatıcı çözünürlüğüne bağlı!), `\fax` eğmesi `fax×fscx/fscy` ile ölçekli uzayda uygulanır, `\fsp` harf aralığı `\fscx` ile ölçeklenir.
+- HATA DÜZELTİLDİ: Lua `text_extents` harf aralığını `\fscx` ile ölçeklemiyordu (Aegisub/libass ölçekler) → karaskel düzenleri kayıyordu.
+- HATA DÜZELTİLDİ: ikinci dosyayı açınca ızgara/QC önbelleği yenilenmiyordu (her belgenin `rev`'i 0'dan başlıyordu).
+- **Video ile:** MKV izleri aç/çıkar, ek yazı tipleri, MKV'ye göm, videoya yak. **Sesle yeniden zamanlama (TV→BD)**: FFT çapraz-ilinti.
+- **Windows doğrulandı (wine):** `tools/win-check.sh` — CLI çıktısı Linux'la bayt bayt aynı, GUI açılıyor. CI gerçek Windows/macOS runner'larında yeşil.
+- Kullanım kolaylığı: komut paleti (Ctrl+Shift+P), geçmiş penceresi, düzenleme kutusu araç çubuğu (K/İ/A/Ü/renk), pencere/sütun kalıcılığı, betik başlığı QC'si.
