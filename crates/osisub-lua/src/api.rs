@@ -113,6 +113,7 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             })?,
         )?;
         native.set("embedded_module", lua.create_function(|_, name: String| Ok(crate::vendor::module(&name)))?)?;
+        native.set("fallback_module", lua.create_function(|_, name: String| Ok(crate::vendor::fallback_module(&name)))?)?;
         let inn = inner.clone();
         // require için: include klasörlerinde a/b.lua, a/b/init.lua, a/b.moon, a/b/init.moon ara.
         native.set(

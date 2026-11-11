@@ -38,4 +38,14 @@ Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil), `unknown`. Alanl
 - Yeni API: `aegisub.debug.out`, `aegisub.parse_karaoke_data`, `subs.script_resolution()`, `unicode.charwidth`, `unicode.chars`; `include("utils.lua")` artık Aegisub'daki genel takma adları da tanımlar (`table.copy`, `copy_line`, `table.copy_deep`, `ass_color`, `interpolate_color`, `HSV_to_RGB` …).
 - Test: `crates/osisub-lua/tests/templater.rs` gerçek kara-templater ile `code once`, `template syl noblank`, `template line`, `!retime()!`, `$sx/$sy/$sstart/$send` değişkenlerini doğrular.
 - **MoonScript (`.moon`) betikleri** çalışır: Aegisub gibi MoonScript 0.5.0 derleyicisi gömülüdür (LPeg yerine saf Lua LuLPeg). `.moon` dosyaları otomatik yükleme klasöründen, "Lua betiği yükle" ile ya da sürükle-bırak ile açılabilir.
-- **`require` include klasörlerinde arar**: `automation/include/a/b.lua`, `a/b/init.lua`, `a/b.moon`, `a/b/init.moon` (ör. `require "l0.DependencyControl"` tarzı modül düzeni). DependencyControl'ün kendisi henüz denenmedi (ağdan güncelleme yapar).
+- **`require` include klasörlerinde arar**: `automation/include/a/b.lua`, `a/b/init.lua`, `a/b.moon`, `a/b/init.moon` (ör. `require "l0.DependencyControl"` tarzı modül düzeni). 
+
+## DependencyControl (l0.DependencyControl)
+osisub gerçek DepCtrl yerine **yerleşik bir uyumluluk katmanı** kullanır (gerçeği Windows DLL'leri ve ağ güncellemesi ister):
+- `DependencyControl{ ...bağımlılıklar... }`, `requireModules()` (isteğe bağlı modüller `optional = true` → nil; eksik zorunlu modüller adı/sürümü/adresiyle tek hata iletisinde listelenir; düşük sürüm uyarısı), `register()`, `registerMacro(s)` (alt menü: "Betik adı/Makro"), `getConfigHandler()` (`?user/config/<namespace>.json`, `c`, `load`, `write`, `getSectionHandler`), `getLogger()`/`logger`, `checkVersion`, `parseVersion`, `getVersionString`.
+- Betik ortamındaki `script_name/description/author/version/namespace` okunur; eksikse DepCtrl kaydından doldurulur.
+- Güncelleme/indirme YAPILMAZ: modülleri (ASSFoundation, a-mo, l0.Functional…) `automation/include` klasörüne kurun.
+- Yedek `json` modülü (encode/decode) gömülüdür; include klasöründe kendi `json.lua`'nız varsa o kullanılır.
+- **Aegisub klasörleri otomatik:** kurulu Aegisub'ın `automation/include` klasörü her zaman aranır, `automation/autoload` betikleri de (Otomasyon sekmesinden kapatılabilir) yüklenir. Windows `%APPDATA%\Aegisub`, Linux `~/.aegisub`, macOS `~/Library/Application Support/Aegisub`; `OSISUB_AEGISUB_DIR` ile değiştirilebilir.
+- Makro adlarındaki `/` Aegisub gibi iç içe alt menü oluşturur.
+- Doğrulanmayan: gerçek ASSFoundation / Aegisub-Motion modülleriyle çalıştırma (ffi DLL'leri — BadMutex, PreciseTimer — Linux'ta yok).

@@ -634,6 +634,13 @@ impl App {
             if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
         }
         if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
+        let aegi = osisub_core::paths::aegisub_automation_dirs();
+        if !aegi.is_empty() {
+            let dirs = aegi.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ");
+            if ui.checkbox(&mut self.settings.aegisub_autoload, "Aegisub'ın autoload betiklerini de yükle")
+                .on_hover_text(format!("Bulunan Aegisub klasörü: {dirs}\ninclude/ klasörü (DependencyControl modülleri dahil) her zaman aranır. Değişiklik bir sonraki açılışta geçerli olur."))
+                .changed() { self.settings.save(); }
+        }
         egui::CollapsingHeader::new(format!("Yüklü betik dosyaları ({})", self.loaded_scripts.len())).id_salt("script_files").show(ui, |ui| {
             let mut remove: Option<PathBuf> = None;
             for p in self.loaded_scripts.clone() {

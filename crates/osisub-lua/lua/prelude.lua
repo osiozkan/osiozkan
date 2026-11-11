@@ -90,7 +90,15 @@ local function searcher(name)
     return f
   end
   local s, path = N.find_module(name)
-  if not s then return "\n\tosisub include klasörlerinde yok: " .. name end
+  if not s then
+    local fb = N.fallback_module(name)
+    if fb then
+      local f, err = loadstring(fb, "@osisub/" .. name)
+      if not f then error(err, 0) end
+      return f
+    end
+    return "\n\tosisub include klasörlerinde yok: " .. name
+  end
   if path:sub(-5) == ".moon" then s = __osisub_moon_to_lua(s, path) end
   local f, err = loadstring(s, "@" .. path)
   if not f then error(err, 0) end

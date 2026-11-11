@@ -27,7 +27,17 @@ pub const MODULES: &[(&str, &str)] = &[
     ("moonscript.types", include_str!("../lua/vendor/moonscript/types.lua")),
     ("moonscript.util", include_str!("../lua/vendor/moonscript/util.lua")),
     ("moonscript.version", include_str!("../lua/vendor/moonscript/version.lua")),
+    // DependencyControl uyumluluk katmanı: kullanıcının gerçek DepCtrl kopyasından önce gelir
+    // (gerçeği Windows DLL'leri ve ağ güncellemesi ister).
+    ("l0.DependencyControl", include_str!("../lua/depctrl.lua")),
 ];
+
+/// Yalnızca include klasörlerinde bulunamazsa kullanılan yedek modüller.
+pub const FALLBACK_MODULES: &[(&str, &str)] = &[("json", include_str!("../lua/json.lua"))];
+
+pub fn fallback_module(name: &str) -> Option<&'static str> {
+    FALLBACK_MODULES.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
 
 pub fn module(name: &str) -> Option<&'static str> {
     MODULES.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)

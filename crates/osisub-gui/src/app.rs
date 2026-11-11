@@ -291,11 +291,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, args: crate::Args) -> App {
         let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference, shot_delay, compare } = args;
         theme::setup(&cc.egui_ctx);
-        let mut include = vec![];
-        if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) {
-            include.push(d);
-        }
-        let worker = Worker::spawn(include, vec![]);
+        let worker = Worker::spawn(osisub_core::paths::automation_include_dirs(), vec![]);
         let mut status = String::from("Hazır");
         let doc = match file {
             Some(p) => match Document::open(&p) {
@@ -321,8 +317,21 @@ impl App {
                 all.push(PathBuf::from(format!("{}{}", osisub_lua::BUILTIN_PREFIX, name)));
             }
         }
-        all.extend(user_auto);
+        all.extend(user_auto.iter().cloned());
         let settings = Settings::load();
+        // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
+        if settings.aegisub_autoload {
+            for d in osisub_core::paths::aegisub_automation_dirs() {
+                let Ok(rd) = std::fs::read_dir(d.join("autoload")) else { continue };
+                let mut v: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "lua" || x == "moon")).collect();
+                v.sort();
+                for p in v {
+                    let name = p.file_name().map(|f| f.to_os_string());
+                    let builtin = osisub_lua::BUILTIN_SCRIPTS.iter().any(|(b, _)| name.as_deref() == Some(std::ffi::OsStr::new(b)));
+                    if !builtin && !all.iter().any(|q| q.file_name().map(|f| f.to_os_string()) == name) { all.push(p); }
+                }
+            }
+        }
         for s in &settings.scripts {
             let p = PathBuf::from(s);
             if p.is_file() && !all.contains(&p) { all.push(p); }
@@ -789,9 +798,7 @@ impl App {
         self.dialog = None;
         self.running = None;
         self.tap = None;
-        let mut include = vec![];
-        if let Some(d) = autoload_dir().and_then(|d| d.parent().map(|p| p.join("include"))) { include.push(d); }
-        self.worker = Worker::spawn(include, vec![]);
+        self.worker = Worker::spawn(osisub_core::paths::automation_include_dirs(), vec![]);
         self.macros.clear();
         let list = self.loaded_scripts.clone();
         for p in list { self.worker.send(Cmd::Load(p)); }
@@ -1389,9 +1396,10 @@ impl App {
             ui.menu_button("Otomasyon", |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new("Yüklü makro yok").weak()); }
                 let list: Vec<(usize, String, String)> = self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro).map(|m| (m.info.id, m.info.name.clone(), m.info.description.clone())).collect();
-                for (id, name, desc) in list {
-                    if ui.add_enabled(self.running.is_none(), egui::Button::new(&name)).on_hover_text(desc).clicked() { ui.close(); self.run_macro(id); }
-                }
+                // Aegisub gibi: "Grup/Alt/Makro" adları iç içe alt menülere ayrılır.
+                let mut clicked = None;
+                macro_menu(ui, &list, "", self.running.is_none(), &mut clicked);
+                if let Some(id) = clicked { ui.close(); self.run_macro(id); }
                 ui.separator();
                 if ui.button("Lua betiği yükle…").clicked() {
                     ui.close();
@@ -1657,5 +1665,25 @@ impl eframe::App for App {
         }
         if self.play_wait > 0 { self.play_wait -= 1; ctx.request_repaint(); }
         self.handle_screenshot(&ctx);
+    }
+}
+
+/// Makro adlarını "/" ile iç içe menülere böler (Aegisub automation menüsü). `prefix` = geçerli düzey.
+fn macro_menu(ui: &mut egui::Ui, list: &[(usize, String, String)], prefix: &str, enabled: bool, clicked: &mut Option<usize>) {
+    let mut groups: Vec<String> = vec![];
+    for (id, name, desc) in list {
+        let Some(rest) = name.strip_prefix(prefix) else { continue };
+        match rest.split_once('/') {
+            Some((g, tail)) if !g.is_empty() && !tail.is_empty() => {
+                if !groups.iter().any(|x| x == g) { groups.push(g.to_string()); }
+            }
+            _ => {
+                if ui.add_enabled(enabled, egui::Button::new(rest)).on_hover_text(desc).clicked() { *clicked = Some(*id); }
+            }
+        }
+    }
+    for g in groups {
+        let p = format!("{prefix}{g}/");
+        ui.menu_button(g, |ui| macro_menu(ui, list, &p, enabled, clicked));
     }
 }

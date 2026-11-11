@@ -136,3 +136,28 @@ fn moonscript_errors_point_to_moon_lines() {
     assert!(err.contains("hatali.moon:10:"), "{}", err);
     assert_eq!(osisub_lua::error_location(&err).map(|x| x.1), Some(10));
 }
+
+#[test]
+fn dependency_control_shim() {
+    let tmp = std::env::temp_dir().join(format!("osisub-depctrl-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.set_property("user_dir", &tmp.to_string_lossy());
+    e.add_include_dir("tests/fixtures/depctrl_include");
+    let info = e.load_script(Path::new("tests/fixtures/depctrl_script.lua")).unwrap();
+    assert_eq!(info.version, "1.0.2");
+    let names: Vec<String> = e.macros().iter().map(|m| m.name.clone()).collect();
+    assert_eq!(names, vec!["DepCtrl Testi/Say", "DepCtrl Testi/Ayar", "DepCtrl Testi"]);
+    let idx = last_dialogue_idx(&e);
+    e.run_macro(0, &[idx], idx).unwrap();
+    let log = e.take_log();
+    assert!(log.contains("sayi=1"), "{log}");
+    assert!(log.contains("json=3,ğüşİ\n\"x\",true"), "{log}");
+    e.run_macro(1, &[idx], idx).unwrap();
+    let log = e.take_log();
+    assert!(log.contains("kalinlik=3 ad=varsayılan"), "{log}");
+    let saved = std::fs::read_to_string(tmp.join("config/osisub.DepTest.json")).unwrap();
+    assert!(saved.contains("\"kalinlik\":3"), "{saved}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}

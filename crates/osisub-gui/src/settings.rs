@@ -33,6 +33,8 @@ pub struct Settings {
     pub grid_margins: bool,
     /// Elle yüklenen (otomatik yükleme klasörü dışındaki) betikler; açılışta yeniden yüklenir
     pub scripts: Vec<String>,
+    /// Kurulu Aegisub'ın automation/autoload betiklerini de yükle
+    pub aegisub_autoload: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -70,6 +72,7 @@ impl Default for Settings {
             grid_effect: true,
             grid_margins: false,
             scripts: vec![],
+            aegisub_autoload: true,
         }
     }
 }
