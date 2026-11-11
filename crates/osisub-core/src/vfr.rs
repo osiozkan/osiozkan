@@ -151,7 +151,9 @@ impl Framerate {
     pub fn parse_timecodes(text: &str) -> Result<Framerate, String> {
         let mut lines = text.lines().map(|l| l.trim_start_matches('\u{feff}').trim()).filter(|l| !l.is_empty());
         let head = lines.next().ok_or("boş timecode dosyası")?.to_ascii_lowercase();
-        if head.starts_with("# timecode format v2") || head.starts_with("# timestamp format v2") {
+        // v4 (mkvextract): v2 ile aynı, ama satırlar depolama sırasında olabilir → sıralanır
+        let v4 = head.starts_with("# timestamp format v4") || head.starts_with("# timecode format v4");
+        if head.starts_with("# timecode format v2") || head.starts_with("# timestamp format v2") || v4 {
             let mut ts = vec![];
             for l in lines {
                 if l.starts_with('#') {
@@ -162,6 +164,9 @@ impl Framerate {
             }
             if ts.is_empty() {
                 return Err("timecode dosyasında kare yok".into());
+            }
+            if v4 {
+                ts.sort_unstable();
             }
             if ts.windows(2).any(|w| w[1] < w[0]) {
                 return Err("zaman damgaları artan sırada değil".into());
@@ -256,6 +261,13 @@ mod tests {
         for f in -3..20 {
             assert_eq!(fr.frame_at(fr.time_at(f)), f, "kare {}", f);
         }
+    }
+
+    #[test]
+    fn v4_unsorted() {
+        let fr = Framerate::parse_timecodes("# timestamp format v4\n0\n83\n42\n125\n").unwrap();
+        assert_eq!((fr.time_at(1), fr.time_at(2), fr.time_at(3)), (42, 83, 125));
+        assert!(Framerate::parse_timecodes("# timecode format v2\n0\n83\n42\n").is_err());
     }
 
     #[test]

@@ -13,7 +13,7 @@ fn rng(seed: u64) -> impl FnMut(usize) -> usize {
 const FRAGS: &[&str] = &[
     "1", "2", "00:00:01,000", "-->", "00:00:02.500", "0:00:01.00", "\n", "\n\n", "\r\n", "[Events]", "[Script Info]", "[V4+ Styles]", "Dialogue: ", "Comment: ", "Style: ", "Format: ",
     "Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ",", ",,,,,", "0", "Default", "{", "}", "\\", "\\N", "\\k20", "\\pos(", ")", "<i>", "</i>", "<font color=\"#ff0000\">",
-    "<", ">", "&", "&amp;", "[00:01.50]", "<00:01.50>", "{25}{50}", "|", "ş", "İ", "日本語", "♪", "…", "\u{feff}", "WEBVTT", "NOTE", "<p begin=\"1s\" end=\"2s\">", "</p>", "<br/>", "begin=\"", "\"", ":", ";", ".", " ", "x",
+    "<", ">", "&", "&amp;", "[00:01.50]", "<00:01.50>", "{25}{50}", "|", "ş", "İ", "日本語", "♪", "…", "\u{feff}", "WEBVTT", "NOTE", "<p begin=\"1s\" end=\"2s\">", "</p>", "<br/>", "begin=\"", "\"", ":", ";", ".", " ", "x", "<SYNC Start=", "<sync start=\"", "<P Class=ENCC>", "class=", "&nbsp;", "</body>", "[INFORMATION]", "[br]", "<br",
 ];
 
 fn rounds(default: usize) -> usize {
@@ -35,6 +35,8 @@ fn parsers_never_panic() {
         let _ = formats::parse_lrc(&t);
         let _ = formats::parse_microdvd(&t, 23.976);
         let _ = formats::parse_sbv(&t);
+        let _ = formats::parse_sami(&t);
+        let _ = formats::parse_subviewer(&t);
         let _ = formats::parse_ttml(&t);
         let _ = overrides::parse(&t);
         let _ = overrides::clean(&t);

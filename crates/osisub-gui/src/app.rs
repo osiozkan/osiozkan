@@ -581,7 +581,7 @@ impl App {
             Guarded::OpenDialog => self.open_dialog(),
             Guarded::OpenPath(p) => self.open_path(p),
             Guarded::OpenWithEncoding(label) => {
-                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "txt"]).pick_file() {
+                if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
                     match osisub_core::io::load_with_encoding(&p, &label) {
                         Ok(sc) => {
                             let mut d = Document::new(sc);
@@ -655,7 +655,7 @@ impl App {
     }
 
     fn open_dialog(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
+        if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
             self.open_path(p);
         }
     }
@@ -743,7 +743,7 @@ impl App {
 
     fn save(&mut self, as_new: bool) {
         let target = if as_new || self.doc.path.is_none() {
-            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("LRC", &["lrc"]).add_filter("MicroDVD", &["sub"]).add_filter("SBV", &["sbv"]).add_filter("TTML", &["ttml"]).add_filter("Düz metin", &["txt"]).add_filter("CSV", &["csv"]).save_file()
+            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("LRC", &["lrc"]).add_filter("MicroDVD", &["sub"]).add_filter("SBV", &["sbv"]).add_filter("SAMI", &["smi"]).add_filter("TTML", &["ttml"]).add_filter("Düz metin", &["txt"]).add_filter("CSV", &["csv"]).save_file()
         } else {
             self.doc.path.clone()
         };
@@ -1166,7 +1166,7 @@ impl App {
         for p in dropped {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
-                "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp" => { self.request(Guarded::OpenPath(p)); }
+                e if e != "txt" && osisub_core::io::OPEN_EXTS.contains(&e) => { self.request(Guarded::OpenPath(p)); }
                 "lua" | "moon" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
@@ -1263,7 +1263,7 @@ impl App {
                 });
                 if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
                     ui.close();
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "sbv", "lrc", "ttml"]).pick_file() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
                         match osisub_core::io::load(&p) {
                             Ok(old) => {
                                 let ch = osisub_core::compare::compare(&old, &self.doc.script);
@@ -1276,7 +1276,7 @@ impl App {
                 }
                 if ui.button("Referans altyazı aç…").clicked() {
                     ui.close();
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp"]).pick_file() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
                         match osisub_core::io::load(&p) {
                             Ok(s) => { self.ref_lines = { let mut v: Vec<(i64, i64, String)> = s.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v }; self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
                             Err(e) => self.status = format!("Hata: {}", e),

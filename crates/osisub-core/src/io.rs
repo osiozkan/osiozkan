@@ -7,12 +7,17 @@ pub fn ext_of(p: &Path) -> String {
     p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
 }
 
+/// Açılabilen altyazı uzantıları (GUI dosya süzgeçleri, sürükle-bırak, toplu dönüştürme).
+pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "smi", "sami", "txt"];
+
 pub fn load_str(text: &str, ext: &str) -> Script {
     match ext {
         "srt" => srt::to_script(text),
         "vtt" => Script::from_dialogues(vtt::parse(text)),
         "lrc" => Script::from_dialogues(crate::formats::parse_lrc(text)),
         "sub" if text.trim_start().starts_with('{') => Script::from_dialogues(crate::formats::parse_microdvd(text, 23.976)),
+        "sub" if text.contains("[INFORMATION]") || text.contains("[SUBTITLE]") => Script::from_dialogues(crate::formats::parse_subviewer(text)),
+        "smi" | "sami" => Script::from_dialogues(crate::formats::parse_sami(text)),
         "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
         "ttml" | "dfxp" | "xml" => Script::from_dialogues(crate::formats::parse_ttml(text)),
         _ => Script::parse(text),
@@ -61,6 +66,7 @@ pub fn to_string(s: &Script, ext: &str) -> String {
         "lrc" => crate::formats::write_lrc(s),
         "sub" => crate::formats::write_microdvd(s, 23.976),
         "sbv" => crate::formats::write_sbv(s),
+        "smi" | "sami" => crate::formats::write_sami(s),
         "ttml" | "dfxp" => crate::formats::write_ttml(s),
         "txt" => crate::formats::write_txt(s),
         "csv" => crate::formats::write_csv(s),

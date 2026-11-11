@@ -261,7 +261,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let mut n = 0;
             for f in files {
                 let ext = osisub_core::io::ext_of(&f);
-                if !matches!(ext.as_str(), "ass" | "ssa" | "srt" | "vtt" | "lrc" | "sbv" | "ttml" | "dfxp") || ext == to { continue; }
+                if !osisub_core::io::OPEN_EXTS.contains(&ext.as_str()) || ext == "txt" || ext == to { continue; }
                 match osisub_core::io::load(&f).and_then(|s| osisub_core::io::save(&s, &f.with_extension(&to))) {
                     Ok(()) => { n += 1; println!("{} → .{}", f.display(), to); }
                     Err(e) => eprintln!("atlandı {}: {}", f.display(), e),
