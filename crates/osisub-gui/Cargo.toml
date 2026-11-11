@@ -14,8 +14,8 @@ osisub-lua = { path = "../osisub-lua" }
 osisub-doc = { path = "../osisub-doc" }
 osisub-media = { path = "../osisub-media", features = ["audio"] }
 osisub-spell = { path = "../osisub-spell" }
-eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
-egui_extras = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "persistence"] }
+egui_extras = { version = "0.37", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

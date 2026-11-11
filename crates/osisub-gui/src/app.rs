@@ -1670,6 +1670,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Ekran görüntüsü/test kipinde egui belleği (sütun genişlikleri, pencere konumları) kalıcı değil
+    fn persist_egui_memory(&self) -> bool {
+        self.shot.is_none()
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_settings();
         self.save_tm();

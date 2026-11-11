@@ -62,6 +62,9 @@ fn main() -> eframe::Result {
     }
     let opts = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]).with_min_inner_size([900.0, 560.0]).with_title("osisub"),
+        // Pencere boyutu/konumu ve tablo sütun genişlikleri kalıcı; ekran görüntüsü/test kipinde kapalı
+        persist_window: a.screenshot.is_none(),
+        persistence_path: osisub_core::paths::data_dir().map(|d| d.join("ui-state.ron")),
         ..Default::default()
     };
     eframe::run_native("osisub", opts, Box::new(move |cc| Ok(Box::new(app::App::new(cc, a)))))

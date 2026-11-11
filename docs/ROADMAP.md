@@ -72,7 +72,8 @@
 - [x] Çerçeve: egui/eframe 0.37 (osisub-gui). Başsız ekran görüntüsü: `xvfb-run osisub-gui dosya --screenshot out.png`
 - [x] İskelet: menü, ızgara (sanal kaydırma), düzenleme paneli, stil/kalite/otomasyon/bilgi sekmeleri, Lua diyalog köprüsü, geri al/yinele
 - [x] Izgara sütunları: Katman, Efekt, Kenar boşlukları (Görünüm → Izgara sütunları; kalıcı); yorum satırlarında KSS gösterilmez
-- [ ] Izgara: sütun sırası/genişliği kalıcılığı
+- [x] Pencere boyutu/konumu ve ızgara sütun genişlikleri kalıcı (`<veri>/ui-state.ron`; test kipinde kapalı)
+- [ ] Izgara: sütun sırası
 - [ ] Düzenleme kutusu: etiket renklendirme, karakter/CPS sayacı, stil seçici
 - [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
