@@ -18,7 +18,8 @@ KULLANIM:
   osisub macros <betik.lua>...            betiklerdeki makroları listele
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
   osisub info <dosya>                     özet bilgi
-  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N]
+  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--tags] [--notes]
+                          (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
   osisub find <girdi> <desen> [--regex] [--case] [--replace METİN [çıktı]]
@@ -170,11 +171,25 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             f.remove_hi = flag(&mut args, "--hi");
             f.min_duration_ms = opt(&mut args, "--min-dur").and_then(|v| v.parse().ok());
             f.min_gap_ms = opt(&mut args, "--min-gap").and_then(|v| v.parse().ok());
+            let (tags, notes) = (flag(&mut args, "--tags"), flag(&mut args, "--notes"));
             let inp = args.first().ok_or("girdi gerekli")?.clone();
             let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
             let mut s = load(&inp)?;
             let r = osisub_core::fixes::apply(&mut s, &f);
             println!("{} satır değişti, {} zamanlama düzeltildi", r.changed_lines, r.timing_changes);
+            let mut tag_changes = 0;
+            for e in s.entries.iter_mut() {
+                let osisub_core::ass::Entry::Dialogue(d) = e else { continue };
+                if d.comment { continue; }
+                if notes {
+                    let t = osisub_core::taglint::strip_notes(&d.text);
+                    if t != d.text { d.text = t; tag_changes += 1; }
+                }
+                if tags && !d.effect.eq_ignore_ascii_case("fx") {
+                    if let Some(t) = osisub_core::taglint::repair(d) { d.text = t; tag_changes += 1; }
+                }
+            }
+            if tags || notes { println!("{} satırda etiket/not düzeltildi", tag_changes); }
             save(&s, &out)
         }
         "resample" => {

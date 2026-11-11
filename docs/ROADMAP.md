@@ -20,6 +20,7 @@
 - [x] Toplu araçlar: kaydır, doğrusal senkron, fps dönüşümü, kareye oturt, sırala, yinelenen/boş sil, çakışma düzelt, Türkçe harf
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
+- [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)
 - [x] Etiket denetimi (core::taglint, QC'de "Etiket"/"Notlar" süzgeci, ızgarada kırmızı altçizgi): eşleşmeyen { }, bilinmeyen/yazım hatalı etiket (\blurr, \fsc100), geçersiz renk/saydamlık, \pos/\move/\fad/\fade/\clip argüman sayısı, satır süresini aşan \fad, satır bittikten sonra başlayan \t/\move, ters zamanlar, \t ile canlandırılamayan etiketler, iç içe \t, birden fazla \pos, bilinmeyen \r stili, karaoke hece toplamı ≠ satır süresi, metinde unutulmuş {not}
 - [ ] Override etiketlerinin tipli anlamlandırılması (\t animasyon düzenleme arayüzü)
 - [x] Ekler: [Fonts]/[Graphics] gömme/çıkarma/silme (core::attach, ASS UUencode), "Kullanılan yazı tiplerini göm" (Araçlar → Ekler); ayrıştırıcı "[..]" gibi görünen veri satırlarını bölüm sanmıyor

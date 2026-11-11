@@ -233,6 +233,55 @@ pub fn lint(d: &Dialogue, styles: &[&str]) -> Vec<Finding> {
     out
 }
 
+fn is_note_block(tags: &[Tag]) -> bool {
+    !tags.is_empty() && tags.iter().all(|t| t.name.is_empty() && !t.arg.starts_with('\\'))
+}
+
+/// Metindeki not/yorum bloklarını ({çevirmen notu}) siler; ardında kalan çift boşluğu teke indirir.
+pub fn strip_notes(text: &str) -> String {
+    let segs: Vec<Seg> = overrides::parse(text).into_iter().filter(|s| !matches!(s, Seg::Block(t) if is_note_block(t))).collect();
+    let mut out = overrides::to_string(&segs);
+    if out != text {
+        while out.contains("  ") {
+            out = out.replace("  ", " ");
+        }
+        out = out.trim().to_string();
+    }
+    out
+}
+
+/// Güvenli etiket onarımı: boş `{}` bloklarını siler, bitişik etiket bloklarını birleştirir (not
+/// blokları ayrı kalır), satır süresini aşan `\fad`'ı orantılı kısaltır. Değiştiyse yeni metni döndürür.
+pub fn repair(d: &Dialogue) -> Option<String> {
+    let dur = d.duration().max(0) as f64;
+    let mut out: Vec<Seg> = vec![];
+    for s in overrides::parse(&d.text) {
+        match s {
+            Seg::Block(tags) if tags.is_empty() => {}
+            Seg::Block(mut tags) => {
+                for t in tags.iter_mut() {
+                    if t.name == "fad" {
+                        if let Some(v) = nums(t).filter(|v| v.len() == 2 && v[0] >= 0.0 && v[1] >= 0.0) {
+                            if v[0] + v[1] > dur && dur > 0.0 {
+                                let k = dur / (v[0] + v[1]);
+                                t.arg = format!("({},{})", (v[0] * k).floor() as i64, (v[1] * k).floor() as i64);
+                            }
+                        }
+                    }
+                }
+                match out.last_mut() {
+                    Some(Seg::Block(prev)) if !is_note_block(prev) && !is_note_block(&tags) => prev.extend(tags),
+                    _ => out.push(Seg::Block(tags)),
+                }
+            }
+            Seg::Text(t) if t.is_empty() => {}
+            s => out.push(s),
+        }
+    }
+    let nt = overrides::to_string(&out);
+    (nt != d.text).then_some(nt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +346,17 @@ mod tests {
         let mut x = d("{\\k500}ka", 1000);
         x.effect = "fx".into();
         assert!(lint(&x, &[]).is_empty());
+    }
+
+    #[test]
+    fn repair_and_strip_notes() {
+        assert_eq!(strip_notes("Merhaba {TLN: oyun} dünya"), "Merhaba dünya");
+        assert_eq!(strip_notes("{\\i1}x{not}"), "{\\i1}x");
+        assert_eq!(strip_notes("{\\an8}Değişmez  metin"), "{\\an8}Değişmez  metin");
+        assert_eq!(repair(&d("{\\an8}{\\fad(800,800)}{}x{not}{\\i1}y", 1000)).unwrap(), "{\\an8\\fad(500,500)}x{not}{\\i1}y");
+        assert_eq!(repair(&d("{\\an8}x", 1000)), None);
+        // onarımdan sonra etiket hatası kalmamalı
+        let fixed = repair(&d("{\\fad(900,300)}x", 1000)).unwrap();
+        assert!(errs(&fixed, 1000).is_empty(), "{fixed}");
     }
 }

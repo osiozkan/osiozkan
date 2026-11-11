@@ -603,6 +603,27 @@ impl App {
             if ui.button("Çakışmaları düzelt").clicked() { apply(self, "Çakışmaları düzelt", &|s| { qc::fix_overlaps(s); }); }
             if ui.button("Yinelenenleri sil").clicked() { apply(self, "Yinelenenleri sil", &|s| { qc::remove_duplicates(s); }); }
             if ui.button("Boşları sil").clicked() { apply(self, "Boşları sil", &|s| { qc::remove_empty(s); }); }
+            if ui.button("Etiketleri onar").on_hover_text("Boş {} bloklarını siler, bitişik etiket bloklarını birleştirir, satırdan uzun \\fad'ı kısaltır (yorum ve fx satırlarına dokunmaz)").clicked() {
+                apply(self, "Etiketleri onar", &|s| {
+                    for e in s.entries.iter_mut() {
+                        if let Entry::Dialogue(d) = e {
+                            if d.comment || d.effect.eq_ignore_ascii_case("fx") { continue; }
+                            if let Some(t) = osisub_core::taglint::repair(d) { d.text = t; }
+                        }
+                    }
+                });
+            }
+            if self.issues.iter().any(|i| i.kind == Kind::Note && i.message.starts_with("Metinde not")) && ui.button("Notları sil").on_hover_text("Diyalog metnindeki {çevirmen notu} bloklarını siler (yayın öncesi)").clicked() {
+                apply(self, "Notları sil", &|s| {
+                    for e in s.entries.iter_mut() {
+                        if let Entry::Dialogue(d) = e {
+                            if d.comment { continue; }
+                            let t = osisub_core::taglint::strip_notes(&d.text);
+                            if t != d.text { d.text = t; }
+                        }
+                    }
+                });
+            }
             if let Some(fr) = self.media.framerate().filter(|_| !self.media.keyframes.is_empty()) {
                 if ui.button("Sahne değişimlerine yapıştır (≤3 kare)").on_hover_text("Anahtar kareye 1-3 kare yakın başlangıç/bitişleri anahtar kareye çeker").clicked() {
                     let kf = self.media.keyframes.clone();
