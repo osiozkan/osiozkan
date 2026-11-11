@@ -464,5 +464,19 @@ mod tests {
         assert!(cached.iter().any(|f| f.family == "önbellek-ailesi"), "önbellek kullanılmadı");
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
 
+    #[test]
+    fn spacing_scales_with_fscx_and_shape_matches_extents() {
+        let mut db = FontDb::default();
+        let fam = ["dejavu sans", "liberation sans", "arial", "noto sans"].into_iter().find(|f| db.has_family(f));
+        let Some(fam) = fam else { return }; // ortamda yazı tipi yok
+        let st = |sx: f64, fsp: f64| StyleMetrics { fontname: fam.into(), fontsize: 50.0, scale_x: sx, scale_y: 100.0, spacing: fsp, ..Default::default() };
+        let w0 = db.extents(&st(100.0, 0.0), "Abc").unwrap().0;
+        let w = db.extents(&st(50.0, 6.0), "Abc").unwrap().0;
+        // libass/Aegisub: (ilerleme + aralık) × fscx
+        assert!((w - (w0 + 3.0 * 6.0) * 0.5).abs() < 0.01, "{w} vs {w0}");
+        let (shape, sw, sh) = db.text_shape(&st(50.0, 6.0), "Abc").unwrap();
+        assert!((sw - w).abs() < 0.01 && sh == 50.0);
+        assert!(shape.starts_with("m ") && shape.contains(" b ") || shape.contains(" l "));
+    }
+}
