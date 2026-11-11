@@ -2,9 +2,10 @@
 
 ## 0.4.0 — 2026-11-11 (üçüncü gece)
 
+**Lua:** `aegisub.get_frame`.
 **Aegisub'dan geçiş:** `l0.DependencyControl` uyumluluk katmanı (requireModules, registerMacro(s), ConfigHandler, Logger, sürüm denetimi; güncelleme indirmez) + yedek `json` modülü; kurulu Aegisub'ın `automation/include` ve `autoload` klasörleri otomatik; `/` ile iç içe makro menüleri; Aegisub `hotkey.json` içe aktarma; belgeye bağlı betikler ("Automation Scripts"); Aegisub ses kipi komutları ve varsayılan S/H/Q/W/E/D/Z/X tuşları.
 **Tipografi:** perspektife oturt (4 noktalı kırpma → 3B dönüş etiketleri; libass ile doğrulandı); metin → çizim (`\p1`, gerçek yazı tipi konturları) ve vektör kırpma olarak kopyalama; hareket izleme verisi uygulama (Mocha/AE Transform Data → kare kare `\pos`/ölçek/dönüş/`\clip`; GUI + CLI `motion`); kırpma şeritleriyle degrade; parıltı (glow) katmanı.
-**Kalite:** anime etiket denetimi (bozuk/bilinmeyen etiket, süreyle çelişen `\fad`/`\move`/`\t`, karaoke süresi, unutulmuş `{notlar}`), Kalite sekmesinde kategori süzgeci, "Etiketleri onar", "Notları sil", CLI `fixes --tags --notes`.
+**Kalite:** betik başlığı denetimi (PlayRes, ScaledBorderAndShadow, YCbCr Matrix); anime etiket denetimi (bozuk/bilinmeyen etiket, süreyle çelişen `\fad`/`\move`/`\t`, karaoke süresi, unutulmuş `{notlar}`), Kalite sekmesinde kategori süzgeci, "Etiketleri onar", "Notları sil", CLI `fixes --tags --notes`.
 **Video ile:** MKV/MP4'teki altyazı izlerini aç/çıkar, ekli yazı tiplerini çıkar, MKV'ye göm (yazı tipleriyle), videoya yak (ilerlemeli); CLI `tracks/extract/mux/burn`.
 **Çeviri:** makine çevirisi (DeepL, Google, LibreTranslate, Claude — kendi API anahtarınızla; etiketler korunur, referans altyazı kaynak alınır).
 **Dosyalar:** dosya birleştirme (diyalog + tabela + OP/ED; stil çakışması, çözünürlük, zaman kaydırma, yazı tipleri; GUI + CLI `merge`); SAMI okuma/yazma, SubViewer 2 okuma, Matroska timestamp v4.
@@ -18,7 +19,7 @@
 **Tipografi:** `\move` video aracı (başlangıç/bitiş, birlikte taşıma, `\pos`a çevirme), döndürme aracında `\org` sürükleme.
 **Karaoke:** Japonca otomatik hece (mora) ayırma — romaji ve kana.
 **Çeviri:** çeviri belleği (bulanık öneri, Enter ile öğrenme, belgeden toplu ekleme, TSV içe/dışa aktarma).
-**Arayüz:** Lua makrolarına kısayol atama; Düzen → Satırları seç (Aegisub Select Lines); ızgarada Katman/Efekt/Kenar boşluğu sütunları; elle yüklenen betikler kalıcı + Kaldır.
+**Arayüz:** komut paleti (Ctrl+Shift+P), geçmiş penceresi, düzenleme kutusu araç çubuğu (K/İ/A/Ü, renk), ayrı video penceresi, kalıcı pencere/sütun düzeni, başlangıç ekranı;  Lua makrolarına kısayol atama; Düzen → Satırları seç (Aegisub Select Lines); ızgarada Katman/Efekt/Kenar boşluğu sütunları; elle yüklenen betikler kalıcı + Kaldır.
 **Kare doğruluğu:** Aegisub START/END anlambilimi (F6/F7, yapışma, anahtar kare, kareye oturt, Lua kare dönüşümleri); satır seçince ilk görünen kareye gidilir; kare kipinde kaydırma satır başına gerçek kare kaydırması; "Video karesinde böl", "Çoğalt ve 1 kare kaydır", imleçte böl.
 **Kalite (anime):** tipografi/karaoke/fx satırları yanlış alarm vermez; çakışma stil+katman başına zaman sırasıyla; sahne değişimi yakınlığı ve titreme denetimi + "Sahne değişimlerine yapıştır"; CLI `check --video`; sürüm karşılaştırma (GUI + CLI `compare`).
 **Tipografi:** vektör `\clip`, 3B döndürme (`\frx/\fry`), video yakınlaştırma/kaydırma; ekler (yazı tipi gömme/çıkarma, önizlemede `fontsdir`).
