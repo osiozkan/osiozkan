@@ -36,3 +36,6 @@
 
 ## Yerleşik komutlara kısayol atama
 *Yardım → Kısayolları düzenle…*: video karesinde böl, çoğalt + 1 kare kaydır, satırı oynat, başlangıç/bitişi video karesine al, kare/satır gezinme, satırları seç, sahne değişimlerine yapıştır ve video araçları (konum, hareket, kırpma, vektör kırpma, döndürme, 3B döndürme, ölçek) için kendi tuşlarınızı atayın. Atamalar Lua makro kısayollarıyla aynı yerde (`settings.json` → `macro_hotkeys`, betik adı `@komut`) saklanır.
+
+## Aegisub kısayollarını almak
+Yardım → Kısayolları düzenle → **Aegisub hotkey.json içe aktar…**: Aegisub'daki kısayollarınızdan osisub'da karşılığı olan komutlar (kare/satır gezinme, başlangıç/bitişi videoya al, video araçları, satırları seç, imleçte böl…) ve `automation/lua/…` makro kısayolları alınır. Sabit kısayollarla (F5, Ctrl+S…) çakışanlar atlanır; atlananlar günlüğe yazılır.

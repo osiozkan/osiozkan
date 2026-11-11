@@ -274,6 +274,11 @@ impl App {
         let mut open = true;
         egui::Window::new("Kısayolları düzenle").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
             ui.label(RichText::new("Düğmeye tıklayıp tuş birleşimine basın (Esc = iptal, Backspace = kaldır). Lua makroları için: Otomasyon sekmesi.").weak().small());
+            if ui.button("Aegisub hotkey.json içe aktar…").on_hover_text("Aegisub'daki kısayollarınızı (karşılığı olan komutlar ve Lua makroları) alır").clicked() {
+                let mut dlg = rfd::FileDialog::new().add_filter("hotkey.json", &["json"]);
+                if let Some(d) = osisub_core::paths::aegisub_automation_dirs().first().and_then(|d| d.parent().map(|p| p.to_path_buf())) { dlg = dlg.set_directory(d); }
+                if let Some(p) = dlg.pick_file() { self.import_aegisub_hotkeys(&p); }
+            }
             ui.separator();
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                 egui::Grid::new("hk_grid").num_columns(2).striped(true).show(ui, |ui| {
@@ -291,6 +296,27 @@ impl App {
             });
         });
         if !open { self.hotkeys_open = false; }
+    }
+
+    pub(super) fn import_aegisub_hotkeys(&mut self, path: &std::path::Path) {
+        let text = match std::fs::read_to_string(path) { Ok(t) => t, Err(e) => { self.status = format!("{}: {e}", path.display()); return; } };
+        match crate::hotkeys::import_aegisub(&text) {
+            Ok((binds, skipped)) => {
+                let n = binds.len();
+                for (target, keys) in binds {
+                    let (script, name) = match target.strip_prefix("macro:") {
+                        Some(m) => (String::new(), m.to_string()),
+                        None => (super::COMMAND_SCRIPT.to_string(), target),
+                    };
+                    self.settings.macro_hotkeys.retain(|h| h.keys != keys && !(h.script == script && h.name == name));
+                    self.settings.macro_hotkeys.push(crate::settings::MacroHotkey { keys, script, name });
+                }
+                self.settings.save();
+                self.status = format!("Aegisub kısayolları: {n} atandı, {} atlandı", skipped.len());
+                if !skipped.is_empty() { self.log.push_str(&format!("Aegisub kısayolları — atlananlar:\n  {}\n", skipped.join("\n  "))); }
+            }
+            Err(e) => self.status = e,
+        }
     }
 
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
