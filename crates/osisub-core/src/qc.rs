@@ -498,6 +498,56 @@ pub fn balance_lines(text: &str, max_len: usize) -> String {
     }
 }
 
+fn html_esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Ekip QC'si için tek dosyalık HTML raporu: başlık sorunları + kategoriye göre satır sorunları
+/// (satır no = ızgaradaki diyalog sırası, zaman, stil, metin, ileti).
+pub fn report_html(script: &Script, title: &str, head: &[String], issues: &[Issue]) -> String {
+    let mut ord = vec![0usize; script.entries.len()];
+    let mut n = 0;
+    for (i, e) in script.entries.iter().enumerate() {
+        if let Entry::Dialogue(_) = e {
+            n += 1;
+        }
+        ord[i] = n;
+    }
+    let mut out = String::new();
+    out.push_str(&format!("<!doctype html><html lang=\"tr\"><head><meta charset=\"utf-8\"><title>QC: {}</title><style>\n\
+:root{{--bg:#fff;--fg:#1d1d21;--mut:#666;--line:#ddd;--bad:#c0392b;--acc:#b03a6f}}\n\
+@media (prefers-color-scheme:dark){{:root{{--bg:#16171c;--fg:#e8e8ec;--mut:#9a9aa5;--line:#2c2d35;--bad:#ff6b5e;--acc:#e56b9a}}}}\n\
+body{{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:24px}}h1{{font-size:20px}}h2{{font-size:16px;color:var(--acc);margin-top:24px}}\n\
+table{{border-collapse:collapse;width:100%;table-layout:fixed}}th:nth-child(1){{width:3.5em}}th:nth-child(2){{width:7.5em}}th:nth-child(3){{width:9em}}th:nth-child(5){{width:32%}}td,th{{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}}th{{color:var(--mut);font-weight:600}}\n\
+td.n,td.t{{font-family:ui-monospace,monospace;white-space:nowrap}}.m{{color:var(--bad)}}.x{{color:var(--mut)}}</style></head><body>\n", html_esc(title)));
+    out.push_str(&format!("<h1>Kalite raporu — {}</h1><p class=\"x\">{} diyalog satırı, {} satır sorunu, {} başlık sorunu</p>\n", html_esc(title), n, issues.len(), head.len()));
+    if !head.is_empty() {
+        out.push_str("<h2>Betik başlığı</h2><ul>");
+        for h in head {
+            out.push_str(&format!("<li class=\"m\">{}</li>", html_esc(h)));
+        }
+        out.push_str("</ul>\n");
+    }
+    for (cat, name) in [("zaman", "Zamanlama"), ("metin", "Metin"), ("etiket", "Etiketler"), ("not", "Notlar")] {
+        let rows: Vec<&Issue> = issues.iter().filter(|i| i.kind.category() == cat).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("<h2>{} ({})</h2><table><tr><th>#</th><th>Zaman</th><th>Stil</th><th>Metin</th><th>Sorun</th></tr>\n", name, rows.len()));
+        for is in rows {
+            let (t, st, tx) = match script.entries.get(is.entry) {
+                Some(Entry::Dialogue(d)) => (crate::time::format_ass(d.start_time), d.style.clone(), tags::strip_tags(&d.text).replace("\\N", " / ")),
+                _ => (String::new(), String::new(), String::new()),
+            };
+            let tx: String = tx.chars().take(80).collect();
+            out.push_str(&format!("<tr><td class=\"n\">{}</td><td class=\"t\">{}</td><td>{}</td><td>{}</td><td class=\"m\">{}</td></tr>\n", ord.get(is.entry).copied().unwrap_or(0), t, html_esc(&st), html_esc(&tx), html_esc(&is.message)));
+        }
+        out.push_str("</table>\n");
+    }
+    out.push_str("</body></html>\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +669,19 @@ mod tests {
     #[test]
     fn balance() {
         assert_eq!(balance_lines("bir iki üç dört beş altı yedi sekiz dokuz on on bir on iki", 30), "bir iki üç dört beş altı yedi\\Nsekiz dokuz on on bir on iki");
+    }
+
+    #[test]
+    fn html_report() {
+        let s = Script::from_dialogues(vec![
+            Dialogue { start_time: 0, end_time: 100, text: "kısa <b>".into(), ..Default::default() },
+            Dialogue { start_time: 1000, end_time: 3000, text: "tamam".into(), ..Default::default() },
+        ]);
+        let issues = check(&s, &Rules::default());
+        let h = report_html(&s, "bölüm 01", &["PlayRes yok".into()], &issues);
+        assert!(h.contains("<h1>Kalite raporu — bölüm 01</h1>") && h.contains("PlayRes yok"));
+        assert!(h.contains("kısa &lt;b&gt;") && !h.contains("kısa <b>"));
+        assert!(h.contains("<td class=\"n\">1</td>"));
     }
 
     #[test]

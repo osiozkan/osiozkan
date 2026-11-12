@@ -10,7 +10,7 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
-  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv]
+  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--report rapor.html]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
@@ -257,6 +257,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--max-ms") { r.max_duration_ms = v.parse().map_err(|_| "--max-ms sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--gap") { r.min_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
             let video = opt(&mut args, "--video");
+            let report = opt(&mut args, "--report");
             let s = load(args.first().ok_or("dosya gerekli")?)?;
             let vsize = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video).map(|i| (i.width, i.height));
             let head = qc::script_issues(&s, vsize);
@@ -276,6 +277,11 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 }
             }
             println!("{} sorun", issues.len());
+            if let Some(rp) = report {
+                let title = Path::new(&args[0]).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                std::fs::write(&rp, qc::report_html(&s, &title, &head, &issues)).map_err(|e| format!("{rp}: {e}"))?;
+                println!("rapor: {rp}");
+            }
             if issues.is_empty() { Ok(()) } else { Err(format!("{} sorun bulundu", issues.len())) }
         }
         "fix" => {

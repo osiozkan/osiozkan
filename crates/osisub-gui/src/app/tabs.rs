@@ -745,6 +745,14 @@ impl App {
                 }
             });
         }
+        if ui.button("Raporu kaydet (HTML)…").on_hover_text("Başlık ve satır sorunlarını ekip QC'si için tek dosyalık HTML rapor olarak kaydeder").clicked() {
+            let title = self.doc.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsız".into());
+            let def = format!("{}-qc.html", title.trim_end_matches(".ass"));
+            if let Some(p) = rfd::FileDialog::new().set_file_name(&def).add_filter("HTML", &["html"]).save_file() {
+                let html = qc::report_html(&self.doc.script, &title, &head, &self.issues);
+                self.status = match std::fs::write(&p, html) { Ok(()) => format!("QC raporu kaydedildi: {}", p.display()), Err(e) => format!("Rapor yazılamadı: {e}") };
+            }
+        }
         let mut changed = false;
         egui::Grid::new("rules").num_columns(2).show(ui, |ui| {
             ui.label("Azami kar/sn"); changed |= ui.add(egui::DragValue::new(&mut self.rules.max_cps).range(5.0..=60.0)).changed(); ui.end_row();
