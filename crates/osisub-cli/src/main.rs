@@ -483,13 +483,18 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
         "fonts" => {
             let s = load(args.first().ok_or("girdi gerekli")?)?;
             let mut db = osisub_lua::fonts::FontDb::default();
-            let mut missing = 0;
+            let (mut missing, mut glyphs) = (0, 0);
             for u in osisub_core::fonts_used::used_fonts(&s) {
                 let ok = db.has_family(&u.family);
                 if !ok { missing += 1; }
                 println!("{:<30} {}{} {:>4} satır  {}", u.family, if u.bold { "B" } else { "-" }, if u.italic { "I" } else { "-" }, u.lines, if ok { "kurulu" } else { "EKSİK" });
+                if let Some(m) = db.missing_chars(&u.family, u.bold, u.italic, u.chars.keys().copied()).filter(|m| !m.is_empty()) {
+                    glyphs += 1;
+                    let dl = s.entries.iter().take(u.chars[&m[0]] + 1).filter(|e| matches!(e, Entry::Dialogue(_))).count();
+                    println!("    eksik glif: {} (ilk: satır {})", m.iter().collect::<String>(), dl);
+                }
             }
-            if missing > 0 { Err(format!("{} yazı tipi eksik", missing)) } else { Ok(()) }
+            if missing > 0 || glyphs > 0 { Err(format!("{} yazı tipi eksik, {} yazı tipinde eksik glif", missing, glyphs)) } else { Ok(()) }
         }
         "batch" => {
             let recursive = flag(&mut args, "--recursive");

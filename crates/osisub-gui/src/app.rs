@@ -138,8 +138,8 @@ pub struct App {
     fixes_selection_only: bool,
     min_dur_on: bool,
     min_gap_on: bool,
-    font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>,
-    font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>)>>>,
+    font_report: Option<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>, Vec<char>)>>,
+    font_rx: Option<std::sync::mpsc::Receiver<Vec<(osisub_core::fonts_used::FontUse, Vec<PathBuf>, Vec<char>)>>>,
     /// Kısayol atanmak üzere tuş bekleyen makro (betik adı, makro adı)
     hotkey_capture: Option<(String, String)>,
     /// Son Lua hatası (makro adı, ileti) — hata penceresinde gösterilir

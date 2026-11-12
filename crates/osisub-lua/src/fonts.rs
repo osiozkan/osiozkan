@@ -238,6 +238,15 @@ impl FontDb {
         self.loaded.get_mut(&id).and_then(|d| d.as_mut())
     }
 
+    /// Yazı tipinde glifi olmayan karakterler; yazı tipi bulunamazsa `None`. (libass eksik glifleri
+    /// başka bir yazı tipinden çizer — görünüm tutarsızlaşır; VSFilter kutu/boşluk gösterir.)
+    pub fn missing_chars(&mut self, family: &str, bold: bool, italic: bool, chars: impl IntoIterator<Item = char>) -> Option<Vec<char>> {
+        let id = self.find(family, bold, italic)?;
+        let fd = self.data(id)?;
+        let face = Face::parse(&fd.bytes, fd.index).ok()?;
+        Some(chars.into_iter().filter(|&c| face.glyph_index(c).is_none()).collect())
+    }
+
     /// (genişlik, yükseklik, descent, extlead) — bulunamazsa `None`.
     pub fn extents(&mut self, st: &StyleMetrics, text: &str) -> Option<(f64, f64, f64, f64)> {
         let id = self.find(&st.fontname, st.bold, st.italic)?;

@@ -1455,7 +1455,7 @@ impl App {
         self.font_report = None;
         std::thread::spawn(move || {
             let mut db = osisub_lua::fonts::FontDb::default();
-            let rep: Vec<_> = used.into_iter().map(|u| { let f = db.files_for(&u.family); (u, f) }).collect();
+            let rep: Vec<_> = used.into_iter().map(|u| { let f = db.files_for(&u.family); let m = db.missing_chars(&u.family, u.bold, u.italic, u.chars.keys().copied()).unwrap_or_default(); (u, f, m) }).collect();
             let _ = tx.send(rep);
         });
     }
@@ -1466,27 +1466,41 @@ impl App {
             else { ctx.request_repaint_after(std::time::Duration::from_millis(100)); }
         }
         let mut open = self.fonts_open;
+        let mut goto: Option<usize> = None;
         egui::Window::new("Yazı tipi denetimi").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
             if ui.button("Yenile").clicked() { self.start_font_scan(); }
             match &self.font_report {
                 None => { ui.horizontal(|ui| { ui.spinner(); ui.label("Sistem yazı tipleri taranıyor…"); }); }
                 Some(rep) => {
-                    let missing = rep.iter().filter(|(_, f)| f.is_empty()).count();
+                    let missing = rep.iter().filter(|(_, f, _)| f.is_empty()).count();
+                    let glyphs = rep.iter().filter(|(_, _, g)| !g.is_empty()).count();
                     ui.label(if missing == 0 { RichText::new("Tüm yazı tipleri kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a)) } else { RichText::new(format!("{} yazı tipi eksik", missing)).color(theme::BAD) });
+                    if glyphs > 0 {
+                        ui.label(RichText::new(format!("{glyphs} yazı tipinde kullanılan karakterlerin glifi yok (ör. ğ ş İ ı): oynatıcı başka yazı tipine düşer ya da kutu gösterir. Karaktere tıklayınca ilk geçtiği satıra gidilir.")).color(theme::BAD));
+                    }
                     egui::Grid::new("fonts_grid").striped(true).show(ui, |ui| {
-                        ui.strong("Aile"); ui.strong("Stil"); ui.strong("Satır"); ui.strong("Durum"); ui.end_row();
-                        for (u, files) in rep {
+                        ui.strong("Aile"); ui.strong("Stil"); ui.strong("Satır"); ui.strong("Durum"); ui.strong("Eksik glif"); ui.end_row();
+                        for (u, files, miss) in rep {
                             ui.label(&u.family);
                             ui.label(format!("{}{}", if u.bold { "kalın " } else { "" }, if u.italic { "italik" } else { "" }));
                             ui.label(u.lines.to_string());
                             if files.is_empty() { ui.label(RichText::new("EKSİK").color(theme::BAD)); } else { ui.label(RichText::new("kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a))).on_hover_text(files.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join("\n")); }
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                for c in miss.iter().take(20) {
+                                    if ui.add(egui::Button::new(RichText::new(c.to_string()).color(theme::BAD)).small()).on_hover_text(format!("U+{:04X}", *c as u32)).clicked() {
+                                        if let Some(&e) = u.chars.get(c) { goto = Some(e); }
+                                    }
+                                }
+                                if miss.len() > 20 { ui.label(format!("+{}", miss.len() - 20)); }
+                            });
                             ui.end_row();
                         }
                     });
                     if ui.button("Kurulu yazı tiplerini klasöre kopyala…").clicked() {
                         if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                             let mut n = 0;
-                            for (_, files) in rep { for f in files { if let Some(name) = f.file_name() { if std::fs::copy(f, dir.join(name)).is_ok() { n += 1; } } } }
+                            for (_, files, _) in rep { for f in files { if let Some(name) = f.file_name() { if std::fs::copy(f, dir.join(name)).is_ok() { n += 1; } } } }
                             self.status = format!("{} yazı tipi dosyası kopyalandı", n);
                         }
                     }
@@ -1494,5 +1508,9 @@ impl App {
             }
         });
         self.fonts_open = open;
+        if let Some(e) = goto {
+            self.doc.select(vec![e], e);
+            self.scroll_to = Some(e);
+        }
     }
 }

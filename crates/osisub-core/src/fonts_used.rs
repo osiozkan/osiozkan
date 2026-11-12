@@ -10,6 +10,8 @@ pub struct FontUse {
     pub italic: bool,
     /// Bu yazı tipini kullanan satır sayısı.
     pub lines: usize,
+    /// Bu yazı tipiyle çizilen görünür karakterler → ilk geçtiği girdi indeksi (eksik glif denetimi için).
+    pub chars: BTreeMap<char, usize>,
 }
 
 fn norm(f: &str) -> String {
@@ -28,7 +30,8 @@ fn bold_from(arg: &str, cur: bool) -> bool {
 pub fn used_fonts(script: &Script) -> Vec<FontUse> {
     let styles: BTreeMap<&str, &crate::ass::Style> = script.styles().map(|s| (s.name.as_str(), s)).collect();
     let mut counts: BTreeMap<(String, bool, bool), usize> = BTreeMap::new();
-    for e in &script.entries {
+    let mut chars: BTreeMap<(String, bool, bool), BTreeMap<char, usize>> = BTreeMap::new();
+    for (ei, e) in script.entries.iter().enumerate() {
         let Entry::Dialogue(d) = e else { continue };
         if d.comment {
             continue;
@@ -39,6 +42,7 @@ pub fn used_fonts(script: &Script) -> Vec<FontUse> {
         let mut seen: Vec<(String, bool, bool)> = vec![];
         let has_text = |t: &str| !t.is_empty();
         let mut pending_visible = false;
+        let mut drawing = false;
         let push = |f: &(String, bool, bool), seen: &mut Vec<(String, bool, bool)>| {
             if !seen.contains(f) {
                 seen.push(f.clone());
@@ -50,6 +54,7 @@ pub fn used_fonts(script: &Script) -> Vec<FontUse> {
                     for t in tags {
                         match t.name.as_str() {
                             "fn" => fam = norm(&t.arg),
+                            "p" => drawing = t.number().unwrap_or(0.0) > 0.0,
                             "b" => b = bold_from(&t.arg, b),
                             "i" => i = t.arg.trim() == "1",
                             "r" => {
@@ -62,9 +67,14 @@ pub fn used_fonts(script: &Script) -> Vec<FontUse> {
                     }
                 }
                 Seg::Text(t) => {
-                    if has_text(&t) && !t.trim().is_empty() {
+                    if has_text(&t) && !t.trim().is_empty() && !drawing {
                         pending_visible = true;
                         push(&(fam.clone(), b, i), &mut seen);
+                        let m = chars.entry((fam.clone(), b, i)).or_default();
+                        let clean = t.replace("\\N", " ").replace("\\n", " ").replace("\\h", " ");
+                        for c in clean.chars().filter(|c| !c.is_whitespace() && !c.is_control()) {
+                            m.entry(c).or_insert(ei);
+                        }
                     }
                 }
             }
@@ -76,7 +86,14 @@ pub fn used_fonts(script: &Script) -> Vec<FontUse> {
             *counts.entry(f).or_default() += 1;
         }
     }
-    counts.into_iter().map(|((family, bold, italic), lines)| FontUse { family, bold, italic, lines }).collect()
+    counts
+        .into_iter()
+        .map(|(k, lines)| {
+            let ch = chars.remove(&k).unwrap_or_default();
+            let (family, bold, italic) = k;
+            FontUse { family, bold, italic, lines, chars: ch }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -89,5 +106,10 @@ mod tests {
         let u = used_fonts(&s);
         let names: Vec<(&str, bool, usize)> = u.iter().map(|f| (f.family.as_str(), f.bold, f.lines)).collect();
         assert_eq!(names, vec![("Arial", false, 1), ("Impact", true, 1), ("Meiryo", true, 1)]);
+        assert_eq!(u[0].chars.keys().collect::<String>(), "ac");
+        assert_eq!(u[1].chars.keys().collect::<String>(), "b");
+        // \N ve çizimler karakter sayılmaz
+        let s2 = Script::parse(&s.to_ass_string().replace("a{\\fnImpact\\b1}b{\\r}c", "ğ\\Nş{\\p1}m 0 0 l 1 1{\\p0}İ"));
+        assert_eq!(used_fonts(&s2)[0].chars.keys().collect::<String>(), "ğİş");
     }
 }
