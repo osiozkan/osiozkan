@@ -774,7 +774,7 @@ impl App {
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"), ("tags", "Etiket uygula / yeniden hesapla"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
-            ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
+            ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
         }
@@ -827,6 +827,7 @@ impl App {
                 "quality" => self.tab = super::Tab::Quality,
                 "styles" => self.tab = super::Tab::Styles,
                 "karaoke" => self.tab = super::Tab::Karaoke,
+                "tagstab" => self.tab = super::Tab::Tags,
                 "translate" => self.tab = super::Tab::Translate,
                 "spell" => self.tab = super::Tab::Spell,
                 _ => {}

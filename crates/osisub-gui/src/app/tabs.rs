@@ -283,7 +283,7 @@ impl App {
 
     pub(super) fn side(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (t, l) in [(Tab::Translate, "Çeviri"), (Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Spell, "Yazım"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
+            for (t, l) in [(Tab::Translate, "Çeviri"), (Tab::Styles, "Stiller"), (Tab::Karaoke, "Karaoke"), (Tab::Tags, "Etiketler"), (Tab::Spell, "Yazım"), (Tab::Quality, "Kalite"), (Tab::Automation, "Otomasyon"), (Tab::Info, "Bilgi")] {
                 ui.selectable_value(&mut self.tab, t, l);
             }
         });
@@ -292,6 +292,7 @@ impl App {
             Tab::Translate => self.translate_tab(ui),
             Tab::Styles => self.styles_tab(ui),
             Tab::Karaoke => self.karaoke_tab(ui),
+            Tab::Tags => self.tags_tab(ui),
             Tab::Spell => self.spell_tab(ui),
             Tab::Quality => self.quality_tab(ui),
             Tab::Automation => self.automation_tab(ui),
@@ -460,6 +461,129 @@ impl App {
         let at = t.line;
         self.doc.edit("Tuşla karaoke zamanlama", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
         self.status = format!("{} hece zamanlandı", n);
+    }
+
+    /// Etkin satırın etiket denetçisi: her blok ve etiket ayrı satırda düzenlenebilir; `\t`
+    /// dönüşümlerinin zamanları/ivmesi ve iç etiketleri ayrı alanlarda.
+    pub(super) fn tags_tab(&mut self, ui: &mut egui::Ui) {
+        use osisub_core::overrides::{self as ov, Seg, Tag};
+        let at = self.doc.active;
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() else {
+            ui.label(RichText::new("Bir satır seçin").weak());
+            return;
+        };
+        let mut segs = ov::parse(&d.text);
+        let mut changed = false;
+        let mut remove: Option<(usize, usize)> = None;
+        let mut add_block_at_start = false;
+        let blocks = segs.iter().filter(|g| matches!(g, Seg::Block(_))).count();
+        if blocks == 0 {
+            ui.label(RichText::new("Satırda etiket bloğu yok.").weak());
+        }
+        let mut before = String::new();
+        let n_segs = segs.len();
+        for si in 0..n_segs {
+            let ctx_text = before.clone();
+            let Seg::Block(tags) = &mut segs[si] else {
+                if let Seg::Text(t) = &segs[si] { before.push_str(t); }
+                continue;
+            };
+            let title = if ctx_text.is_empty() { "Başlangıç bloğu".to_string() } else {
+                let tail: String = ctx_text.chars().rev().take(14).collect::<Vec<_>>().into_iter().rev().collect();
+                format!("Blok: …{tail}| sonrası")
+            };
+            egui::CollapsingHeader::new(RichText::new(title).strong()).id_salt(("tagblk", at, si)).default_open(true).show(ui, |ui| {
+                egui::Grid::new(("tagg", at, si)).num_columns(3).striped(true).show(ui, |ui| {
+                    for (ti, t) in tags.iter_mut().enumerate() {
+                        if t.name.is_empty() {
+                            ui.label(RichText::new("not").weak());
+                            if ui.add(egui::TextEdit::singleline(&mut t.arg).desired_width(220.0)).changed() { changed = true; }
+                        } else if t.name == "t" {
+                            ui.label(RichText::new("\\t").monospace().color(theme::ACCENT));
+                            let a = t.args();
+                            let nums: Vec<f64> = a[..a.len().saturating_sub(1)].iter().filter_map(|x| x.trim().parse().ok()).collect();
+                            let (mut t1, mut t2, mut acc) = match nums.as_slice() {
+                                [x, y] => (*x as i64, *y as i64, 1.0),
+                                [x, y, z] => (*x as i64, *y as i64, *z),
+                                [z] => (0, 0, *z),
+                                _ => (0, 0, 1.0),
+                            };
+                            let mut inner = a.last().cloned().unwrap_or_default();
+                            let mut c = false;
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    c |= ui.add(egui::DragValue::new(&mut t1).speed(10).prefix("t1 ").suffix(" ms")).changed();
+                                    c |= ui.add(egui::DragValue::new(&mut t2).speed(10).prefix("t2 ").suffix(" ms")).changed();
+                                    c |= ui.add(egui::DragValue::new(&mut acc).speed(0.05).range(0.01..=20.0).prefix("ivme ")).changed();
+                                });
+                                c |= ui.add(egui::TextEdit::singleline(&mut inner).font(egui::TextStyle::Monospace).desired_width(220.0)).changed();
+                            });
+                            if c {
+                                let acc_s = if acc == 1.0 { String::new() } else { format!("{},", (acc * 1000.0).round() / 1000.0) };
+                                t.arg = if t1 == 0 && t2 == 0 { format!("({acc_s}{inner})") } else { format!("({t1},{t2},{acc_s}{inner})") };
+                                changed = true;
+                            }
+                        } else {
+                            ui.label(RichText::new(format!("\\{}", t.name)).monospace().color(theme::ACCENT));
+                            let mut v = t.arg.clone();
+                            let r = if let Some(x) = t.number().filter(|_| !matches!(t.name.as_str(), "an" | "b" | "i" | "u" | "s" | "q" | "p" | "k" | "kf" | "ko" | "K")) {
+                                let mut x = x;
+                                let speed = if matches!(t.name.as_str(), "fax" | "fay") { 0.01 } else { 0.5 };
+                                let r = ui.add(egui::DragValue::new(&mut x).speed(speed).max_decimals(3));
+                                if r.changed() { v = format!("{}", (x * 1000.0).round() / 1000.0); }
+                                r
+                            } else if let Some(c) = matches!(t.name.as_str(), "c" | "1c" | "2c" | "3c" | "4c").then(|| osisub_core::color::Color::parse(&t.arg)).flatten() {
+                                ui.horizontal(|ui| {
+                                    let mut rgb = [c.r, c.g, c.b];
+                                    let rc = egui::color_picker::color_edit_button_srgb(ui, &mut rgb);
+                                    let rt = ui.add(egui::TextEdit::singleline(&mut v).font(egui::TextStyle::Monospace).desired_width(170.0));
+                                    if rc.changed() { v = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 }.to_tag_string(); }
+                                    rc | rt
+                                }).inner
+                            } else {
+                                ui.add(egui::TextEdit::singleline(&mut v).font(egui::TextStyle::Monospace).desired_width(220.0))
+                            };
+                            if r.changed() && v != t.arg { t.arg = v; changed = true; }
+                        }
+                        if ui.small_button("x").on_hover_text("Etiketi sil").clicked() { remove = Some((si, ti)); }
+                        ui.end_row();
+                    }
+                });
+                let key = egui::Id::unique(("tagadd", at, si));
+                let mut add: String = ui.data_mut(|m| m.get_temp(key).unwrap_or_default());
+                ui.horizontal(|ui| {
+                    let r = ui.add(egui::TextEdit::singleline(&mut add).font(egui::TextStyle::Monospace).desired_width(160.0).hint_text("\\bord2\\blur1"));
+                    if (ui.small_button("Ekle").clicked() || r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) && !add.trim().is_empty() {
+                        let body = add.trim().trim_start_matches('{').trim_end_matches('}').to_string();
+                        for nt in ov::parse_block(&body) { tags.push(nt); }
+                        add.clear();
+                        changed = true;
+                    }
+                });
+                ui.data_mut(|m| m.insert_temp(key, add));
+            });
+        }
+        if !matches!(segs.first(), Some(Seg::Block(_))) && ui.button("Başlangıç bloğu ekle").clicked() {
+            add_block_at_start = true;
+        }
+        if let Some((si, ti)) = remove {
+            if let Seg::Block(t) = &mut segs[si] { t.remove(ti); }
+            segs.retain(|g| !matches!(g, Seg::Block(t) if t.is_empty()));
+            changed = true;
+        }
+        if add_block_at_start {
+            segs.insert(0, Seg::Block(vec![Tag::new("bord", "2")]));
+            changed = true;
+        }
+        if changed {
+            let nt = ov::to_string(&segs);
+            if nt != d.text {
+                let key = format!("tagtab:{at}");
+                self.doc.edit_keyed("Etiket düzenle", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+            }
+        }
+        ui.separator();
+        ui.label(RichText::new("Sayıları sürükleyerek değiştirin (Aegisub'ın görsel araçlarına ek olarak). Aynı satırdaki ardışık değişiklikler tek geri-al adımıdır.").small().weak());
     }
 
     pub(super) fn karaoke_tab(&mut self, ui: &mut egui::Ui) {

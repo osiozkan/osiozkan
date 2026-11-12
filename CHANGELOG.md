@@ -3,6 +3,7 @@
 ## 0.5.0 — geliştiriliyor (dördüncü gece, 2026-11-12)
 
 **Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`); hareket izlemede doğrusal kip (`\move` + `\t`, tek satır); **perspektif video aracı** — 4 köşeyi sürükle, metin canlı olarak dörtgene oturur (Aegisub'ın perspektif aracı gibi; LayoutRes otomatik); **Etiket uygula / yeniden hesapla** (HYDRA + Recalculator benzeri): etiketleri başlangıca, tüm bloklara, `\t` olarak, harf harf ya da satırlar boyunca degrade olarak uygula; sayısal değerleri (`\t` içleri ve `\pos/\move/\org` dahil) topla/çarp.
+**Arayüz:** Etiketler sekmesi — etkin satırın etiketlerini blok blok gösterir; değerler sürüklenerek/renk seçiciyle değiştirilir, `\t` zamanları ve ivmesi ayrı alanlarda.
 
 ## 0.4.0 — 2026-11-11 (üçüncü gece)
 
