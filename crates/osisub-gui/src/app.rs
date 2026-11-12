@@ -172,6 +172,8 @@ pub struct App {
     tagw: Option<TagWin>,
     /// Üzerine yapıştır penceresi: (pano metni, alanlar)
     paste_over: Option<(String, [bool; 10])>,
+    /// Stil yardımcısı penceresi (süzgeç metni)
+    style_assist: Option<String>,
     last_copy: String,
     /// Metin → çizim için yazı tipi dizini (ilk kullanımda taranır)
     font_db: Option<osisub_lua::fonts::FontDb>,
@@ -259,6 +261,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("set_end", "Bitişi video karesine al"),
     ("frame_next", "Sonraki kare"),
     ("frame_prev", "Önceki kare"),
+    ("kf_next", "Sonraki anahtar kare"),
+    ("kf_prev", "Önceki anahtar kare"),
+    ("safe_area", "Güvenli alan kılavuzu aç/kapat"),
+    ("style_assist", "Stil yardımcısı…"),
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
@@ -416,6 +422,7 @@ impl App {
             tsw: None,
             tagw: None,
             paste_over: None,
+            style_assist: None,
             last_copy: String::new(),
             font_db: None,
             ctx_copy: None,
@@ -572,6 +579,8 @@ impl App {
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
             Some("tags") => app.tagw = Some(TagWin::default()),
+            Some("styleassist") => app.style_assist = Some(String::new()),
+            Some("safe") => app.media.safe_area = true,
             Some("detach") => app.media.detached = true,
             Some("history") => app.history_open = true,
             Some(w) if w.starts_with("palette") => app.palette = Some((w.strip_prefix("palette:").unwrap_or("").to_string(), 0)),
@@ -1105,6 +1114,10 @@ impl App {
             "set_end" => self.media.set_active_end(&mut self.doc),
             "frame_next" => self.media.step_frames(1),
             "frame_prev" => self.media.step_frames(-1),
+            "kf_next" => { if !self.media.step_keyframe(1) { self.status = "Sonrasında anahtar kare yok".into(); } }
+            "kf_prev" => { if !self.media.step_keyframe(-1) { self.status = "Öncesinde anahtar kare yok".into(); } }
+            "safe_area" => self.media.safe_area = !self.media.safe_area,
+            "style_assist" => self.style_assist = Some(String::new()),
             "play_sel" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Selection),
             "play_before" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Before),
             "play_after" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::After),
@@ -1425,6 +1438,7 @@ impl App {
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new("Yinele").shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
                 if ui.button("Geçmiş…").on_hover_text("Geri alma geçmişi: bir adıma tıklayarak o duruma dönün").clicked() { ui.close(); self.history_open = true; }
+                if ui.button("Stil yardımcısı…").on_hover_text("Satır satır stil atama: süz, Enter = uygula + sonraki satır (Aegisub: Styling Assistant)").clicked() { ui.close(); self.style_assist = Some(String::new()); }
                 if ui.button("Üzerine yapıştır…  Ctrl+Shift+V").on_hover_text("Panodaki satırların seçtiğiniz alanlarını (zaman, stil, metin…) seçili satırların üzerine yazar (Aegisub: Paste Over)").clicked() { ui.close(); self.open_paste_over(None); }
                 if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
                 if ui.add(egui::Button::new("Satır ekle").shortcut_text("Ctrl+Enter")).clicked() { self.doc.insert_after_active(); self.scroll_to = Some(self.doc.active); ui.close(); }
@@ -1489,6 +1503,11 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                ui.checkbox(&mut self.media.safe_area, "Güvenli alan kılavuzu").on_hover_text("Eylem güvenli (%90) ve başlık güvenli (%80) alan çerçeveleri; TV kırpmasına karşı tabela yerleşimi için");
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("< Önceki anahtar kare")).clicked() { self.media.step_keyframe(-1); }
+                    if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("Sonraki anahtar kare >")).clicked() { self.media.step_keyframe(1); }
+                });
                 ui.checkbox(&mut self.media.detached, "Videoyu ayrı pencerede göster").on_hover_text("Çift monitör için (Aegisub: Detach video); pencereyi kapatınca panele döner");
                 if ui.add_enabled(self.media.video_zoom > 1.0, egui::Button::new(format!("Video yakınlaştırmasını sıfırla ({:.0}%)", self.media.video_zoom * 100.0))).on_hover_text("Videoda Ctrl+tekerlek: yakınlaştır, orta tuş: kaydır, orta çift tık: sıfırla").clicked() { self.media.video_zoom = 1.0; self.media.video_pan = egui::Vec2::ZERO; ui.close(); }
                 if ui.button("Anahtar kareleri yükle…").clicked() {
@@ -1868,6 +1887,7 @@ impl App {
         self.motion_window(&ctx);
         self.tag_window(&ctx);
         self.paste_over_window(&ctx);
+        self.style_assist_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);

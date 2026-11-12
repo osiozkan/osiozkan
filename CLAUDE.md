@@ -32,6 +32,7 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - Menü sırası değişirse `tools/ui-e2e.sh` içindeki tıklama koordinatları (Otomasyon menüsü) kayar.
 - `pkill -f osisub-gui` kendi kabuğunu da öldürür; PID ile öldür.
 - Yeni Lua API'si eklerken `crates/osisub-lua/tests/fixtures/compat.lua`'ya test ekle.
+- egui `Response::lost_focus()` bellekten canlı okunur: aynı karede `request_focus()` çağırdıktan sonra false döner — önce denetle, sonra odağı geri iste.
 - egui `drag_started()` sürükleme eşiği aşıldıktan sonra gelir: tutamaç isabet testinde `ui.input(|i| i.pointer.press_origin())` kullan.
 - Kare zamanları: altyazı zamanı yazarken asla ham `Framerate::time_at` kullanma; `time_at_start/time_at_end` (Aegisub START/END, iki kare arası orta nokta) ve `frame_at_start/frame_at_end` kullan — ASS santisaniye yuvarlaması tam kare zamanını sonraki kareye itebilir. `core::vfr` testleri bu özelliği korur.
 - Medya açıkken kaydetme `[Aegisub Project Garbage]` satırlarını olaylardan ÖNCE ekler: entry indeksleri kayar (etkin satır/seçim kaydırılmalı, `doc.rev` artırılmalı).

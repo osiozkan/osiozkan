@@ -527,6 +527,60 @@ impl App {
         if open { self.batch = Some(b); }
     }
 
+    /// Stil yardımcısı (Aegisub Styling Assistant): etkin satırı gösterir; süzgeçle stil seçilir,
+    /// Enter (ya da stile tıklama) stili uygular ve sonraki satıra geçer (medya açıksa satırı oynatır).
+    pub(super) fn style_assist_window(&mut self, ctx: &egui::Context) {
+        let Some(mut filter) = self.style_assist.take() else { return };
+        let mut open = true;
+        let mut chosen: Option<String> = None;
+        let mut skip = 0i64;
+        let at = self.doc.active;
+        let (cur_style, text) = match self.doc.script.entries.get(at) { Some(Entry::Dialogue(d)) => (d.style.clone(), d.text.clone()), _ => (String::new(), String::new()) };
+        let styles: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
+        let fl = filter.to_lowercase();
+        let matches: Vec<&String> = styles.iter().filter(|s| fl.is_empty() || s.to_lowercase().contains(&fl)).collect();
+        egui::Window::new("Stil yardımcısı").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(RichText::new(osisub_core::tags::visible_text(&text).replace('\n', " / ")).size(16.0));
+            ui.label(RichText::new(format!("Şu anki stil: {cur_style}")).weak());
+            let r = ui.add(egui::TextEdit::singleline(&mut filter).hint_text("stil süz… (Enter = ilk eşleşeni uygula, sonraki satır)").desired_width(f32::INFINITY));
+            // lost_focus() bellekten okunur: odak geri istenmeden ÖNCE denetlenmeli
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if let Some(s) = matches.first() { chosen = Some((*s).clone()); }
+            }
+            if !r.has_focus() && !ui.ctx().memory(|m| m.focused().is_some()) { r.request_focus(); }
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                for s in &matches {
+                    if ui.selectable_label(**s == cur_style, s.as_str()).clicked() { chosen = Some((*s).clone()); }
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("< Önceki satır").clicked() { skip = -1; }
+                if ui.button("Atla >").clicked() { skip = 1; }
+                ui.label(RichText::new("Ayrıca: PgUp/PgDn ile satırlar arasında gezin").small().weak());
+            });
+            if ui.input(|i| i.key_pressed(egui::Key::PageDown)) { skip = 1; }
+            if ui.input(|i| i.key_pressed(egui::Key::PageUp)) { skip = -1; }
+        });
+        if let Some(st) = chosen {
+            if st != cur_style {
+                self.doc.edit_keyed("Stil yardımcısı", None, |tx| tx.dialogue_mut(at, |d| d.style = st.clone()));
+            }
+            filter.clear();
+            skip = 1;
+        }
+        if skip != 0 {
+            let ds: Vec<usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+            if let Some(p) = ds.iter().position(|&i| i == at) {
+                let np = (p as i64 + skip).clamp(0, ds.len() as i64 - 1) as usize;
+                let ni = ds[np];
+                self.doc.select(vec![ni], ni);
+                self.scroll_to = Some(ni);
+                if self.media.is_open() { self.media.stop(); self.media.toggle_play(&self.doc, ctx); }
+            }
+        }
+        if open { self.style_assist = Some(filter); }
+    }
+
     pub(crate) fn open_paste_over(&mut self, text: Option<String>) {
         let fields = self.paste_over.as_ref().map(|p| p.1).unwrap_or([false, true, true, false, false, false, false, false, false, false]);
         self.paste_over = Some((text.unwrap_or_else(|| self.last_copy.clone()), fields));
@@ -843,6 +897,7 @@ impl App {
                 "motion" => self.open_motion(),
                 "tags" => self.tagw = Some(super::TagWin::default()),
                 "paste_over" => self.open_paste_over(None),
+                "style_assist" => self.style_assist = Some(String::new()),
                 "todraw" => self.text_to_drawing(false),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());

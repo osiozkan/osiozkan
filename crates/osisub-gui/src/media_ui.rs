@@ -116,6 +116,8 @@ pub struct Media {
     fonts_key: String,
     /// video önizleme yakınlaştırma (1 = sığdır) ve kaydırma (piksel)
     pub video_zoom: f32,
+    /// videoda güvenli alan kılavuzu (eylem %90, başlık %80)
+    pub safe_area: bool,
     pub video_pan: egui::Vec2,
     pub spectrum: bool,
     /// Oynatma hızı ve ses seviyesi (bir sonraki oynatmada geçerli)
@@ -169,6 +171,7 @@ impl Media {
             vt_quad: None,
             vt_qdrag: None,
             persp_box: None,
+            safe_area: false,
             persp_dist: osisub_core::perspective::DIST_PX,
             persp_need_layout: false,
             vt_vdrag: None,
@@ -206,6 +209,16 @@ impl Media {
             None => self.playhead + n * 40,
         }
         .max(0);
+    }
+
+    /// Önceki/sonraki anahtar kareye git (`dir` < 0 geri). Anahtar kare yoksa yerinde kalır.
+    pub fn step_keyframe(&mut self, dir: i64) -> bool {
+        let cur = self.playhead;
+        let k = if dir > 0 { self.keyframes.iter().copied().filter(|&k| k > cur + 1).min() } else { self.keyframes.iter().copied().filter(|&k| k < cur - 1).max() };
+        match k {
+            Some(k) => { self.playhead = k; true }
+            None => false,
+        }
     }
 
     pub fn waveform(&self) -> Option<Arc<Waveform>> {
@@ -674,6 +687,16 @@ impl Media {
                 let img = Rect::from_center_size(rect.center() + self.video_pan, sz * scale);
                 ui.painter_at(rect).image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                 img_rect = Some((img, img.intersect(rect)));
+                if self.safe_area {
+                    let p = ui.painter_at(rect);
+                    for (k, a) in [(0.9, 150u8), (0.8, 110u8)] {
+                        let r = Rect::from_center_size(img.center(), img.size() * k);
+                        p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, a)), egui::StrokeKind::Middle);
+                    }
+                    let c = img.center();
+                    p.line_segment([c - egui::vec2(10.0, 0.0), c + egui::vec2(10.0, 0.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 120)));
+                    p.line_segment([c - egui::vec2(0.0, 10.0), c + egui::vec2(0.0, 10.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 120)));
+                }
                 if self.video_zoom > 1.0 {
                     ui.painter().text(rect.right_top() + egui::vec2(-6.0, 6.0), egui::Align2::RIGHT_TOP, format!("{:.0}%", self.video_zoom * 100.0), egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 200));
                 }
