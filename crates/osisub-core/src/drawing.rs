@@ -109,6 +109,31 @@ pub fn push_point(cmds: &mut Vec<Cmd>, p: (f64, f64)) {
     }
 }
 
+/// `(ci, pi)` noktasıyla biten düz `l` parçasını kübik eğriye (`b`) çevirir: kontrol noktaları
+/// önceki noktadan bu noktaya 1/3 ve 2/3'te. Önceki nokta yoksa ya da nokta `l` değilse `false`.
+pub fn line_to_bezier(cmds: &mut Vec<Cmd>, ci: usize, pi: usize) -> bool {
+    let Some(c) = cmds.get(ci) else { return false };
+    if c.kind != 'l' || pi >= c.pts.len() {
+        return false;
+    }
+    let prev = if pi > 0 { Some(c.pts[pi - 1]) } else { cmds[..ci].iter().rev().find_map(|x| x.pts.last().copied()) };
+    let Some(a) = prev else { return false };
+    let b = c.pts[pi];
+    let lerp = |t: f64| ((a.0 + (b.0 - a.0) * t).round(), (a.1 + (b.1 - a.1) * t).round());
+    let before: Vec<(f64, f64)> = c.pts[..pi].to_vec();
+    let after: Vec<(f64, f64)> = c.pts[pi + 1..].to_vec();
+    let mut repl = vec![];
+    if !before.is_empty() {
+        repl.push(Cmd { kind: 'l', pts: before });
+    }
+    repl.push(Cmd { kind: 'b', pts: vec![lerp(1.0 / 3.0), lerp(2.0 / 3.0), b] });
+    if !after.is_empty() {
+        repl.push(Cmd { kind: 'l', pts: after });
+    }
+    cmds.splice(ci..=ci, repl);
+    true
+}
+
 /// Noktayı siler. `b` eğrisinin noktası ise eğri parçası (3 nokta) düz çizgiye (`l` bitiş noktası) çevrilir;
 /// boşalan komutlar atılır; ilk `m` silinirse sonraki nokta yeni başlangıç olur.
 pub fn remove_point(cmds: &mut Vec<Cmd>, ci: usize, pi: usize) {
@@ -179,5 +204,17 @@ mod tests {
         let mut b = parse("m 0 0 b 1 1 2 2 3 3 l 9 9");
         remove_point(&mut b, 1, 0);
         assert_eq!(to_string(&b), "m 0 0 l 3 3 l 9 9");
+    }
+
+    #[test]
+    fn line_segment_to_curve() {
+        let mut c = parse("m 0 0 l 30 0 30 30 0 30");
+        assert!(line_to_bezier(&mut c, 1, 1));
+        assert_eq!(to_string(&c), "m 0 0 l 30 0 b 30 10 30 20 30 30 l 0 30");
+        // ilk l noktası: önceki nokta m'den
+        let mut c = parse("m 0 0 l 30 0");
+        assert!(line_to_bezier(&mut c, 1, 0));
+        assert_eq!(to_string(&c), "m 0 0 b 10 0 20 0 30 0");
+        assert!(!line_to_bezier(&mut c, 0, 0));
     }
 }

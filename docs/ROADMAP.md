@@ -5,7 +5,7 @@
 ## Sıradaki geceler için öncelikli öneriler
 1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
-3. Video araçları: döndürülmüş / `\an≠7` çizim düzenleme, vektör kırpmada eğri (b) ekleme, `\fax/\fay` aracı.
+3. Video araçları: döndürülmüş / `\an≠7` çizim düzenleme, `\fax/\fay` aracı.
 4. libmpv ile donanım hızlandırmalı oynatma.
 5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
 
@@ -123,7 +123,8 @@
 - [x] Perspektife oturt (Araçlar menüsü / kısayol komutu / CLI `perspective`): 4 noktalı vektör kırpma → \frx\fry\frz\fscx\fscy\fax\org\pos; libass dönüşüm zinciriyle Levenberg–Marquardt; video açıksa `LayoutResX/Y` yazılır (perspektif oynatıcı çözünürlüğünden bağımsız); libass render'ıyla IoU ≥ 0.999
 - [x] Perspektif video aracı (Video aracı: Perspektif; kısayol komutu `tool_persp`, Aegisub `video/tool/perspective`): 4 köşe tutamacı + içeriden taşıma, her sürüklemede canlı oturtma; dörtgen satırın perspektif etiketlerinden geri hesaplanır (yoksa 4 noktalı kırpma ya da konum çevresinde kutu); LayoutRes otomatik eklenir; sağ tık = perspektifi kaldır (xdotool ile doğrulandı)
 - [x] Video aracı: \p çizim noktalarını düzenleme (\an7, döndürmesiz; ölçek ve \p düzeyi hesaba katılır; ekle/taşı/sil)
-- [ ] Video araçları: döndürülmüş/\an≠7 çizimler, \fax/\fay, vektör kırpmada eğri (b) ekleme
+- [x] Vektör kırpma ve çizim araçlarında Ctrl+tık: düz parçayı kübik eğriye (b) çevir (core::drawing::line_to_bezier)
+- [ ] Video araçları: döndürülmüş/\an≠7 çizimler, \fax/\fay
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git

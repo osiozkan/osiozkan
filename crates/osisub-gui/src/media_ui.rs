@@ -882,7 +882,7 @@ impl Media {
                     let is_ctrl = cmds[*ci].kind == 'b';
                     if is_ctrl { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
                 }
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · Ctrl+tık: eğri · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
                 let mut changed = false;
                 if r.drag_started() {
@@ -902,10 +902,15 @@ impl Media {
                 }
                 if r.clicked() {
                     if let Some(pos) = ptr {
-                        if hit(pos).is_none() {
-                            let (x, y) = to_script(pos);
-                            drawing::push_point(&mut cmds, ((x as f64 * mul).round(), (y as f64 * mul).round()));
-                            changed = true;
+                        match hit(pos) {
+                            None => {
+                                let (x, y) = to_script(pos);
+                                drawing::push_point(&mut cmds, ((x as f64 * mul).round(), (y as f64 * mul).round()));
+                                changed = true;
+                            }
+                            // Ctrl+tık: bu noktayla biten düz parçayı eğriye çevir
+                            Some((ci, pi)) if ui.input(|i| i.modifiers.command) => changed |= drawing::line_to_bezier(&mut cmds, ci, pi),
+                            _ => {}
                         }
                     }
                 }
@@ -1103,7 +1108,7 @@ impl Media {
                     let s = scr(*q);
                     if cmds[*ci].kind == 'b' { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
                 }
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\p çizim: {} nokta · tıkla: ekle · sürükle: taşı · sağ tık: sil", handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\p çizim: {} nokta · tıkla: ekle · Ctrl+tık: eğri · sürükle: taşı · sağ tık: sil", handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
                 let mut changed = false;
                 if r.drag_started() { self.vt_vdrag = press.or(ptr).and_then(hit); }
@@ -1114,7 +1119,13 @@ impl Media {
                 }
                 if r.drag_stopped() { self.vt_vdrag = None; }
                 if r.clicked() {
-                    if let Some(pos) = ptr { if hit(pos).is_none() { drawing::push_point(&mut cmds, back(pos)); changed = true; } }
+                    if let Some(pos) = ptr {
+                        match hit(pos) {
+                            None => { drawing::push_point(&mut cmds, back(pos)); changed = true; }
+                            Some((ci, pi)) if ui.input(|i| i.modifiers.command) => changed |= drawing::line_to_bezier(&mut cmds, ci, pi),
+                            _ => {}
+                        }
+                    }
                 }
                 if r.secondary_clicked() {
                     if let Some((ci, pi)) = ptr.and_then(hit) { drawing::remove_point(&mut cmds, ci, pi); changed = true; }
