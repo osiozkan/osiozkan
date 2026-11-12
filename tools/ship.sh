@@ -8,6 +8,6 @@ git add -A
 git commit -q -m "$1
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01KSVsifyWHvxsdxP9u3NKxj"
+Claude-Session: https://claude.ai/code/session_01KSVsigGSmbLxqkUqcboazt"
 git push -q -u origin "$(git branch --show-current)" 2>&1 | tail -1
 echo "gönderildi: $1"

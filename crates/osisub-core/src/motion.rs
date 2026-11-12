@@ -327,6 +327,158 @@ pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framer
     Ok(out)
 }
 
+/// Köşe pini izi (Mocha "CC Power Pin" / AE "Corner Pin" dışa aktarımı): her kare için
+/// sol üst, sağ üst, sağ alt, sol alt köşeler (kaynak video koordinatı).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CornerPinData {
+    pub fps: f64,
+    pub width: f64,
+    pub height: f64,
+    pub frames: Vec<[(f64, f64); 4]>,
+}
+
+/// "Effects  CC Power Pin #1  Top Left #2" ya da "Effects  Corner Pin #1  Upper Left #2" gibi
+/// bölümlerin satırları.
+fn pin_rows(lines: &[&str], corner: &[&str]) -> Vec<Vec<f64>> {
+    let Some(i) = lines.iter().position(|l| {
+        let t = l.trim().to_ascii_lowercase();
+        t.starts_with("effects") && (t.contains("pin")) && corner.iter().any(|c| t.contains(c))
+    }) else {
+        return vec![];
+    };
+    section_rows(&lines[i..], lines[i].trim())
+}
+
+/// Köşe pini verisini okur; eksik kareler önceki değerle doldurulur.
+pub fn parse_corner_pin(text: &str) -> Result<CornerPinData, String> {
+    let lines: Vec<&str> = text.lines().map(|l| l.trim_end_matches('\r')).collect();
+    if !lines.iter().any(|l| l.contains("Keyframe Data")) {
+        return Err("After Effects Keyframe Data bulunamadı (Mocha → Export Tracking Data → CC Power Pin / Corner Pin)".into());
+    }
+    let header = |key: &str| -> Option<f64> { lines.iter().find_map(|l| l.trim().strip_prefix(key).and_then(|r| r.trim().parse().ok())) };
+    let fps = header("Units Per Second").unwrap_or(23.976);
+    let width = header("Source Width").ok_or("Source Width yok")?;
+    let height = header("Source Height").ok_or("Source Height yok")?;
+    // ekran sırası: sol üst, sağ üst, sağ alt, sol alt
+    let names: [&[&str]; 4] = [&["top left", "upper left"], &["top right", "upper right"], &["bottom right", "lower right"], &["bottom left", "lower left"]];
+    let rows: Vec<Vec<Vec<f64>>> = names.iter().map(|n| pin_rows(&lines, n)).collect();
+    if rows.iter().any(|r| r.is_empty()) {
+        return Err("Dört köşenin (Top Left/Top Right/Bottom Left/Bottom Right) verisi bulunamadı".into());
+    }
+    let max_frame = rows.iter().flatten().filter_map(|r| r.first()).fold(0.0f64, |m, &f| m.max(f)) as usize;
+    if max_frame > 1_000_000 {
+        return Err("kare sayısı çok büyük".into());
+    }
+    let mut frames = vec![[(f64::NAN, f64::NAN); 4]; max_frame + 1];
+    for (c, rs) in rows.iter().enumerate() {
+        for r in rs {
+            if let (Some(&f), Some(&x), Some(&y)) = (r.first(), r.get(1), r.get(2)) {
+                if f >= 0.0 {
+                    frames[f as usize][c] = (x, y);
+                }
+            }
+        }
+    }
+    for c in 0..4 {
+        let first = frames.iter().map(|q| q[c]).find(|p| !p.0.is_nan()).unwrap_or((0.0, 0.0));
+        let mut last = first;
+        for q in frames.iter_mut() {
+            if q[c].0.is_nan() { q[c] = last; }
+            last = q[c];
+        }
+    }
+    Ok(CornerPinData { fps, width, height, frames })
+}
+
+/// 4 nokta eşlemesinden izdüşümsel dönüşüm (homografi) matrisi: `src[i]` → `dst[i]`.
+pub fn homography(src: &[(f64, f64); 4], dst: &[(f64, f64); 4]) -> Option<[f64; 9]> {
+    // 8×8 doğrusal sistem: h33 = 1
+    let mut a = [[0.0f64; 9]; 8];
+    for i in 0..4 {
+        let ((x, y), (u, v)) = (src[i], dst[i]);
+        a[2 * i] = [x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y, u];
+        a[2 * i + 1] = [0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y, v];
+    }
+    for c in 0..8 {
+        let p = (c..8).max_by(|&i, &j| a[i][c].abs().partial_cmp(&a[j][c].abs()).unwrap())?;
+        if a[p][c].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(c, p);
+        for r in 0..8 {
+            if r != c {
+                let k = a[r][c] / a[c][c];
+                for k2 in c..9 {
+                    a[r][k2] -= k * a[c][k2];
+                }
+            }
+        }
+    }
+    let mut h = [0.0; 9];
+    for i in 0..8 {
+        h[i] = a[i][8] / a[i][i];
+    }
+    h[8] = 1.0;
+    Some(h)
+}
+
+pub fn apply_homography(h: &[f64; 9], p: (f64, f64)) -> (f64, f64) {
+    let w = h[6] * p.0 + h[7] * p.1 + h[8];
+    ((h[0] * p.0 + h[1] * p.1 + h[2]) / w, (h[3] * p.0 + h[4] * p.1 + h[5]) / w)
+}
+
+/// Köşe pini izini uygular: her satır kare kare bölünür ve satırın kutusu (`boxes[i]` =
+/// genişlik×yükseklik, `\fscx/\fscy` 100 iken) o karedeki dörtgene perspektifle oturtulur
+/// (`\an7\pos\org\frx\fry\frz\fscx\fscy\fax`). Satırda `\clip`/`\iclip` varsa ilk kareden o
+/// kareye homografiyle taşınır (dikdörtgen kırpma vektöre çevrilir). `dist`: betik koordinatında
+/// kamera uzaklığı (`perspective::dist_for`).
+pub fn apply_corner_pin(lines: &[Dialogue], boxes: &[(f64, f64)], script: &Script, data: &CornerPinData, fr: &Framerate, start_frame: i64, dist: f64) -> Result<Vec<Dialogue>, String> {
+    use crate::perspective;
+    let (rx, ry) = script.res();
+    let (kx, ky) = (rx as f64 / data.width.max(1.0), ry as f64 / data.height.max(1.0));
+    let scaled = |q: &[(f64, f64); 4]| q.map(|p| (p.0 * kx, p.1 * ky));
+    let n_frames = data.frames.len() as i64;
+    let mut out = vec![];
+    for (d, &(w, h)) in lines.iter().zip(boxes) {
+        let f0 = fr.frame_at_start(d.start_time);
+        let f1 = fr.frame_at_end(d.end_time);
+        if f1 < f0 {
+            continue;
+        }
+        if f0 - start_frame < 0 || f1 - start_frame >= n_frames {
+            return Err(format!("İz {} kare (video karesi {}–{}), satır {}–{}. kareler arasında", n_frames, start_frame, start_frame + n_frames - 1, f0, f1));
+        }
+        let q0 = scaled(&data.frames[(f0 - start_frame) as usize]);
+        let mut base = d.text.clone();
+        for n in ["pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {
+            base = overrides::remove_initial(&base, n);
+        }
+        let dur = d.duration();
+        for f in f0..=f1 {
+            let q = scaled(&data.frames[(f - start_frame) as usize]);
+            let (p, org, err) = perspective::fit(&q, w, h, dist).ok_or(format!("kare {f}: perspektif çözümü bulunamadı"))?;
+            if err > 2.0 {
+                return Err(format!("kare {f}: dörtgen perspektifle oturtulamadı (hata {err:.1} px)"));
+            }
+            let mut text = base.clone();
+            if let Some(hm) = homography(&q0, &q) {
+                text = track_clip(&text, &|pt| apply_homography(&hm, pt), true);
+            }
+            for t in overrides::parse_block(&perspective::tags(&p, org)) {
+                text = overrides::set_initial(&text, &t.name, &t.arg);
+            }
+            let start = fr.time_at_start(f).max(d.start_time);
+            let end = fr.time_at_end(f).min(d.end_time);
+            let mut nd = d.clone();
+            nd.text = shift_timed_tags(&text, start - d.start_time, dur);
+            nd.start_time = start;
+            nd.end_time = end;
+            out.push(nd);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +551,57 @@ mod tests {
         o.scale = false;
         let out = apply(&s, &[d2], &m, &fr, &o).unwrap();
         assert!(out[1].text.contains("\\iclip(m 165 140 l 195 140)"), "{}", out[1].text);
+    }
+
+    const PIN: &str = "Adobe After Effects 6.0 Keyframe Data\n\n\tUnits Per Second\t24\n\tSource Width\t1280\n\tSource Height\t720\n\tSource Pixel Aspect Ratio\t1\n\tComp Pixel Aspect Ratio\t1\n\nEffects\tCC Power Pin #1\tTop Left #2\n\tFrame\tX pixels\tY pixels\n\t0\t100\t100\n\t1\t110\t100\n\nEffects\tCC Power Pin #1\tTop Right #3\n\tFrame\tX pixels\tY pixels\n\t0\t300\t100\n\t1\t310\t90\n\nEffects\tCC Power Pin #1\tBottom Left #4\n\tFrame\tX pixels\tY pixels\n\t0\t100\t150\n\t1\t110\t150\n\nEffects\tCC Power Pin #1\tBottom Right #5\n\tFrame\tX pixels\tY pixels\n\t0\t300\t150\n\t1\t310\t160\n\nEnd of Keyframe Data\n";
+
+    #[test]
+    fn parses_power_pin() {
+        let m = parse_corner_pin(PIN).unwrap();
+        assert_eq!(m.frames.len(), 2);
+        assert_eq!(m.frames[0], [(100.0, 100.0), (300.0, 100.0), (300.0, 150.0), (100.0, 150.0)]);
+        assert_eq!(m.frames[1][1], (310.0, 90.0));
+        // AE Corner Pin adları
+        let ae = PIN.replace("CC Power Pin", "Corner Pin").replace("Top Left", "Upper Left").replace("Top Right", "Upper Right").replace("Bottom Left", "Lower Left").replace("Bottom Right", "Lower Right");
+        assert_eq!(parse_corner_pin(&ae).unwrap(), m);
+        assert!(parse_corner_pin(AE).is_err());
+    }
+
+    #[test]
+    fn homography_maps_corners() {
+        let a = [(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0)];
+        let b = [(3.0, 1.0), (20.0, -2.0), (22.0, 9.0), (1.0, 7.0)];
+        let h = homography(&a, &b).unwrap();
+        for i in 0..4 {
+            let p = apply_homography(&h, a[i]);
+            assert!((p.0 - b[i].0).abs() < 1e-9 && (p.1 - b[i].1).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn corner_pin_fits_each_frame() {
+        let s = script();
+        let fr = Framerate::cfr(24.0);
+        let m = parse_corner_pin(PIN).unwrap();
+        let d = Dialogue { start_time: fr.time_at_start(5), end_time: fr.time_at_end(6), style: "Sign".into(), text: "{\\an5\\pos(10,10)\\clip(150,150,450,225)}Tabela".into(), ..Default::default() };
+        let dist = crate::perspective::dist_for(1080.0, 1080.0);
+        let out = apply_corner_pin(&[d], &[(200.0, 40.0)], &s, &m, &fr, 5, dist).unwrap();
+        assert_eq!(out.len(), 2);
+        for (i, o) in out.iter().enumerate() {
+            assert!(o.text.contains("\\an7") && o.text.contains("\\frx") && !o.text.contains("\\an5"), "{}", o.text);
+            // oturtulan kutunun köşeleri hedef dörtgende (1280→1920 ölçek 1.5)
+            let num = |n: &str| overrides::get_initial(&o.text, n).and_then(|t| t.number()).unwrap();
+            let pos = overrides::get_initial(&o.text, "pos").unwrap().args();
+            let org = overrides::get_initial(&o.text, "org").unwrap().args();
+            let pf = |v: &String| v.trim().parse::<f64>().unwrap();
+            let p = crate::perspective::Params { pos: (pf(&pos[0]), pf(&pos[1])), frx: num("frx"), fry: num("fry"), frz: num("frz"), fscx: num("fscx"), fscy: num("fscy"), fax: num("fax") };
+            let c = crate::perspective::corners(&p, (pf(&org[0]), pf(&org[1])), dist, 200.0, 40.0);
+            for (a, b) in c.iter().zip(m.frames[i].iter()) {
+                assert!((a.0 - b.0 * 1.5).abs() < 0.1 && (a.1 - b.1 * 1.5).abs() < 0.1, "kare {i}: {a:?} {b:?}");
+            }
+        }
+        // kare 0'da kırpma aynı kalır (vektöre çevrilmiş), kare 1'de homografiyle taşınır
+        assert!(out[0].text.contains("\\clip(m 150 150 l 450 150 450 225 150 225)"), "{}", out[0].text);
+        assert!(out[1].text.contains("\\clip(m 165 150 l 465 135 465 240 165 225)"), "{}", out[1].text);
     }
 }

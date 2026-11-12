@@ -1,5 +1,9 @@
 # Değişiklik günlüğü
 
+## 0.5.0 — geliştiriliyor (dördüncü gece, 2026-11-12)
+
+**Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`).
+
 ## 0.4.0 — 2026-11-11 (üçüncü gece)
 
 **Arayüz:** komut paleti (Ctrl+Shift+P), geçmiş penceresi, düzenleme kutusu araç çubuğu (K/İ/A/Ü, renk), ayrı video penceresi, kalıcı pencere/sütun düzeni, başlangıç ekranı.

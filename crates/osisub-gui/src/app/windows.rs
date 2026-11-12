@@ -380,8 +380,10 @@ impl App {
         let mut open = true;
         let mut apply = false;
         let parsed = osisub_core::motion::parse_ae(&m.text);
+        // Transform verisi değilse köşe pini (CC Power Pin / Corner Pin) dene
+        let pin = if parsed.is_err() { osisub_core::motion::parse_corner_pin(&m.text).ok() } else { None };
         egui::Window::new("Hareket izleme verisi").open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
-            ui.label(RichText::new("Mocha: Export Tracking Data → \"After Effects Transform Data\" → panoya kopyala, aşağıdaki kutuya Ctrl+V.").small().weak());
+            ui.label(RichText::new("Mocha: Export Tracking Data → \"After Effects Transform Data\" (konum/ölçek/dönüş) ya da \"After Effects CC Power Pin\" / \"Corner Pin\" (perspektif) → panoya kopyala, aşağıdaki kutuya Ctrl+V.").small().weak());
             ui.horizontal(|ui| {
                 if ui.button("Dosyadan yükle…").clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Keyframe verisi", &["txt", "*"]).pick_file() {
@@ -393,18 +395,19 @@ impl App {
             egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                 ui.add(egui::TextEdit::multiline(&mut m.text).font(egui::TextStyle::Monospace).desired_rows(8).desired_width(f32::INFINITY).hint_text("Adobe After Effects 6.0 Keyframe Data …"));
             });
-            match &parsed {
-                Ok(d) => { ui.label(RichText::new(format!("{} kare · kaynak {}×{} · {} fps", d.frames.len(), d.width, d.height, d.fps)).color(theme::ACCENT)); }
-                Err(e) if !m.text.trim().is_empty() => { ui.label(RichText::new(e).color(theme::BAD)); }
+            match (&parsed, &pin) {
+                (Ok(d), _) => { ui.label(RichText::new(format!("{} kare · kaynak {}×{} · {} fps", d.frames.len(), d.width, d.height, d.fps)).color(theme::ACCENT)); }
+                (_, Some(d)) => { ui.label(RichText::new(format!("Köşe pini: {} kare · kaynak {}×{} — satır kutusu her karede dörtgene perspektifle oturtulur (\\frx\\fry\\fax…), kırpma homografiyle taşınır", d.frames.len(), d.width, d.height)).color(theme::ACCENT)); }
+                (Err(e), None) if !m.text.trim().is_empty() => { ui.label(RichText::new(e).color(theme::BAD)); }
                 _ => {}
             }
-            ui.horizontal_wrapped(|ui| {
+            if pin.is_none() { ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut m.opts.position, "Konum");
                 ui.checkbox(&mut m.opts.scale, "Ölçek");
                 ui.add_enabled(m.opts.scale, egui::Checkbox::new(&mut m.opts.scale_border, "Kenar/gölge/bulanıklık da"));
                 ui.checkbox(&mut m.opts.rotation, "Döndürme");
                 ui.checkbox(&mut m.opts.clip, "Kırpma (\\clip)");
-            });
+            }); }
             ui.horizontal(|ui| {
                 ui.label("İzin ilk karesi = video karesi");
                 ui.add(egui::DragValue::new(&mut m.opts.start_frame).range(0..=10_000_000));
@@ -416,10 +419,37 @@ impl App {
                 }
             });
             let n = self.doc.target_lines().len();
-            if ui.add_enabled(parsed.is_ok() && n > 0, egui::Button::new(format!("{n} satıra uygula"))).clicked() { apply = true; }
+            if ui.add_enabled((parsed.is_ok() || pin.is_some()) && n > 0, egui::Button::new(format!("{n} satıra uygula"))).clicked() { apply = true; }
         });
         if apply {
-            if let Ok(data) = &parsed {
+            if let Some(data) = &pin {
+                let fr = self.motion_framerate(Some(data.fps));
+                let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+                let lines: Vec<osisub_core::ass::Dialogue> = targets.iter().filter_map(|&i| match &self.doc.script.entries[i] { Entry::Dialogue(d) => Some(d.clone()), _ => None }).collect();
+                let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+                let boxes: Result<Vec<(f64, f64)>, String> = lines.iter().map(|d| osisub_lua::fonts::line_box(db, &self.doc.script, d)).collect();
+                let mut s = self.doc.script.clone();
+                // uzaklık kopyada hesaplanır; LayoutRes satırlar yerleştikten sonra yazılır (girdi indeksleri kaymasın)
+                let dist = self.perspective_dist(&mut s.clone());
+                match boxes.and_then(|b| osisub_core::motion::apply_corner_pin(&lines, &b, &s, data, &fr, m.opts.start_frame, dist)) {
+                    Ok(new_lines) => {
+                        let at = targets[0];
+                        for &i in targets.iter().rev() { s.entries.remove(i); }
+                        let n = new_lines.len();
+                        s.entries.splice(at..at, new_lines.into_iter().map(Entry::Dialogue));
+                        let before = s.entries.len();
+                        self.perspective_dist(&mut s);
+                        // LayoutRes eklendiyse olay satırları kayar
+                        let at = at + (s.entries.len() - before);
+                        self.doc.apply_new_script("Köşe pini izleme", s);
+                        self.doc.select((at..at + n).collect(), at);
+                        self.scroll_to = Some(at);
+                        self.status = format!("Köşe pini: {} satır → {} kare satırı (perspektif)", lines.len(), n);
+                        return;
+                    }
+                    Err(e) => self.status = e,
+                }
+            } else if let Ok(data) = &parsed {
                 let fr = self.motion_framerate(Some(data.fps));
                 let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
                 let lines: Vec<osisub_core::ass::Dialogue> = targets.iter().filter_map(|&i| match &self.doc.script.entries[i] { Entry::Dialogue(d) => Some(d.clone()), _ => None }).collect();

@@ -116,8 +116,13 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if args.len() < 2 { return Err("kullanım: motion <girdi> <iz.txt> --lines 5,6 [çıktı]".into()); }
             let out = args.get(2).cloned().unwrap_or_else(|| args[0].clone());
             let mut s = load(&args[0])?;
-            let data = osisub_core::motion::parse_ae(&std::fs::read_to_string(&args[1]).map_err(|e| format!("{}: {}", args[1], e))?)?;
-            let fr = tc.unwrap_or_else(|| osisub_core::vfr::Framerate::cfr(fps.unwrap_or(data.fps)));
+            let raw = std::fs::read_to_string(&args[1]).map_err(|e| format!("{}: {}", args[1], e))?;
+            let (data, pin) = match osisub_core::motion::parse_ae(&raw) {
+                Ok(d) => (Some(d), None),
+                Err(e) => (None, Some(osisub_core::motion::parse_corner_pin(&raw).map_err(|_| e)?)),
+            };
+            let data_fps = data.as_ref().map(|d| d.fps).or(pin.as_ref().map(|p| p.fps)).unwrap_or(23.976);
+            let fr = tc.unwrap_or_else(|| osisub_core::vfr::Framerate::cfr(fps.unwrap_or(data_fps)));
             let dl: Vec<usize> = s.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
             let mut targets: Vec<usize> = vec![];
             for n in lines_arg.split(',') {
@@ -128,11 +133,29 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             targets.dedup();
             let lines: Vec<_> = targets.iter().filter_map(|&i| match &s.entries[i] { Entry::Dialogue(d) => Some(d.clone()), _ => None }).collect();
             o.start_frame = start.unwrap_or_else(|| lines.iter().map(|d| fr.frame_at_start(d.start_time)).min().unwrap_or(0));
-            let new = osisub_core::motion::apply(&s, &lines, &data, &fr, &o)?;
+            let (new, n_frames) = if let Some(pin) = &pin {
+                // köşe pini: satır kutusu her karede dörtgene perspektifle oturtulur
+                let mut db = osisub_lua::fonts::FontDb::default();
+                let boxes = lines.iter().map(|d| osisub_lua::fonts::line_box(&mut db, &s, d)).collect::<Result<Vec<_>, _>>()?;
+                let (_, py) = s.res();
+                // LayoutRes yoksa kaynak boyutu (satırlar yerleştirildikten sonra yazılır: set_info girdi indekslerini kaydırır)
+                let ly = s.info("LayoutResY").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(pin.height);
+                let dist = osisub_core::perspective::dist_for(py as f64, ly);
+                (osisub_core::motion::apply_corner_pin(&lines, &boxes, &s, pin, &fr, o.start_frame, dist)?, pin.frames.len())
+            } else {
+                let data = data.as_ref().unwrap();
+                (osisub_core::motion::apply(&s, &lines, data, &fr, &o)?, data.frames.len())
+            };
             let at = targets[0];
             for &i in targets.iter().rev() { s.entries.remove(i); }
-            println!("{} satır → {} kare satırı (iz {} kare, ilk kare {})", lines.len(), new.len(), data.frames.len(), o.start_frame);
+            println!("{} satır → {} kare satırı (iz {} kare, ilk kare {}{})", lines.len(), new.len(), n_frames, o.start_frame, if pin.is_some() { ", köşe pini/perspektif" } else { "" });
             s.entries.splice(at..at, new.into_iter().map(Entry::Dialogue));
+            if let Some(pin) = &pin {
+                if s.info("LayoutResY").is_none() {
+                    s.set_info("LayoutResX", &pin.width.to_string());
+                    s.set_info("LayoutResY", &pin.height.to_string());
+                }
+            }
             save(&s, &out)
         }
         "to-drawing" => {

@@ -2060,6 +2060,24 @@ impl App {
         }
     }
 
+    /// Perspektif için betik koordinatında kamera uzaklığı. LayoutRes: betikte varsa o, yoksa
+    /// video çözünürlüğü (betiğe yazılır), o da yoksa PlayRes.
+    pub(crate) fn perspective_dist(&self, s: &mut osisub_core::Script) -> f64 {
+        let (_, play_y) = s.res();
+        let layout_y = match s.info("LayoutResY").and_then(|v| v.trim().parse::<f64>().ok()) {
+            Some(v) => v,
+            None => match self.media.info.as_ref().filter(|i| i.has_video) {
+                Some(i) => {
+                    s.set_info("LayoutResX", &i.width.to_string());
+                    s.set_info("LayoutResY", &i.height.to_string());
+                    i.height as f64
+                }
+                None => play_y as f64,
+            },
+        };
+        osisub_core::perspective::dist_for(play_y as f64, layout_y)
+    }
+
     /// Etkin satırın 4 noktalı vektör kırpmasını hedef dörtgen alıp satırı perspektifle oturtur.
     fn perspective_fit(&mut self) {
         use osisub_core::{overrides, perspective};
@@ -2076,20 +2094,7 @@ impl App {
         let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
         let (w, h) = match osisub_lua::fonts::line_box(db, &self.doc.script, &d) { Ok(b) => b, Err(e) => { self.status = e; return; } };
         let mut s = self.doc.script.clone();
-        let (_, play_y) = s.res();
-        // LayoutRes: betikte varsa o, yoksa video çözünürlüğü (yazılır), o da yoksa PlayRes
-        let layout_y = match s.info("LayoutResY").and_then(|v| v.trim().parse::<f64>().ok()) {
-            Some(v) => v,
-            None => match self.media.info.as_ref().filter(|i| i.has_video) {
-                Some(i) => {
-                    s.set_info("LayoutResX", &i.width.to_string());
-                    s.set_info("LayoutResY", &i.height.to_string());
-                    i.height as f64
-                }
-                None => play_y as f64,
-            },
-        };
-        let dist = perspective::dist_for(play_y as f64, layout_y);
+        let dist = self.perspective_dist(&mut s);
         let Some((p, org, err)) = perspective::fit(&quad, w, h, dist) else { self.status = "Perspektif çözümü bulunamadı".into(); return };
         let mut text = d.text.clone();
         for n in ["clip", "iclip", "pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {

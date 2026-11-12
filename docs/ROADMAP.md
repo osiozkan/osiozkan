@@ -107,7 +107,8 @@
 - [x] Video araçları: 3B döndürme \frx/\fry (yatay/dikey sürükle, Shift = 15°)
 - [x] Hareket izleme verisi uygulama (core::motion; Araçlar → Hareket izleme verisi uygula…, CLI `motion`): Mocha/AE Transform Data → kare kare \pos/\fscx/\fscy/\frz (+\bord/\shad/\blur), kaynak çözünürlük ölçeklemesi, \t/\fad kaydırma, \move → \pos; VFR uyumlu
 - [x] Hareket izleme: \clip/\iclip izleme (dikdörtgen; dönüşte vektöre çevrilir; vektör kırpma ölçek parametresiyle)
-- [ ] Hareket izleme: doğrusal kip (\move+\t), köşe pini (CC Power Pin)
+- [x] Hareket izleme: köşe pini (Mocha "CC Power Pin" / AE "Corner Pin" verisi; core::motion::apply_corner_pin): satır kutusu her karede dörtgene perspektifle oturtulur, \clip homografiyle taşınır; GUI aynı pencere (otomatik algılama) + CLI `motion`; libass render'ıyla IoU ≥ 0.999
+- [ ] Hareket izleme: doğrusal kip (\move+\t)
 - [x] Tipografi yardımcıları (core::typeset; Araçlar → Degrade / parıltı…): kırpma şeritleriyle degrade (renk/saydamlık/sayısal etiketler, yatay/dikey, ivme), parıltı katmanı
 - [x] Metin → çizim (\p1) dönüştürme (gerçek yazı tipi konturları; hizalama, çok satır, \fscx/\fscy/\fsp, döndürmede \org korunur; libass çıktısıyla piksel karşılaştırması IoU ≥ 0.97, sınır kutuları birebir) + vektör kırpma olarak kopyalama; CLI `to-drawing`, `shape`
 - [x] Perspektife oturt (Araçlar menüsü / kısayol komutu / CLI `perspective`): 4 noktalı vektör kırpma → \frx\fry\frz\fscx\fscy\fax\org\pos; libass dönüşüm zinciriyle Levenberg–Marquardt; video açıksa `LayoutResX/Y` yazılır (perspektif oynatıcı çözünürlüğünden bağımsız); libass render'ıyla IoU ≥ 0.999
