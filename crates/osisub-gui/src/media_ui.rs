@@ -118,6 +118,8 @@ pub struct Media {
     fonts_key: String,
     /// video önizleme yakınlaştırma (1 = sığdır) ve kaydırma (piksel)
     pub video_zoom: f32,
+    /// en-boy oranı geçersiz kılma (Aegisub "Override AR"); None = otomatik (anamorfikte SAR'dan)
+    pub ar_override: Option<f64>,
     /// videoda güvenli alan kılavuzu (eylem %90, başlık %80)
     pub safe_area: bool,
     pub video_pan: egui::Vec2,
@@ -174,6 +176,7 @@ impl Media {
             vt_qdrag: None,
             persp_box: None,
             safe_area: false,
+            ar_override: None,
             persp_dist: osisub_core::perspective::DIST_PX,
             persp_need_layout: false,
             vt_vdrag: None,
@@ -211,6 +214,19 @@ impl Media {
             None => self.playhead + n * 40,
         }
         .max(0);
+    }
+
+    /// Kare önbelleğini boşaltır ve kareyi yeniden ister (en-boy oranı değişince).
+    pub fn invalidate_frames(&mut self) {
+        self.frame_cache.clear();
+        self.frame_shown = (i64::MIN, u64::MAX);
+    }
+
+    /// Kare çizimi için ortam bilgisi (en-boy oranı geçersiz kılması uygulanmış).
+    pub fn render_info(&self) -> Option<osisub_media::MediaInfo> {
+        let mut i = self.info.clone()?;
+        if let Some(ar) = self.ar_override { i.dar = ar; }
+        Some(i)
     }
 
     /// Önceki/sonraki anahtar kareye git (`dir` < 0 geri). Anahtar kare yoksa yerinde kalır.
@@ -388,7 +404,7 @@ impl Media {
                 }
             }
         }
-        if let Some(info) = self.info.clone().filter(|i| i.has_video) {
+        if let Some(info) = self.render_info().filter(|i| i.has_video) {
             let ass = self.tmp_dir.join("play.ass");
             let (lo, hi) = (from - 1000, from + dur + 1000);
             self.sync_preview_fonts(doc);
@@ -541,7 +557,7 @@ impl Media {
                 self.frame_shown = (self.playhead, doc.rev);
             }
         }
-        if let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) {
+        if let (Some(p), Some(info)) = (self.path.clone(), self.render_info()) {
             if info.has_video && !self.frame_busy && !settling && !self.is_playing() && self.frame_shown != (self.playhead, doc.rev) {
                 self.frame_busy = true;
                 let (t, rev) = (self.playhead, doc.rev);

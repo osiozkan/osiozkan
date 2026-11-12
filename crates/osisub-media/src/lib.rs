@@ -59,6 +59,22 @@ pub struct MediaInfo {
     pub fps: f64,
     pub has_video: bool,
     pub has_audio: bool,
+    /// görüntü en-boy oranı (anamorfik kaynaklarda depolama oranından farklı; 0 = depolama oranı)
+    pub dar: f64,
+}
+
+impl MediaInfo {
+    /// Ekranda gösterilecek en-boy oranı (DAR; yoksa genişlik/yükseklik).
+    pub fn display_aspect(&self) -> f64 {
+        if self.dar > 0.0 { self.dar } else if self.height > 0 { self.width as f64 / self.height as f64 } else { 16.0 / 9.0 }
+    }
+}
+
+/// "32:27" / "16:9" → oran; "0:1", "N/A" → None
+fn parse_ratio(s: &str) -> Option<f64> {
+    let (a, b) = s.split_once(':')?;
+    let (a, b): (f64, f64) = (a.trim().parse().ok()?, b.trim().parse().ok()?);
+    (a > 0.0 && b > 0.0).then(|| a / b)
 }
 
 fn parse_rate(s: &str) -> f64 {
@@ -91,6 +107,12 @@ pub fn probe(path: &Path) -> Result<MediaInfo, String> {
                 info.has_video = true;
                 info.width = s["width"].as_u64().unwrap_or(0) as u32;
                 info.height = s["height"].as_u64().unwrap_or(0) as u32;
+                // anamorfik: SAR ≠ 1 ise görüntü oranı = (w × SAR) / h
+                if let Some(sar) = s["sample_aspect_ratio"].as_str().and_then(parse_ratio).filter(|r| (r - 1.0).abs() > 1e-3) {
+                    if info.height > 0 {
+                        info.dar = info.width as f64 * sar / info.height as f64;
+                    }
+                }
                 info.fps = parse_rate(s["avg_frame_rate"].as_str().unwrap_or("0"));
                 if info.fps <= 0.0 {
                     info.fps = parse_rate(s["r_frame_rate"].as_str().unwrap_or("0"));
@@ -291,7 +313,7 @@ pub fn render_frames(video: &Path, ass: Option<&Path>, time_ms: i64, count: usiz
         return Err("video yok".into());
     }
     let width = (width.max(16) / 2) * 2;
-    let height = ((width as f64 * info.height as f64 / info.width as f64 / 2.0).round() as u32).max(1) * 2;
+    let height = ((width as f64 / info.display_aspect() / 2.0).round() as u32).max(1) * 2;
     let mut vf = String::new();
     if let Some(a) = ass {
         vf.push_str(&format!("{},", ass_filter(a, "")));
@@ -360,7 +382,7 @@ pub fn spawn_play(video: &Path, ass: Option<&Path>, start_ms: i64, dur_ms: i64, 
         return Err("video yok".into());
     }
     let width = (width.max(16) / 2) * 2;
-    let height = ((width as f64 * info.height as f64 / info.width as f64 / 2.0).round() as u32).max(1) * 2;
+    let height = ((width as f64 / info.display_aspect() / 2.0).round() as u32).max(1) * 2;
     let fps = if info.fps > 0.0 { info.fps } else { 24.0 };
     let mut vf = format!("scale={}:{},", width, height);
     if let Some(a) = ass {
@@ -461,6 +483,17 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn aspect_ratio() {
+        assert_eq!(parse_ratio("32:27").map(|r| (r * 1000.0).round()), Some(1185.0));
+        assert_eq!(parse_ratio("0:1"), None);
+        assert_eq!(parse_ratio("N/A"), None);
+        let mut i = MediaInfo { width: 720, height: 480, ..Default::default() };
+        assert_eq!(i.display_aspect(), 1.5);
+        i.dar = 16.0 / 9.0;
+        assert!((i.display_aspect() - 16.0 / 9.0).abs() < 1e-9);
+    }
 
     #[test]
     fn finds_tool_next_to_exe() {

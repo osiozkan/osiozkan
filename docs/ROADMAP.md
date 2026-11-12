@@ -91,6 +91,7 @@
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
 - [x] Oynatma sırasında akış (kalıcı ffmpeg boru hattı) — önceki geceden; kare önbelleği + 6 karelik ön-yükleme (ileri kare adımı anında)
 - [x] Geri kare adımı için ön-yükleme (istenen karenin 3 öncesi + 5 sonrası tek ffmpeg çağrısında)
+- [x] Anamorfik video (SAR ≠ 1, ör. DVD 720×480 → 16:9) doğru en-boy oranıyla gösterilir; Video → En-boy oranı (Otomatik/4:3/16:9/1.85/2.35; Aegisub Override AR)
 - [x] Videoyu ayrı pencerede göster (Video menüsü; çift monitör, Aegisub "Detach video"); video araçları ayrı pencerede de çalışır
 - [ ] libmpv ile donanım hızlandırmalı oynatma
 - [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)

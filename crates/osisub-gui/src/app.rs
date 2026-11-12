@@ -1525,6 +1525,19 @@ impl App {
                     }
                 }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
+                ui.menu_button("En-boy oranı", |ui| {
+                    let cur = self.media.ar_override;
+                    let auto = self.media.info.as_ref().map(|i| i.display_aspect()).unwrap_or(16.0 / 9.0);
+                    let anam = self.media.info.as_ref().map_or(false, |i| i.dar > 0.0);
+                    let mut set = |ui: &mut egui::Ui, v: Option<f64>, l: &str| {
+                        if ui.radio(cur.map(|c| (c * 1000.0).round()) == v.map(|c| (c * 1000.0).round()), l).clicked() { self.media.ar_override = v; self.media.invalidate_frames(); ui.close(); }
+                    };
+                    set(ui, None, &format!("Otomatik ({:.3}:1{})", auto, if anam { ", anamorfik" } else { "" }));
+                    set(ui, Some(4.0 / 3.0), "4:3");
+                    set(ui, Some(16.0 / 9.0), "16:9");
+                    set(ui, Some(1.85), "1.85:1");
+                    set(ui, Some(2.35), "2.35:1");
+                });
                 ui.checkbox(&mut self.media.safe_area, "Güvenli alan kılavuzu").on_hover_text("Eylem güvenli (%90) ve başlık güvenli (%80) alan çerçeveleri; TV kırpmasına karşı tabela yerleşimi için");
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("< Önceki anahtar kare")).clicked() { self.media.step_keyframe(-1); }
