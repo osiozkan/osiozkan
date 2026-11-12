@@ -42,7 +42,7 @@ fn parse_alpha(s: &str) -> Option<u8> {
 }
 
 /// İki etiket değeri arasında enterpolasyon; desteklenmeyen tür → None.
-fn interp_tag(name: &str, a: &str, b: &str, t: f64) -> Option<String> {
+pub(crate) fn interp_tag(name: &str, a: &str, b: &str, t: f64) -> Option<String> {
     match name {
         "c" | "1c" | "2c" | "3c" | "4c" => {
             let (ca, cb) = (Color::parse(a)?, Color::parse(b)?);
@@ -62,7 +62,7 @@ fn interp_tag(name: &str, a: &str, b: &str, t: f64) -> Option<String> {
 }
 
 /// `{...}` olmadan ya da ile verilen etiket dizisini (ad, değer) listesine çevirir.
-fn tag_list(s: &str) -> Vec<Tag> {
+pub(crate) fn tag_list(s: &str) -> Vec<Tag> {
     let inner = s.trim().trim_start_matches('{').trim_end_matches('}');
     overrides::parse_block(inner).into_iter().filter(|t| !t.name.is_empty()).collect()
 }

@@ -526,6 +526,125 @@ impl App {
         if open { self.batch = Some(b); }
     }
 
+    /// Etiket uygula (HYDRA) ve yeniden hesapla (Recalculator) penceresi; seçili satırlarda tek geri-al adımı.
+    pub(super) fn tag_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::tagapply::{self, Mode, Op};
+        let Some(mut w) = self.tagw.take() else { return };
+        let mut open = true;
+        let mut action: Option<u8> = None;
+        let grad = w.mode >= 3;
+        egui::Window::new("Etiket uygula / yeniden hesapla").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.radio_value(&mut w.mode, 0, "Başlangıç bloğu");
+                ui.radio_value(&mut w.mode, 1, "Tüm bloklar");
+                ui.radio_value(&mut w.mode, 2, "\\t dönüşümü");
+                ui.radio_value(&mut w.mode, 3, "Harf degradesi");
+                ui.radio_value(&mut w.mode, 4, "Satır degradesi");
+            });
+            if w.mode == 2 {
+                ui.horizontal(|ui| {
+                    ui.label("t1");
+                    ui.add(egui::DragValue::new(&mut w.t1).speed(10).suffix(" ms"));
+                    ui.label("t2");
+                    ui.add(egui::DragValue::new(&mut w.t2).speed(10).suffix(" ms"));
+                    ui.label("ivme");
+                    ui.add(egui::DragValue::new(&mut w.accel).range(0.01..=20.0).speed(0.05));
+                    if ui.small_button("tüm satır").on_hover_text("t1 = t2 = 0: satır boyunca").clicked() { w.t1 = 0; w.t2 = 0; }
+                });
+            } else if grad {
+                ui.horizontal(|ui| {
+                    ui.label("ivme");
+                    ui.add(egui::DragValue::new(&mut w.accel).range(0.01..=20.0).speed(0.05));
+                    ui.label(RichText::new(if w.mode == 3 { "ilk harf = başlangıç, son harf = bitiş (boşluk ve \\N sayılmaz)" } else { "ilk seçili satır = başlangıç, son = bitiş (kare kare tipografi)" }).small().weak());
+                });
+            }
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                egui::Grid::new("tagrows").num_columns(if grad { 3 } else { 2 }).striped(true).show(ui, |ui| {
+                    for (n, on, a, b) in w.rows.iter_mut() {
+                        ui.checkbox(on, format!("\\{n}"));
+                        let color = n.ends_with('c');
+                        for v in if grad { vec![a, b] } else { vec![a] } {
+                            ui.horizontal(|ui| {
+                                if color {
+                                    if let Some(c) = osisub_core::color::Color::parse(v) {
+                                        let mut rgb = [c.r, c.g, c.b];
+                                        if egui::color_picker::color_edit_button_srgb(ui, &mut rgb).changed() {
+                                            *v = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 }.to_tag_string();
+                                            *on = true;
+                                        }
+                                    }
+                                }
+                                if ui.add(egui::TextEdit::singleline(v).font(egui::TextStyle::Monospace).desired_width(110.0)).changed() { *on = true; }
+                            });
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Ek etiketler");
+                ui.add(egui::TextEdit::singleline(&mut w.extra).font(egui::TextStyle::Monospace).desired_width(200.0).hint_text("\\xbord2\\clip(…)"));
+                if grad {
+                    ui.label("→");
+                    ui.add(egui::TextEdit::singleline(&mut w.extra_to).font(egui::TextStyle::Monospace).desired_width(160.0));
+                }
+            });
+            let (a, _) = w.tags();
+            ui.label(RichText::new(if a.is_empty() { "Etiket seçilmedi".to_string() } else { a }).monospace().small().color(theme::ACCENT));
+            ui.horizontal(|ui| {
+                if ui.button(format!("{} satıra uygula", self.doc.target_lines().len())).clicked() { action = Some(1); }
+                if ui.button("Sıfırla").clicked() { for r in w.rows.iter_mut() { r.1 = false; } w.extra.clear(); w.extra_to.clear(); }
+            });
+            ui.separator();
+            ui.heading("Yeniden hesapla (Recalculator)");
+            ui.horizontal(|ui| {
+                ui.label("etiket \\");
+                ui.add(egui::TextEdit::singleline(&mut w.rc_tag).desired_width(60.0));
+                ui.radio_value(&mut w.rc_mul, true, "×");
+                ui.radio_value(&mut w.rc_mul, false, "+");
+                let xy = matches!(w.rc_tag.trim(), "pos" | "org" | "move");
+                ui.label(if xy { "x" } else { "değer" });
+                ui.add(egui::DragValue::new(&mut w.rc_x).speed(0.05));
+                if xy {
+                    ui.label("y");
+                    ui.add(egui::DragValue::new(&mut w.rc_y).speed(0.05));
+                }
+                ui.checkbox(&mut w.rc_style, "yoksa stilden").on_hover_text("Satırda etiket yoksa stilin değerinden hesaplayıp başlangıca yaz");
+                if ui.button("Uygula").clicked() { action = Some(2); }
+            });
+            ui.label(RichText::new("Başlangıç ve satır içi bloklar ile \\t içleri değişir; \\pos/\\move/\\org için x ve y ayrı.").small().weak());
+        });
+        if let Some(a) = action {
+            let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+            let texts: Vec<(usize, String, String)> = targets.iter().filter_map(|&i| match &self.doc.script.entries[i] { Entry::Dialogue(d) => Some((i, d.text.clone(), d.style.clone())), _ => None }).collect();
+            let new: Vec<String> = if a == 1 {
+                let (from, to) = w.tags();
+                match w.mode {
+                    4 => tagapply::by_line(&texts.iter().map(|t| t.1.clone()).collect::<Vec<_>>(), &from, &to, w.accel),
+                    m => {
+                        let mode = match m { 0 => Mode::Start, 1 => Mode::AllBlocks, 2 => Mode::Transform { t1: w.t1, t2: w.t2, accel: w.accel }, _ => Mode::ByChar { to: to.clone(), accel: w.accel } };
+                        texts.iter().map(|t| tagapply::apply(&t.1, &from, &mode)).collect()
+                    }
+                }
+            } else {
+                let name = w.rc_tag.trim().trim_start_matches('\\').to_string();
+                let (ox, oy) = if w.rc_mul { (Op::Mul(w.rc_x), Op::Mul(w.rc_y)) } else { (Op::Add(w.rc_x), Op::Add(w.rc_y)) };
+                texts.iter().map(|t| {
+                    let st = self.doc.script.style_by_name(&t.2).cloned().unwrap_or_default();
+                    let def = w.rc_style.then(|| match name.as_str() { "bord" => Some(st.outline), "shad" => Some(st.shadow), "fscx" => Some(st.scale_x), "fscy" => Some(st.scale_y), "fs" => Some(st.fontsize), "fsp" => Some(st.spacing), "frz" | "fr" => Some(st.angle), _ => None }).flatten();
+                    tagapply::recalc(&t.1, &name, ox, oy, def).0
+                }).collect()
+            };
+            let changes: Vec<(usize, String)> = texts.iter().zip(new).filter(|(t, n)| t.1 != *n).map(|(t, n)| (t.0, n)).collect();
+            let n = changes.len();
+            if n > 0 {
+                self.doc.edit(if a == 1 { "Etiket uygula" } else { "Yeniden hesapla" }, |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); });
+            }
+            self.status = format!("{n} satır değişti");
+        }
+        if open { self.tagw = Some(w); }
+    }
+
     pub(super) fn typeset_window(&mut self, ctx: &egui::Context) {
         let Some(mut w) = self.tsw.take() else { return };
         let mut open = true;
@@ -651,7 +770,7 @@ impl App {
         for (w, l) in [
             ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"),
             ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur / konuşmaya yapıştır"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
-            ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"),
+            ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"), ("tags", "Etiket uygula / yeniden hesapla"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
@@ -684,6 +803,7 @@ impl App {
                 "batch" => self.batch = Some(super::BatchWin::default()),
                 "typeset" => self.tsw = Some(super::TypesetWin::default()),
                 "motion" => self.open_motion(),
+                "tags" => self.tagw = Some(super::TagWin::default()),
                 "todraw" => self.text_to_drawing(false),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());

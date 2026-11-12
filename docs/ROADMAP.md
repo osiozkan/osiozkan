@@ -24,7 +24,9 @@
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
 - [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)
 - [x] Etiket denetimi (core::taglint, QC'de "Etiket"/"Notlar" süzgeci, ızgarada kırmızı altçizgi): eşleşmeyen { }, bilinmeyen/yazım hatalı etiket (\blurr, \fsc100), geçersiz renk/saydamlık, \pos/\move/\fad/\fade/\clip argüman sayısı, satır süresini aşan \fad, satır bittikten sonra başlayan \t/\move, ters zamanlar, \t ile canlandırılamayan etiketler, iç içe \t, birden fazla \pos, bilinmeyen \r stili, karaoke hece toplamı ≠ satır süresi, metinde unutulmuş {not}
-- [ ] Override etiketlerinin tipli anlamlandırılması (\t animasyon düzenleme arayüzü)
+- [x] Etiket uygula (HYDRA benzeri; core::tagapply, Araçlar → Etiket uygula / yeniden hesapla): başlangıç bloğu, tüm bloklar, `\t(t1,t2,ivme)`, harf harf degrade (boşluk/\N atlanır, ara etiketler korunur), satırlar boyunca degrade; renk seçici; eşanlamlılar (\c=\1c, \fr=\frz)
+- [x] Yeniden hesapla (Recalculator): sayısal etiketleri topla/çarp — satır içi bloklar ve `\t` içleri dahil, \pos/\move/\org için x/y ayrı, etiket yoksa stil değerinden
+- [ ] Override etiketlerinin tipli anlamlandırılması (mevcut \t bloklarını listeleyip düzenleme arayüzü)
 - [x] Ekler: [Fonts]/[Graphics] gömme/çıkarma/silme (core::attach, ASS UUencode), "Kullanılan yazı tiplerini göm" (Araçlar → Ekler); ayrıştırıcı "[..]" gibi görünen veri satırlarını bölüm sanmıyor
 - [ ] ASS Extradata yapılandırılmış erişim
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme

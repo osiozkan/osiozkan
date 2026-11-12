@@ -22,6 +22,7 @@ pub mod select;
 pub mod srt;
 pub mod stats;
 pub mod taglint;
+pub mod tagapply;
 pub mod tags;
 pub mod time;
 pub mod timing;

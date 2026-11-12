@@ -168,6 +168,7 @@ pub struct App {
     batch: Option<BatchWin>,
     /// Tipografi yardımcıları penceresi (degrade, parıltı)
     tsw: Option<TypesetWin>,
+    tagw: Option<TagWin>,
     /// Metin → çizim için yazı tipi dizini (ilk kullanımda taranır)
     font_db: Option<osisub_lua::fonts::FontDb>,
     /// Bir sonraki karede panoya kopyalanacak metin (bağlamı olmayan işlevlerden)
@@ -408,6 +409,7 @@ impl App {
             motion: None,
             batch: None,
             tsw: None,
+            tagw: None,
             font_db: None,
             ctx_copy: None,
             job: None,
@@ -562,6 +564,7 @@ impl App {
             Some("motion") => app.open_motion(),
             Some("batch") => app.batch = Some(BatchWin::default()),
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
+            Some("tags") => app.tagw = Some(TagWin::default()),
             Some("detach") => app.media.detached = true,
             Some("history") => app.history_open = true,
             Some(w) if w.starts_with("palette") => app.palette = Some((w.strip_prefix("palette:").unwrap_or("").to_string(), 0)),
@@ -1613,6 +1616,7 @@ impl App {
                     if ui.button("Etkin satırı vektör kırpma olarak kopyala").on_hover_text("Metnin şeklini \\clip(...) olarak panoya kopyalar; başka bir satıra yapıştırın").clicked() { ui.close(); self.text_to_drawing(true); }
                 });
                 if ui.button("Makine çevirisi…").on_hover_text("DeepL / Google / LibreTranslate / Claude ile seçili satırları çevir (kendi API anahtarınızla)").clicked() { ui.close(); self.mt_open = true; }
+                if ui.button("Etiket uygula / yeniden hesapla…").on_hover_text("HYDRA + Recalculator benzeri: etiketleri başlangıca, tüm bloklara, \\t olarak ya da harf/satır degradesi olarak uygula; değerleri topla/çarp").clicked() { ui.close(); self.tagw = Some(TagWin::default()); }
                 if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
                     ui.close();
@@ -1834,6 +1838,7 @@ impl eframe::App for App {
         self.hotkeys_window(&ctx);
         self.merge_window(&ctx);
         self.motion_window(&ctx);
+        self.tag_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);
@@ -1894,6 +1899,68 @@ impl Default for BatchWin {
 }
 
 /// Degrade / parıltı penceresinin ayarları.
+/// Etiket uygulama penceresi (HYDRA + Recalculator).
+pub(crate) struct TagWin {
+    /// (ad, açık mı, başlangıç değeri, bitiş değeri)
+    pub rows: Vec<(&'static str, bool, String, String)>,
+    pub extra: String,
+    pub extra_to: String,
+    /// 0 başlangıç, 1 tüm bloklar, 2 \t, 3 harf degradesi, 4 satır degradesi
+    pub mode: u8,
+    pub t1: i64,
+    pub t2: i64,
+    pub accel: f64,
+    pub rc_tag: String,
+    pub rc_mul: bool,
+    pub rc_x: f64,
+    pub rc_y: f64,
+    pub rc_style: bool,
+}
+
+impl Default for TagWin {
+    fn default() -> Self {
+        let rows = vec![
+            ("1c", "&HFFFFFF&", "&H00A5FF&"), ("3c", "&H000000&", "&H000000&"), ("4c", "&H000000&", "&H000000&"),
+            ("alpha", "&H00&", "&HFF&"), ("1a", "&H00&", "&HFF&"), ("3a", "&H00&", "&HFF&"),
+            ("bord", "2", "4"), ("shad", "0", "2"), ("blur", "1", "5"), ("be", "1", "3"),
+            ("fs", "60", "80"), ("fscx", "100", "120"), ("fscy", "100", "120"), ("fsp", "0", "5"),
+            ("frz", "0", "10"), ("frx", "0", "10"), ("fry", "0", "10"), ("fax", "0", "0.1"),
+            ("an", "5", "5"), ("b", "1", "1"), ("i", "1", "1"), ("q", "2", "2"),
+        ];
+        TagWin {
+            rows: rows.into_iter().map(|(n, a, b)| (n, false, a.to_string(), b.to_string())).collect(),
+            extra: String::new(),
+            extra_to: String::new(),
+            mode: 0,
+            t1: 0,
+            t2: 500,
+            accel: 1.0,
+            rc_tag: "fscx".into(),
+            rc_mul: true,
+            rc_x: 1.0,
+            rc_y: 1.0,
+            rc_style: true,
+        }
+    }
+}
+
+impl TagWin {
+    /// (başlangıç, bitiş) etiket dizileri
+    pub fn tags(&self) -> (String, String) {
+        let mut a = String::new();
+        let mut b = String::new();
+        for (n, on, x, y) in &self.rows {
+            if *on {
+                a.push_str(&format!("\\{n}{x}"));
+                b.push_str(&format!("\\{n}{y}"));
+            }
+        }
+        a.push_str(self.extra.trim());
+        b.push_str(if self.extra_to.trim().is_empty() { self.extra.trim() } else { self.extra_to.trim() });
+        (a, b)
+    }
+}
+
 pub(crate) struct TypesetWin {
     pub vertical: bool,
     pub strip: f64,
