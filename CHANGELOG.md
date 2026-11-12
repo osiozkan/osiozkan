@@ -6,6 +6,7 @@
 **Kalite:** eksik glif denetimi — yazı tipinde bulunmayan karakterler (ör. Türkçe ğ ş İ ı'sı olmayan tabela yazı tipleri) Yazı tipi denetimi penceresinde ve CLI `fonts`'ta.
 **Performans:** satır ekleyen/silen işlemler (hareket izleme, birleştirme, bölme…) geri alma yığınında tüm belgenin iki kopyası yerine yalnızca değişen satırları tutar — büyük dosyalarda bellek ve geri alma geçmişi korunur (eskiden 8 adımdan eskisi atılıyordu); `OSISUB_FRAME_LOG=1` kare süresi günlüğü.
 **Aegisub'dan geçiş:** Üzerine yapıştır (Paste Over, Ctrl+Shift+V) — panodaki satırların seçilen alanlarını seçili satırlara yazar; Stil yardımcısı (Styling Assistant); önceki/sonraki anahtar kareye git; videoda güvenli alan kılavuzu.
+**Düzenleme:** Harf dönüştür (BÜYÜK / küçük / Başlık / Cümle; Türkçe i/İ ve ı/I doğru, etiketler ve `\N` korunur).
 **Karaoke:** Kanji zamanlayıcı — romaji karaoke zamanlamasını kanji/kana satırına otomatik aktarır (kana okunuşlarından hizalama, kanji dizileri gruplanır; gruplar elle düzeltilebilir).
 **Hata düzeltmeleri:** Lua `clipboard.get/set` arayüzde sistem panosunu kullanmıyordu (panodan veri alan Aegisub betikleri — ör. hareket verisi, HYDRA kopyala/yapıştır — boş okuyordu).
 **Arayüz:** Etiketler sekmesi — etkin satırın etiketlerini blok blok gösterir; değerler sürüklenerek/renk seçiciyle değiştirilir, `\t` zamanları ve ivmesi ayrı alanlarda.

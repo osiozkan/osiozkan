@@ -21,6 +21,7 @@
 - [x] Subtitle Edit toplu işlemleri (core::batch; Zamanlama → Toplu satır işlemleri…, CLI `fix --merge-same/--merge-short/--recalc`): aynı metinli ardışık satırları birleştir, kısa satırları birleştir, süreleri okuma hızına göre yeniden hesapla (yalnızca uzat, sonraki satıra boşluk)
 - [x] Toplu araçlar: kaydır, doğrusal senkron, fps dönüşümü, kareye oturt, sırala, yinelenen/boş sil, çakışma düzelt, Türkçe harf
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
+- [x] Harf dönüştür (core::casing; Düzen menüsü, kısayol komutları): BÜYÜK/küçük/Başlık/Cümle — Türkçe i/İ ı/I, etiketler/\N/çizimler korunur
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
 - [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)
 - [x] Etiket denetimi (core::taglint, QC'de "Etiket"/"Notlar" süzgeci, ızgarada kırmızı altçizgi): eşleşmeyen { }, bilinmeyen/yazım hatalı etiket (\blurr, \fsc100), geçersiz renk/saydamlık, \pos/\move/\fad/\fade/\clip argüman sayısı, satır süresini aşan \fad, satır bittikten sonra başlayan \t/\move, ters zamanlar, \t ile canlandırılamayan etiketler, iç içe \t, birden fazla \pos, bilinmeyen \r stili, karaoke hece toplamı ≠ satır süresi, metinde unutulmuş {not}

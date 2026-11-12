@@ -267,6 +267,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("safe_area", "Güvenli alan kılavuzu aç/kapat"),
     ("style_assist", "Stil yardımcısı…"),
     ("kanji_timer", "Kanji zamanlayıcı…"),
+    ("case_upper", "Harf: BÜYÜK HARF"),
+    ("case_lower", "Harf: küçük harf"),
+    ("case_title", "Harf: Başlık Biçimi"),
+    ("case_sentence", "Harf: Cümle biçimi"),
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
@@ -1123,6 +1127,10 @@ impl App {
             "safe_area" => self.media.safe_area = !self.media.safe_area,
             "style_assist" => self.style_assist = Some(String::new()),
             "kanji_timer" => self.kanji = Some(KanjiWin::default()),
+            "case_upper" => self.change_case(osisub_core::casing::Case::Upper),
+            "case_lower" => self.change_case(osisub_core::casing::Case::Lower),
+            "case_title" => self.change_case(osisub_core::casing::Case::Title),
+            "case_sentence" => self.change_case(osisub_core::casing::Case::Sentence),
             "play_sel" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Selection),
             "play_before" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Before),
             "play_after" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::After),
@@ -1443,6 +1451,12 @@ impl App {
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new("Yinele").shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
                 if ui.button("Geçmiş…").on_hover_text("Geri alma geçmişi: bir adıma tıklayarak o duruma dönün").clicked() { ui.close(); self.history_open = true; }
+                ui.menu_button("Harf dönüştür", |ui| {
+                    use osisub_core::casing::Case;
+                    for (c, l) in [(Case::Upper, "BÜYÜK HARF"), (Case::Lower, "küçük harf"), (Case::Title, "Başlık Biçimi"), (Case::Sentence, "Cümle biçimi.")] {
+                        if ui.button(l).on_hover_text("Seçili satırlar; etiketler ve \\N korunur, Türkçe i/İ ı/I").clicked() { ui.close(); self.change_case(c); }
+                    }
+                });
                 if ui.button("Stil yardımcısı…").on_hover_text("Satır satır stil atama: süz, Enter = uygula + sonraki satır (Aegisub: Styling Assistant)").clicked() { ui.close(); self.style_assist = Some(String::new()); }
                 if ui.button("Üzerine yapıştır…  Ctrl+Shift+V").on_hover_text("Panodaki satırların seçtiğiniz alanlarını (zaman, stil, metin…) seçili satırların üzerine yazar (Aegisub: Paste Over)").clicked() { ui.close(); self.open_paste_over(None); }
                 if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
@@ -2198,6 +2212,17 @@ impl App {
             self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
             self.job = None;
         }
+    }
+
+    /// Seçili satırlara harf dönüşümü (Türkçe i/İ duyarlı; etiketler korunur), tek geri-al adımı.
+    pub(crate) fn change_case(&mut self, case: osisub_core::casing::Case) {
+        let changes: Vec<(usize, String)> = self.doc.target_lines().into_iter().filter_map(|i| match self.doc.script.entries.get(i) {
+            Some(Entry::Dialogue(d)) => { let t = osisub_core::casing::apply(&d.text, case, true); (t != d.text).then_some((i, t)) }
+            _ => None,
+        }).collect();
+        let n = changes.len();
+        if n > 0 { self.doc.edit("Harf dönüştür", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
+        self.status = format!("Harf dönüştürüldü: {n} satır");
     }
 
     /// Perspektif video aracı için etkin satırın kutusunu (yazı tipiyle ölçülür, metin değişince

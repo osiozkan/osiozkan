@@ -2,6 +2,7 @@
 pub mod ass;
 pub mod attach;
 pub mod batch;
+pub mod casing;
 pub mod color;
 pub mod compare;
 pub mod drawing;
