@@ -31,6 +31,8 @@ pub enum VideoTool {
     /// \frx/\fry (Aegisub Rotate XY)
     RotateXY,
     Scale,
+    /// 4 köşeyi sürükleyerek perspektife oturtma (\frx\fry\frz\fscx\fscy\fax\org)
+    Perspective,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -102,6 +104,14 @@ pub struct Media {
     vt_move0: Option<osisub_core::overrides::Move>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
+    /// perspektif aracı: son oturtulan dörtgen (satır, satır metni, köşeler) ve sürüklenen köşe (4 = tümü)
+    vt_quad: Option<(usize, String, [(f64, f64); 4])>,
+    vt_qdrag: Option<(usize, [(f64, f64); 4], (f64, f64))>,
+    /// perspektif aracı için uygulamanın doldurduğu: etkin satırın kutusu (satır, metin, w, h) ve kamera uzaklığı
+    pub persp_box: Option<(usize, String, (f64, f64))>,
+    pub persp_dist: f64,
+    /// perspektif aracı LayoutRes'siz betiğe değer yazdı: uygulama LayoutRes'i ekler
+    pub persp_need_layout: bool,
     /// önizleme klasörüne çıkarılmış gömülü yazı tiplerinin anahtarı (ad:boyut;…)
     fonts_key: String,
     /// video önizleme yakınlaştırma (1 = sığdır) ve kaydırma (piksel)
@@ -156,6 +166,11 @@ impl Media {
             tool: VideoTool::None,
             vt_drag: None,
             vt_move0: None,
+            vt_quad: None,
+            vt_qdrag: None,
+            persp_box: None,
+            persp_dist: osisub_core::perspective::DIST_PX,
+            persp_need_layout: false,
             vt_vdrag: None,
             fonts_key: String::new(),
             video_zoom: 1.0,
@@ -1015,6 +1030,95 @@ impl Media {
                     if nt != d.text {
                         doc.edit("3B dönmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
                     }
+                }
+            }
+            VideoTool::Perspective => {
+                use osisub_core::{overrides as ov, perspective as pp};
+                let Some((bw, bh)) = self.persp_box.as_ref().filter(|b| b.0 == at && b.1 == d.text).map(|b| b.2) else {
+                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Perspektif: satır kutusu ölçülemedi (yazı tipi bulunamadı ya da boş satır)", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+                    return;
+                };
+                let dist = self.persp_dist;
+                let num = |n: &str| ov::get_initial(&d.text, n).and_then(|t| t.number());
+                let pair = |n: &str| ov::get_initial(&d.text, n).map(|t| t.args()).and_then(|a| Some((a.first()?.trim().parse::<f64>().ok()?, a.get(1)?.trim().parse::<f64>().ok()?)));
+                // dörtgen: son sürüklemeden, yoksa satırın perspektif etiketlerinden, yoksa 4 noktalı kırpmadan, yoksa konum çevresinde kutu
+                let quad: [(f64, f64); 4] = match &self.vt_quad {
+                    Some((l, t, q)) if *l == at && *t == d.text => *q,
+                    _ => {
+                        let an7 = num("an") == Some(7.0);
+                        if let (true, Some(pos), Some(org)) = (an7, pair("pos"), pair("org")) {
+                            let pr = pp::Params { pos, frx: num("frx").unwrap_or(0.0), fry: num("fry").unwrap_or(0.0), frz: num("frz").or(num("fr")).unwrap_or(0.0), fscx: num("fscx").unwrap_or(100.0), fscy: num("fscy").unwrap_or(100.0), fax: num("fax").unwrap_or(0.0) };
+                            pp::corners(&pr, org, dist, bw, bh)
+                        } else if let Some(q) = ov::get_initial(&d.text, "clip").and_then(|t| t.args().last().cloned()).and_then(|dr| pp::quad_from_clip(&dr)) {
+                            q
+                        } else {
+                            let (cx, cy) = (cur.0 as f64, cur.1 as f64);
+                            [(cx - bw / 2.0, cy - bh / 2.0), (cx + bw / 2.0, cy - bh / 2.0), (cx + bw / 2.0, cy + bh / 2.0), (cx - bw / 2.0, cy + bh / 2.0)]
+                        }
+                    }
+                };
+                let sq: Vec<Pos2> = quad.iter().map(|q| to_screen(q.0 as f32, q.1 as f32)).collect();
+                for i in 0..4 {
+                    p.line_segment([sq[i], sq[(i + 1) % 4]], Stroke::new(1.5, col));
+                }
+                // iç ızgara (perspektifi görmek için): kenar orta noktaları
+                let mid = |a: Pos2, b: Pos2| a + (b - a) * 0.5;
+                let thin = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 110));
+                p.line_segment([mid(sq[0], sq[1]), mid(sq[3], sq[2])], thin);
+                p.line_segment([mid(sq[0], sq[3]), mid(sq[1], sq[2])], thin);
+                for (i, s) in sq.iter().enumerate() {
+                    p.rect_filled(Rect::from_center_size(*s, egui::vec2(9.0, 9.0)), 1.0, if i == 0 { Color32::from_rgb(0x6b, 0xc5, 0xe5) } else { col });
+                }
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Perspektif: köşeleri sürükle (mavi = sol üst) · içeriden sürükle: taşı · sağ tık: perspektifi kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                let inside = |q: Pos2| (0..4).all(|i| { let (a, b) = (sq[i], sq[(i + 1) % 4]); (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x) >= 0.0 });
+                if r.drag_started() {
+                    if let Some(pos) = press.or(ptr) {
+                        let hit = (0..4).find(|&i| sq[i].distance(pos) < 10.0).or_else(|| inside(pos).then_some(4));
+                        let (x, y) = to_script(pos);
+                        self.vt_qdrag = hit.map(|h| (h, quad, (x as f64, y as f64)));
+                    }
+                }
+                if r.dragged() {
+                    if let (Some((h, q0, anchor)), Some(pos)) = (self.vt_qdrag, ptr) {
+                        let (x, y) = to_script(pos);
+                        let (x, y) = (x as f64, y as f64);
+                        let mut q = q0;
+                        if h < 4 {
+                            q[h] = ((x * 2.0).round() / 2.0, (y * 2.0).round() / 2.0);
+                        } else {
+                            let (dx, dy) = ((x - anchor.0).round(), (y - anchor.1).round());
+                            for c in q.iter_mut() { *c = (c.0 + dx, c.1 + dy); }
+                        }
+                        if let Some((pr, org, _err)) = pp::fit(&q, bw, bh, dist) {
+                            let mut text = d.text.clone();
+                            for n in ["pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {
+                                text = ov::remove_initial(&text, n);
+                            }
+                            for t in ov::parse_block(&pp::tags(&pr, org)) {
+                                text = ov::set_initial(&text, &t.name, &t.arg);
+                            }
+                            if text != d.text {
+                                let key = format!("vt:persp:{}", at);
+                                let t2 = text.clone();
+                                doc.edit_keyed("Perspektif", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = t2));
+                                self.persp_need_layout = true;
+                            }
+                            self.vt_quad = Some((at, text, q));
+                        }
+                    }
+                }
+                if r.drag_stopped() {
+                    self.vt_qdrag = None;
+                }
+                if r.secondary_clicked() {
+                    let mut text = d.text.clone();
+                    for n in ["org", "frx", "fry", "fax", "fay"] {
+                        text = ov::remove_initial(&text, n);
+                    }
+                    if text != d.text {
+                        doc.edit("Perspektifi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
+                    }
+                    self.vt_quad = None;
                 }
             }
             VideoTool::Scale => {

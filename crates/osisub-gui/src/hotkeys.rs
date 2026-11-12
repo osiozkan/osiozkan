@@ -95,6 +95,7 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/tool/vector_clip", "tool_vclip"),
     ("video/tool/rotate/z", "tool_rotate"),
     ("video/tool/rotate/xy", "tool_rotatexy"),
+    ("video/tool/perspective", "tool_persp"),
     ("video/tool/scale", "tool_scale"),
 ];
 

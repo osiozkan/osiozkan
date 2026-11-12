@@ -2,7 +2,7 @@
 
 ## 0.5.0 — geliştiriliyor (dördüncü gece, 2026-11-12)
 
-**Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`).
+**Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`); **perspektif video aracı** — 4 köşeyi sürükle, metin canlı olarak dörtgene oturur (Aegisub'ın perspektif aracı gibi; LayoutRes otomatik).
 
 ## 0.4.0 — 2026-11-11 (üçüncü gece)
 

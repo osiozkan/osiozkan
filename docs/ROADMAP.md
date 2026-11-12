@@ -112,7 +112,7 @@
 - [x] Tipografi yardımcıları (core::typeset; Araçlar → Degrade / parıltı…): kırpma şeritleriyle degrade (renk/saydamlık/sayısal etiketler, yatay/dikey, ivme), parıltı katmanı
 - [x] Metin → çizim (\p1) dönüştürme (gerçek yazı tipi konturları; hizalama, çok satır, \fscx/\fscy/\fsp, döndürmede \org korunur; libass çıktısıyla piksel karşılaştırması IoU ≥ 0.97, sınır kutuları birebir) + vektör kırpma olarak kopyalama; CLI `to-drawing`, `shape`
 - [x] Perspektife oturt (Araçlar menüsü / kısayol komutu / CLI `perspective`): 4 noktalı vektör kırpma → \frx\fry\frz\fscx\fscy\fax\org\pos; libass dönüşüm zinciriyle Levenberg–Marquardt; video açıksa `LayoutResX/Y` yazılır (perspektif oynatıcı çözünürlüğünden bağımsız); libass render'ıyla IoU ≥ 0.999
-- [ ] Perspektif: videoda 4 köşeyi sürüklenebilir tutamaçlarla düzenleme (şimdilik vektör kırpma aracıyla)
+- [x] Perspektif video aracı (Video aracı: Perspektif; kısayol komutu `tool_persp`, Aegisub `video/tool/perspective`): 4 köşe tutamacı + içeriden taşıma, her sürüklemede canlı oturtma; dörtgen satırın perspektif etiketlerinden geri hesaplanır (yoksa 4 noktalı kırpma ya da konum çevresinde kutu); LayoutRes otomatik eklenir; sağ tık = perspektifi kaldır (xdotool ile doğrulandı)
 - [ ] Video araçları: \p1 çizim düzenleme, \fax/\fay, \t animasyon düzenleme, vektör kırpmada eğri (b) ekleme
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme

@@ -271,6 +271,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_rotate", "Video aracı: döndürme"),
     ("tool_rotatexy", "Video aracı: 3B döndürme"),
     ("tool_scale", "Video aracı: ölçek"),
+    ("tool_persp", "Video aracı: perspektif (4 köşe)"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -576,6 +577,7 @@ impl App {
             Some("vclip") => app.media.tool = crate::media_ui::VideoTool::VClip,
             Some("rotate") => app.media.tool = crate::media_ui::VideoTool::Rotate,
             Some("rotatexy") => app.media.tool = crate::media_ui::VideoTool::RotateXY,
+            Some("persp") => app.media.tool = crate::media_ui::VideoTool::Perspective,
             Some("scale") => app.media.tool = crate::media_ui::VideoTool::Scale,
             Some("spectrum") => app.media.spectrum = true,
             Some("play") => app.autoplay = true,
@@ -1134,6 +1136,7 @@ impl App {
             "tool_vclip" => self.media.tool = T::VClip,
             "tool_rotate" => self.media.tool = T::Rotate,
             "tool_rotatexy" => self.media.tool = T::RotateXY,
+            "tool_persp" => self.media.tool = T::Perspective,
             "tool_scale" => self.media.tool = T::Scale,
             _ => self.status = format!("Bilinmeyen komut: {}", id),
         }
@@ -1545,7 +1548,7 @@ impl App {
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.menu_button("Video aracı", |ui| {
                     use crate::media_ui::VideoTool as T;
-                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)")] {
+                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)"), (T::Perspective, "Perspektif (4 köşeyi sürükle)")] {
                         if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
                     }
                 });
@@ -1797,6 +1800,7 @@ impl eframe::App for App {
             });
         });
         if self.show_media || self.media.is_open() {
+            self.prepare_perspective_tool();
             egui::Panel::top("media").resizable(true).default_size(280.0).show(ui, |ui| self.media.ui(ui, &mut self.doc));
             if self.media.detached && self.media.info.as_ref().map_or(false, |i| i.has_video) {
                 let ctx = ui.ctx().clone();
@@ -2058,6 +2062,34 @@ impl App {
             self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
             self.job = None;
         }
+    }
+
+    /// Perspektif video aracı için etkin satırın kutusunu (yazı tipiyle ölçülür, metin değişince
+    /// yeniden) ve kamera uzaklığını hazırlar; araç LayoutRes'siz betiğe yazdıysa LayoutRes'i ekler.
+    fn prepare_perspective_tool(&mut self) {
+        if self.media.tool != crate::media_ui::VideoTool::Perspective {
+            return;
+        }
+        let at = self.doc.active;
+        if self.media.persp_need_layout {
+            self.media.persp_need_layout = false;
+            if self.doc.script.info("LayoutResY").is_none() && self.media.info.as_ref().map_or(false, |i| i.has_video) {
+                let mut s = self.doc.script.clone();
+                let before = s.entries.len();
+                self.perspective_dist(&mut s);
+                let shift = s.entries.len() - before;
+                let sel: Vec<usize> = self.doc.selection.iter().map(|&i| i + shift).collect();
+                self.doc.apply_new_script("LayoutRes (perspektif)", s);
+                self.doc.select(sel, at + shift);
+                return;
+            }
+        }
+        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at) else { self.media.persp_box = None; return };
+        if !matches!(&self.media.persp_box, Some((l, t, _)) if *l == at && *t == d.text) {
+            let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+            self.media.persp_box = osisub_lua::fonts::line_box(db, &self.doc.script, d).ok().map(|b| (at, d.text.clone(), b));
+        }
+        self.media.persp_dist = self.perspective_dist(&mut self.doc.script.clone());
     }
 
     /// Perspektif için betik koordinatında kamera uzaklığı. LayoutRes: betikte varsa o, yoksa
