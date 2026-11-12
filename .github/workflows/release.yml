@@ -36,6 +36,16 @@ jobs:
           done
           cp -r docs dist/docs
           cp examples/demo.ass dist/
+      - name: Windows için ffmpeg ekle (BtbN GPL derlemesi; lisans THIRD_PARTY.md)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          curl -sSL -o ff.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+          unzip -q ff.zip -d ff
+          mkdir -p dist/ffmpeg
+          cp ff/*/bin/ffmpeg.exe ff/*/bin/ffprobe.exe dist/ffmpeg/
+          cp ff/*/bin/ffplay.exe dist/ffmpeg/ 2>/dev/null || true
+          cp ff/*/LICENSE.txt dist/ffmpeg/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: osisub-${{ matrix.name }}-${{ github.sha }}

@@ -7,7 +7,9 @@ cargo build --release                     # target/release/osisub-gui ve osisub
 target/release/osisub-gui film.ass --media film.mkv
 ```
 
-Gereken harici araçlar: **ffmpeg/ffprobe** (video önizleme, ses dalga formu, anahtar kareler; PATH'te olmalı, ya da `OSISUB_FFMPEG`/`OSISUB_FFPROBE`). Linux'ta ses için ALSA, GUI için `libxkbcommon-x11`. Yazım denetimi için `tr_TR` sözlüğü: *Yazım* sekmesi → "tr_TR indir" (curl kullanır) ya da kendi `.dic` dosyanızı seçin.
+Gereken harici araçlar: **ffmpeg/ffprobe** (video önizleme, ses dalga formu, anahtar kareler; PATH'te, programın yanındaki `ffmpeg/` klasöründe ya da `OSISUB_FFMPEG`/`OSISUB_FFPROBE` ile). **Windows paketi ffmpeg'i yanında getirir**, ayrıca kurmanız gerekmez.
+
+**Gece sürümleri:** her gece sonunda GitHub Actions → *Release* çalıştırmasında `osisub-windows-x86_64-…`, `osisub-linux-x86_64-…`, `osisub-macos-arm64-…` paketleri (30 gün) bulunur. Linux'ta ses için ALSA, GUI için `libxkbcommon-x11`. Yazım denetimi için `tr_TR` sözlüğü: *Yazım* sekmesi → "tr_TR indir" (curl kullanır) ya da kendi `.dic` dosyanızı seçin.
 
 ## İş akışları
 

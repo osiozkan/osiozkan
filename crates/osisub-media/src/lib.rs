@@ -11,12 +11,38 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// Araç yolu: ortam değişkeni, yoksa programın yanındaki (ya da `ffmpeg/`, `ffmpeg/bin/`
+/// alt klasöründeki) kopya — Windows paketi ffmpeg'i yanında getirir —, yoksa PATH'teki ad.
+pub fn tool_bin(name: &str, env: &str) -> String {
+    if let Ok(v) = std::env::var(env) {
+        return v;
+    }
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(v) = cache.lock().ok().and_then(|c| c.get(name).cloned()) {
+        return v;
+    }
+    let exe = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+    let found = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).and_then(|dir| {
+        [dir.join(&exe), dir.join("ffmpeg").join(&exe), dir.join("ffmpeg").join("bin").join(&exe)].into_iter().find(|p| p.is_file())
+    });
+    let v = found.map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| name.to_string());
+    if let Ok(mut c) = cache.lock() {
+        c.insert(name.to_string(), v.clone());
+    }
+    v
+}
+
 pub fn ffmpeg_bin() -> String {
-    std::env::var("OSISUB_FFMPEG").unwrap_or_else(|_| "ffmpeg".into())
+    tool_bin("ffmpeg", "OSISUB_FFMPEG")
 }
 
 pub fn ffprobe_bin() -> String {
-    std::env::var("OSISUB_FFPROBE").unwrap_or_else(|_| "ffprobe".into())
+    tool_bin("ffprobe", "OSISUB_FFPROBE")
+}
+
+pub fn ffplay_bin() -> String {
+    tool_bin("ffplay", "OSISUB_FFPLAY")
 }
 
 /// ffmpeg çalıştırılabilir mi? (Süreç bir kez denenir, sonuç önbellekte; arayüz her karede sorabilir.)
@@ -435,6 +461,18 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn finds_tool_next_to_exe() {
+        assert_eq!(tool_bin("osisub-yok-arac", "OSISUB_YOK_DEGISKEN"), "osisub-yok-arac");
+        let dir = std::env::current_exe().unwrap().parent().unwrap().join("ffmpeg");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(format!("osisub-test-arac{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&p, b"").unwrap();
+        assert_eq!(tool_bin("osisub-test-arac", "OSISUB_YOK_DEGISKEN"), p.to_string_lossy());
+        let _ = std::fs::remove_file(&p);
+    }
+
     use super::*;
 
     #[test]

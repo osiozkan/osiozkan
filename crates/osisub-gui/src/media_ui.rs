@@ -374,7 +374,7 @@ impl Media {
         match osisub_media::audio::AudioPlayer::start(&p, from, dur, self.play_opts) {
             Ok(a) => self.audio = Some(a),
             Err(why) => {
-                let mut cmd = Command::new("ffplay");
+                let mut cmd = Command::new(osisub_media::ffplay_bin());
                 cmd.args(["-v", "quiet", "-nodisp", "-autoexit", "-ss", &format!("{:.3}", from as f64 / 1000.0), "-t", &format!("{:.3}", dur as f64 / 1000.0)]);
                 let af = self.play_opts.filter();
                 if !af.is_empty() { cmd.args(["-af", &af]); }
