@@ -2420,7 +2420,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "osisub-core",
  "osisub-lua",
@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-doc"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arboard",
  "osisub-core",
@@ -2448,7 +2448,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-gui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "eframe",
  "egui_extras",
@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-lua"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "fancy-regex",
  "mlua",
@@ -2475,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-media"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cpal",
  "osisub-core",
@@ -2486,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "osisub-spell"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "osisub-core",
  "spellbook",

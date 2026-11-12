@@ -74,3 +74,9 @@ Dal: `claude/vibrant-clarke-xt32gt` (main'den; `claude/vibrant-clarke-dsxf2y` il
 - **Dağıtım:** `[nightly]` commit'lerinde release.yml paketleri (ilk kez çalıştırıldı, Linux/macOS/Windows yeşil); Windows paketi ffmpeg getirir, program ffmpeg'i kendi klasöründe de arar.
 - HATA DÜZELTİLDİ: köşe pini/perspektifte LayoutRes eklemek girdi indekslerini kaydırıp yanlış satırı siliyordu; Lua `clipboard.get` arayüzde boş dönüyordu.
 - Tuzak: egui `lost_focus()` canlı okunur — aynı karede `request_focus()` sonrası false (Stil yardımcısında Enter çalışmıyordu).
+- (aynı gece, devam) Toplu dosya işlemleri penceresi (core::filebatch), HTML QC raporu (GUI + CLI `check --report`), çok dilli yazım (ek sözlük, gerçek en_US ile testli), anamorfik video/en-boy oranı.
+- Uçtan uca GUI testi (`tools/ui-e2e.sh`) yeni menü öğelerinden sonra yerelde yeniden çalıştırıldı: hepsi TAMAM.
+
+### Gece sonu durumu (2026-11-12, v0.5.0)
+- Tüm testler yeşil; CI her push'ta yeşil (Linux/macOS/Windows). Sürüm commit'i `[nightly]` ile → Release iş akışı paketleri üretir.
+- Doğrulanmayanlar: gerçek ses aygıtı, Windows paketindeki gömülü ffmpeg'in gerçek Windows'ta çalışması, kullanıcının kendi Lua betikleri (depoda yok).

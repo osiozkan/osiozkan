@@ -1,6 +1,6 @@
 # Değişiklik günlüğü
 
-## 0.5.0 — geliştiriliyor (dördüncü gece, 2026-11-12)
+## 0.5.0 — 2026-11-12 (dördüncü gece)
 
 **Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`); hareket izlemede doğrusal kip (`\move` + `\t`, tek satır); **çizim video aracı** (`\p` noktalarını videoda düzenle); **perspektif video aracı** — 4 köşeyi sürükle, metin canlı olarak dörtgene oturur (Aegisub'ın perspektif aracı gibi; LayoutRes otomatik); **Etiket uygula / yeniden hesapla** (HYDRA + Recalculator benzeri): etiketleri başlangıca, tüm bloklara, `\t` olarak, harf harf ya da satırlar boyunca degrade olarak uygula; sayısal değerleri (`\t` içleri ve `\pos/\move/\org` dahil) topla/çarp.
 **Kalite:** ekip için HTML QC raporu (Kalite sekmesi, CLI `check --report`); eksik glif denetimi — yazı tipinde bulunmayan karakterler (ör. Türkçe ğ ş İ ı'sı olmayan tabela yazı tipleri) Yazı tipi denetimi penceresinde ve CLI `fonts`'ta.

@@ -3,13 +3,11 @@
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
 ## Sıradaki geceler için öncelikli öneriler
-1. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), macOS'ta GUI'yi elle çalıştırma, release iş akışı (etiket gerekir; hiç çalıştırılmadı). CI GitHub Actions'ta her push'ta çalışıyor: Linux/macOS/Windows testleri + GUI derlemesi + uçtan uca GUI testi yeşil (2026-11-11). Windows: wine altında CLI + GUI doğrulandı (`tools/win-check.sh`); gerçek Windows makinesinde ses/video denenmedi.
-2. **Kullanıcının kendi Lua betikleri** ile regresyon testi (betikler depoya eklenip `crates/osisub-lua/tests/fixtures/`'a konmalı; çalışmayan API'ler `docs/LUA_UYUMLULUK.md`'e işlenmeli). `kara-templater.lua` uyumluluğu.
-3. **Video araçları:** vektör `\clip`/çizim, `\t` animasyon düzenleme.
-4. Çevrimiçi çeviri bağlayıcıları (anahtar gerektirir; kullanıcıya sorulmalı).
-5. **Kısayol özelleştirme** (Aegisub kısayol profili).
-6. **Performans:** yazı tipi dizini önbelleği; video için kalıcı ffmpeg/libmpv hattı; büyük belgede QC'yi artımlı yapma.
-7. Ses/dalga: basılı tutarak oynat, hız/ses seviyesi, VFR/timecode dosyaları.
+1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
+2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
+3. Video araçları: döndürülmüş / `\an≠7` çizim düzenleme, vektör kırpmada eğri (b) ekleme, `\fax/\fay` aracı.
+4. Anamorfik kaynaklarda PlayRes en-boy QC'sinin DAR'ı da kabul etmesi; libmpv ile donanım hızlandırmalı oynatma.
+5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
