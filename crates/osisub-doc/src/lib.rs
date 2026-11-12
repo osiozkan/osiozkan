@@ -2,6 +2,7 @@
 //!
 //! GUI (ve testler) yalnızca bu katmanla konuşur; böylece tüm düzenleme mantığı başsız test edilebilir.
 
+pub mod sysclip;
 pub mod worker;
 
 use osisub_core::ass::{Dialogue, Entry, Script};
@@ -597,6 +598,39 @@ impl Document {
         n
     }
 
+    /// Aegisub "Paste Over": panodaki Dialogue satırlarının seçili alanlarını seçili satırların
+    /// üzerine sırayla yazar. `fields`: katman, başlangıç, bitiş, stil, konuşan, sol, sağ, dikey
+    /// kenar boşluğu, efekt, metin. Değişen satır sayısını döndürür (tek geri-al adımı).
+    pub fn paste_over(&mut self, text: &str, fields: &[bool; 10]) -> usize {
+        let src: Vec<Dialogue> = Script::parse(&format!("[Events]\n{}", text.replace("\r\n", "\n")))
+            .entries
+            .into_iter()
+            .filter_map(|e| match e { Entry::Dialogue(d) => Some(d), _ => None })
+            .collect();
+        let targets: Vec<usize> = self.target_lines().into_iter().filter(|&i| matches!(self.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+        let f = *fields;
+        let mut n = 0;
+        self.edit("Üzerine yapıştır", |tx| {
+            for (&i, s) in targets.iter().zip(src.iter()) {
+                let before = tx.script().entries[i].clone();
+                tx.dialogue_mut(i, |d| {
+                    if f[0] { d.layer = s.layer; }
+                    if f[1] { d.start_time = s.start_time; }
+                    if f[2] { d.end_time = s.end_time; }
+                    if f[3] { d.style = s.style.clone(); }
+                    if f[4] { d.actor = s.actor.clone(); }
+                    if f[5] { d.margin_l = s.margin_l; }
+                    if f[6] { d.margin_r = s.margin_r; }
+                    if f[7] { d.margin_t = s.margin_t; d.margin_b = s.margin_b; }
+                    if f[8] { d.effect = s.effect.clone(); }
+                    if f[9] { d.text = s.text.clone(); }
+                });
+                if tx.script().entries[i] != before { n += 1; }
+            }
+        });
+        n
+    }
+
     pub fn stripped_text(&self, at: usize) -> String {
         match self.script.entries.get(at) {
             Some(Entry::Dialogue(d)) => tags::visible_text(&d.text),
@@ -894,7 +928,7 @@ mod tests {
         let mut d = doc();
         for i in 0..12 {
             let mut s = d.script.clone();
-            // satır sayısını değiştir → Change::All
+            // satır sayısını değiştir → yapısal değişiklik
             s.entries.push(Entry::Dialogue(Dialogue { text: format!("x{}", i), ..Default::default() }));
             d.apply_new_script("yapısal", s);
         }
@@ -981,5 +1015,27 @@ mod tests {
         assert_eq!(d2.script.entries, s2.entries);
         d2.undo();
         assert_eq!(d2.script.entries.len(), s2.entries.len() - 1);
+    }
+
+    #[test]
+    fn paste_over_fields() {
+        let mut d = Document::new(Script::from_dialogues(vec![
+            Dialogue { start_time: 0, end_time: 1000, text: "bir".into(), ..Default::default() },
+            Dialogue { start_time: 1000, end_time: 2000, text: "iki".into(), ..Default::default() },
+            Dialogue { start_time: 2000, end_time: 3000, text: "üç".into(), ..Default::default() },
+        ]));
+        let rows: Vec<usize> = d.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+        let clip = "Dialogue: 3,0:00:10.00,0:00:11.00,Tabela,Kenji,0,0,0,,{\\an8}one\nDialogue: 4,0:00:20.00,0:00:21.00,Tabela,,0,0,0,,two\n";
+        d.select(vec![rows[1], rows[2]], rows[1]);
+        // yalnızca metin + stil
+        let mut f = [false; 10];
+        f[3] = true;
+        f[9] = true;
+        assert_eq!(d.paste_over(clip, &f), 2);
+        let ds: Vec<&Dialogue> = d.script.dialogues().collect();
+        assert_eq!((ds[0].text.as_str(), ds[1].text.as_str(), ds[2].text.as_str()), ("bir", "{\\an8}one", "two"));
+        assert_eq!((ds[1].style.as_str(), ds[1].start_time, ds[1].layer), ("Tabela", 1000, 0));
+        d.undo();
+        assert_eq!(d.script.dialogues().nth(1).unwrap().text, "iki");
     }
 }

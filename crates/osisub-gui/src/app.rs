@@ -170,6 +170,9 @@ pub struct App {
     /// Tipografi yardımcıları penceresi (degrade, parıltı)
     tsw: Option<TypesetWin>,
     tagw: Option<TagWin>,
+    /// Üzerine yapıştır penceresi: (pano metni, alanlar)
+    paste_over: Option<(String, [bool; 10])>,
+    last_copy: String,
     /// Metin → çizim için yazı tipi dizini (ilk kullanımda taranır)
     font_db: Option<osisub_lua::fonts::FontDb>,
     /// Bir sonraki karede panoya kopyalanacak metin (bağlamı olmayan işlevlerden)
@@ -259,6 +262,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
+    ("paste_over", "Üzerine yapıştır…"),
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
     ("perspective", "Perspektife oturt (4 noktalı vektör kırpmadan)"),
@@ -411,6 +415,8 @@ impl App {
             batch: None,
             tsw: None,
             tagw: None,
+            paste_over: None,
+            last_copy: String::new(),
             font_db: None,
             ctx_copy: None,
             job: None,
@@ -1117,6 +1123,7 @@ impl App {
             "line_next" => step_line(self, 1),
             "line_prev" => step_line(self, -1),
             "select_lines" => self.select_open = true,
+            "paste_over" => self.open_paste_over(None),
             "perspective" => self.perspective_fit(),
             "merge_keep" | "merge_kara" => {
                 let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
@@ -1250,8 +1257,8 @@ impl App {
             let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
             for ev in events {
                 match ev {
-                    egui::Event::Copy => { let t = self.doc.copy_lines(); if !t.is_empty() { ctx.copy_text(t); } }
-                    egui::Event::Cut => { let t = self.doc.cut_lines(); if !t.is_empty() { ctx.copy_text(t); } }
+                    egui::Event::Copy => { let t = self.doc.copy_lines(); if !t.is_empty() { self.last_copy = t.clone(); ctx.copy_text(t); } }
+                    egui::Event::Cut => { let t = self.doc.cut_lines(); if !t.is_empty() { self.last_copy = t.clone(); ctx.copy_text(t); } }
                     egui::Event::Paste(t) => { let n = self.doc.paste_lines(&t); if n > 0 { self.status = format!("{} satır yapıştırıldı", n); self.scroll_to = Some(self.doc.active); } }
                     _ => {}
                 }
@@ -1265,6 +1272,11 @@ impl App {
                 "lua" | "moon" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
+        }
+        // Ctrl+Shift+V egui'de Paste olayı üretmez: sistem panosundan okunur
+        if !typing && ctx.input_mut(|i| i.consume_shortcut(&k(Modifiers::COMMAND | Modifiers::SHIFT, Key::V))) {
+            let t = osisub_doc::sysclip::get().filter(|t| t.contains("Dialogue:") || t.contains("Comment:"));
+            self.open_paste_over(t);
         }
         let (open, save, save_as, undo, redo, redo2, dup, ins, merge) = ctx.input_mut(|i| {
             (
@@ -1413,6 +1425,7 @@ impl App {
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new("Yinele").shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
                 if ui.button("Geçmiş…").on_hover_text("Geri alma geçmişi: bir adıma tıklayarak o duruma dönün").clicked() { ui.close(); self.history_open = true; }
+                if ui.button("Üzerine yapıştır…  Ctrl+Shift+V").on_hover_text("Panodaki satırların seçtiğiniz alanlarını (zaman, stil, metin…) seçili satırların üzerine yazar (Aegisub: Paste Over)").clicked() { ui.close(); self.open_paste_over(None); }
                 if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
                 if ui.add(egui::Button::new("Satır ekle").shortcut_text("Ctrl+Enter")).clicked() { self.doc.insert_after_active(); self.scroll_to = Some(self.doc.active); ui.close(); }
                 if ui.add(egui::Button::new("Çoğalt").shortcut_text("Ctrl+D")).clicked() { self.doc.duplicate_selected(); ui.close(); }
@@ -1854,6 +1867,7 @@ impl App {
         self.merge_window(&ctx);
         self.motion_window(&ctx);
         self.tag_window(&ctx);
+        self.paste_over_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);

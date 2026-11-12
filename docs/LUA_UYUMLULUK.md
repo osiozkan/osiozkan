@@ -11,7 +11,7 @@ Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil), `unknown`. Alanl
 
 **`aegisub.*`:** `log` (düzeyli, `string.format` biçimli), `cancel`, `set_undo_point`, `progress.set/task/title/is_cancelled`, `dialog.display/open/save`, `text_extents` (gerçek yazı tipi ölçüleri; GDI/VSFilter uyumlu), `frame_from_ms`, `ms_from_frame`, `video_size`, `keyframes`, `get_audio_selection`, `project_properties`, `decode_path` (`?script ?video ?audio ?data ?user ?local ?temp`), `file_name`, `gettext`, `lua_automation_version = 4`.
 
-**Kütüphaneler:** `include("karaskel.lua" | "utils.lua" | "unicode.lua" | "utf8.lua" | "karaskel-auto4.lua" | "utils-auto4.lua")`; `require "re"`, `"aegisub.re"`, `"unicode"`, `"aegisub.unicode"`, `"utf8"`, `"lfs"`, `"ffi"`, `"bit"`, `"aegisub.util"`, `"aegisub.clipboard"`, `"clipboard"`.
+**Kütüphaneler:** `include("karaskel.lua" | "utils.lua" | "unicode.lua" | "utf8.lua" | "karaskel-auto4.lua" | "utils-auto4.lua")`; `require "re"`, `"aegisub.re"`, `"unicode"`, `"aegisub.unicode"`, `"utf8"`, `"lfs"`, `"ffi"`, `"bit"`, `"aegisub.util"`, `"aegisub.clipboard"`, `"clipboard"` (arayüzde gerçek sistem panosu; CLI'de betik içi bellek).
 - `re`: `find`, `match`, `sub`, `gsub`, `compile` (+ `:find/:match/:sub/:gsub`), bayraklar `ICASE` vb. Motor `fancy-regex` (Perl benzeri; geri başvuru ve ileri/geri bakış var).
 - `karaskel`: `collect_head`, `preproc_line` (+ `_text/_size/_pos`), `parse_syllables`, `do_basic_layout`; hece alanları `duration/start_time/end_time/tag/text/text_stripped/text_spacestripped/prespace/postspace/width/height/left/center/right/i`.
 - `util`: renk/alfa dönüşümleri, HSV/HSL, enterpolasyon, `copy/deep_copy/clamp/uuid`, `string.trim/headtail/words`.

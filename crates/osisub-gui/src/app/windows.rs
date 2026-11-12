@@ -527,6 +527,43 @@ impl App {
         if open { self.batch = Some(b); }
     }
 
+    pub(crate) fn open_paste_over(&mut self, text: Option<String>) {
+        let fields = self.paste_over.as_ref().map(|p| p.1).unwrap_or([false, true, true, false, false, false, false, false, false, false]);
+        self.paste_over = Some((text.unwrap_or_else(|| self.last_copy.clone()), fields));
+    }
+
+    pub(super) fn paste_over_window(&mut self, ctx: &egui::Context) {
+        let Some((mut text, mut f)) = self.paste_over.take() else { return };
+        let mut open = true;
+        let mut apply = false;
+        egui::Window::new("Üzerine yapıştır").open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
+            ui.label(RichText::new("Panodaki satırların işaretli alanları seçili satırlara sırayla yazılır (Aegisub: Paste Over). Kutuya Ctrl+V ile yapıştırabilirsiniz.").small().weak());
+            let names = ["Katman", "Başlangıç", "Bitiş", "Stil", "Konuşan", "Sol kenar", "Sağ kenar", "Dikey kenar", "Efekt", "Metin"];
+            ui.horizontal_wrapped(|ui| {
+                for (i, n) in names.iter().enumerate() { ui.checkbox(&mut f[i], *n); }
+            });
+            ui.horizontal(|ui| {
+                if ui.small_button("Hepsi").clicked() { f = [true; 10]; }
+                if ui.small_button("Hiçbiri").clicked() { f = [false; 10]; }
+                if ui.small_button("Zamanlar").clicked() { f = [false, true, true, false, false, false, false, false, false, false]; }
+                if ui.small_button("Metin").clicked() { f = [false; 10]; f[9] = true; }
+            });
+            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut text).font(egui::TextStyle::Monospace).desired_rows(6).desired_width(f32::INFINITY).hint_text("Dialogue: 0,0:00:01.00,…"));
+            });
+            let src = text.lines().filter(|l| l.trim_start().starts_with("Dialogue:") || l.trim_start().starts_with("Comment:")).count();
+            let n = self.doc.target_lines().len();
+            ui.label(format!("Panoda {src} satır · seçili {n} satır{}", if src != n && src > 0 { " (sayılar farklı: kısa olana kadar uygulanır)" } else { "" }));
+            if ui.add_enabled(src > 0 && f.iter().any(|x| *x), egui::Button::new("Uygula")).clicked() { apply = true; }
+        });
+        if apply {
+            let n = self.doc.paste_over(&text, &f);
+            self.status = format!("Üzerine yapıştırıldı: {n} satır değişti");
+            open = false;
+        }
+        if open { self.paste_over = Some((text, f)); }
+    }
+
     /// Etiket uygula (HYDRA) ve yeniden hesapla (Recalculator) penceresi; seçili satırlarda tek geri-al adımı.
     pub(super) fn tag_window(&mut self, ctx: &egui::Context) {
         use osisub_core::tagapply::{self, Mode, Op};
@@ -805,6 +842,7 @@ impl App {
                 "typeset" => self.tsw = Some(super::TypesetWin::default()),
                 "motion" => self.open_motion(),
                 "tags" => self.tagw = Some(super::TagWin::default()),
+                "paste_over" => self.open_paste_over(None),
                 "todraw" => self.text_to_drawing(false),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());

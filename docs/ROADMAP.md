@@ -128,6 +128,8 @@
 - [x] Yerleşik komutlara kısayol atama (Yardım → Kısayolları düzenle; 19 komut)
 - [x] Aegisub kısayol profilini içe aktarma (hotkey.json; 3.0 nesne ve 3.2 "Ctrl-K" biçimleri, Lua makro kısayolları dahil)
 - [x] Belgeye bağlı betikler (Aegisub "Automation Scripts" alanı: `~` göreli, `$` otomasyon tabanı, `/` mutlak; açılışta yüklenir, Otomasyon sekmesinde "belgeye bağlı")
+- [x] Üzerine yapıştır (Aegisub Paste Over, Ctrl+Shift+V / Düzen menüsü): panodaki satırların seçilen alanları (zaman, stil, konuşan, kenar, efekt, metin) seçili satırlara; sistem panosundan okunur
+- [x] Lua `clipboard.get/set` GUI'de gerçek sistem panosuna bağlı (arboard; eskiden yalnızca betik içi bellekti)
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [x] Geçmiş penceresi (Düzen → Geçmiş…): geri alma listesi, tıklayınca o duruma git (geri al/yinele)

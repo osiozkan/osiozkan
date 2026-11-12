@@ -95,6 +95,12 @@ impl Host for ChannelHost {
     fn log(&mut self, _level: i64, msg: &str) {
         let _ = self.tx.send(Event::Log(msg.to_string()));
     }
+    fn clipboard_get(&mut self) -> Option<String> {
+        crate::sysclip::get()
+    }
+    fn clipboard_set(&mut self, text: &str) -> bool {
+        crate::sysclip::set(text)
+    }
     fn get_frame(&mut self, frame: i64, subs_ass: Option<String>) -> Option<(u32, u32, Vec<u8>)> {
         let (video, info, fr) = {
             let m = self.media.lock().ok()?;
