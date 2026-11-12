@@ -259,8 +259,9 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let video = opt(&mut args, "--video");
             let report = opt(&mut args, "--report");
             let s = load(args.first().ok_or("dosya gerekli")?)?;
-            let vsize = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video).map(|i| (i.width, i.height));
-            let head = qc::script_issues(&s, vsize);
+            let vinfo = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video);
+            let vsize = vinfo.as_ref().map(|i| (i.width, i.height));
+            let head = qc::script_issues_dar(&s, vsize, vinfo.as_ref().filter(|i| i.dar > 0.0).map(|i| i.dar));
             for m in &head { println!("başlık: {m}"); }
             let mut issues = qc::check(&s, &r);
             if let Some(v) = video {

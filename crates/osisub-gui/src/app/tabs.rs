@@ -760,7 +760,8 @@ impl App {
     pub(super) fn quality_tab(&mut self, ui: &mut egui::Ui) {
         // Betik başlığı denetimleri (PlayRes, ScaledBorderAndShadow, YCbCr Matrix…)
         let video = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width, i.height));
-        let head = qc::script_issues(&self.doc.script, video);
+        let dar = self.media.render_info().filter(|i| i.has_video && i.dar > 0.0).map(|i| i.dar);
+        let head = qc::script_issues_dar(&self.doc.script, video, dar);
         if !head.is_empty() {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 for m in &head {

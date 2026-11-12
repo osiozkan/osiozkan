@@ -246,6 +246,12 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
 /// Betik geneli (başlık) denetimleri: satıra bağlı olmayan, yayından önce düzeltilmesi gereken
 /// ayarlar. `video`: açık videonun (genişlik, yükseklik).
 pub fn script_issues(script: &Script, video: Option<(u32, u32)>) -> Vec<String> {
+    script_issues_dar(script, video, None)
+}
+
+/// `dar`: anamorfik videoda görüntü en-boy oranı; PlayRes oranı depolama ya da görüntü oranından
+/// birine uyuyorsa uyarı verilmez.
+pub fn script_issues_dar(script: &Script, video: Option<(u32, u32)>, dar: Option<f64>) -> Vec<String> {
     let mut out = vec![];
     let px = script.info("PlayResX").and_then(|v| v.trim().parse::<f64>().ok());
     let py = script.info("PlayResY").and_then(|v| v.trim().parse::<f64>().ok());
@@ -258,7 +264,7 @@ pub fn script_issues(script: &Script, video: Option<(u32, u32)>) -> Vec<String> 
     if let (Some(x), Some(y), Some((vw, vh))) = (px, py, video) {
         if vw > 0 && vh > 0 {
             let (ra, rv) = (x / y, vw as f64 / vh as f64);
-            if (ra - rv).abs() / rv > 0.02 {
+            if (ra - rv).abs() / rv > 0.02 && dar.map_or(true, |d| (ra - d).abs() / d > 0.02) {
                 out.push(format!("PlayRes en-boy oranı ({}×{}) videoyla ({}×{}) uyuşmuyor: yazılar yatayda esner", x, y, vw, vh));
             }
         }
@@ -693,5 +699,7 @@ mod tests {
         let ok = Script::parse(&base.replace("{RES}", "PlayResX: 1920\nPlayResY: 1080\nScaledBorderAndShadow: yes\nYCbCr Matrix: TV.709").replace("Style: A,Arial,30", "Style: B,Arial,30"));
         assert!(script_issues(&ok, Some((1920, 1080))).is_empty());
         assert!(script_issues(&ok, Some((1440, 1080))).iter().any(|m| m.contains("en-boy")));
+        // anamorfik 1440×1080 (görüntü 16:9): 1920×1080 PlayRes kabul
+        assert!(!script_issues_dar(&ok, Some((1440, 1080)), Some(16.0 / 9.0)).iter().any(|m| m.contains("en-boy")));
     }
 }

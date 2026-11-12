@@ -6,7 +6,7 @@
 1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
 3. Video araçları: döndürülmüş / `\an≠7` çizim düzenleme, vektör kırpmada eğri (b) ekleme, `\fax/\fay` aracı.
-4. Anamorfik kaynaklarda PlayRes en-boy QC'sinin DAR'ı da kabul etmesi; libmpv ile donanım hızlandırmalı oynatma.
+4. libmpv ile donanım hızlandırmalı oynatma.
 5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
 
 ## Çekirdek
@@ -91,6 +91,7 @@
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
 - [x] Oynatma sırasında akış (kalıcı ffmpeg boru hattı) — önceki geceden; kare önbelleği + 6 karelik ön-yükleme (ileri kare adımı anında)
 - [x] Geri kare adımı için ön-yükleme (istenen karenin 3 öncesi + 5 sonrası tek ffmpeg çağrısında)
+- [x] Anamorfik videoda PlayRes en-boy QC'si görüntü oranını da kabul eder
 - [x] Anamorfik video (SAR ≠ 1, ör. DVD 720×480 → 16:9) doğru en-boy oranıyla gösterilir; Video → En-boy oranı (Otomatik/4:3/16:9/1.85/2.35; Aegisub Override AR)
 - [x] Videoyu ayrı pencerede göster (Video menüsü; çift monitör, Aegisub "Detach video"); video araçları ayrı pencerede de çalışır
 - [ ] libmpv ile donanım hızlandırmalı oynatma
