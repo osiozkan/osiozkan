@@ -10,6 +10,7 @@ pub mod fonts_used;
 pub mod formats;
 pub mod glossary;
 pub mod io;
+pub mod kanjitimer;
 pub mod karaoke;
 pub mod merge;
 pub mod motion;

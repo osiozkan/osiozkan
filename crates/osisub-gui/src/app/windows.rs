@@ -581,6 +581,104 @@ impl App {
         if open { self.style_assist = Some(filter); }
     }
 
+    /// Kanji zamanlayıcı (Aegisub Kanji Timer): kaynak stildeki romaji `\k` satırının zamanlamasını
+    /// aynı zamandaki hedef stil satırına (kanji/kana) aktarır; gruplar otomatik eşlenir, elle düzeltilebilir.
+    pub(super) fn kanji_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::{kanjitimer as kt, karaoke};
+        let Some(mut w) = self.kanji.take() else { return };
+        let styles: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
+        if w.src_style.is_empty() || w.dst_style.is_empty() {
+            // varsayılan: etkin satırın stili kaynak, ondan farklı ilk stil hedef
+            let act = match self.doc.script.entries.get(self.doc.active) { Some(Entry::Dialogue(d)) => d.style.clone(), _ => String::new() };
+            if w.src_style.is_empty() { w.src_style = if act.is_empty() { styles.first().cloned().unwrap_or_default() } else { act }; }
+            if w.dst_style.is_empty() { w.dst_style = styles.iter().find(|s| **s != w.src_style).cloned().unwrap_or_default(); }
+        }
+        let ents = &self.doc.script.entries;
+        let srcs: Vec<usize> = ents.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.style == w.src_style && !karaoke::parse(&d.text).iter().all(|s| s.dur == 0))).map(|(i, _)| i).collect();
+        if w.cur.map_or(true, |c| !srcs.contains(&c)) {
+            w.cur = srcs.iter().copied().find(|&i| i >= self.doc.active).or(srcs.first().copied());
+        }
+        let pair = w.cur.and_then(|si| {
+            let Entry::Dialogue(sd) = &ents[si] else { return None };
+            ents.iter().enumerate().filter_map(|(i, e)| match e { Entry::Dialogue(d) if d.style == w.dst_style && i != si => Some((i, (d.start_time - sd.start_time).abs() + (d.end_time - sd.end_time).abs())), _ => None }).filter(|(_, diff)| *diff <= 200).min_by_key(|x| x.1).map(|(di, _)| (si, di))
+        });
+        let (src_syls, dst_text) = match pair {
+            Some((si, di)) => match (&ents[si], &ents[di]) { (Entry::Dialogue(a), Entry::Dialogue(b)) => (karaoke::parse(&a.text), b.text.clone()), _ => (vec![], String::new()) },
+            None => (vec![], String::new()),
+        };
+        // yeni çift: otomatik hizala
+        if pair.is_some() && w.loaded != pair {
+            let (c, d) = kt::auto_align(&src_syls, &dst_text);
+            w.src_str = kt::src_string(&src_syls, &c);
+            w.dst_str = d.join("|");
+            w.loaded = pair;
+        }
+        let mut open = true;
+        let mut act: i8 = 0; // 1 uygula+sonraki, 2 atla, -1 önceki
+        egui::Window::new("Kanji zamanlayıcı").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.label(RichText::new("Kaynak (romaji, \\k'li) satırın hece süreleri, aynı zamandaki hedef satırın (kanji/kana) gruplarına aktarılır. Gruplar | ile, bir gruptaki kaynak heceler + ile ayrılır.").small().weak());
+            ui.horizontal(|ui| {
+                ui.label("Kaynak stil");
+                egui::ComboBox::from_id_salt("kt_src").selected_text(&w.src_style).show_ui(ui, |ui| { for s in &styles { ui.selectable_value(&mut w.src_style, s.clone(), s); } });
+                ui.label("Hedef stil");
+                egui::ComboBox::from_id_salt("kt_dst").selected_text(&w.dst_style).show_ui(ui, |ui| { for s in &styles { ui.selectable_value(&mut w.dst_style, s.clone(), s); } });
+            });
+            let pos = w.cur.and_then(|c| srcs.iter().position(|&i| i == c)).map(|p| p + 1).unwrap_or(0);
+            ui.label(format!("Kaynak satır {pos} / {}", srcs.len()));
+            if srcs.is_empty() { ui.label(RichText::new("Kaynak stilde \\k'li satır yok").color(theme::BAD)); return; }
+            if pair.is_none() { ui.label(RichText::new("Bu satırla aynı zamanda hedef stilde satır yok (±200 ms)").color(theme::BAD)); }
+            ui.label(RichText::new(src_syls.iter().map(|s| format!("{}({})", s.visible().trim(), s.dur)).collect::<Vec<_>>().join(" ")).monospace().small());
+            egui::Grid::new("kt_g").num_columns(2).show(ui, |ui| {
+                ui.label("Kaynak gruplar");
+                ui.add(egui::TextEdit::singleline(&mut w.src_str).font(egui::TextStyle::Monospace).desired_width(420.0));
+                ui.end_row();
+                ui.label("Hedef gruplar");
+                ui.add(egui::TextEdit::singleline(&mut w.dst_str).font(egui::TextStyle::Monospace).desired_width(420.0));
+                ui.end_row();
+            });
+            let counts = kt::parse_src_counts(&w.src_str);
+            let groups: Vec<String> = w.dst_str.split('|').map(String::from).collect();
+            let res = kt::build(&src_syls, &counts, &groups);
+            match &res {
+                Ok(t) => { ui.label(RichText::new(format!("Sonuç: {t}")).monospace().color(theme::ACCENT)); }
+                Err(e) => { ui.label(RichText::new(e).color(theme::BAD)); }
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Otomatik").clicked() { w.loaded = None; }
+                if ui.add_enabled(res.is_ok() && pair.is_some(), egui::Button::new("Uygula ve sonraki")).clicked() { act = 1; }
+                if ui.button("Atla").clicked() { act = 2; }
+                if ui.button("Önceki").clicked() { act = -1; }
+            });
+        });
+        if act == 1 {
+            if let Some((_, di)) = pair {
+                let counts = kt::parse_src_counts(&w.src_str);
+                let groups: Vec<String> = w.dst_str.split('|').map(String::from).collect();
+                if let Ok(t) = kt::build(&src_syls, &counts, &groups) {
+                    // hedefin baştaki (karaoke dışı) etiketleri korunur
+                    let lead: String = match osisub_core::overrides::parse(&dst_text).first() {
+                        Some(osisub_core::overrides::Seg::Block(b)) => {
+                            let keep: Vec<_> = b.iter().filter(|t| !matches!(t.name.as_str(), "k" | "kf" | "ko" | "K")).cloned().collect();
+                            if keep.is_empty() { String::new() } else { format!("{{{}}}", osisub_core::overrides::block_to_string(&keep)) }
+                        }
+                        _ => String::new(),
+                    };
+                    let nt = if !lead.is_empty() && t.starts_with('{') { format!("{}{}", &lead[..lead.len() - 1], &t[1..]) } else { format!("{lead}{t}") };
+                    self.doc.edit("Kanji zamanlayıcı", |tx| tx.dialogue_mut(di, |d| d.text = nt));
+                }
+            }
+        }
+        if act != 0 {
+            if let Some(p) = w.cur.and_then(|c| srcs.iter().position(|&i| i == c)) {
+                let np = if act < 0 { p.saturating_sub(1) } else { (p + 1).min(srcs.len() - 1) };
+                w.cur = Some(srcs[np]);
+                self.doc.select(vec![srcs[np]], srcs[np]);
+                self.scroll_to = Some(srcs[np]);
+            }
+        }
+        if open { self.kanji = Some(w); }
+    }
+
     pub(crate) fn open_paste_over(&mut self, text: Option<String>) {
         let fields = self.paste_over.as_ref().map(|p| p.1).unwrap_or([false, true, true, false, false, false, false, false, false, false]);
         self.paste_over = Some((text.unwrap_or_else(|| self.last_copy.clone()), fields));
@@ -898,6 +996,7 @@ impl App {
                 "tags" => self.tagw = Some(super::TagWin::default()),
                 "paste_over" => self.open_paste_over(None),
                 "style_assist" => self.style_assist = Some(String::new()),
+                "kanji_timer" => self.kanji = Some(super::KanjiWin::default()),
                 "todraw" => self.text_to_drawing(false),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());

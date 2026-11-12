@@ -172,6 +172,7 @@ pub struct App {
     tagw: Option<TagWin>,
     /// Üzerine yapıştır penceresi: (pano metni, alanlar)
     paste_over: Option<(String, [bool; 10])>,
+    kanji: Option<KanjiWin>,
     /// Stil yardımcısı penceresi (süzgeç metni)
     style_assist: Option<String>,
     last_copy: String,
@@ -265,6 +266,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("kf_prev", "Önceki anahtar kare"),
     ("safe_area", "Güvenli alan kılavuzu aç/kapat"),
     ("style_assist", "Stil yardımcısı…"),
+    ("kanji_timer", "Kanji zamanlayıcı…"),
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
@@ -423,6 +425,7 @@ impl App {
             tagw: None,
             paste_over: None,
             style_assist: None,
+            kanji: None,
             last_copy: String::new(),
             font_db: None,
             ctx_copy: None,
@@ -580,6 +583,7 @@ impl App {
             Some("typeset") => app.tsw = Some(TypesetWin::default()),
             Some("tags") => app.tagw = Some(TagWin::default()),
             Some("styleassist") => app.style_assist = Some(String::new()),
+            Some("kanji") => app.kanji = Some(KanjiWin::default()),
             Some("safe") => app.media.safe_area = true,
             Some("detach") => app.media.detached = true,
             Some("history") => app.history_open = true,
@@ -1118,6 +1122,7 @@ impl App {
             "kf_prev" => { if !self.media.step_keyframe(-1) { self.status = "Öncesinde anahtar kare yok".into(); } }
             "safe_area" => self.media.safe_area = !self.media.safe_area,
             "style_assist" => self.style_assist = Some(String::new()),
+            "kanji_timer" => self.kanji = Some(KanjiWin::default()),
             "play_sel" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Selection),
             "play_before" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Before),
             "play_after" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::After),
@@ -1649,6 +1654,7 @@ impl App {
                     if ui.button("Etkin satırı vektör kırpma olarak kopyala").on_hover_text("Metnin şeklini \\clip(...) olarak panoya kopyalar; başka bir satıra yapıştırın").clicked() { ui.close(); self.text_to_drawing(true); }
                 });
                 if ui.button("Makine çevirisi…").on_hover_text("DeepL / Google / LibreTranslate / Claude ile seçili satırları çevir (kendi API anahtarınızla)").clicked() { ui.close(); self.mt_open = true; }
+                if ui.button("Kanji zamanlayıcı…").on_hover_text("Romaji karaoke zamanlamasını kanji/kana satırına aktar (Aegisub: Kanji Timer)").clicked() { ui.close(); self.kanji = Some(KanjiWin::default()); }
                 if ui.button("Etiket uygula / yeniden hesapla…").on_hover_text("HYDRA + Recalculator benzeri: etiketleri başlangıca, tüm bloklara, \\t olarak ya da harf/satır degradesi olarak uygula; değerleri topla/çarp").clicked() { ui.close(); self.tagw = Some(TagWin::default()); }
                 if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
@@ -1888,6 +1894,7 @@ impl App {
         self.tag_window(&ctx);
         self.paste_over_window(&ctx);
         self.style_assist_window(&ctx);
+        self.kanji_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);
@@ -1948,6 +1955,19 @@ impl Default for BatchWin {
 }
 
 /// Degrade / parıltı penceresinin ayarları.
+/// Kanji zamanlayıcı penceresi.
+#[derive(Default)]
+pub(crate) struct KanjiWin {
+    pub src_style: String,
+    pub dst_style: String,
+    /// sıradaki kaynak satırın girdi indeksi
+    pub cur: Option<usize>,
+    /// düzenlenen gruplar (kaynak `ki+mi|no`, hedef `君|の`) ve hangi satır çifti için
+    pub src_str: String,
+    pub dst_str: String,
+    pub loaded: Option<(usize, usize)>,
+}
+
 /// Etiket uygulama penceresi (HYDRA + Recalculator).
 pub(crate) struct TagWin {
     /// (ad, açık mı, başlangıç değeri, bitiş değeri)
