@@ -136,7 +136,8 @@
 
 ## Performans
 - [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12)
-- [ ] Bellek ayak izi ölçümü (geri alma yığını büyük dosyada)
+- [x] Geri alma belleği: satır sayısını değiştiren işlemler artık yalnızca değişen aralığı saklar (ortak önek/sonek); toplu ekleme/silme splice ile O(n); >5000 girdilik adımlar en fazla 8 tane tutulur
+- [ ] Bellek ayak izi ölçümü
 - [ ] Lua çağrıları için toplu (batch) API ile satır kopyası azaltma
 
 ## Dağıtım

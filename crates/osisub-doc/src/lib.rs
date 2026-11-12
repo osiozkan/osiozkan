@@ -13,7 +13,6 @@ enum Change {
     Replace { at: usize, old: Entry, new: Entry },
     Insert { at: usize, items: Vec<Entry> },
     Remove { at: usize, items: Vec<Entry> },
-    All { old: Vec<Entry>, new: Vec<Entry> },
 }
 
 #[derive(Clone, Debug)]
@@ -72,9 +71,7 @@ impl Tx<'_> {
             return;
         }
         let at = at.min(self.script.entries.len());
-        for (k, e) in items.iter().enumerate() {
-            self.script.entries.insert(at + k, e.clone());
-        }
+        self.script.entries.splice(at..at, items.iter().cloned());
         self.changes.push(Change::Insert { at, items });
     }
     pub fn remove(&mut self, at: usize, count: usize) {
@@ -199,11 +196,13 @@ impl Document {
         r
     }
 
-    /// Yapısal (tam kopya tutan) değişiklikler büyük belgelerde bellek yer; en fazla 8 tanesini sakla.
+    /// Büyük yapısal değişiklikler (>5000 girdi) bellek yer; en fazla 8 tanesini sakla.
     /// Eski adımlar yığının dibinden atılır, böylece tutarlılık bozulmaz.
     fn prune_heavy(&mut self) {
         const MAX_HEAVY: usize = 8;
-        let heavy = |t: &Txn| t.changes.iter().any(|c| matches!(c, Change::All { .. }));
+        let heavy = |t: &Txn| {
+            t.changes.iter().map(|c| match c { Change::Insert { items, .. } | Change::Remove { items, .. } => items.len(), _ => 0 }).sum::<usize>() > 5000
+        };
         while self.undo.iter().filter(|t| heavy(t)).count() > MAX_HEAVY {
             let Some(pos) = self.undo.iter().position(|t| heavy(t)) else { break };
             self.undo.drain(0..=pos);
@@ -218,11 +217,8 @@ impl Document {
                 script.entries.drain(*at..*at + items.len());
             }
             Change::Remove { at, items } => {
-                for (k, e) in items.iter().enumerate() {
-                    script.entries.insert(*at + k, e.clone());
-                }
+                script.entries.splice(*at..*at, items.iter().cloned());
             }
-            Change::All { old, .. } => script.entries = old.clone(),
         }
     }
 
@@ -230,14 +226,11 @@ impl Document {
         match c {
             Change::Replace { at, new, .. } => script.entries[*at] = new.clone(),
             Change::Insert { at, items } => {
-                for (k, e) in items.iter().enumerate() {
-                    script.entries.insert(*at + k, e.clone());
-                }
+                script.entries.splice(*at..*at, items.iter().cloned());
             }
             Change::Remove { at, items } => {
                 script.entries.drain(*at..*at + items.len());
             }
-            Change::All { new, .. } => script.entries = new.clone(),
         }
     }
 
@@ -280,8 +273,13 @@ impl Document {
                     }
                 }
             } else {
-                tx.changes.push(Change::All { old: before.clone(), new: new_entries.clone() });
-                tx.script.entries = new_entries;
+                // yalnızca değişen orta aralık saklanır (ortak önek/sonek): satır ekleyen/silen
+                // işlemler (hareket izleme, birleştirme…) büyük belgede tam kopya tutmaz
+                let p = before.iter().zip(new_entries.iter()).take_while(|(a, b)| a == b).count();
+                let max_s = before.len().min(new_entries.len()) - p;
+                let sfx = before.iter().rev().zip(new_entries.iter().rev()).take(max_s).take_while(|(a, b)| a == b).count();
+                tx.remove(p, before.len() - p - sfx);
+                tx.insert(p, new_entries[p..new_entries.len() - sfx].to_vec());
             }
         });
         if self.script.entries.len() != before.len() {
@@ -900,6 +898,17 @@ mod tests {
             s.entries.push(Entry::Dialogue(Dialogue { text: format!("x{}", i), ..Default::default() }));
             d.apply_new_script("yapısal", s);
         }
+        // küçük yapısal değişiklikler artık yalnızca farkı saklar: hepsi geri alınabilir
+        let mut n = 0;
+        while d.undo().is_some() { n += 1; }
+        assert_eq!(n, 12);
+        // büyük (>5000 girdi) yapısal değişiklikler en fazla 8 tane tutulur
+        let mut d = doc();
+        for i in 0..12 {
+            let mut s = d.script.clone();
+            for k in 0..6000 { s.entries.push(Entry::Dialogue(Dialogue { text: format!("x{i}-{k}"), ..Default::default() })); }
+            d.apply_new_script("büyük", s);
+        }
         let mut n = 0;
         while d.undo().is_some() { n += 1; }
         assert!(n <= 8, "{}", n);
@@ -941,5 +950,36 @@ mod tests {
         d.undo();
         assert_eq!(d.stripped_text(a), "bir");
         assert!(!d.can_undo());
+    }
+
+    #[test]
+    fn apply_new_script_stores_only_changed_range() {
+        let ds: Vec<Dialogue> = (0..2000).map(|i| Dialogue { start_time: i * 1000, end_time: i * 1000 + 900, text: format!("satır {i}"), ..Default::default() }).collect();
+        let mut doc = Document::new(Script::from_dialogues(ds));
+        let orig = doc.script.entries.clone();
+        let mut s = doc.script.clone();
+        let at = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text == "satır 1000")).unwrap();
+        // bir satırı üç satırla değiştir (hareket izleme gibi)
+        let Entry::Dialogue(d) = s.entries[at].clone() else { unreachable!() };
+        let parts: Vec<Entry> = (0..3).map(|k| Entry::Dialogue(Dialogue { text: format!("parça {k}"), ..d.clone() })).collect();
+        s.entries.splice(at..=at, parts);
+        doc.apply_new_script("böl", s.clone());
+        let t = doc.undo.last().unwrap();
+        let stored: usize = t.changes.iter().map(|c| match c { Change::Insert { items, .. } | Change::Remove { items, .. } => items.len(), _ => 1 }).sum();
+        assert_eq!(stored, 4, "yalnızca 1 silinen + 3 eklenen saklanmalı");
+        assert_eq!(doc.script.entries, s.entries);
+        doc.undo();
+        assert_eq!(doc.script.entries, orig);
+        doc.redo();
+        assert_eq!(doc.script.entries, s.entries);
+        // tekrarlayan içerikte önek/sonek çakışmaz
+        let mut d2 = Document::new(Script::from_dialogues(vec![Dialogue::default(), Dialogue::default()]));
+        let mut s2 = d2.script.clone();
+        let last = s2.entries.last().cloned().unwrap();
+        s2.entries.push(last);
+        d2.apply_new_script("çoğalt", s2.clone());
+        assert_eq!(d2.script.entries, s2.entries);
+        d2.undo();
+        assert_eq!(d2.script.entries.len(), s2.entries.len() - 1);
     }
 }
