@@ -6,7 +6,8 @@ Bu depo kökündeki `README.md` kullanıcının **GitHub profil sayfasıdır; do
 1. Önce `docs/DEVLOG.md` ve `docs/ROADMAP.md` oku; kaldığın yerden devam et. `CHANGELOG.md`'de sürüm notu tut.
 2. Küçük adımlarla ilerle; her adımda `tools/ship.sh "mesaj"` (derle + test + commit + push; hata varsa durur). **Derleme kırıkken asla commit etme.**
 3. Kullanıcı görünür değişikliklerini ekran görüntüsüyle doğrula (aşağıya bak), `docs/ROADMAP.md` ve `docs/DEVLOG.md`'yi güncelle.
-4. Bitişte (sabah 06:00'dan önce) özet için `PushNotification` gönder (`<routine_summary>` içinde); sorun yoksa sessiz kalma — gece sonu özeti kullanıcının beklediği sonuçtur.
+4. Gece sonu sürüm commit'inin iletisine `[nightly]` ekle: `.github/workflows/release.yml` Linux/Windows/macOS paketlerini derleyip Actions çalıştırmasına ek (artifact) olarak yükler (30 gün). Bağlantıyı bildirime koy.
+5. Bitişte (sabah 06:00'dan önce) özet için `PushNotification` gönder (`<routine_summary>` içinde); sorun yoksa sessiz kalma — gece sonu özeti kullanıcının beklediği sonuçtur.
 
 ## Mimari
 Rust workspace (`crates/`): `osisub-core` (biçimler, QC, düzeltmeler, karaoke, arama, zamanlama…), `osisub-lua` (LuaJIT, Aegisub Automation 4 API), `osisub-doc` (belge/undo/pano/Lua worker), `osisub-media` (ffmpeg: dalga/video/ses saati), `osisub-spell` (Hunspell/spellbook), `osisub-cli`, `osisub-gui` (egui/eframe 0.37; `app.rs` + `app/{grid,tabs,windows}.rs`, `media_ui.rs`, `dialog_ui.rs`, `style_ui.rs`, `settings.rs`). Ayrıntı: `docs/OSISUB.md`.
