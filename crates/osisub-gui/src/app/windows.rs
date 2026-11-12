@@ -407,6 +407,7 @@ impl App {
                 ui.add_enabled(m.opts.scale, egui::Checkbox::new(&mut m.opts.scale_border, "Kenar/gölge/bulanıklık da"));
                 ui.checkbox(&mut m.opts.rotation, "Döndürme");
                 ui.checkbox(&mut m.opts.clip, "Kırpma (\\clip)");
+                ui.checkbox(&mut m.opts.linear, "Doğrusal (\\move + \\t, tek satır)").on_hover_text("Satırı kare kare bölmek yerine ilk ve son karenin değerleri arasında doğrusal geçiş; yavaş/düz hareketler için hafif çıktı");
             }); }
             ui.horizontal(|ui| {
                 ui.label("İzin ilk karesi = video karesi");

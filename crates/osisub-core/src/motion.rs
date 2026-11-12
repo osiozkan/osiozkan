@@ -38,11 +38,14 @@ pub struct MotionOptions {
     pub start_frame: i64,
     /// `\clip`/`\iclip`'i de izle (dikdörtgen; dönüş varsa vektöre çevrilir)
     pub clip: bool,
+    /// doğrusal kip (Aegisub-Motion "Linear"): satır bölünmez; ilk ve son karenin değerleri
+    /// arasında `\move` + `\t` ile doğrusal geçiş (dikdörtgen kırpma da `\t` ile)
+    pub linear: bool,
 }
 
 impl Default for MotionOptions {
     fn default() -> Self {
-        MotionOptions { position: true, scale: true, rotation: true, scale_border: true, start_frame: 0, clip: true }
+        MotionOptions { position: true, scale: true, rotation: true, scale_border: true, start_frame: 0, clip: true, linear: false }
     }
 }
 
@@ -269,7 +272,7 @@ pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framer
         let dur = d.duration();
         // \move'lu satırlar kare kare \pos'a çevrilir (hareket iz tarafından verilir)
         let text0 = if overrides::get_initial(&d.text, "move").is_some() { overrides::remove_initial(&d.text, "move") } else { d.text.clone() };
-        for f in f0..=f1 {
+        let frame_text = |f: i64| -> String {
             let t = &data.frames[(f - opts.start_frame) as usize];
             let ratio_x = t.sx / base.sx.max(1e-9);
             let ratio_y = t.sy / base.sy.max(1e-9);
@@ -300,7 +303,7 @@ pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framer
                 }
                 text = overrides::set_initial(&text, "pos", &format!("({},{})", r2(t.x * kx + dx), r2(t.y * ky + dy)));
             }
-            if opts.scale && (ratio_x != 1.0 || ratio_y != 1.0 || overrides::get_initial(&text, "fscx").is_some()) {
+            if opts.scale && (opts.linear || ratio_x != 1.0 || ratio_y != 1.0 || overrides::get_initial(&text, "fscx").is_some()) {
                 text = overrides::set_initial(&text, "fscx", &r2(fscx0 * ratio_x));
                 text = overrides::set_initial(&text, "fscy", &r2(fscy0 * ratio_y));
                 if opts.scale_border {
@@ -310,11 +313,19 @@ pub fn apply(script: &Script, lines: &[Dialogue], data: &MotionData, fr: &Framer
                     if let Some(b) = blur0 { text = overrides::set_initial(&text, "blur", &r2(b * k)); }
                 }
             }
-            if opts.rotation && (drot != 0.0 || overrides::get_initial(&text, "frz").is_some()) {
+            if opts.rotation && (opts.linear || drot != 0.0 || overrides::get_initial(&text, "frz").is_some()) {
                 // AE saat yönü pozitif, ASS \frz saat yönünün tersi
                 text = overrides::remove_initial(&text, "fr");
                 text = overrides::set_initial(&text, "frz", &r2(frz0 - drot));
             }
+            text
+        };
+        if opts.linear {
+            out.push(linear_line(d, &frame_text(f0), &frame_text(f1), fr.time_at(f0) - d.start_time, fr.time_at(f1) - d.start_time));
+            continue;
+        }
+        for f in f0..=f1 {
+            let text = frame_text(f);
             let start = fr.time_at_start(f).max(d.start_time);
             let end = fr.time_at_end(f).min(d.end_time);
             let mut nd = d.clone();
@@ -479,6 +490,35 @@ pub fn apply_corner_pin(lines: &[Dialogue], boxes: &[(f64, f64)], script: &Scrip
     Ok(out)
 }
 
+/// İlk ve son kare metinlerinden doğrusal satır: `\pos` → `\move(a,b,t0,t1)`, farklı olan
+/// ölçek/dönüş/kenar/dikdörtgen kırpma değerleri → `\t(t0,t1,…)`.
+fn linear_line(d: &Dialogue, a: &str, b: &str, t0: i64, t1: i64) -> Dialogue {
+    let mut text = a.to_string();
+    let xy = |t: &str, n: &str| overrides::get_initial(t, n).map(|t| t.args());
+    if let (Some(pa), Some(pb)) = (xy(a, "pos"), xy(b, "pos")) {
+        if pa != pb && pa.len() == 2 && pb.len() == 2 {
+            text = overrides::remove_initial(&text, "pos");
+            text = overrides::set_initial(&text, "move", &format!("({},{},{},{},{},{})", pa[0].trim(), pa[1].trim(), pb[0].trim(), pb[1].trim(), t0, t1));
+        }
+    }
+    let mut anim = String::new();
+    for n in ["fscx", "fscy", "frz", "bord", "shad", "blur", "clip", "iclip"] {
+        let (va, vb) = (overrides::get_initial(a, n), overrides::get_initial(b, n));
+        if let (Some(va), Some(vb)) = (va, vb) {
+            // vektör kırpma \t ile canlandırılamaz: ilk karedeki kalır
+            if va.arg != vb.arg && !(n.ends_with("clip") && vb.args().len() != 4) {
+                anim.push_str(&format!("\\{}{}", n, vb.arg));
+            }
+        }
+    }
+    if !anim.is_empty() {
+        text = overrides::set_initial(&text, "t", &format!("({t0},{t1},{anim})"));
+    }
+    let mut nd = d.clone();
+    nd.text = text;
+    nd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,5 +643,22 @@ mod tests {
         // kare 0'da kırpma aynı kalır (vektöre çevrilmiş), kare 1'de homografiyle taşınır
         assert!(out[0].text.contains("\\clip(m 150 150 l 450 150 450 225 150 225)"), "{}", out[0].text);
         assert!(out[1].text.contains("\\clip(m 165 150 l 465 135 465 240 165 225)"), "{}", out[1].text);
+    }
+
+    #[test]
+    fn linear_mode_single_line() {
+        let s = script();
+        let fr = Framerate::cfr(24.0);
+        let m = parse_ae(AE).unwrap();
+        let d = Dialogue { start_time: fr.time_at_start(10), end_time: fr.time_at_end(12), style: "Sign".into(), text: "{\\pos(165,150)\\clip(150,140,180,160)}Tabela".into(), ..Default::default() };
+        let out = apply(&s, &[d.clone()], &m, &fr, &MotionOptions { start_frame: 10, linear: true, rotation: false, ..Default::default() }).unwrap();
+        assert_eq!(out.len(), 1);
+        let t0 = fr.time_at(10) - d.start_time;
+        let t1 = fr.time_at(12) - d.start_time;
+        // kare 2: iz (180,156), ofset (15,0) ×2 → (210,156)
+        assert!(out[0].text.contains(&format!("\\move(165,150,210,156,{t0},{t1})")), "{}", out[0].text);
+        assert!(out[0].text.contains(&format!("\\t({t0},{t1},\\fscx200\\fscy200\\bord4\\clip(")), "{}", out[0].text);
+        assert!(!out[0].text.contains("\\pos"), "{}", out[0].text);
+        assert_eq!((out[0].start_time, out[0].end_time), (d.start_time, d.end_time));
     }
 }
