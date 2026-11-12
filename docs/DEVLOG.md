@@ -1,6 +1,6 @@
 # Geliştirme günlüğü
 
-Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç o gecenin görevinin verdiği dala push edilir (`tools/ship.sh` geçerli dalı kullanır; 2026-10-29: `claude/vibrant-clarke-2e8jtn`, 2026-11-10: `claude/vibrant-clarke-6oujog`, 2026-11-11: `claude/vibrant-clarke-dsxf2y`); PR yalnızca kullanıcı isterse açılır.
+Her gece çalışması (gece–06:00) buraya bir kayıt ekler. Yeni oturum önce bu dosyayı ve `docs/ROADMAP.md`'yi okumalı, kaldığı yerden devam etmeli. Sonuç o gecenin görevinin verdiği dala push edilir (`tools/ship.sh` geçerli dalı kullanır; 2026-10-29: `claude/vibrant-clarke-2e8jtn`, 2026-11-10: `claude/vibrant-clarke-6oujog`, 2026-11-11: `claude/vibrant-clarke-dsxf2y`, 2026-11-12: `claude/vibrant-clarke-xt32gt`); PR yalnızca kullanıcı isterse açılır.
 
 ## 2026-10-29 (v0.1.0 — ilk gece)
 Depo boştu; sıfırdan başlandı.
