@@ -1758,7 +1758,21 @@ impl eframe::App for App {
         if !self.doc.is_dirty() { self.clear_autosave(); }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // OSISUB_FRAME_LOG=1: her karenin arayüz süresini stderr'e yazar (performans ölçümü)
+        static FRAME_LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *FRAME_LOG.get_or_init(|| std::env::var_os("OSISUB_FRAME_LOG").is_some()) {
+            let t = std::time::Instant::now();
+            self.ui_inner(ui, frame);
+            eprintln!("kare {:.2} ms", t.elapsed().as_secs_f64() * 1000.0);
+        } else {
+            self.ui_inner(ui, frame);
+        }
+    }
+}
+
+impl App {
+    fn ui_inner(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if self.theme_dirty {
             self.theme_dirty = false;
