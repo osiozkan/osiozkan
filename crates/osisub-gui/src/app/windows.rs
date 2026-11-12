@@ -581,6 +581,116 @@ impl App {
         if open { self.style_assist = Some(filter); }
     }
 
+    pub(super) fn filebatch_window(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.filebatch.take() else { return };
+        let mut open = true;
+        if let Some(rx) = &w.rx {
+            while let Ok(m) = rx.try_recv() {
+                if m.is_empty() { w.rx = None; break; }
+                w.log.push_str(&m);
+                w.log.push('\n');
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        let running = w.rx.is_some();
+        let mut start = false;
+        egui::Window::new("Toplu dosya işlemleri").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Dosya ekle…").clicked() {
+                    if let Some(v) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_files() { for p in v { if !w.files.contains(&p) { w.files.push(p); } } }
+                }
+                if ui.button("Klasör ekle…").clicked() {
+                    if let Some(d) = rfd::FileDialog::new().pick_folder() {
+                        if let Ok(rd) = std::fs::read_dir(&d) {
+                            let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file() && osisub_core::io::OPEN_EXTS.contains(&osisub_core::io::ext_of(p).as_str()) && osisub_core::io::ext_of(p) != "txt").collect();
+                            v.sort();
+                            for p in v { if !w.files.contains(&p) { w.files.push(p); } }
+                        }
+                    }
+                }
+                if ui.button("Temizle").clicked() { w.files.clear(); }
+                ui.label(format!("{} dosya", w.files.len()));
+            });
+            egui::ScrollArea::vertical().id_salt("fb_files").max_height(120.0).show(ui, |ui| {
+                let mut rm = None;
+                for (i, f) in w.files.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.small_button("x").clicked() { rm = Some(i); }
+                        ui.label(RichText::new(f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).monospace().small());
+                    });
+                }
+                if let Some(i) = rm { w.files.remove(i); }
+            });
+            ui.separator();
+            egui::Grid::new("fb_opts").num_columns(2).show(ui, |ui| {
+                ui.label("Çıktı biçimi");
+                egui::ComboBox::from_id_salt("fb_ext").selected_text(if w.job.out_ext.is_empty() { "aynı".to_string() } else { w.job.out_ext.clone() }).show_ui(ui, |ui| {
+                    for e in ["", "ass", "srt", "vtt", "ttml", "sbv", "smi", "lrc", "txt"] { ui.selectable_value(&mut w.job.out_ext, e.to_string(), if e.is_empty() { "aynı" } else { e }); }
+                });
+                ui.end_row();
+                ui.label("Çıktı klasörü");
+                ui.horizontal(|ui| {
+                    ui.label(w.job.out_dir.as_ref().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|| "girdinin klasörü".into()));
+                    if ui.small_button("Seç…").clicked() { w.job.out_dir = rfd::FileDialog::new().pick_folder(); }
+                    if w.job.out_dir.is_some() && ui.small_button("sıfırla").clicked() { w.job.out_dir = None; }
+                });
+                ui.end_row();
+                ui.label("Ada son ek");
+                ui.add(egui::TextEdit::singleline(&mut w.job.suffix).desired_width(120.0).hint_text("_tr"));
+                ui.end_row();
+                ui.label("Zaman kaydır");
+                ui.add(egui::DragValue::new(&mut w.job.shift_ms).speed(10).suffix(" ms"));
+                ui.end_row();
+                ui.label("");
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut w.fixes, "Sık hataları düzelt (varsayılan kurallar)");
+                    ui.checkbox(&mut w.job.remove_comments, "Yorum satırlarını sil");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut w.resample, "Yeniden örnekle");
+                        ui.add_enabled(w.resample, egui::DragValue::new(&mut w.res.0).range(16..=8192));
+                        ui.label("×");
+                        ui.add_enabled(w.resample, egui::DragValue::new(&mut w.res.1).range(16..=8192));
+                    });
+                    ui.checkbox(&mut w.job.overwrite, "Girdinin üzerine yazmaya izin ver");
+                });
+                ui.end_row();
+            });
+            if let Some(f) = w.files.first() {
+                ui.label(RichText::new(format!("Örnek çıktı: {}", osisub_core::filebatch::out_path(f, &w.job).display())).small().weak());
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new("Başlat")).clicked() { start = true; }
+                if running { ui.spinner(); }
+            });
+            egui::ScrollArea::vertical().id_salt("fb_log").max_height(160.0).stick_to_bottom(true).show(ui, |ui| {
+                ui.label(RichText::new(&w.log).monospace().small());
+            });
+        });
+        if start {
+            let mut job = w.job.clone();
+            job.fixes = w.fixes.then(osisub_core::fixes::Fixes::default);
+            job.resample = w.resample.then_some(w.res);
+            let files = w.files.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            w.rx = Some(rx);
+            w.log.clear();
+            std::thread::spawn(move || {
+                let (mut ok, mut bad) = (0, 0);
+                for f in files {
+                    let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let m = match osisub_core::filebatch::run_file(&f, &job) {
+                        Ok((out, note)) => { ok += 1; format!("TAMAM {name} → {}{}", out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), if note.is_empty() { String::new() } else { format!(" ({note})") }) }
+                        Err(e) => { bad += 1; format!("HATA  {name}: {e}") }
+                    };
+                    let _ = tx.send(m);
+                }
+                let _ = tx.send(format!("Bitti: {ok} başarılı, {bad} hatalı"));
+                let _ = tx.send(String::new());
+            });
+        }
+        if open { self.filebatch = Some(w); }
+    }
+
     /// Kanji zamanlayıcı (Aegisub Kanji Timer): kaynak stildeki romaji `\k` satırının zamanlamasını
     /// aynı zamandaki hedef stil satırına (kanji/kana) aktarır; gruplar otomatik eşlenir, elle düzeltilebilir.
     pub(super) fn kanji_window(&mut self, ctx: &egui::Context) {
@@ -997,6 +1107,7 @@ impl App {
                 "paste_over" => self.open_paste_over(None),
                 "style_assist" => self.style_assist = Some(String::new()),
                 "kanji_timer" => self.kanji = Some(super::KanjiWin::default()),
+                "file_batch" => self.filebatch = Some(super::FileBatchWin::default()),
                 "todraw" => self.text_to_drawing(false),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());

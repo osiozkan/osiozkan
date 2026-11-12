@@ -41,6 +41,7 @@
 - [x] Video ile (osisub-media::mux; Dosya → Video ile, CLI `tracks/extract/mux/burn`): gömülü altyazı izlerini listele/aç/kaydet (ASS kayıpsız), ekli yazı tiplerini çıkar, MKV'ye göm (dil/başlık/varsayılan, mevcut izler korunur, kullanılan yazı tipleri eklenir), videoya yak (x264, ilerleme + iptal, gömülü yazı tipleri fontsdir ile)
 - [ ] Resim tabanlı altyazı (PGS/VobSub) OCR
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
+- [x] Toplu dosya işlemleri (core::filebatch; Dosya menüsü; Subtitle Edit Batch convert): çok dosya/klasör → biçim dönüştür, kaydır, sık hatalar, yorumları sil, yeniden örnekle; çıktı klasörü/son ek, üzerine yazma koruması, arka planda günlüklü
 - [x] Dosya birleştirme (core::merge; Dosya → Başka dosyayı birleştir…, CLI `merge`): stil çakışmasında "Ad (2)" + `\r` başvuruları, farklı çözünürlükte otomatik yeniden örnekleme, zaman kaydırma (OP/ED), gömülü yazı tipleri; toplu işlemlerden sonra etkin satır/seçim içeriğe göre korunur
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)
 - [x] Eksik glif denetimi: yazı tipinde bulunmayan kullanılan karakterler (Türkçe ğ ş İ ı, Japonca…) yazı tipi + stil başına; tıklayınca ilk satıra git; CLI `fonts` raporlar ve hata koduyla çıkar

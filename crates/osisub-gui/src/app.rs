@@ -173,6 +173,7 @@ pub struct App {
     /// Üzerine yapıştır penceresi: (pano metni, alanlar)
     paste_over: Option<(String, [bool; 10])>,
     kanji: Option<KanjiWin>,
+    filebatch: Option<FileBatchWin>,
     /// Stil yardımcısı penceresi (süzgeç metni)
     style_assist: Option<String>,
     last_copy: String,
@@ -267,6 +268,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("safe_area", "Güvenli alan kılavuzu aç/kapat"),
     ("style_assist", "Stil yardımcısı…"),
     ("kanji_timer", "Kanji zamanlayıcı…"),
+    ("file_batch", "Toplu dosya işlemleri…"),
     ("case_upper", "Harf: BÜYÜK HARF"),
     ("case_lower", "Harf: küçük harf"),
     ("case_title", "Harf: Başlık Biçimi"),
@@ -431,6 +433,7 @@ impl App {
             paste_over: None,
             style_assist: None,
             kanji: None,
+            filebatch: None,
             last_copy: String::new(),
             font_db: None,
             ctx_copy: None,
@@ -589,6 +592,12 @@ impl App {
             Some("tags") => app.tagw = Some(TagWin::default()),
             Some("styleassist") => app.style_assist = Some(String::new()),
             Some("kanji") => app.kanji = Some(KanjiWin::default()),
+            Some("filebatch") => app.filebatch = Some(FileBatchWin::default()),
+            Some(w) if w.starts_with("filebatch:") => {
+                let mut fb = FileBatchWin::default();
+                if let Ok(rd) = std::fs::read_dir(&w[10..]) { fb.files = rd.flatten().map(|e| e.path()).filter(|p| osisub_core::io::ext_of(p) == "ass").collect(); fb.files.sort(); }
+                app.filebatch = Some(fb);
+            }
             Some("safe") => app.media.safe_area = true,
             Some("detach") => app.media.detached = true,
             Some("history") => app.history_open = true,
@@ -1129,6 +1138,7 @@ impl App {
             "safe_area" => self.media.safe_area = !self.media.safe_area,
             "style_assist" => self.style_assist = Some(String::new()),
             "kanji_timer" => self.kanji = Some(KanjiWin::default()),
+            "file_batch" => self.filebatch = Some(FileBatchWin::default()),
             "case_upper" => self.change_case(osisub_core::casing::Case::Upper),
             "case_lower" => self.change_case(osisub_core::casing::Case::Lower),
             "case_title" => self.change_case(osisub_core::casing::Case::Title),
@@ -1398,6 +1408,7 @@ impl App {
                         if ui.button(&r).clicked() { ui.close(); self.request(Guarded::OpenPath(PathBuf::from(&r))); }
                     }
                 });
+                if ui.button("Toplu dosya işlemleri…").on_hover_text("Birden çok dosyayı dönüştür / düzelt / kaydır / yeniden örnekle (Subtitle Edit: Batch convert)").clicked() { ui.close(); self.filebatch = Some(FileBatchWin::default()); }
                 if ui.button("Başka dosyayı birleştir…").on_hover_text("Tabela / OP-ED / diyalog dosyalarını bu belgeye ekler: stil çakışmaları çözülür, farklı çözünürlük yeniden örneklenir, gömülü yazı tipleri taşınır").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
@@ -1925,6 +1936,7 @@ impl App {
         self.paste_over_window(&ctx);
         self.style_assist_window(&ctx);
         self.kanji_window(&ctx);
+        self.filebatch_window(&ctx);
         self.batch_window(&ctx);
         self.typeset_window(&ctx);
         self.tracks_window(&ctx);
@@ -1985,6 +1997,23 @@ impl Default for BatchWin {
 }
 
 /// Degrade / parıltı penceresinin ayarları.
+/// Toplu dosya işlemleri penceresi.
+pub(crate) struct FileBatchWin {
+    pub files: Vec<PathBuf>,
+    pub job: osisub_core::filebatch::Job,
+    pub fixes: bool,
+    pub resample: bool,
+    pub res: (i32, i32),
+    pub log: String,
+    pub rx: Option<std::sync::mpsc::Receiver<String>>,
+}
+
+impl Default for FileBatchWin {
+    fn default() -> Self {
+        FileBatchWin { files: vec![], job: osisub_core::filebatch::Job { out_ext: "srt".into(), ..Default::default() }, fixes: false, resample: false, res: (1920, 1080), log: String::new(), rx: None }
+    }
+}
+
 /// Kanji zamanlayıcı penceresi.
 #[derive(Default)]
 pub(crate) struct KanjiWin {
