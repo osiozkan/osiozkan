@@ -53,6 +53,7 @@
 - [x] Çeviri sekmesinde "Makine çevirisi" düğmesi (etkin satır)
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [x] Yazım: ızgarada hata göstergesi (satır numarası kırmızı; sürüm başına önbellekli)
+- [x] Yazım: anime uyumu — Japonca saygı ekleri (`Hinata-kun` → gövde denetlenir), sık Japonca sözcükler (senpai, itadakimasu, onii-chan…) hata sayılmaz; tireli bileşiklerde her parça denetlenir
 - [ ] Yazım: çok dilli sözlük seçimi
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
 - [x] Karaoke kipi dalga formunda: hece sınırları ve metinleri etkin satırda gösterilir, sınırlar sürüklenerek ayarlanır (toplam süre korunur)

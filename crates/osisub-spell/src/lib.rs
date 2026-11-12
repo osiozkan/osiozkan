@@ -112,10 +112,25 @@ impl Speller {
         if word.is_empty() || word.chars().all(|c| !c.is_alphabetic()) {
             return true;
         }
-        if self.extra.contains(&osisub_core::qc::tr_lower(word)) {
+        let lw = osisub_core::qc::tr_lower(word);
+        // Japonca sözcükler Latin harfli: "Itadakimasu" Türkçe küçültmede "ıtadakimasu" olur, ASCII de dene
+        if self.extra.contains(&lw) || ANIME_WORDS.contains(&lw.as_str()) || ANIME_WORDS.contains(&word.to_lowercase().as_str()) {
             return true;
         }
-        self.dict.check(word) || self.dict.check(&osisub_core::qc::tr_lower(word))
+        if self.dict.check(word) || self.dict.check(&lw) {
+            return true;
+        }
+        // tireli: "Hinata-san" → saygı eki atlanır, gövde denetlenir; "yarı-resmi" → her parça
+        if let Some((base, suf)) = word.rsplit_once('-') {
+            if !base.is_empty() && HONORIFICS.contains(&suf.to_lowercase().as_str()) {
+                return self.check(base);
+            }
+            let parts: Vec<&str> = word.split('-').filter(|p| !p.is_empty()).collect();
+            if parts.len() > 1 && parts.iter().all(|p| self.check(p)) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn suggest(&self, word: &str, max: usize) -> Vec<String> {
@@ -125,6 +140,19 @@ impl Speller {
         out
     }
 }
+
+/// Japonca saygı ekleri (anime çevirilerinde korunur): "-san", "-kun"…
+pub const HONORIFICS: &[&str] = &["san", "kun", "chan", "sama", "senpai", "sempai", "sensei", "dono", "tan", "chin", "han", "shi", "hakase", "senshu", "jou", "ue", "nee", "nii", "neechan", "niichan"];
+
+/// Anime çevirilerinde sık geçen, sözlükte olmayan Japonca sözcükler (küçük harf).
+pub const ANIME_WORDS: &[&str] = &[
+    "san", "kun", "chan", "sama", "senpai", "sempai", "kouhai", "kohai", "sensei", "dono", "onii", "onee", "oniisan", "oniichan", "oneesan", "oneechan", "nii", "nee", "niisan", "neesan", "nii-san", "nee-san",
+    "okaasan", "otousan", "obaasan", "ojiisan", "ojousama", "ojou", "hime", "oujo", "aniki", "aneki", "imouto", "otouto",
+    "baka", "kawaii", "sugoi", "nani", "itadakimasu", "gochisousama", "arigatou", "arigato", "sayonara", "sayounara", "ohayou", "konnichiwa", "konbanwa", "oyasumi", "tadaima", "okaeri", "ittekimasu", "itterasshai", "yoroshiku", "onegai", "gomen", "gomennasai", "sumimasen", "hai", "iie", "ano", "etto", "ara", "maa", "yatta", "yosh", "yoshi", "itai", "urusai", "dame", "mou", "sou", "desu", "kyaa",
+    "bento", "obento", "onigiri", "ramen", "udon", "soba", "sushi", "sashimi", "takoyaki", "yakisoba", "mochi", "dango", "sake", "matcha", "taiyaki", "okonomiyaki", "miso", "natto", "yen",
+    "kami", "kamisama", "miko", "oni", "youkai", "yokai", "shinigami", "kitsune", "tanuki", "kappa", "tengu", "ninja", "samurai", "shinobi", "ronin", "shogun", "daimyo", "katana", "kunai", "shuriken", "jutsu", "chakra", "dojo", "senpuu",
+    "kimono", "yukata", "hakama", "torii", "jinja", "matsuri", "hanami", "onsen", "ryokan", "tatami", "shoji", "kotatsu", "futon", "manga", "anime", "otaku", "cosplay", "seiyuu", "idol", "mangaka", "isekai", "shounen", "shoujo", "seinen", "josei",
+];
 
 /// Metindeki denetlenecek sözcükler (etiketler ve \N atlanır; kesme işaretiyle ayrılan ekler çıkarılır: "İstanbul'da" → "İstanbul").
 pub fn words_of(text: &str) -> Vec<String> {
@@ -294,6 +322,20 @@ mod tests {
         assert!(!s.check("wrold"));
         assert!(s.suggest("wrold", 5).contains(&"world".to_string()));
         assert!(s.check("123") && s.check("--"));
+    }
+
+    #[test]
+    fn anime_honorifics_and_terms() {
+        let mut s = sp();
+        // saygı eki atlanır, gövde denetlenir
+        assert!(s.check("merhaba-san"));
+        assert!(!s.check("Hinata-kun"));
+        s.add_word("Hinata");
+        assert!(s.check("Hinata-kun") && s.check("Hinata-Chan"));
+        // sık Japonca sözcükler
+        assert!(s.check("senpai") && s.check("Itadakimasu") && s.check("onii-chan"));
+        // tireli bileşikte her parça
+        assert!(s.check("hello-world") && !s.check("hello-wrold"));
     }
 
     #[test]

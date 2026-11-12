@@ -7,6 +7,7 @@
 **Performans:** satır ekleyen/silen işlemler (hareket izleme, birleştirme, bölme…) geri alma yığınında tüm belgenin iki kopyası yerine yalnızca değişen satırları tutar — büyük dosyalarda bellek ve geri alma geçmişi korunur (eskiden 8 adımdan eskisi atılıyordu); `OSISUB_FRAME_LOG=1` kare süresi günlüğü.
 **Aegisub'dan geçiş:** Üzerine yapıştır (Paste Over, Ctrl+Shift+V) — panodaki satırların seçilen alanlarını seçili satırlara yazar; Stil yardımcısı (Styling Assistant); önceki/sonraki anahtar kareye git; videoda güvenli alan kılavuzu.
 **Lua:** `BM.BadMutex` ve `PT.PreciseTimer` yerleşik karşılıkları (ASSFoundation / Aegisub-Motion bağımlılıkları; gerçekleri Windows/Linux'a özel DLL ister).
+**Yazım:** Japonca saygı ekleri ve sık anime sözcükleri artık hata sayılmıyor (`Hinata-kun`'da yalnızca ad denetlenir); tireli bileşikler parça parça denetlenir.
 **Düzenleme:** Harf dönüştür (BÜYÜK / küçük / Başlık / Cümle; Türkçe i/İ ve ı/I doğru, etiketler ve `\N` korunur).
 **Karaoke:** Kanji zamanlayıcı — romaji karaoke zamanlamasını kanji/kana satırına otomatik aktarır (kana okunuşlarından hizalama, kanji dizileri gruplanır; gruplar elle düzeltilebilir).
 **Hata düzeltmeleri:** Lua `clipboard.get/set` arayüzde sistem panosunu kullanmıyordu (panodan veri alan Aegisub betikleri — ör. hareket verisi, HYDRA kopyala/yapıştır — boş okuyordu).
