@@ -25,6 +25,9 @@ pub struct Settings {
     pub glossary_path: String,
     pub dict_aff: String,
     pub dict_dic: String,
+    /// ikinci (ek) sözlük, ör. en_US — boşsa yok
+    pub dict2_aff: String,
+    pub dict2_dic: String,
     /// Lua makro kısayolları: (tuş birleşimi "Ctrl+Shift+K", betik adı, makro adı)
     pub macro_hotkeys: Vec<MacroHotkey>,
     /// Izgara sütunları (Aegisub gibi): katman, efekt, kenar boşlukları
@@ -79,6 +82,8 @@ impl Default for Settings {
             glossary_path: String::new(),
             dict_aff: String::new(),
             dict_dic: String::new(),
+            dict2_aff: String::new(),
+            dict2_dic: String::new(),
             macro_hotkeys: vec![],
             grid_layer: true,
             grid_effect: true,

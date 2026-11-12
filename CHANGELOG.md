@@ -10,7 +10,7 @@
 **Dağıtım:** gece sürüm paketleri (Linux/Windows/macOS; `[nightly]` commit'lerinde otomatik); Windows paketi ffmpeg/ffprobe/ffplay'i yanında getirir (program önce kendi klasörüne bakar).
 **Dosyalar:** Toplu dosya işlemleri penceresi — birçok bölümü tek seferde dönüştür / kaydır / düzelt / yeniden örnekle.
 **Video:** anamorfik kaynaklar (DVD) doğru en-boy oranında; Video → En-boy oranı geçersiz kılma (Aegisub Override AR).
-**Yazım:** Japonca saygı ekleri ve sık anime sözcükleri artık hata sayılmıyor (`Hinata-kun`'da yalnızca ad denetlenir); tireli bileşikler parça parça denetlenir.
+**Yazım:** ek sözlük (ör. tr_TR + en_US; İngilizce şarkı sözleri/terimler yanlış alarm vermez); Japonca saygı ekleri ve sık anime sözcükleri artık hata sayılmıyor (`Hinata-kun`'da yalnızca ad denetlenir); tireli bileşikler parça parça denetlenir.
 **Düzenleme:** Harf dönüştür (BÜYÜK / küçük / Başlık / Cümle; Türkçe i/İ ve ı/I doğru, etiketler ve `\N` korunur).
 **Karaoke:** Kanji zamanlayıcı — romaji karaoke zamanlamasını kanji/kana satırına otomatik aktarır (kana okunuşlarından hizalama, kanji dizileri gruplanır; gruplar elle düzeltilebilir).
 **Hata düzeltmeleri:** Lua `clipboard.get/set` arayüzde sistem panosunu kullanmıyordu (panodan veri alan Aegisub betikleri — ör. hareket verisi, HYDRA kopyala/yapıştır — boş okuyordu).

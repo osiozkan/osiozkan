@@ -22,7 +22,7 @@ MEDIA_TEST=1 tools/ui-smoke.sh target/debug/osisub-gui examples/demo.ass out.png
 ```
 Başsız GUI görüntüsü: `LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1400x900x24" target/debug/osisub-gui dosya.ass [--media v.mkv] [--ref r.srt] [--tab styles|translate|karaoke|spell|quality|automation|info] [--line N] [--open find|timing|resample|fonts|fixes|stats|vad|pos|clip|rotate|scale|play|spectrum|spell] --screenshot out.png` (sonra `Read` ile görüntüyü incele). Ortam kurulumu: `apt-get install xvfb xdotool libxkbcommon-x11-0 ffmpeg libasound2-dev`.
 Test medyası üretmek: `ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=16 -f lavfi -i "aevalsrc=...:s=44100:d=16" -shortest demo.mkv`.
-Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p osisub-spell` (sözlük depoya konmaz; LibreOffice/dictionaries'den indirilir).
+Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p osisub-spell` (ek sözlük: `OSISUB_EN_DICT=<en_US klasörü>`) (sözlük depoya konmaz; LibreOffice/dictionaries'den indirilir).
 
 ## Tuzaklar / öğrenilenler
 - egui 0.37 API'si eğitim verisinden farklı: `Panel::top("id").show(ui, …)`, `App::ui(&mut self, ui, frame)`, `Id::unique`, `ctx.global_style_mut`, `ui.fonts_mut`, `ui.close()`. Emin değilsen `~/.cargo/registry/src/*/egui-0.37.0` kaynağına bak.

@@ -56,6 +56,8 @@ fn shift_dic_flags(dic: &str) -> String {
 
 pub struct Speller {
     dict: spellbook::Dictionary,
+    /// ek sözlükler (ör. en_US): sözcük herhangi birinde varsa doğru sayılır
+    others: Vec<spellbook::Dictionary>,
     /// Kullanıcının eklediği sözcükler (küçük harf, Türkçe kurallı).
     extra: Vec<String>,
     pub name: String,
@@ -90,6 +92,18 @@ pub fn find_dictionary(name: &str, extra_dirs: &[PathBuf]) -> Option<(PathBuf, P
 
 impl Speller {
     pub fn load(aff: &Path, dic: &Path) -> Result<Speller, String> {
+        let dict = Self::parse(aff, dic)?;
+        Ok(Speller { dict, others: vec![], extra: vec![], name: aff.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default() })
+    }
+
+    /// Ek sözlük (çok dilli denetim): ör. tr_TR + en_US.
+    pub fn add_dictionary(&mut self, aff: &Path, dic: &Path) -> Result<(), String> {
+        self.others.push(Self::parse(aff, dic)?);
+        self.name = format!("{} + {}", self.name, aff.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+        Ok(())
+    }
+
+    fn parse(aff: &Path, dic: &Path) -> Result<spellbook::Dictionary, String> {
         let a = std::fs::read_to_string(aff).map_err(|e| format!("{}: {}", aff.display(), e))?;
         let d = std::fs::read_to_string(dic).map_err(|e| format!("{}: {}", dic.display(), e))?;
         let dict = match spellbook::Dictionary::new(&a, &d) {
@@ -101,7 +115,7 @@ impl Speller {
             }
             Err(e) => return Err(format!("sözlük çözümlenemedi: {}", e)),
         };
-        Ok(Speller { dict, extra: vec![], name: aff.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default() })
+        Ok(dict)
     }
 
     pub fn add_word(&mut self, w: &str) {
@@ -120,6 +134,9 @@ impl Speller {
         if self.dict.check(word) || self.dict.check(&lw) {
             return true;
         }
+        if self.others.iter().any(|d| d.check(word) || d.check(&word.to_lowercase())) {
+            return true;
+        }
         // tireli: "Hinata-san" → saygı eki atlanır, gövde denetlenir; "yarı-resmi" → her parça
         if let Some((base, suf)) = word.rsplit_once('-') {
             if !base.is_empty() && HONORIFICS.contains(&suf.to_lowercase().as_str()) {
@@ -136,6 +153,12 @@ impl Speller {
     pub fn suggest(&self, word: &str, max: usize) -> Vec<String> {
         let mut out = Vec::new();
         self.dict.suggest(word, &mut out);
+        for d in &self.others {
+            if out.len() >= max { break; }
+            let mut more = Vec::new();
+            d.suggest(word, &mut more);
+            for m in more { if !out.contains(&m) { out.push(m); } }
+        }
         out.truncate(max);
         out
     }
@@ -311,8 +334,8 @@ mod tests {
     const AFF: &str = "SET UTF-8\nTRY esianrtolcdugmphbyfvkwzESIANRTOLCDUGMPHBYFVKWZ'\nSFX S Y 1\nSFX S 0 s .\n";
     const DIC: &str = "4\nhello/S\nworld\nİstanbul\nmerhaba\n";
 
-    fn sp() -> Speller {
-        Speller { dict: spellbook::Dictionary::new(AFF, DIC).unwrap(), extra: vec![], name: "test".into() }
+    pub(super) fn sp() -> Speller {
+        Speller { dict: spellbook::Dictionary::new(AFF, DIC).unwrap(), others: vec![], extra: vec![], name: "test".into() }
     }
 
     #[test]
@@ -336,6 +359,21 @@ mod tests {
         assert!(s.check("senpai") && s.check("Itadakimasu") && s.check("onii-chan"));
         // tireli bileşikte her parça
         assert!(s.check("hello-world") && !s.check("hello-wrold"));
+    }
+
+    #[test]
+    fn second_dictionary() {
+        let dir = std::env::temp_dir().join(format!("osisub-spell2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("en.aff"), "SET UTF-8\n").unwrap();
+        std::fs::write(dir.join("en.dic"), "2\nsunshine\nlove\n").unwrap();
+        let mut s = sp();
+        assert!(!s.check("sunshine"));
+        s.add_dictionary(&dir.join("en.aff"), &dir.join("en.dic")).unwrap();
+        assert!(s.check("sunshine") && s.check("Love") && !s.check("sunshyne"));
+        assert!(s.name.ends_with("+ en"));
+        assert!(s.suggest("sunshyne", 5).contains(&"sunshine".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -380,6 +418,17 @@ mod tests {
 #[cfg(test)]
 mod real_dict {
     use super::*;
+
+    /// Gerçek en_US sözlüğü varsa (OSISUB_EN_DICT=<klasör>) ek sözlük olarak çalışır.
+    #[test]
+    fn real_en_us_as_second() {
+        let Ok(dir) = std::env::var("OSISUB_EN_DICT") else { return };
+        let dir = PathBuf::from(dir);
+        let mut s = super::tests::sp();
+        s.add_dictionary(&dir.join("en_US.aff"), &dir.join("en_US.dic")).unwrap();
+        assert!(s.check("tomorrow") && s.check("Running") && s.check("merhaba") && !s.check("tomorow"));
+        assert!(s.suggest("tomorow", 8).contains(&"tomorrow".to_string()));
+    }
 
     /// Gerçek tr_TR sözlüğü varsa (OSISUB_TR_DICT=<klasör>) çalışır.
     #[test]

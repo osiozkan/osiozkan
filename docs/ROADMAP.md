@@ -56,7 +56,7 @@
 - [x] Yazım: editörde canlı hatalı sözcük vurgusu (kırmızı altçizgi), etiket/\N renklendirme
 - [x] Yazım: ızgarada hata göstergesi (satır numarası kırmızı; sürüm başına önbellekli)
 - [x] Yazım: anime uyumu — Japonca saygı ekleri (`Hinata-kun` → gövde denetlenir), sık Japonca sözcükler (senpai, itadakimasu, onii-chan…) hata sayılmaz; tireli bileşiklerde her parça denetlenir
-- [ ] Yazım: çok dilli sözlük seçimi
+- [x] Yazım: çok dilli — ek sözlük (Yazım sekmesi: seç / en_US indir / kaldır; ayarlarda kalıcı); sözcük herhangi bir sözlükte varsa doğru, öneriler birleşik (gerçek en_US ile testli: `OSISUB_EN_DICT`)
 - [x] Karaoke hece modeli (core::karaoke) + GUI sekmesi: böl (|), birleştir, sürükle, ölçekle, harfe göre dağıt
 - [x] Karaoke kipi dalga formunda: hece sınırları ve metinleri etkin satırda gösterilir, sınırlar sürüklenerek ayarlanır (toplam süre korunur)
 - [x] Karaoke: oynatırken Boşluk ile tuşla zamanlama (gecikme ayarlı; çekirdek `apply_taps` testli)

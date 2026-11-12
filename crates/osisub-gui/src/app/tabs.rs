@@ -163,8 +163,12 @@ impl App {
         self.spell_status = "Sözlük yükleniyor…".into();
         let (tx, rx) = std::sync::mpsc::channel();
         self.spell_load_rx = Some(rx);
+        let second = (PathBuf::from(&self.settings.dict2_aff), PathBuf::from(&self.settings.dict2_dic));
         std::thread::spawn(move || {
             let r = osisub_spell::Speller::load(&aff, &dic).map(|mut s| {
+                if second.0.is_file() && second.1.is_file() {
+                    let _ = s.add_dictionary(&second.0, &second.1);
+                }
                 if let Some(p) = Self::user_words_path() {
                     if let Ok(t) = std::fs::read_to_string(p) { for w in t.lines().filter(|l| !l.trim().is_empty()) { s.add_word(w.trim()); } }
                 }
@@ -217,6 +221,37 @@ impl App {
                     let ok = ["tr_TR.aff", "tr_TR.dic"].iter().all(|f| std::process::Command::new("curl").args(["-sSfL", "-o"]).arg(dir.join(f)).arg(format!("https://raw.githubusercontent.com/LibreOffice/dictionaries/master/tr_TR/{}", f)).status().map(|s| s.success()).unwrap_or(false));
                     if ok { self.load_dictionary(dir.join("tr_TR.aff"), dir.join("tr_TR.dic")); } else { self.spell_status = "İndirme başarısız (curl/ağ)".into(); }
                 }
+            }
+        });
+        // ikinci sözlük: İngilizce şarkı sözleri/terimler için (sözcük herhangi bir sözlükte varsa doğru)
+        ui.horizontal_wrapped(|ui| {
+            let has2 = !self.settings.dict2_dic.is_empty();
+            ui.label(RichText::new(if has2 { format!("Ek sözlük: {}", PathBuf::from(&self.settings.dict2_dic).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()) } else { "Ek sözlük yok".into() }).weak());
+            let (aff, dic) = (PathBuf::from(&self.settings.dict_aff), PathBuf::from(&self.settings.dict_dic));
+            if ui.button("Ek sözlük seç…").on_hover_text("İkinci dil (ör. en_US): sözcük iki sözlükten birinde varsa hata sayılmaz").clicked() {
+                if let Some(d2) = rfd::FileDialog::new().add_filter("Hunspell sözlüğü", &["dic"]).pick_file() {
+                    if d2.with_extension("aff").is_file() {
+                        self.settings.dict2_aff = d2.with_extension("aff").to_string_lossy().to_string();
+                        self.settings.dict2_dic = d2.to_string_lossy().to_string();
+                        if aff.is_file() { self.load_dictionary(aff.clone(), dic.clone()); }
+                    } else { self.spell_status = "Aynı klasörde .aff dosyası yok".into(); }
+                }
+            }
+            if ui.button("en_US indir").on_hover_text("LibreOffice İngilizce sözlüğünü ek sözlük olarak indirir (curl gerekir)").clicked() {
+                if let Some(dir) = Self::user_dict_dir() {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let ok = ["en_US.aff", "en_US.dic"].iter().all(|f| std::process::Command::new("curl").args(["-sSfL", "-o"]).arg(dir.join(f)).arg(format!("https://raw.githubusercontent.com/LibreOffice/dictionaries/master/en/{}", f)).status().map(|s| s.success()).unwrap_or(false));
+                    if ok {
+                        self.settings.dict2_aff = dir.join("en_US.aff").to_string_lossy().to_string();
+                        self.settings.dict2_dic = dir.join("en_US.dic").to_string_lossy().to_string();
+                        if aff.is_file() { self.load_dictionary(aff.clone(), dic.clone()); }
+                    } else { self.spell_status = "İndirme başarısız (curl/ağ)".into(); }
+                }
+            }
+            if has2 && ui.button("Ek sözlüğü kaldır").clicked() {
+                self.settings.dict2_aff.clear();
+                self.settings.dict2_dic.clear();
+                if aff.is_file() { self.load_dictionary(aff, dic); }
             }
         });
         ui.horizontal(|ui| {
