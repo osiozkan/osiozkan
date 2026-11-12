@@ -48,7 +48,9 @@ osisub gerçek DepCtrl yerine **yerleşik bir uyumluluk katmanı** kullanır (ge
 - Yedek `json` modülü (encode/decode) gömülüdür; include klasöründe kendi `json.lua`'nız varsa o kullanılır.
 - **Aegisub klasörleri otomatik:** kurulu Aegisub'ın `automation/include` klasörü her zaman aranır, `automation/autoload` betikleri de (Otomasyon sekmesinden kapatılabilir) yüklenir. Windows `%APPDATA%\Aegisub`, Linux `~/.aegisub`, macOS `~/Library/Application Support/Aegisub`; `OSISUB_AEGISUB_DIR` ile değiştirilebilir.
 - Makro adlarındaki `/` Aegisub gibi iç içe alt menü oluşturur.
-- Doğrulanmayan: gerçek ASSFoundation / Aegisub-Motion modülleriyle çalıştırma (ffi DLL'leri — BadMutex, PreciseTimer — Linux'ta yok).
+- **`BM.BadMutex` ve `PT.PreciseTimer` yerleşik** (2026-11-12): gerçekleri ffi ile yerel DLL yükler; osisub saf karşılıklarını sunar (`lock/tryLock/unlock`; `PT()`, `:timeElapsed()` saniye, `PT.sleep(ms)`), DepCtrl sürüm kaydıyla. ASSFoundation / a-mo'nun bu bağımlılıkları artık karşılanır.
+- Eksik: `SubInspector.Inspector` (libass ile satır sınırlarını ölçen ffi DLL; ASSFoundation `getLineBounds` kullanır).
+- Doğrulanmayan: gerçek ASSFoundation / Aegisub-Motion modülleriyle uçtan uca çalıştırma (modüller depoda yok).
 
 ## Belgeye bağlı betikler
 Aegisub'ın `[Aegisub Project Garbage]` → `Automation Scripts:` alanı okunur ve yazılır: dosya açılınca betikler yüklenir; Otomasyon sekmesindeki "belgeye bağlı" kutusu betiği bu alana ekler/çıkarır (kaydedince yazılır).

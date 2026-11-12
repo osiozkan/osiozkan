@@ -69,7 +69,8 @@
 - [x] MoonScript (`.moon`) betikleri, include klasörlerinden `require`
 - [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
 - [x] DependencyControl uyumluluk katmanı (requireModules, registerMacro(s), ConfigHandler, Logger, sürüm denetimi; güncelleme yapmaz) + yedek `json` modülü; Aegisub'ın automation/include ve autoload klasörleri otomatik; `/` ile iç içe makro menüleri
-- [ ] Gerçek ASSFoundation / Aegisub-Motion ile doğrulama (ffi DLL yerine yerel karşılıklar: BadMutex, PreciseTimer)
+- [x] ffi DLL karşılıkları: `BM.BadMutex`, `PT.PreciseTimer` (yerleşik, DepCtrl sürümlü)
+- [ ] `SubInspector.Inspector` karşılığı (libass satır sınırları); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca doğrulama
 - [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] `aegisub.get_frame` (arch1t3cht API: width/height/getPixel/getPixelFormatted; altyazılı kare)

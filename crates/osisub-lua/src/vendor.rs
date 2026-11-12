@@ -30,6 +30,9 @@ pub const MODULES: &[(&str, &str)] = &[
     // DependencyControl uyumluluk katmanı: kullanıcının gerçek DepCtrl kopyasından önce gelir
     // (gerçeği Windows DLL'leri ve ağ güncellemesi ister).
     ("l0.DependencyControl", include_str!("../lua/depctrl.lua")),
+    // ffi DLL isteyen yardımcı kütüphanelerin saf karşılıkları (ASSFoundation, a-mo vb. ister)
+    ("BM.BadMutex", include_str!("../lua/badmutex.lua")),
+    ("PT.PreciseTimer", include_str!("../lua/precisetimer.lua")),
 ];
 
 /// Yalnızca include klasörlerinde bulunamazsa kullanılan yedek modüller.

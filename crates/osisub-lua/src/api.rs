@@ -148,6 +148,18 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             })?,
         )?;
     }
+    {
+        // duvar saati (saniye) ve uyku: PT.PreciseTimer karşılığı için
+        let t0 = std::time::Instant::now();
+        native.set("clock", lua.create_function(move |_, ()| Ok(t0.elapsed().as_secs_f64()))?)?;
+        native.set(
+            "sleep",
+            lua.create_function(|_, ms: f64| {
+                std::thread::sleep(std::time::Duration::from_secs_f64((ms.max(0.0) / 1000.0).min(60.0)));
+                Ok(())
+            })?,
+        )?;
+    }
     g.set("__osisub_native", native)?;
 
     // ---- kayıt

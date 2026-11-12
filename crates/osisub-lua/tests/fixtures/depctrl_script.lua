@@ -20,6 +20,18 @@ assert(LineCollection.version.version == 65536 + 3 * 256)
 assert(dep:getVersionString() == "1.0.2", dep.name .. " " .. dep:getVersionString())
 assert(DependencyControl:parseVersion("2.1.3") == 2 * 65536 + 256 + 3)
 
+-- ffi DLL isteyen yardımcılar yerleşik karşılıklarla gelir (ASSFoundation/a-mo bunları ister)
+local dep2 = DependencyControl{ { { "BM.BadMutex", version = "0.1.3" }, { "PT.PreciseTimer", version = "0.1.5" } } }
+local BM, PT = dep2:requireModules()
+assert(BM.tryLock() == true and BM.tryLock() == false)
+BM.unlock()
+BM.lock(); BM.unlock()
+local timer = PT()
+PT.sleep(5)
+local el = timer:timeElapsed()
+assert(el >= 0.004 and el < 2, "timeElapsed " .. tostring(el))
+assert(PT.version.version == 256 + 6)
+
 local cfg = dep:getConfigHandler({ kalinlik = 2, ad = "varsayılan" })
 
 dep:registerMacros({

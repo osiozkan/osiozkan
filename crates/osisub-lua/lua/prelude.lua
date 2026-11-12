@@ -2,6 +2,8 @@
 local G = _G
 local N = __osisub_native
 __osisub_native = nil
+-- PT.PreciseTimer karşılığı için duvar saati
+package.loaded["osisub.time"] = { clock = N.clock, sleep = N.sleep }
 
 function __new_script_env(script_dir)
   local env = setmetatable({}, { __index = G })
