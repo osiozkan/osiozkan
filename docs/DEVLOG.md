@@ -63,3 +63,14 @@ Dal: `claude/vibrant-clarke-dsxf2y` (main'den; `claude/vibrant-clarke-6oujog` il
 - **Video ile:** MKV izleri aç/çıkar, ek yazı tipleri, MKV'ye göm, videoya yak. **Sesle yeniden zamanlama (TV→BD)**: FFT çapraz-ilinti.
 - **Windows doğrulandı (wine):** `tools/win-check.sh` — CLI çıktısı Linux'la bayt bayt aynı, GUI açılıyor. CI gerçek Windows/macOS runner'larında yeşil.
 - Kullanım kolaylığı: komut paleti (Ctrl+Shift+P), geçmiş penceresi, düzenleme kutusu araç çubuğu (K/İ/A/Ü/renk), pencere/sütun kalıcılığı, betik başlığı QC'si.
+
+## 2026-11-12 (v0.5.0 — dördüncü gece)
+Dal: `claude/vibrant-clarke-xt32gt` (main'den; `claude/vibrant-clarke-dsxf2y` ileri sarılarak devam edildi). Ortam: `apt-get update` sonrası `xvfb xdotool libxkbcommon-x11-0 ffmpeg libasound2-dev` kuruldu.
+- **Tipografi:** köşe pini izleme (CC Power Pin/Corner Pin → kare kare perspektif, kırpma homografiyle; libass IoU ≥ 0.999), **perspektif video aracı** (4 köşe, canlı oturtma), **çizim (\p) video aracı**, hareket izlemede doğrusal kip, **Etiket uygula / yeniden hesapla** (HYDRA + Recalculator), **Etiketler sekmesi** (etiket denetçisi).
+- **Aegisub'dan geçiş:** Üzerine yapıştır (Ctrl+Shift+V), Stil yardımcısı, **Kanji zamanlayıcı**, anahtar kareye atlama, güvenli alan kılavuzu, en-boy oranı geçersiz kılma (anamorfik DVD).
+- **Kalite:** eksik glif denetimi (yazı tipinde ğ/ş/İ/ı yoksa); yazımda Japonca saygı ekleri/anime sözcükleri; Türkçe harf dönüştürme.
+- **Lua:** `clipboard` artık gerçek sistem panosu (arboard); `BM.BadMutex`, `PT.PreciseTimer` yerleşik.
+- **Performans:** geri alma yığını satır ekleyen işlemlerde yalnızca farkı saklar; `OSISUB_FRAME_LOG` ile 50k satırda medyan 2.1 ms/kare.
+- **Dağıtım:** `[nightly]` commit'lerinde release.yml paketleri (ilk kez çalıştırıldı, Linux/macOS/Windows yeşil); Windows paketi ffmpeg getirir, program ffmpeg'i kendi klasöründe de arar.
+- HATA DÜZELTİLDİ: köşe pini/perspektifte LayoutRes eklemek girdi indekslerini kaydırıp yanlış satırı siliyordu; Lua `clipboard.get` arayüzde boş dönüyordu.
+- Tuzak: egui `lost_focus()` canlı okunur — aynı karede `request_focus()` sonrası false (Stil yardımcısında Enter çalışmıyordu).
