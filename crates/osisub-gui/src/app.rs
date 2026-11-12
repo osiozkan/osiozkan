@@ -290,6 +290,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_rotatexy", "Video aracı: 3B döndürme"),
     ("tool_scale", "Video aracı: ölçek"),
     ("tool_persp", "Video aracı: perspektif (4 köşe)"),
+    ("tool_draw", "Video aracı: çizim (\\p)"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -605,6 +606,7 @@ impl App {
             Some("rotate") => app.media.tool = crate::media_ui::VideoTool::Rotate,
             Some("rotatexy") => app.media.tool = crate::media_ui::VideoTool::RotateXY,
             Some("persp") => app.media.tool = crate::media_ui::VideoTool::Perspective,
+            Some("draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("scale") => app.media.tool = crate::media_ui::VideoTool::Scale,
             Some("spectrum") => app.media.spectrum = true,
             Some("play") => app.autoplay = true,
@@ -1174,6 +1176,7 @@ impl App {
             "tool_rotate" => self.media.tool = T::Rotate,
             "tool_rotatexy" => self.media.tool = T::RotateXY,
             "tool_persp" => self.media.tool = T::Perspective,
+            "tool_draw" => self.media.tool = T::Drawing,
             "tool_scale" => self.media.tool = T::Scale,
             _ => self.status = format!("Bilinmeyen komut: {}", id),
         }
@@ -1603,7 +1606,7 @@ impl App {
                 ui.checkbox(&mut self.media.snap_kf, "Anahtar karelere yapış");
                 ui.menu_button("Video aracı", |ui| {
                     use crate::media_ui::VideoTool as T;
-                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)"), (T::Perspective, "Perspektif (4 köşeyi sürükle)")] {
+                    for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)"), (T::Perspective, "Perspektif (4 köşeyi sürükle)"), (T::Drawing, "Çizim (\\p noktaları; \\an7)")] {
                         if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
                     }
                 });

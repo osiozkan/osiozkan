@@ -31,6 +31,8 @@ pub enum VideoTool {
     /// \frx/\fry (Aegisub Rotate XY)
     RotateXY,
     Scale,
+    /// `\p` çizim noktalarını düzenleme (\an7, döndürmesiz)
+    Drawing,
     /// 4 köşeyi sürükleyerek perspektife oturtma (\frx\fry\frz\fscx\fscy\fax\org)
     Perspective,
 }
@@ -1052,6 +1054,62 @@ impl Media {
                     let nt = osisub_core::overrides::remove_initial(&osisub_core::overrides::remove_initial(&d.text, "frx"), "fry");
                     if nt != d.text {
                         doc.edit("3B dönmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                }
+            }
+            VideoTool::Drawing => {
+                use osisub_core::{drawing, overrides as ov};
+                let pscale = ov::get_initial(&d.text, "p").and_then(|t| t.number()).unwrap_or(0.0);
+                let warn = |msg: &str| { p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, msg, egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a)); };
+                if pscale <= 0.0 { warn("Çizim aracı: satır \\p1 çizimi değil"); return; }
+                let num = |n: &str| ov::get_initial(&d.text, n).and_then(|t| t.number());
+                let st = doc.script.style_by_name(&d.style).cloned().unwrap_or_default();
+                let an = num("an").map(|v| v as i32).unwrap_or(st.align);
+                let rot = num("frz").or(num("fr")).unwrap_or(st.angle) != 0.0 || num("frx").unwrap_or(0.0) != 0.0 || num("fry").unwrap_or(0.0) != 0.0;
+                if an != 7 || rot { warn("Çizim aracı yalnızca \\an7 ve döndürmesiz çizimlerde çalışır"); return; }
+                let k = 1.0 / 2f64.powf(pscale - 1.0);
+                let (sx, sy) = (num("fscx").unwrap_or(st.scale_x) / 100.0 * k, num("fscy").unwrap_or(st.scale_y) / 100.0 * k);
+                let (px, py) = (cur.0 as f64, cur.1 as f64);
+                // çizim metni: \p bloğundan sonraki ilk metin parçası
+                let segs = ov::parse(&d.text);
+                let Some(ti) = segs.iter().position(|g| matches!(g, ov::Seg::Text(t) if !t.trim().is_empty())) else { warn("Çizim boş"); return; };
+                let ov::Seg::Text(body) = &segs[ti] else { return };
+                let mut cmds = drawing::parse(body);
+                let scr = |q: (f64, f64)| to_screen((px + q.0 * sx) as f32, (py + q.1 * sy) as f32);
+                let back = |s: Pos2| { let (x, y) = to_script(s); (((x as f64 - px) / sx * 2.0).round() / 2.0, ((y as f64 - py) / sy * 2.0).round() / 2.0) };
+                for shape in drawing::polylines(&cmds) {
+                    let pts: Vec<Pos2> = shape.iter().map(|&q| scr(q)).collect();
+                    for w in pts.windows(2) { p.line_segment([w[0], w[1]], Stroke::new(1.5, col)); }
+                    if pts.len() > 2 { p.line_segment([*pts.last().unwrap(), pts[0]], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 120))); }
+                }
+                let handles = drawing::points(&cmds);
+                for (ci, _, q) in &handles {
+                    let s = scr(*q);
+                    if cmds[*ci].kind == 'b' { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
+                }
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\p çizim: {} nokta · tıkla: ekle · sürükle: taşı · sağ tık: sil", handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
+                let mut changed = false;
+                if r.drag_started() { self.vt_vdrag = press.or(ptr).and_then(hit); }
+                if r.dragged() {
+                    if let (Some((ci, pi)), Some(pos)) = (self.vt_vdrag, ptr) {
+                        if let Some(pt) = cmds.get_mut(ci).and_then(|c| c.pts.get_mut(pi)) { *pt = back(pos); changed = true; }
+                    }
+                }
+                if r.drag_stopped() { self.vt_vdrag = None; }
+                if r.clicked() {
+                    if let Some(pos) = ptr { if hit(pos).is_none() { drawing::push_point(&mut cmds, back(pos)); changed = true; } }
+                }
+                if r.secondary_clicked() {
+                    if let Some((ci, pi)) = ptr.and_then(hit) { drawing::remove_point(&mut cmds, ci, pi); changed = true; }
+                }
+                if changed {
+                    let mut segs2 = segs.clone();
+                    segs2[ti] = ov::Seg::Text(drawing::to_string(&cmds));
+                    let nt = ov::to_string(&segs2);
+                    if nt != d.text {
+                        let key = format!("vt:draw:{}", at);
+                        doc.edit_keyed("Çizim", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
                     }
                 }
             }
