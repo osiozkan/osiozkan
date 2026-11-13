@@ -150,12 +150,14 @@
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [x] Geçmiş penceresi (Düzen → Geçmiş…): geri alma listesi, tıklayınca o duruma git (geri al/yinele)
+- [x] Uygulama içi kullanım kılavuzu (F1 / Yardım menüsü; KULLANIM.md ikiliye gömülü, aranabilir)
 - [x] Komut paleti (Ctrl+Shift+P; komutlar, pencereler, sekmeler, Lua makroları; Türkçe duyarsız bulanık arama)
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
 ## Performans
 - [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12)
 - [x] Geri alma belleği: satır sayısını değiştiren işlemler artık yalnızca değişen aralığı saklar (ortak önek/sonek); toplu ekleme/silme splice ile O(n); >5000 girdilik adımlar en fazla 8 tane tutulur
+- [x] Açılış süresi (release, yazılım GL): ilk kare 144 ms, 50k satırlık dosyayla 189 ms
 - [x] Boşta CPU: arayüz artık boştayken çizmiyor (eskiden her karede pencere başlığı gönderildiği için ~100 kare/sn sürekli çizim vardı); Lua işçisi olayları, arka plan işleri ve otomatik kayıt zamanlayıcısı arayüzü kendisi uyandırır
 - [x] Bellek ayak izi ölçümü (2026-11-13, release, yazılım GL): boş arayüz ~135 MB (çoğu Mesa), 50k satırlık 6 MB dosya +23 MB
 - [x] Lua toplu erişim ölçümü: 50k satırın hepsini okuyup yazan makro 0.57 sn, yalnızca okuma 0.37 sn (release) — ayrı toplu API gerekmedi

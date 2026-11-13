@@ -97,6 +97,8 @@ pub struct App {
     glossary: Vec<osisub_core::glossary::Term>,
     gloss_findings: Vec<osisub_core::glossary::Finding>,
     help_open: bool,
+    /// Kullanım kılavuzu penceresi (arama metni)
+    guide: Option<String>,
     about_open: bool,
     settings: Settings,
     reference: Option<osisub_core::Script>,
@@ -310,6 +312,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_scale", "Video aracı: ölçek"),
     ("tool_shear", "Video aracı: eğme (\\fax/\\fay)"),
     ("hold_play", "Basılı tutarak oynat (playhead'den; bırakınca durur)"),
+    ("guide", "Kullanım kılavuzu (F1)"),
     ("tool_persp", "Video aracı: perspektif (4 köşe)"),
     ("tool_draw", "Video aracı: çizim (\\p)"),
 ];
@@ -547,6 +550,7 @@ impl App {
             glossary: vec![],
             gloss_findings: vec![],
             help_open: false,
+            guide: None,
             about_open: false,
             settings,
             reference: None,
@@ -628,6 +632,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
+            Some("guide") => app.guide = Some(String::new()),
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("tool_shear") => app.media.tool = crate::media_ui::VideoTool::Shear,
             Some("ocr") => app.ocr = Some(windows::OcrWin::default()),
@@ -1242,6 +1247,7 @@ impl App {
             }
             "split_cursor" => self.split_at_cursor(false),
             "balance_lines" => self.rebreak_selected(true),
+            "guide" => self.guide = Some(String::new()),
             "unbreak_lines" => self.rebreak_selected(false),
             "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
@@ -1835,6 +1841,7 @@ impl App {
                 }
             });
             ui.menu_button("Yardım", |ui| {
+                if ui.add(egui::Button::new("Kullanım kılavuzu").shortcut_text("F1")).clicked() { self.guide = Some(String::new()); ui.close(); }
                 if ui.button("Kısayollar").clicked() { self.help_open = true; ui.close(); }
                 if ui.add(egui::Button::new("Komut paleti…").shortcut_text("Ctrl+Shift+P")).clicked() { ui.close(); self.palette = Some((String::new(), 0)); }
                 if ui.button("Kısayolları düzenle…").clicked() { self.hotkeys_open = true; ui.close(); }
@@ -2086,6 +2093,8 @@ impl App {
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.dummy_window(&ctx);
+        crate::guide_ui::show(&ctx, &mut self.guide);
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) { self.guide = if self.guide.is_some() { None } else { Some(String::new()) }; }
         self.ocr_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
