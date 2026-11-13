@@ -135,3 +135,58 @@ fn new_parsers_never_panic() {
         osisub_core::qc::snap_to_framerate(&mut s3, &fr);
     }
 }
+
+const FRAGS3: &[&str] = &[
+    "<tt ", "<tt:p ", "<p ", "begin=\"", "end=\"", "dur=\"", "00:00:01:12", "10010000t", "1.5s", "2h", "\"", ">", "</p>", "<span ", "tts:fontStyle=\"italic\"", "</span>", "<br/>", "<!--", "-->",
+    "<![CDATA[", "]]>", "&#x15F;", "&#99999999;", "&amp", "ttp:frameRate=\"0\"", "ttp:frameRateMultiplier=\"1 0\"", "ttp:tickRate=\"0\"", "<region xml:id=\"r\" tts:origin=\"0% 5%\"/>", "region=\"r\"",
+    "<style xml:id=\"s\" tts:fontStyle=\"italic\"/>", "style=\"s\"", "<head>", "</head>", "<div begin=\"5s\">", "</div>", " ", "ş", "日本", "'", "=",
+    "{=1}", "{=1=2}", "{=}", "{=x}", "Data: 1,k,eabc", "Data: x", "Data: 2,k,u!!!", "[Aegisub Extradata]", "#2C", "#", "#Z", ",", "- ", " - ", "\\N", "{\\i1}", "{\\p1}", "m 0 0 l 1 1", "ve ", "and ",
+];
+
+fn random_text3(r: &mut impl FnMut(usize) -> usize) -> String {
+    (0..r(40)).map(|_| FRAGS3[r(FRAGS3.len())]).collect()
+}
+
+/// 2026-11-13 gecesinin ayrıştırıcıları: TTML, EBU STL, PGS, Extradata, satır kırma, çevrilmemiş satır.
+#[test]
+fn night_2026_11_13_parsers_never_panic() {
+    use osisub_core::{extradata, linebreak, pgs, stl, ttml, untranslated};
+    let mut r = rng(0x2026_1113_FEED);
+    for _ in 0..rounds(3000) {
+        let t = random_text3(&mut r);
+        let _ = ttml::parse(&t);
+        let _ = extradata::split_prefix(&t);
+        let _ = extradata::decode_value(&t);
+        let _ = extradata::inline_decode(&t);
+        let _ = extradata::uudecode(&t);
+        let _ = extradata::parse_data_line(&t);
+        let _ = linebreak::balance(&t, 1 + r(50));
+        let _ = linebreak::unbreak(&t);
+        let s = Script::parse(&format!("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{t}\n"));
+        let _ = untranslated::check(&s, Some(&s));
+        let _ = ttml::write(&s, ttml::Profile::Itt { fps: 23.976 });
+        let _ = stl::write(&s, 25.0);
+        // ikili biçimler: geçerli başlıklı rastgele gövde ve tamamen rastgele baytlar
+        let mut sup: Vec<u8> = Vec::new();
+        for _ in 0..r(12) {
+            sup.extend_from_slice(b"PG");
+            sup.extend((0..8).map(|_| r(256) as u8));
+            sup.push([0x14u8, 0x15, 0x16, 0x17, 0x80][r(5)]);
+            let n = r(40);
+            sup.extend_from_slice(&(n as u16).to_be_bytes());
+            sup.extend((0..n).map(|_| r(256) as u8));
+        }
+        let _ = pgs::parse(&sup);
+        let rle: Vec<u8> = (0..r(64)).map(|_| r(256) as u8).collect();
+        let _ = pgs::decode_rle(&rle, r(20), r(20));
+        let mut st = stl::write(&s, 25.0);
+        for _ in 0..r(30) {
+            let k = r(st.len());
+            st[k] = r(256) as u8;
+        }
+        let _ = stl::parse(&st);
+        let junk: Vec<u8> = (0..r(2000)).map(|_| r(256) as u8).collect();
+        let _ = stl::parse(&junk);
+        let _ = pgs::parse(&junk);
+    }
+}

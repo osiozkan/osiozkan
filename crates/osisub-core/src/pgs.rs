@@ -175,7 +175,7 @@ pub fn parse(b: &[u8]) -> Result<Vec<PgsSub>, String> {
                 }
                 pending = Some((ms, sw, sh, pal, objs));
             }
-            0x14 if !seg.is_empty() => {
+            0x14 if seg.len() >= 2 => {
                 let id = seg[0];
                 let pal = palettes.entry(id).or_insert([(0, 0); 256]);
                 for e in seg[2..].chunks_exact(5) {
