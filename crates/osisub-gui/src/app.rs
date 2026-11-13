@@ -56,6 +56,10 @@ pub struct App {
     qc_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<Issue>)>>,
     qc_seen_rev: u64,
     qc_changed_at: std::time::Instant,
+    /// Ekran genişliği denetimi (yazı tipiyle): (belge sürümü, sorunlar), arka plan işi, kalıcı yazı tipi dizini
+    width_issues: (u64, Vec<Issue>),
+    width_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<Issue>)>>,
+    width_db: std::sync::Arc<std::sync::Mutex<osisub_lua::fonts::FontDb>>,
     start_buf: String,
     end_buf: String,
     style_sel: usize,
@@ -517,6 +521,9 @@ impl App {
             qc_rx: None,
             qc_seen_rev: u64::MAX,
             qc_changed_at: std::time::Instant::now(),
+            width_issues: (u64::MAX, vec![]),
+            width_rx: None,
+            width_db: Default::default(),
             start_buf: String::new(),
             end_buf: String::new(),
             style_sel: 0,
@@ -1127,6 +1134,28 @@ impl App {
             self.qc_seen_rev = self.doc.rev;
             self.qc_changed_at = std::time::Instant::now();
         }
+        // Ekran genişliği denetimi: belge durunca arka planda (küçük/orta belgelerde otomatik)
+        if let Some(rx) = &self.width_rx {
+            if let Ok((rev, w)) = rx.try_recv() {
+                self.width_rx = None;
+                if rev == self.doc.rev {
+                    self.width_issues = (rev, w);
+                    self.issues_key = u64::MAX; // birleştirmek için yeniden hesapla
+                }
+            }
+        } else if self.width_issues.0 != self.doc.rev && self.doc.script.entries.len() < 5000 && self.qc_changed_at.elapsed() >= std::time::Duration::from_millis(600) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.width_rx = Some(rx);
+            let (script, rev, db, ctx2) = (self.doc.script.clone(), self.doc.rev, self.width_db.clone(), self.egui_ctx.clone());
+            std::thread::spawn(move || {
+                let v = match db.lock() {
+                    Ok(mut db) => osisub_lua::fonts::width_issues(&mut db, &script).into_iter().map(|(entry, message)| Issue { entry, kind: Kind::LineTooLong, message }).collect(),
+                    Err(_) => vec![],
+                };
+                let _ = tx.send((rev, v));
+                ctx2.request_repaint();
+            });
+        }
         if let Some(rx) = &self.qc_rx {
             if let Ok((rev, issues)) = rx.try_recv() {
                 self.qc_rx = None;
@@ -1148,6 +1177,9 @@ impl App {
                 issues.extend(osisub_core::untranslated::check(&self.doc.script, self.reference.as_ref()));
                 if let Some((fr, kf)) = &frame_ctx {
                     issues.extend(qc::frame_issues(&self.doc.script, fr, kf, 3));
+                }
+                if self.width_issues.0 == self.doc.rev {
+                    issues.extend(self.width_issues.1.iter().cloned());
                 }
                 issues.sort_by_key(|x| x.entry);
                 self.set_issues(issues, self.doc.rev);
@@ -1881,7 +1913,7 @@ impl App {
     /// Arayüz boştayken çizilmez: arka plan işi sürerken kısa aralıkla yokla, kirli belgede
     /// otomatik kayıt zamanı gelince uyan.
     fn schedule_wakeups(&self, ctx: &egui::Context) {
-        let busy = self.qc_rx.is_some() || self.spell_load_rx.is_some() || self.miss_rx.is_some() || self.font_rx.is_some() || self.running.is_some();
+        let busy = self.qc_rx.is_some() || self.width_rx.is_some() || self.spell_load_rx.is_some() || self.miss_rx.is_some() || self.font_rx.is_some() || self.running.is_some();
         if busy {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

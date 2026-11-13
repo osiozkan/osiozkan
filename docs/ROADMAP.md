@@ -22,6 +22,7 @@
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
 - [x] Harf dönüştür (core::casing; Düzen menüsü, kısayol komutları): BÜYÜK/küçük/Başlık/Cümle — Türkçe i/İ ı/I, etiketler/\N/çizimler korunur
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
+- [x] Ekran genişliği denetimi (gerçek yazı tipiyle; osisub_lua::fonts::width_issues): PlayResX − kenar boşluklarını aşan satırlar (oynatıcı fazladan satıra kırar / WrapStyle 2'de taşar); GUI'de belge durunca arka planda otomatik (<5000 satır), CLI `check --width`
 - [x] Türkçe yaygın yazım hataları (core::trfix; Sık hataları düzelt, CLI `fixes --tr`, Kalite sekmesinde not): herşey/birşey/hiçbirşey, yada, şuan, malesef, herkez, yanlız, yalnış, orjinal, deyil… ve bitişik kişi ekli soru eki (gelecekmisin → gelecek misin); konuşma dili biçimlerine ve ek olabilecek -mi'ye dokunmaz
 - [x] Çevrilmemiş satır denetimi (core::untranslated; Kalite sekmesi, CLI `check --ref`): referansla aynı metin, Japonca kalmış, Türkçe belgede İngilizce kalmış satır (tipografi/karaoke hariç)
 - [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)

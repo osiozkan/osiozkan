@@ -416,6 +416,53 @@ pub fn line_box(db: &mut FontDb, script: &osisub_core::Script, d: &osisub_core::
     Ok((w, m.fontsize * lines.len() as f64))
 }
 
+/// Ekran genişliği denetimi: diyalog satırlarının her görünür satırını gerçek yazı tipiyle ölçer;
+/// `PlayResX − sol − sağ kenar boşluğu`ndan genişse (dizin, ileti) döner. Tipografi/karaoke/fx ve
+/// yorumlar atlanır; yazı tipi bulunamayan satırlar atlanır (yazı tipi denetimi ayrıca uyarır).
+pub fn width_issues(db: &mut FontDb, script: &osisub_core::Script) -> Vec<(usize, String)> {
+    use osisub_core::{ass::Entry, overrides, qc};
+    let (rx, _) = script.res();
+    let wrap = script.info("WrapStyle").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
+    let mut out = Vec::new();
+    for (i, e) in script.entries.iter().enumerate() {
+        let Entry::Dialogue(d) = e else { continue };
+        if d.comment || qc::is_typeset(d) || qc::is_karaoke(d) || d.effect.eq_ignore_ascii_case("fx") {
+            continue;
+        }
+        let st = script.style_by_name(&d.style).cloned().unwrap_or_default();
+        let get = |n: &str| overrides::get_initial(&d.text, n);
+        let m = StyleMetrics {
+            fontname: get("fn").map(|t| t.arg.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(st.fontname.clone()),
+            fontsize: get("fs").and_then(|t| t.number()).unwrap_or(st.fontsize),
+            bold: get("b").and_then(|t| t.number()).map_or(st.bold, |v| v != 0.0),
+            italic: get("i").and_then(|t| t.number()).map_or(st.italic, |v| v != 0.0),
+            scale_x: get("fscx").and_then(|t| t.number()).unwrap_or(st.scale_x),
+            scale_y: get("fscy").and_then(|t| t.number()).unwrap_or(st.scale_y),
+            spacing: get("fsp").and_then(|t| t.number()).unwrap_or(st.spacing),
+        };
+        let ml = if d.margin_l > 0 { d.margin_l } else { st.margin_l };
+        let mr = if d.margin_r > 0 { d.margin_r } else { st.margin_r };
+        let avail = (rx - ml - mr).max(1) as f64;
+        let text = osisub_core::tags::visible_text(&d.text);
+        let mut worst: f64 = 0.0;
+        for l in text.split('\n') {
+            match db.extents(&m, l.trim()) {
+                Some(e) => worst = worst.max(e.0),
+                None => {
+                    worst = 0.0;
+                    break;
+                }
+            }
+        }
+        if worst > avail {
+            let pct = (worst / avail * 100.0).round();
+            let how = if wrap == 2 { "ekrandan taşar" } else { "oynatıcı fazladan satıra kırar" };
+            out.push((i, format!("Satır ekrana sığmıyor: kullanılabilir genişliğin %{pct}'i ({how})")));
+        }
+    }
+    out
+}
+
 /// Bir altyazı satırını aynı görünümde `\\p1` çizimine çevirir (tipografide kırpma/şekil için).
 /// Yalnızca baştaki etiket bloğu desteklenir; metin ortasında yazı tipi değişimi varsa hata.
 /// Sonuç `\\an7\\pos` ile konumlanır, `\\fscx/\\fscy` 100'e sabitlenir, döndürme varsa `\\org`
@@ -503,6 +550,18 @@ pub fn line_to_drawing(db: &mut FontDb, script: &osisub_core::Script, d: &osisub
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn width_check_flags_overlong_lines() {
+        let mut db = FontDb::default();
+        let Some(fam) = ["DejaVu Sans", "Liberation Sans", "Arial", "Noto Sans"].into_iter().find(|f| db.has_family(f)) else { return };
+        let src = format!("[Script Info]\nPlayResX: 640\nPlayResY: 360\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,{fam},30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Kısa satır\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Bu satır gerçekten çok ama çok uzun ve ekrana asla sığmaz\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,{{\\pos(10,10)}}Bu satır gerçekten çok ama çok uzun ve ekrana asla sığmaz\n");
+        let sc = osisub_core::Script::parse(&src);
+        let v = width_issues(&mut db, &sc);
+        assert_eq!(v.len(), 1, "{v:?}");
+        let second = sc.entries.iter().enumerate().filter(|(_, e)| matches!(e, osisub_core::ass::Entry::Dialogue(_))).nth(1).unwrap().0;
+        assert_eq!(v[0].0, second);
+    }
 
     #[test]
     fn style_variants_hidden() {
