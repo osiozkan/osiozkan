@@ -556,7 +556,8 @@ impl Document {
     pub fn copy_lines(&self) -> String {
         self.target_lines()
             .iter()
-            .filter_map(|&i| if let Entry::Dialogue(d) = &self.script.entries[i] { Some(osisub_core::ass::dialogue_line(d)) } else { None })
+            // Extradata kimlikleri bu belgeye özgü: panoya yazılmaz (Aegisub da yazmaz).
+            .filter_map(|&i| if let Entry::Dialogue(d) = &self.script.entries[i] { Some(osisub_core::ass::dialogue_line(&Dialogue { extra: Vec::new(), ..d.clone() })) } else { None })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -570,7 +571,14 @@ impl Document {
     /// Panodaki metni etkin/seçili son satırdan sonra yapıştırır. `Dialogue:` satırları olduğu gibi,
     /// düz metin satırları ise art arda yeni altyazı satırları olarak eklenir. Eklenen sayıyı döndürür.
     pub fn paste_lines(&mut self, text: &str) -> usize {
-        let parsed: Vec<Entry> = Script::parse(&format!("[Events]\n{}", text.replace("\r\n", "\n"))).entries.into_iter().filter(|e| matches!(e, Entry::Dialogue(_))).collect();
+        let parsed: Vec<Entry> = Script::parse(&format!("[Events]\n{}", text.replace("\r\n", "\n")))
+            .entries
+            .into_iter()
+            .filter_map(|e| match e {
+                Entry::Dialogue(d) => Some(Entry::Dialogue(Dialogue { extra: Vec::new(), ..d })),
+                _ => None,
+            })
+            .collect();
         let items: Vec<Entry> = if !parsed.is_empty() {
             parsed
         } else {

@@ -126,6 +126,7 @@ pub fn merge_into(base: &mut Script, other: &Script, opts: &MergeOptions) -> Mer
     }
     // Olaylar
     let mut lines: Vec<Entry> = vec![];
+    let other_extra = other.extradata();
     for d in other.dialogues() {
         if opts.skip_comments && d.comment {
             continue;
@@ -137,6 +138,11 @@ pub fn merge_into(base: &mut Script, other: &Script, opts: &MergeOptions) -> Mer
         d.text = rename_r_refs(&d.text, &rename);
         d.start_time = (d.start_time + opts.offset_ms).max(0);
         d.end_time = (d.end_time + opts.offset_ms).max(0);
+        // Extradata kimlikleri diğer dosyaya ait: değerleri bu dosyaya taşı.
+        if !d.extra.is_empty() {
+            let vals = d.extra.iter().filter_map(|id| other_extra.get(id).cloned()).collect();
+            d.extra = base.intern_extra(&vals);
+        }
         lines.push(Entry::Dialogue(d));
     }
     rep.lines = lines.len();
@@ -169,6 +175,17 @@ mod tests {
     }
     fn script(w: i32, h: i32, styles: &str, events: &str) -> Script {
         Script::parse(&format!("{}{}\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n{}", HDR.replace("{W}", &w.to_string()).replace("{H}", &h.to_string()), styles, events))
+    }
+
+    #[test]
+    fn merge_remaps_extradata() {
+        let ev = "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+        let mut a = Script::parse(&format!("{ev}Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{{=1}}a\n\n[Aegisub Extradata]\nData: 1,k,eA\n"));
+        let b = Script::parse(&format!("{ev}Dialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,{{=1}}b\n\n[Aegisub Extradata]\nData: 1,k,eB\n"));
+        merge_into(&mut a, &b, &MergeOptions::default());
+        let ds: Vec<_> = a.dialogues().cloned().collect();
+        assert_eq!(a.extra_values(&ds[0].extra)["k"], "A");
+        assert_eq!(a.extra_values(&ds[1].extra)["k"], "B");
     }
 
     #[test]

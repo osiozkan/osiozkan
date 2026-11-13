@@ -7,7 +7,54 @@ use std::rc::Rc;
 
 pub type SharedScript = Rc<RefCell<ass::Script>>;
 
-pub struct Subs(pub SharedScript);
+type ExtraCache = Rc<RefCell<Option<std::collections::BTreeMap<u32, (String, String)>>>>;
+
+/// Lua `subs` nesnesi. İkinci alan Extradata önbelleğidir (her yazmada temizlenir);
+/// `line.extra` okumak böylece satır başına tüm belgeyi taramaz.
+pub struct Subs(pub SharedScript, ExtraCache);
+
+impl Subs {
+    pub fn new(script: SharedScript) -> Subs {
+        Subs(script, Rc::new(RefCell::new(None)))
+    }
+}
+
+/// Satırın `extra` tablosu: Extradata kimliklerinden anahtar → değer.
+fn extra_table(lua: &Lua, d: &Dialogue, script: Option<(&ass::Script, &ExtraCache)>) -> Result<Table> {
+    let t = lua.create_table()?;
+    if d.extra.is_empty() {
+        return Ok(t);
+    }
+    let Some((sc, cache)) = script else { return Ok(t) };
+    let mut c = cache.borrow_mut();
+    let all = c.get_or_insert_with(|| sc.extradata());
+    for id in &d.extra {
+        if let Some((k, v)) = all.get(id) {
+            t.set(k.as_str(), v.as_str())?;
+        }
+    }
+    Ok(t)
+}
+
+/// Lua `extra` tablosunu okur (dize anahtarlı, dize/sayı değerli girdiler).
+fn read_extra(t: &Table) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut m = std::collections::BTreeMap::new();
+    if let Ok(Value::Table(x)) = t.get::<Value>("extra") {
+        for pair in x.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            let Value::String(k) = k else { continue };
+            let v = match v {
+                Value::String(s) => s.to_str()?.to_string(),
+                Value::Integer(n) => n.to_string(),
+                Value::Number(n) => n.to_string(),
+                Value::Boolean(b) => b.to_string(),
+                _ => continue,
+            };
+            m.insert(k.to_str()?.to_string(), v);
+        }
+    }
+    Ok(m)
+}
 
 fn str_field(t: &Table, k: &str) -> Option<String> {
     match t.get::<Value>(k).ok()? {
@@ -40,7 +87,7 @@ fn section_name(sec: &str) -> String {
     format!("[{}]", sec)
 }
 
-pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
+fn entry_to_table_in(lua: &Lua, e: &Entry, script: Option<(&ass::Script, &ExtraCache)>) -> Result<Table> {
     let t = lua.create_table()?;
     t.set("section", section_name(e.section()))?;
     match e {
@@ -95,7 +142,7 @@ pub fn entry_to_table(lua: &Lua, e: &Entry) -> Result<Table> {
             t.set("margin_v", d.margin_t)?;
             t.set("effect", d.effect.as_str())?;
             t.set("text", d.text.as_str())?;
-            t.set("extra", lua.create_table()?)?;
+            t.set("extra", extra_table(lua, d, script)?)?;
             t.set("raw", ass::dialogue_line(d))?;
         }
         Entry::Unknown { raw, .. } => {
@@ -162,6 +209,7 @@ pub fn table_to_entry(t: &Table, default_section: &str) -> Result<Entry> {
                 margin_b: mb,
                 effect: str_field(t, "effect").unwrap_or_default(),
                 text: str_field(t, "text").unwrap_or_default(),
+                extra: Vec::new(),
             })
         }
         _ => {
@@ -171,6 +219,19 @@ pub fn table_to_entry(t: &Table, default_section: &str) -> Result<Entry> {
             Entry::Unknown { section, raw: str_field(t, "raw").unwrap_or_default() }
         }
     })
+}
+
+/// Tablodan girdi; diyalogsa `extra` tablosu belgenin Extradata bölümüne işlenir.
+fn table_to_entry_in(t: &Table, default_section: &str, script: &mut ass::Script, cache: &ExtraCache) -> Result<Entry> {
+    let mut e = table_to_entry(t, default_section)?;
+    if let Entry::Dialogue(d) = &mut e {
+        let m = read_extra(t)?;
+        if !m.is_empty() {
+            d.extra = script.intern_extra(&m);
+        }
+    }
+    *cache.borrow_mut() = None;
+    Ok(e)
 }
 
 fn idx(v: &Value) -> Option<i64> {
@@ -188,19 +249,23 @@ fn last_section(script: &ass::Script) -> String {
 impl UserData for Subs {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_function(MetaMethod::Index, |lua, (ud, key): (AnyUserData, Value)| -> Result<Value> {
-            let shared = ud.borrow::<Subs>()?.0.clone();
+            let (shared, cache) = {
+                let b = ud.borrow::<Subs>()?;
+                (b.0.clone(), b.1.clone())
+            };
             match &key {
                 Value::String(s) => {
                     let name = s.to_str()?.to_string();
                     let sh = shared.clone();
+                    let ca = cache.clone();
                     let f = match name.as_str() {
                         "n" => return Ok(Value::Integer(shared.borrow().entries.len() as i64)),
                         "append" => lua.create_function(move |lua, items: Variadic<Table>| {
                             let mut sc = sh.borrow_mut();
                             for t in items {
                                 let sec = last_section(&sc);
-                                let e = table_to_entry(&t, &sec)?;
-                                sc.entries.push(e);
+                                let e = table_to_entry_in(&t, &sec, &mut sc, &ca)?;
+                                sc.append_in_section(e);
                             }
                             let _ = lua;
                             Ok(())
@@ -210,7 +275,7 @@ impl UserData for Subs {
                             let mut pos = (i.max(1) - 1) as usize;
                             for t in items {
                                 let sec = last_section(&sc);
-                                let e = table_to_entry(&t, &sec)?;
+                                let e = table_to_entry_in(&t, &sec, &mut sc, &ca)?;
                                 let p = pos.min(sc.entries.len());
                                 sc.entries.insert(p, e);
                                 pos += 1;
@@ -219,6 +284,7 @@ impl UserData for Subs {
                         })?,
                         "script_resolution" => lua.create_function(move |_, ()| Ok(sh.borrow().script_resolution()))?,
                         "delete" => lua.create_function(move |_, items: Variadic<i64>| {
+                            *ca.borrow_mut() = None;
                             let mut sc = sh.borrow_mut();
                             let mut v: Vec<i64> = items.into_iter().collect();
                             v.sort_unstable();
@@ -231,6 +297,7 @@ impl UserData for Subs {
                             Ok(())
                         })?,
                         "deleterange" => lua.create_function(move |_, (a, b): (i64, i64)| {
+                            *ca.borrow_mut() = None;
                             let mut sc = sh.borrow_mut();
                             let a = (a.max(1) - 1) as usize;
                             let b = (b.max(0) as usize).min(sc.entries.len());
@@ -247,7 +314,7 @@ impl UserData for Subs {
                     let Some(i) = idx(other) else { return Ok(Value::Nil) };
                     let sc = shared.borrow();
                     if i >= 1 && (i as usize) <= sc.entries.len() {
-                        Ok(Value::Table(entry_to_table(lua, &sc.entries[i as usize - 1])?))
+                        Ok(Value::Table(entry_to_table_in(lua, &sc.entries[i as usize - 1], Some((&sc, &cache)))?))
                     } else {
                         Ok(Value::Nil)
                     }
@@ -255,9 +322,13 @@ impl UserData for Subs {
             }
         });
         methods.add_meta_function(MetaMethod::NewIndex, |_, (ud, key, val): (AnyUserData, Value, Value)| {
-            let shared = ud.borrow::<Subs>()?.0.clone();
+            let (shared, cache) = {
+                let b = ud.borrow::<Subs>()?;
+                (b.0.clone(), b.1.clone())
+            };
             let Some(i) = idx(&key) else { return Ok(()) };
             let mut sc = shared.borrow_mut();
+            *cache.borrow_mut() = None;
             match val {
                 Value::Nil => {
                     if i >= 1 && (i as usize) <= sc.entries.len() {
@@ -266,7 +337,7 @@ impl UserData for Subs {
                 }
                 Value::Table(t) => {
                     let sec = last_section(&sc);
-                    let e = table_to_entry(&t, &sec)?;
+                    let e = table_to_entry_in(&t, &sec, &mut sc, &cache)?;
                     if i >= 1 && (i as usize) <= sc.entries.len() {
                         sc.entries[i as usize - 1] = e;
                     } else if i < 0 {
@@ -295,11 +366,11 @@ mod tests {
         let entries = vec![
             Entry::Info { key: "Title".into(), value: "x: y".into() },
             Entry::Style(Style { name: "A b".into(), fontname: "Noto".into(), fontsize: 22.5, bold: true, align: 7, margin_l: 3, margin_r: 4, margin_t: 5, margin_b: 5, outline: 1.25, ..Default::default() }),
-            Entry::Dialogue(Dialogue { comment: true, layer: 2, start_time: 1230, end_time: 4560, style: "A b".into(), actor: "Ali".into(), margin_l: 1, margin_r: 2, margin_t: 3, margin_b: 3, effect: "karaoke".into(), text: "{\\k10}a, b\\Nç".into() }),
+            Entry::Dialogue(Dialogue { comment: true, layer: 2, start_time: 1230, end_time: 4560, style: "A b".into(), actor: "Ali".into(), margin_l: 1, margin_r: 2, margin_t: 3, margin_b: 3, effect: "karaoke".into(), text: "{\\k10}a, b\\Nç".into(), extra: vec![] }),
             Entry::Unknown { section: "Aegisub Project Garbage".into(), raw: "Video File: x.mkv".into() },
         ];
         for e in entries {
-            let t = entry_to_table(&lua, &e).unwrap();
+            let t = entry_to_table_in(&lua, &e, None).unwrap();
             let back = table_to_entry(&t, e.section()).unwrap();
             assert_eq!(back, e);
         }

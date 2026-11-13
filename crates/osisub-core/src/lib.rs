@@ -6,6 +6,7 @@ pub mod casing;
 pub mod color;
 pub mod compare;
 pub mod drawing;
+pub mod extradata;
 pub mod filebatch;
 pub mod fixes;
 pub mod fonts_used;

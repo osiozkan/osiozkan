@@ -9,6 +9,8 @@ osisub, Aegisub betiklerini değişiklik gerekmeden çalıştırmayı hedefler. 
 **`subs` nesnesi:** `subs[i]` (okuma/yazma/silme `= nil`), `subs[0] = satır` (sona ekle), `#subs`, `subs.n`, `subs.append`, `subs.insert(i, ...)`, `subs.delete(...)`, `subs.deleterange(a, b)`, `ipairs(subs)`.
 Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil), `unknown`. Alanlar Aegisub ile aynıdır (`section = "[Events]"`, `margin_t/margin_b/margin_v`, `extra`, `raw`).
 
+`line.extra` (Aegisub Extradata) gerçek veridir: dosyadaki `[Aegisub Extradata]` bölümünden okunur, `subs[i] = line` / `subs.append` / `subs.insert` ile yazılınca bölüme işlenir ve satıra `{=kimlik}` ön eki olarak kaydedilir (Aegisub ile aynı `e`/`u` kodlaması; ön ek arayüzde görünmez). Aegisub-Motion, ASSFoundation ve satır başına ayar saklayan betikler verilerini korur. `subs.append` satırı Aegisub gibi kendi bölümünün sonuna ekler (olaylar `[Fonts]`'tan sonra düşmez).
+
 **`aegisub.*`:** `log` (düzeyli, `string.format` biçimli), `cancel`, `set_undo_point`, `progress.set/task/title/is_cancelled`, `dialog.display/open/save`, `text_extents` (gerçek yazı tipi ölçüleri; GDI/VSFilter uyumlu), `frame_from_ms`, `ms_from_frame`, `video_size`, `keyframes`, `get_audio_selection`, `project_properties`, `decode_path` (`?script ?video ?audio ?data ?user ?local ?temp`), `file_name`, `gettext`, `lua_automation_version = 4`.
 
 **Kütüphaneler:** `include("karaskel.lua" | "utils.lua" | "unicode.lua" | "utf8.lua" | "karaskel-auto4.lua" | "utils-auto4.lua")`; `require "re"`, `"aegisub.re"`, `"unicode"`, `"aegisub.unicode"`, `"utf8"`, `"lfs"`, `"ffi"`, `"bit"`, `"aegisub.util"`, `"aegisub.clipboard"`, `"clipboard"` (arayüzde gerçek sistem panosu; CLI'de betik içi bellek).

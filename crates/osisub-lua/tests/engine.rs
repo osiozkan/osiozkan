@@ -192,3 +192,49 @@ end)
     assert!(log.contains("&HFFFFFF& nil"), "{log}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn line_extra_roundtrips_through_extradata() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    let src = ASS.replace("{\\k20}ka", "{=1}{\\k20}ka") + "\n[Aegisub Extradata]\nData: 1,eski,edeğer#2C virgül\n";
+    e.set_script(Script::parse(&src));
+    let f = std::env::temp_dir().join(format!("osisub_extra_{}.lua", std::process::id()));
+    std::fs::write(
+        &f,
+        r#"
+aegisub.register_macro("x", "", function(subs, sel)
+  local i = sel[1]
+  local l = subs[i]
+  assert(l.extra.eski == "değer, virgül", "okuma: " .. tostring(l.extra.eski))
+  assert(not l.text:find("{=", 1, true), "ön ek metinde görünmemeli")
+  l.extra["a-mo.json"] = '{"x":[1,2]}'
+  l.extra.sayi = 5
+  subs[i] = l
+  local c = subs[i]
+  assert(c.extra["a-mo.json"] == '{"x":[1,2]}' and c.extra.sayi == "5" and c.extra.eski == "değer, virgül", "yeniden okuma")
+  c.extra = {}
+  subs.append(c)
+end)
+"#,
+    )
+    .unwrap();
+    e.load_script(&f).unwrap();
+    let idx = last_dialogue_idx(&e);
+    e.run_macro(0, &[idx], idx).unwrap();
+    let _ = std::fs::remove_file(&f);
+    let sc = e.script();
+    let ds: Vec<_> = sc.dialogues().cloned().collect();
+    assert_eq!(ds.len(), 2);
+    assert_eq!(ds[0].extra.len(), 3);
+    assert!(ds[1].extra.is_empty());
+    let out = sc.to_ass_string();
+    // eklenen olay [Events] içinde kalır, Extradata bölümü tek başlıklı
+    assert_eq!(out.matches("[Events]").count(), 1, "{out}");
+    assert_eq!(out.matches("[Aegisub Extradata]").count(), 1, "{out}");
+    assert!(out.find("[Aegisub Extradata]").unwrap() > out.rfind("Dialogue:").unwrap(), "{out}");
+    let back = Script::parse(&out);
+    let d0 = back.dialogues().next().unwrap();
+    let vals = back.extra_values(&d0.extra);
+    assert_eq!(vals["a-mo.json"], "{\"x\":[1,2]}");
+    assert_eq!(vals["eski"], "değer, virgül");
+}

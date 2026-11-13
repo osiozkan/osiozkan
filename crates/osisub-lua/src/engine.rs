@@ -370,7 +370,7 @@ impl Engine {
         let f = self.inner.borrow().macros.get(id).and_then(|m| m.validate.clone());
         let Some(f) = f else { return true };
         let Ok(sel) = self.sel_table(selection) else { return false };
-        let subs = match self.lua.create_userdata(Subs(self.script.clone())) {
+        let subs = match self.lua.create_userdata(Subs::new(self.script.clone())) {
             Ok(s) => s,
             Err(_) => return false,
         };
@@ -386,7 +386,7 @@ impl Engine {
         let f = self.inner.borrow().macros.get(id).and_then(|m| m.is_active.clone());
         let Some(f) = f else { return false };
         let Ok(sel) = self.sel_table(selection) else { return false };
-        let Ok(subs) = self.lua.create_userdata(Subs(self.script.clone())) else { return false };
+        let Ok(subs) = self.lua.create_userdata(Subs::new(self.script.clone())) else { return false };
         matches!(f.call::<Value>((subs, sel, active as i64)), Ok(Value::Boolean(true)))
     }
 
@@ -397,7 +397,7 @@ impl Engine {
             (m.process.clone(), m.config.clone(), m.info.kind.clone())
         };
         self.inner.borrow_mut().undo_desc = None;
-        let subs = self.lua.create_userdata(Subs(self.script.clone()))?;
+        let subs = self.lua.create_userdata(Subs::new(self.script.clone()))?;
         let res: mlua::Result<mlua::MultiValue> = match kind {
             MacroKind::Macro => process.call((subs, self.sel_table(selection)?, active as i64)),
             MacroKind::Filter => {

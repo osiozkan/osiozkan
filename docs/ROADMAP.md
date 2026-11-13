@@ -28,7 +28,7 @@
 - [x] Yeniden hesapla (Recalculator): sayısal etiketleri topla/çarp — satır içi bloklar ve `\t` içleri dahil, \pos/\move/\org için x/y ayrı, etiket yoksa stil değerinden
 - [x] Etiketler sekmesi (etiket denetçisi): etkin satırın her bloğu/etiketi ayrı satırda; sayılar sürüklenir, renkler seçiciyle, `\t` için t1/t2/ivme + iç etiketler; etiket sil/ekle; ardışık değişiklikler tek geri-al adımı
 - [x] Ekler: [Fonts]/[Graphics] gömme/çıkarma/silme (core::attach, ASS UUencode), "Kullanılan yazı tiplerini göm" (Araçlar → Ekler); ayrıştırıcı "[..]" gibi görünen veri satırlarını bölüm sanmıyor
-- [ ] ASS Extradata yapılandırılmış erişim
+- [x] ASS Extradata yapılandırılmış erişim (core::extradata; Lua `line.extra` okunur/yazılır, `{=id}` ön eki ayrıştırılır, dosya birleştirmede kimlikler yeniden eşlenir, panoya kimlik yazılmaz)
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme
 - [x] Biçimler: SAMI (.smi okuma/yazma, çok dilli dosyada ilk sınıf), SubViewer 2 (.sub okuma; MicroDVD ile otomatik ayrım)
 - [ ] Biçimler: EBU STL, iTT, Netflix TTML tam, PGS/VobSub OCR

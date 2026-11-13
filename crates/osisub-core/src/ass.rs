@@ -85,6 +85,8 @@ pub struct Dialogue {
     pub margin_b: i32,
     pub effect: String,
     pub text: String,
+    /// Aegisub Extradata kimlikleri (metindeki `{=1=2}` ön eki; bkz. `extradata`).
+    pub extra: Vec<u32>,
 }
 
 impl Default for Dialogue {
@@ -102,6 +104,7 @@ impl Default for Dialogue {
             margin_b: 0,
             effect: String::new(),
             text: String::new(),
+            extra: Vec::new(),
         }
     }
 }
@@ -401,7 +404,20 @@ impl Script {
         let nl = if self.crlf { "\r\n" } else { "\n" };
         let mut out = String::with_capacity(self.entries.len() * 80);
         let mut cur: Option<&str> = None;
-        for e in &self.entries {
+        // Bölümler dağınıksa (ör. betik Fonts'tan sonra olay eklediyse) her bölüm tek başlık altında
+        // ilk görüldüğü sırayla yazılır; olağan durumda kopya yapılmaz.
+        let order = self.section_order();
+        let grouped: Vec<&Entry>;
+        let iter: Box<dyn Iterator<Item = &Entry>> = match &order {
+            None => Box::new(self.entries.iter()),
+            Some(rank) => {
+                let mut v: Vec<(usize, &Entry)> = self.entries.iter().map(|e| (rank[e.section()], e)).collect();
+                v.sort_by_key(|x| x.0);
+                grouped = v.into_iter().map(|x| x.1).collect();
+                Box::new(grouped.iter().copied())
+            }
+        };
+        for e in iter {
             if let Entry::Dialogue(d) = e {
                 if !keep(d) {
                     continue;
@@ -452,6 +468,47 @@ impl Script {
     }
 }
 
+impl Script {
+    /// Bölümler bitişik değilse bölüm → ilk görülme sırası; bitişikse None.
+    fn section_order(&self) -> Option<std::collections::HashMap<&str, usize>> {
+        let mut rank: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut cur: Option<&str> = None;
+        let mut split = false;
+        for e in &self.entries {
+            let sec = e.section();
+            if cur != Some(sec) {
+                if rank.contains_key(sec) {
+                    split = true;
+                } else {
+                    let n = rank.len();
+                    rank.insert(sec, n);
+                }
+                cur = Some(sec);
+            }
+        }
+        split.then_some(rank)
+    }
+
+    /// Girdiyi bölümünün sonuna ekler (Aegisub `subs.append`): olay olayların, stil stillerin sonuna.
+    /// Bölüm yoksa sona eklenir. Eklenen konumu döndürür.
+    pub fn append_in_section(&mut self, e: Entry) -> usize {
+        let sec = e.section().to_string();
+        let pos = match self.entries.iter().rposition(|x| x.section() == sec) {
+            Some(i) => {
+                // Bölüm sonundaki boş ham satırların önüne koy.
+                let mut p = i + 1;
+                while p > 0 && matches!(&self.entries[p - 1], Entry::Unknown { raw, section } if raw.trim().is_empty() && *section == sec) {
+                    p -= 1;
+                }
+                p
+            }
+            None => self.entries.len(),
+        };
+        self.entries.insert(pos, e);
+        pos
+    }
+}
+
 pub fn style_line(s: &Style) -> String {
     format!(
         "Style: {},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
@@ -465,7 +522,7 @@ pub fn style_line(s: &Style) -> String {
 
 pub fn dialogue_line(d: &Dialogue) -> String {
     format!(
-        "{}: {},{},{},{},{},{},{},{},{},{}",
+        "{}: {},{},{},{},{},{},{},{},{},{}{}",
         if d.comment { "Comment" } else { "Dialogue" },
         d.layer,
         time::format_ass(d.start_time),
@@ -476,6 +533,7 @@ pub fn dialogue_line(d: &Dialogue) -> String {
         d.margin_r,
         d.margin_t,
         d.effect,
+        if d.extra.is_empty() { String::new() } else { crate::extradata::prefix(&d.extra) },
         d.text
     )
 }
@@ -585,7 +643,11 @@ fn parse_event(v: &str, fmt: &[String], comment: bool) -> Option<Dialogue> {
             "margint" => d.margin_t = int(),
             "marginb" => d.margin_b = int(),
             "effect" => d.effect = val.to_string(),
-            "text" => d.text = raw.to_string(),
+            "text" => {
+                let (ids, rest) = crate::extradata::split_prefix(raw);
+                d.extra = ids;
+                d.text = rest.to_string();
+            }
             _ => {}
         }
     }
@@ -768,6 +830,7 @@ mod roundtrip_tests {
                     margin_b: 0,
                     effect: String::new(),
                     text,
+                    extra: Vec::new(),
                 }));
             }
             // margin_b yazımda margin_t ile aynıdır (tek MarginV) — beklenen durumu eşitle
