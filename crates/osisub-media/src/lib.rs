@@ -4,6 +4,7 @@
 //! codec/kapsayıcı (MKV, MP4, ...) desteklenir ve altyazı önizlemesi gerçek libass çıktısıdır.
 pub mod audio;
 pub mod mt;
+pub mod ocr;
 pub mod mux;
 pub mod resync;
 

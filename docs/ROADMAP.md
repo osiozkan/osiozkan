@@ -32,14 +32,15 @@
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme
 - [x] Biçimler: SAMI (.smi okuma/yazma, çok dilli dosyada ilk sınıf), SubViewer 2 (.sub okuma; MicroDVD ile otomatik ayrım)
 - [x] Biçimler: EBU STL (ikili, ISO 6937 Türkçe karakterler, uzantı blokları, program başlangıç zaman kodu), iTT (kare zaman kodu), TTML ailesi tam okuyucu (Netflix DFXP tickRate/frameRate, EBU-TT `tt:` ön eki, `dur`, span/stil italik-kalın, üst bölge → `\an8`); SRT/VTT'de `{\an8}` konum korunur (VTT `line:0`)
-- [ ] PGS/VobSub OCR
+- [x] PGS (Blu-ray) OCR: yerleşik PGS çözücü (core::pgs: PCS/PDS/ODS/RLE, çoklu nesne, üst konum → \an8) + Tesseract komut satırı (toplu tek süreç; harici, paketlenmez); `.sup` ya da MKV/M2TS izinden; GUI Dosya → Video ile → Resim altyazısını metne çevir (yeni belge ya da referans), CLI `ocr`; gerçek tesseract ile uçtan uca testli
+- [ ] VobSub (DVD .idx/.sub) OCR
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [x] Timecode dosyaları v1/v2 (VFR, `core::vfr`): Video menüsünden aç/kaydet/kapat; kare adımı, kareye yapışma, `aegisub.frame_from_ms/ms_from_frame`, "Kareye oturt", CLI `--timecodes`
 - [x] Kare doğruluğu: Aegisub START/END anlambilimi (iki kare arasının ortası) — F6/F7, kareye yapışma, anahtar kare yapışması, "Kareye oturt", son-işleyici ve Lua `frame_from_ms/ms_from_frame` santisaniye yuvarlamasına dayanıklı (eskiden 23.976'da bazı satırlar bir kare geç başlıyordu); önizleme playhead'deki kareyi gösterir
 - [x] VFR: videodan otomatik algılama (ffprobe paket PTS; ms yuvarlaması toleranslı), videoda "kare N VFR" göstergesi; elle yüklenen timecode önceliklidir
 - [x] Matroska timestamp v4 dosyaları (sırasız satırlar sıralanır)
 - [x] Video ile (osisub-media::mux; Dosya → Video ile, CLI `tracks/extract/mux/burn`): gömülü altyazı izlerini listele/aç/kaydet (ASS kayıpsız), ekli yazı tiplerini çıkar, MKV'ye göm (dil/başlık/varsayılan, mevcut izler korunur, kullanılan yazı tipleri eklenir), videoya yak (x264, ilerleme + iptal, gömülü yazı tipleri fontsdir ile)
-- [ ] Resim tabanlı altyazı (PGS/VobSub) OCR
+- [x] Resim tabanlı altyazı OCR: PGS (bkz. Biçimler); VobSub henüz yok
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
 - [x] Toplu dosya işlemleri (core::filebatch; Dosya menüsü; Subtitle Edit Batch convert): çok dosya/klasör → biçim dönüştür, kaydır, sık hatalar, yorumları sil, yeniden örnekle; çıktı klasörü/son ek, üzerine yazma koruması, arka planda günlüklü
 - [x] Dosya birleştirme (core::merge; Dosya → Başka dosyayı birleştir…, CLI `merge`): stil çakışmasında "Ad (2)" + `\r` başvuruları, farklı çözünürlükte otomatik yeniden örnekleme, zaman kaydırma (OP/ED), gömülü yazı tipleri; toplu işlemlerden sonra etkin satır/seçim içeriğe göre korunur

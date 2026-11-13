@@ -11,3 +11,6 @@ osisub'a gömülü olarak dağıtılan Lua kaynakları ve lisansları:
 
 ## FFmpeg (yalnızca Windows paketi)
 Windows sürüm paketi `ffmpeg/` klasöründe BtbN/FFmpeg-Builds'in GPL derlemesini (ffmpeg, ffprobe, ffplay) getirir; ayrı programlar olarak çağrılır. Lisans: GPL-3.0 (paketteki `ffmpeg/LICENSE.txt`), kaynak: https://ffmpeg.org ve https://github.com/BtbN/FFmpeg-Builds. osisub ffmpeg'i önce `OSISUB_FFMPEG`/`OSISUB_FFPROBE`/`OSISUB_FFPLAY`, sonra programın yanındaki `ffmpeg/` klasörü, sonra PATH'te arar.
+
+## Tesseract OCR (harici, isteğe bağlı)
+PGS OCR için `tesseract` komutu çağrılır (Apache-2.0). osisub ile dağıtılmaz; kullanıcı kurar (`OSISUB_TESSERACT` ile yol verilebilir).

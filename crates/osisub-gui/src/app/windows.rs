@@ -1,5 +1,29 @@
 use super::*;
 
+/// Resim altyazısı (PGS) OCR penceresi durumu.
+pub(crate) struct OcrWin {
+    path: Option<PathBuf>,
+    /// Videodaki PGS izleri (ffmpeg dizini, etiket)
+    tracks: Vec<(u32, String)>,
+    track: Option<u32>,
+    langs: Vec<String>,
+    lang: String,
+    as_reference: bool,
+    rx: Option<std::sync::mpsc::Receiver<Result<osisub_core::Script, String>>>,
+    started: Option<std::time::Instant>,
+    error: Option<String>,
+    /// Tesseract kurulu mu (pencere açılırken bir kez denetlenir)
+    tess_ok: bool,
+}
+
+impl Default for OcrWin {
+    fn default() -> Self {
+        let langs = osisub_media::ocr::languages();
+        let lang = if langs.iter().any(|l| l == "eng") { "eng".into() } else { langs.first().cloned().unwrap_or_else(|| "eng".into()) };
+        OcrWin { path: None, tracks: vec![], track: None, langs, lang, as_reference: false, rx: None, started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available() }
+    }
+}
+
 impl App {
     pub(super) fn catalog_path() -> Option<PathBuf> {
         osisub_core::paths::config_dir().map(|d| d.join("styles.ass"))
@@ -1588,6 +1612,96 @@ impl App {
             }
         });
         self.resample_open = open;
+    }
+
+    pub(super) fn ocr_window(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.ocr.take() else { return };
+        // Arka plan işi bitti mi?
+        if let Some(rx) = &w.rx {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            if let Ok(r) = rx.try_recv() {
+                w.rx = None;
+                match r {
+                    Ok(sc) => {
+                        let n = sc.dialogues().count();
+                        let name = w.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                        if w.as_reference {
+                            self.set_reference(sc);
+                            self.status = format!("OCR: {n} satır referans olarak yüklendi ({name})");
+                        } else {
+                            self.request(Guarded::OpenScript(sc, format!("OCR: {n} satır ({name}) — kaydetmeyi unutmayın")));
+                        }
+                        return;
+                    }
+                    Err(e) => w.error = Some(e),
+                }
+            }
+        }
+        let mut open = true;
+        let busy = w.rx.is_some();
+        egui::Window::new("Resim altyazısı OCR (PGS)").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+            if !w.tess_ok {
+                ui.label(RichText::new("Tesseract bulunamadı. Kurun (Windows: UB-Mannheim tesseract; Linux: tesseract-ocr paketi) ya da OSISUB_TESSERACT ile yolunu verin. Türkçe için 'tur' dil verisi gerekir.").color(theme::BAD));
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy, egui::Button::new("Dosya seç…")).clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("PGS / video", &["sup", "mkv", "m2ts", "mks"]).pick_file() {
+                        w.tracks.clear();
+                        w.track = None;
+                        w.error = None;
+                        if osisub_core::io::ext_of(&p) != "sup" {
+                            match osisub_media::mux::subtitle_tracks(&p) {
+                                Ok(t) => {
+                                    w.tracks = t.iter().filter(|t| t.codec == "hdmv_pgs_subtitle").map(|t| (t.index, t.label())).collect();
+                                    w.track = w.tracks.first().map(|t| t.0);
+                                    if w.tracks.is_empty() { w.error = Some("Bu videoda PGS izi yok".into()); }
+                                }
+                                Err(e) => w.error = Some(e),
+                            }
+                        }
+                        w.path = Some(p);
+                    }
+                }
+                ui.label(w.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(dosya yok)".into()));
+            });
+            if !w.tracks.is_empty() {
+                egui::ComboBox::from_label("İz").selected_text(w.tracks.iter().find(|t| Some(t.0) == w.track).map(|t| t.1.clone()).unwrap_or_default()).show_ui(ui, |ui| {
+                    for (i, l) in w.tracks.clone() { ui.selectable_value(&mut w.track, Some(i), l); }
+                });
+            }
+            ui.horizontal(|ui| {
+                ui.label("Dil");
+                egui::ComboBox::from_id_salt("ocr_lang").selected_text(w.lang.clone()).show_ui(ui, |ui| {
+                    for l in w.langs.clone() { ui.selectable_value(&mut w.lang, l.clone(), l); }
+                });
+                ui.add(TextEdit::singleline(&mut w.lang).desired_width(90.0)).on_hover_text("Birden çok dil: eng+jpn");
+            });
+            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (açık belgeyi değiştirmez; ızgarada Referans sütunu)");
+            if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
+            ui.horizontal(|ui| {
+                let ready = w.path.is_some() && !busy;
+                if ui.add_enabled(ready, egui::Button::new("OCR başlat")).clicked() {
+                    let (p, t, l) = (w.path.clone().unwrap(), w.track, w.lang.clone());
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let c2 = ctx.clone();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(osisub_media::ocr::ocr_file(&p, t, &l));
+                        c2.request_repaint();
+                    });
+                    w.rx = Some(rx);
+                    w.started = Some(std::time::Instant::now());
+                    w.error = None;
+                }
+                if busy {
+                    ui.spinner();
+                    ui.label(format!("çalışıyor… {} sn", w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0)));
+                }
+            });
+            ui.label(RichText::new("İpucu: sonuçta büyük I / küçük l karışıklıkları için Bul/Değiştir ve yazım denetimi kullanın.").weak());
+        });
+        if open || busy {
+            self.ocr = Some(w);
+        }
     }
 
     pub(super) fn open_dummy_window(&mut self) {

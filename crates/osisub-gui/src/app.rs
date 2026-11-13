@@ -115,6 +115,8 @@ pub struct App {
     goto_focus: bool,
     /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
     dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
+    /// Resim altyazısı OCR penceresi ve arka plan işi
+    ocr: Option<windows::OcrWin>,
     tr_last_active: usize,
     find_focus: bool,
     goto_buf: String,
@@ -214,6 +216,8 @@ enum Guarded {
     OpenDialog,
     OpenPath(PathBuf),
     OpenWithEncoding(String),
+    /// Bellekteki betiği yeni (kaydedilmemiş) belge olarak aç (ör. OCR sonucu)
+    OpenScript(osisub_core::Script, String),
 }
 
 /// Bulunan otomatik kayıt dosyası.
@@ -526,6 +530,7 @@ impl App {
             theme_dirty: true,
             goto_open: false,
             dummy_win: None,
+            ocr: None,
             goto_focus: false,
             tr_last_active: usize::MAX,
             find_focus: false,
@@ -585,6 +590,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
+            Some("ocr") => app.ocr = Some(windows::OcrWin::default()),
             Some("fixes") => app.fixes_open = true,
             Some("stats") => app.stats_open = true,
             Some("vad") => app.vad_open = true,
@@ -690,6 +696,11 @@ impl App {
                 self.doc = Document::new(osisub_core::Script::new_default());
                 self.tap = None;
                 self.status = "Yeni belge".into();
+            }
+            Guarded::OpenScript(sc, desc) => {
+                self.doc = Document::new(sc);
+                self.tap = None;
+                self.status = desc;
             }
             Guarded::OpenDialog => self.open_dialog(),
             Guarded::OpenPath(p) => self.open_path(p),
@@ -1463,6 +1474,10 @@ impl App {
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
                 if ui.button("Dışa aktar (filtreler)…").clicked() { ui.close(); self.export_open = true; }
                 ui.menu_button("Video ile", |ui| {
+                    if ui.button("Resim altyazısını metne çevir (PGS OCR)…").on_hover_text("Blu-ray PGS (.sup ya da MKV izi) → metin; Tesseract gerekir").clicked() {
+                        ui.close();
+                        self.ocr = Some(windows::OcrWin::default());
+                    }
                     if ui.button("Videodaki altyazı izleri…").on_hover_text("MKV/MP4 içindeki altyazıyı aç; ekli yazı tiplerini çıkar").clicked() {
                         ui.close();
                         let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
@@ -1991,6 +2006,7 @@ impl App {
         self.vad_window(&ctx);
         self.goto_window(&ctx);
         self.dummy_window(&ctx);
+        self.ocr_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
@@ -2303,6 +2319,14 @@ impl App {
             self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
             self.job = None;
         }
+    }
+
+    /// Referans altyazıyı ayarla (ızgaradaki Referans sütunu, çeviri sekmesi).
+    pub(crate) fn set_reference(&mut self, sc: osisub_core::Script) {
+        let mut v: Vec<(i64, i64, String)> = sc.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect();
+        v.sort_by_key(|x| x.0);
+        self.ref_lines = v;
+        self.reference = Some(sc);
     }
 
     /// Seçili satırları dengele (`balance`) ya da satır sonlarını kaldır; tipografi/karaoke satırları atlanır.

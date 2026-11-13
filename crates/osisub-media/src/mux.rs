@@ -84,6 +84,14 @@ pub fn extract_subtitle(video: &Path, track: &SubTrack, out: &Path) -> Result<()
     run(Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-i"]).arg(video).args(["-map", &format!("0:{}", track.index), "-c:s", codec]).arg(out))
 }
 
+/// PGS (Blu-ray) altyazı izini ham `.sup` olarak çıkarır (OCR için).
+pub fn extract_pgs(video: &Path, track: &SubTrack, out: &Path) -> Result<(), String> {
+    if track.codec != "hdmv_pgs_subtitle" {
+        return Err(format!("{} PGS değil (yalnızca Blu-ray PGS izleri OCR'lanabilir)", track.codec));
+    }
+    run(Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-i"]).arg(video).args(["-map", &format!("0:{}", track.index), "-c:s", "copy", "-f", "sup"]).arg(out))
+}
+
 /// Gömülü yazı tiplerini (MKV ekleri) klasöre çıkarır; çıkarılan dosyaları döndürür.
 pub fn extract_attachments(video: &Path, dir: &Path) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

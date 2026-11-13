@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+osisub-core = { path = "../osisub-core" }
 serde_json = "1"
 rustfft = "6"
 ureq = "2"
@@ -17,5 +18,3 @@ optional = true
 default = []
 audio = ["dep:cpal"]
 
-[dev-dependencies]
-osisub-core = { path = "../osisub-core" }
