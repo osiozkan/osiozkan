@@ -39,6 +39,17 @@ impl App {
                     if ui.button("İlk satırı ekle").clicked() { let at = self.doc.insert_after_active(); self.scroll_to = Some(at); }
                     if ui.button("Komut paleti").on_hover_text("Ctrl+Shift+P").clicked() { self.palette = Some((String::new(), 0)); }
                 });
+                ui.horizontal(|ui| {
+                    ui.add_space((ui.available_width() - 470.0).max(0.0) / 2.0);
+                    if ui.button("Video / ses aç…").on_hover_text("Videosuz çalışmak için: Video → Sahte video aç…").clicked() {
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Ortam", &["mkv", "mp4", "avi", "webm", "mov", "m2ts", "ts", "mka", "mp3", "flac", "wav", "ogg", "m4a", "aac", "opus"]).pick_file() {
+                            self.media.open(p, ui.ctx());
+                            self.show_media = true;
+                        }
+                    }
+                    if ui.button("Kullanım kılavuzu").on_hover_text("F1").clicked() { self.guide = Some(String::new()); }
+                    if ui.button("Kısayollar").clicked() { self.help_open = true; }
+                });
                 let recent: Vec<String> = self.settings.recent.iter().filter(|r| std::path::Path::new(r).is_file()).take(8).cloned().collect();
                 if !recent.is_empty() {
                     ui.add_space(16.0);
