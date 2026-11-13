@@ -5,7 +5,7 @@
 ## Sıradaki geceler için öncelikli öneriler
 1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
-3. Video araçları: `\fax/\fay` tutamaç aracı (çizim aracı artık döndürülmüş/her hizalamadaki çizimlerde çalışıyor).
+3. Video araçları tamam (eğme aracı, her hizalamada çizim); sıradaki: VobSub OCR, `SubInspector`.
 4. libmpv ile donanım hızlandırmalı oynatma.
 5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
 
@@ -130,7 +130,7 @@
 - [x] Video aracı: \p çizim noktalarını düzenleme (\an7, döndürmesiz; ölçek ve \p düzeyi hesaba katılır; ekle/taşı/sil)
 - [x] Vektör kırpma ve çizim araçlarında Ctrl+tık: düz parçayı kübik eğriye (b) çevir (core::drawing::line_to_bezier)
 - [x] Çizim aracı her hizalama, ölçek, \fax/\fay eğme ve \frx/\fry/\frz (\org) ile çalışır (core::drawxf; libass çıktısıyla 7 durumda ≤ 2 px doğrulandı: hizalama yalnızca sınır kutusu boyutunu kullanır, eğme çizimin başlangıcına göre)
-- [ ] Video araçları: \fax/\fay için ayrı tutamaç aracı
+- [x] Eğme video aracı (\fax üst tutamaç, \fay sağ tutamaç; 0.01 adım, Shift 0.05; sağ tık kaldırır; komut `tool_shear`; xdotool ile doğrulandı)
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git

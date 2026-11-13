@@ -35,7 +35,9 @@ pub enum VideoTool {
     /// \frx/\fry (Aegisub Rotate XY)
     RotateXY,
     Scale,
-    /// `\p` çizim noktalarını düzenleme (\an7, döndürmesiz)
+    /// Eğme: \fax (yatay tutamaç) / \fay (dikey tutamaç)
+    Shear,
+    /// `\p` çizim noktalarını düzenleme (her hizalama/döndürme)
     Drawing,
     /// 4 köşeyi sürükleyerek perspektife oturtma (\frx\fry\frz\fscx\fscy\fax\org)
     Perspective,
@@ -112,6 +114,8 @@ pub struct Media {
     vt_move0: Option<osisub_core::overrides::Move>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
+    /// Eğme aracında sürüklenen tutamaç: 0 = \fax, 1 = \fay
+    shear_axis: Option<u8>,
     /// perspektif aracı: son oturtulan dörtgen (satır, satır metni, köşeler) ve sürüklenen köşe (4 = tümü)
     vt_quad: Option<(usize, String, [(f64, f64); 4])>,
     vt_qdrag: Option<(usize, [(f64, f64); 4], (f64, f64))>,
@@ -187,6 +191,7 @@ impl Media {
             persp_dist: osisub_core::perspective::DIST_PX,
             persp_need_layout: false,
             vt_vdrag: None,
+            shear_axis: None,
             fonts_key: String::new(),
             video_zoom: 1.0,
             video_pan: egui::Vec2::ZERO,
@@ -1289,6 +1294,45 @@ impl Media {
                         doc.edit("Perspektifi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
                     }
                     self.vt_quad = None;
+                }
+            }
+            VideoTool::Shear => {
+                // Tutamaçlar: üstte \fax (yatay sürükle), sağda \fay (dikey sürükle); 60 px = 1.0
+                let num = |n: &str| osisub_core::overrides::get_initial(&d.text, n).and_then(|t| t.number()).unwrap_or(0.0) as f32;
+                let (fax, fay) = (num("fax"), num("fay"));
+                let hx = c + egui::vec2(fax * 60.0, -60.0);
+                let hy = c + egui::vec2(60.0, fay * 60.0);
+                let faint = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 110));
+                p.line_segment([c - egui::vec2(0.0, 60.0), c], faint);
+                p.line_segment([c, c + egui::vec2(60.0, 0.0)], faint);
+                p.line_segment([c, hx], Stroke::new(2.0, col));
+                p.line_segment([c, hy], Stroke::new(2.0, col));
+                p.rect_filled(Rect::from_center_size(hx, egui::vec2(10.0, 10.0)), 2.0, col);
+                p.rect_filled(Rect::from_center_size(hy, egui::vec2(10.0, 10.0)), 2.0, col);
+                p.text(hx + egui::vec2(8.0, -14.0), egui::Align2::LEFT_TOP, format!("\\fax {:.2}", fax), egui::FontId::monospace(11.0), col);
+                p.text(hy + egui::vec2(10.0, -6.0), egui::Align2::LEFT_TOP, format!("\\fay {:.2}", fay), egui::FontId::monospace(11.0), col);
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Eğme: üst tutamaç \\fax, sağ tutamaç \\fay (Shift = 0.05 adım) · sağ tık: kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                if r.drag_started() {
+                    self.shear_axis = press.or(ptr).map(|q| if q.distance(hx) <= q.distance(hy) { 0 } else { 1 });
+                }
+                if r.dragged() {
+                    if let (Some(axis), Some(pos)) = (self.shear_axis, ptr) {
+                        let raw = if axis == 0 { (pos.x - c.x) / 60.0 } else { (pos.y - c.y) / 60.0 };
+                        let step = if ui.input(|i| i.modifiers.shift) { 0.05 } else { 0.01 };
+                        let v = ((raw / step).round() * step).clamp(-5.0, 5.0);
+                        let name = if axis == 0 { "fax" } else { "fay" };
+                        let val = format!("{}", (v * 100.0).round() / 100.0);
+                        let nt = osisub_core::overrides::set_initial(&d.text, name, &val);
+                        if nt != d.text {
+                            let key = format!("vt:{}:{}", name, at);
+                            doc.edit_keyed("Eğme", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                        }
+                    }
+                }
+                if r.drag_stopped() { self.shear_axis = None; }
+                if r.secondary_clicked() {
+                    let nt = osisub_core::overrides::remove_initial(&osisub_core::overrides::remove_initial(&d.text, "fax"), "fay");
+                    if nt != d.text { doc.edit("Eğmeyi kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt)); }
                 }
             }
             VideoTool::Scale => {
