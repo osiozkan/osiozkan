@@ -6,6 +6,7 @@ pub mod casing;
 pub mod color;
 pub mod compare;
 pub mod drawing;
+pub mod dummy;
 pub mod extradata;
 pub mod filebatch;
 pub mod fixes;

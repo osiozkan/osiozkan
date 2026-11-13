@@ -113,6 +113,8 @@ pub struct App {
     theme_dirty: bool,
     goto_open: bool,
     goto_focus: bool,
+    /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
+    dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
     tr_last_active: usize,
     find_focus: bool,
     goto_buf: String,
@@ -521,6 +523,7 @@ impl App {
             backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,
+            dummy_win: None,
             goto_focus: false,
             tr_last_active: usize::MAX,
             find_focus: false,
@@ -579,6 +582,7 @@ impl App {
             Some("find") => app.find_open = true,
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
+            Some("dummy") => app.open_dummy_window(),
             Some("fixes") => app.fixes_open = true,
             Some("stats") => app.stats_open = true,
             Some("vad") => app.vad_open = true,
@@ -809,6 +813,13 @@ impl App {
         }
         let video = self.doc.script.garbage("Video File").and_then(resolve);
         let audio = self.doc.script.garbage("Audio File").and_then(resolve);
+        if video.is_none() {
+            if let Some(d) = self.doc.script.garbage("Video File").and_then(osisub_core::dummy::DummyVideo::parse) {
+                self.media.open_dummy(&d, ctx);
+                self.show_media = true;
+                return;
+            }
+        }
         if let Some(m) = video.or(audio) {
             self.status = format!("Ortam otomatik açıldı: {}", m.display());
             self.media.open(m, ctx);
@@ -830,8 +841,13 @@ impl App {
                 script_path.parent().and_then(|d| p.strip_prefix(d).ok()).map(|r| r.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string_lossy().to_string())
             };
             let has_video = self.media.info.as_ref().map_or(false, |i| i.has_video);
-            if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
-            self.doc.script.set_garbage("Audio File", &rel(&m));
+            if let Some(d) = self.media.dummy.clone() {
+                // Sahte video: Aegisub uyumlu `?dummy:` dizesi yazılır (önbellek yolu değil)
+                self.doc.script.set_garbage("Video File", &d);
+            } else {
+                if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
+                self.doc.script.set_garbage("Audio File", &rel(&m));
+            }
             if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
                 self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
             }
@@ -1554,6 +1570,10 @@ impl App {
                         self.show_media = true;
                     }
                 }
+                if ui.button("Sahte video aç…").on_hover_text("Videosuz zamanlama/tipografi için düz renkli video (Aegisub dummy video; projeye kaydedilir)").clicked() {
+                    ui.close();
+                    self.open_dummy_window();
+                }
                 ui.checkbox(&mut self.show_media, "Medya panelini göster");
                 ui.menu_button("En-boy oranı", |ui| {
                     let cur = self.media.ar_override;
@@ -1964,6 +1984,7 @@ impl App {
         self.mt_window(&ctx);
         self.vad_window(&ctx);
         self.goto_window(&ctx);
+        self.dummy_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();

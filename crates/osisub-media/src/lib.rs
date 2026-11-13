@@ -669,3 +669,28 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+/// ffmpeg lavfi kaynağından (ör. sahte video) önbellek dosyası üretir; dosya varsa yeniden kullanır.
+/// Durağan görüntü olduğundan x264 ultrafast/stillimage ile küçük ve hızlıdır (30 dk 640×480 ≈ 20 sn, bir kez).
+pub fn render_lavfi(src: &str, out: &Path) -> Result<std::path::PathBuf, String> {
+    if out.is_file() {
+        return Ok(out.to_path_buf());
+    }
+    if let Some(d) = out.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    let tmp = out.with_extension("part");
+    let st = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", src, "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage", "-crf", "40", "-g", "240", "-pix_fmt", "yuv420p", "-f", "matroska"])
+        .arg(&tmp)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    if !st.status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("video üretilemedi: {}", String::from_utf8_lossy(&st.stderr).trim()));
+    }
+    std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
+    Ok(out.to_path_buf())
+}

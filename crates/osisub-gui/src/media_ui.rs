@@ -18,6 +18,8 @@ enum Msg {
     Keyframes(Vec<i64>),
     /// Videodan algılanan değişken kare hızı (VFR)
     Vfr(osisub_core::vfr::Framerate),
+    /// Sahte video üretildi: (Aegisub `?dummy:` dizesi, sonuç)
+    Dummy(String, Result<PathBuf, String>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -74,6 +76,8 @@ impl PlayPart {
 
 pub struct Media {
     pub path: Option<PathBuf>,
+    /// Açık ortam bir Aegisub sahte videosuysa onun `?dummy:` dizesi (projeye bu yazılır)
+    pub dummy: Option<String>,
     pub info: Option<MediaInfo>,
     wave: Option<Arc<Waveform>>,
     pub status: String,
@@ -146,6 +150,7 @@ impl Media {
         let _ = std::fs::create_dir_all(&tmp_dir);
         Media {
             path: None,
+            dummy: None,
             info: None,
             wave: None,
             status: String::new(),
@@ -256,7 +261,24 @@ impl Media {
         self.timecodes.clone().or_else(|| self.fps().map(|f| Arc::new(osisub_core::vfr::Framerate::cfr(f))))
     }
 
+    /// Aegisub sahte videosunu (`?dummy:…`) üretip açar (önbellekte varsa hemen).
+    pub fn open_dummy(&mut self, d: &osisub_core::dummy::DummyVideo, ctx: &egui::Context) {
+        let Some(dir) = osisub_core::paths::data_dir().map(|p| p.join("dummy")) else {
+            self.status = "Sahte video: veri klasörü bulunamadı".into();
+            return;
+        };
+        let out = dir.join(d.cache_name());
+        let (src, key, tx, ctx2) = (d.lavfi_source(), d.to_aegisub(), self.tx.clone(), ctx.clone());
+        self.status = if out.is_file() { "Sahte video açılıyor…".into() } else { format!("Sahte video hazırlanıyor ({} kare; bir kez, önbelleğe alınır)…", d.frames) };
+        std::thread::spawn(move || {
+            let r = osisub_media::render_lavfi(&src, &out);
+            let _ = tx.send(Msg::Dummy(key, r));
+            ctx2.request_repaint();
+        });
+    }
+
     pub fn open(&mut self, p: PathBuf, ctx: &egui::Context) {
+        self.dummy = None;
         self.stop_player();
         self.info = None;
         self.wave = None;
@@ -490,6 +512,11 @@ impl Media {
                     self.last_active = usize::MAX;
                 }
                 Msg::Info(Err(e)) => self.status = format!("Ortam açılamadı: {}", e),
+                Msg::Dummy(key, Ok(p)) => {
+                    self.open(p, ctx);
+                    self.dummy = Some(key);
+                }
+                Msg::Dummy(_, Err(e)) => self.status = format!("Sahte video: {}", e),
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
                 Msg::Keyframes(k) => self.keyframes = k,
                 Msg::Vfr(fr) => {

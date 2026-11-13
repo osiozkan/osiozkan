@@ -1068,7 +1068,7 @@ impl App {
         use super::PalAct::*;
         let mut v: Vec<(String, super::PalAct)> = super::COMMANDS.iter().map(|(id, l)| (l.to_string(), Cmd(id))).collect();
         for (w, l) in [
-            ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"),
+            ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"), ("dummy", "Sahte video aç"),
             ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur / konuşmaya yapıştır"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"), ("tags", "Etiket uygula / yeniden hesapla"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
@@ -1094,6 +1094,7 @@ impl App {
                 "timing" => self.timing_open = true,
                 "post" => self.timing_open = true,
                 "resample" => self.resample_open = true,
+                "dummy" => self.open_dummy_window(),
                 "fixes" => self.fixes_open = true,
                 "stats" => self.stats_open = true,
                 "vad" => self.vad_open = true,
@@ -1587,6 +1588,64 @@ impl App {
             }
         });
         self.resample_open = open;
+    }
+
+    pub(super) fn open_dummy_window(&mut self) {
+        let mut d = osisub_core::dummy::DummyVideo::default();
+        // Betik çözünürlüğü varsa onu öner
+        let (w, h) = self.doc.script.res();
+        if w >= 16 && h >= 16 {
+            d.width = w as u32;
+            d.height = h as u32;
+        }
+        let mins = d.duration_ms() as f64 / 60_000.0;
+        self.dummy_win = Some((d, mins.round()));
+    }
+
+    pub(super) fn dummy_window(&mut self, ctx: &egui::Context) {
+        let Some((mut d, mut mins)) = self.dummy_win.take() else { return };
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("Sahte video").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            egui::Grid::new("dummy_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                ui.label("Kare hızı");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut d.fps).speed(0.01).range(1.0..=240.0).max_decimals(3));
+                    for f in [23.976, 24.0, 25.0, 29.97, 30.0] {
+                        if ui.small_button(format!("{}", f)).clicked() { d.fps = f; }
+                    }
+                });
+                ui.end_row();
+                ui.label("Süre (dakika)");
+                ui.add(egui::DragValue::new(&mut mins).speed(0.5).range(0.1..=600.0));
+                ui.end_row();
+                ui.label("Çözünürlük");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut d.width).range(16..=8192));
+                    ui.label("×");
+                    ui.add(egui::DragValue::new(&mut d.height).range(16..=8192));
+                    for (w, h) in [(640, 480), (1280, 720), (1920, 1080)] {
+                        if ui.small_button(format!("{}p", h)).clicked() { d.width = w; d.height = h; }
+                    }
+                });
+                ui.end_row();
+                ui.label("Renk");
+                ui.color_edit_button_srgb(&mut d.rgb);
+                ui.end_row();
+                ui.label("");
+                ui.checkbox(&mut d.checkerboard, "Damalı desen");
+                ui.end_row();
+            });
+            d.frames = ((mins * 60.0 * d.fps).round() as u64).max(1);
+            ui.label(RichText::new(format!("{} kare. İlk açılışta üretilir (uzun sürelerde birkaç on saniye), sonra önbellekten anında açılır.", d.frames)).weak());
+            if ui.button("Aç").clicked() { go = true; }
+        });
+        if go {
+            self.media.open_dummy(&d, ctx);
+            self.show_media = true;
+        } else if open {
+            self.dummy_win = Some((d, mins));
+        }
     }
 
     pub(super) fn goto_window(&mut self, ctx: &egui::Context) {

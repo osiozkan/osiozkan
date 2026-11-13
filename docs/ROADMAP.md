@@ -95,6 +95,7 @@
 - [x] Anamorfik videoda PlayRes en-boy QC'si görüntü oranını da kabul eder
 - [x] Anamorfik video (SAR ≠ 1, ör. DVD 720×480 → 16:9) doğru en-boy oranıyla gösterilir; Video → En-boy oranı (Otomatik/4:3/16:9/1.85/2.35; Aegisub Override AR)
 - [x] Videoyu ayrı pencerede göster (Video menüsü; çift monitör, Aegisub "Detach video"); video araçları ayrı pencerede de çalışır
+- [x] Sahte video (Aegisub dummy video; Video → Sahte video aç…, komut paleti): kare hızı/süre/çözünürlük/renk/damalı; Aegisub projelerindeki `?dummy:` otomatik açılır ve kayıtta korunur; ffmpeg ile bir kez üretilip önbelleğe alınır (core::dummy)
 - [ ] libmpv ile donanım hızlandırmalı oynatma
 - [x] Spektrogram görünümü (rustfft), anahtar kare işaretleri, video+ses satır oynatma (F5; ses harici ffplay)
 - [x] Uygulama içi ses oynatma (cpal 0.18 + ffmpeg PCM; ses saati playhead/video/tuşla zamanlamayı sürer; aygıt yoksa ffplay'e düşer). HENÜZ GERÇEK AYGITTA TEST EDİLMEDİ (kum havuzunda ses aygıtı yok); mantık sahte çıkışla testli
@@ -150,8 +151,8 @@
 ## Performans
 - [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12)
 - [x] Geri alma belleği: satır sayısını değiştiren işlemler artık yalnızca değişen aralığı saklar (ortak önek/sonek); toplu ekleme/silme splice ile O(n); >5000 girdilik adımlar en fazla 8 tane tutulur
-- [ ] Bellek ayak izi ölçümü
-- [ ] Lua çağrıları için toplu (batch) API ile satır kopyası azaltma
+- [x] Bellek ayak izi ölçümü (2026-11-13, release, yazılım GL): boş arayüz ~135 MB (çoğu Mesa), 50k satırlık 6 MB dosya +23 MB
+- [x] Lua toplu erişim ölçümü: 50k satırın hepsini okuyup yazan makro 0.57 sn, yalnızca okuma 0.37 sn (release) — ayrı toplu API gerekmedi
 
 ## Dağıtım
 - [x] GitHub Actions: Linux/Windows/macOS derleme + test + ui-e2e (.github/workflows/ci.yml; her push'ta yeşil)
