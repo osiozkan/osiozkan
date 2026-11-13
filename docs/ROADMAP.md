@@ -67,7 +67,7 @@
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
 - [x] Gerçek yazı tipi ölçüleri (`text_extents`: ttf-parser, GDI/VSFilter uyumlu hücre yüksekliği)
-- [x] Yazı tipi dizini önbelleği (`<veri>/font-index.tsv`; yalnızca değişen dosyalar yeniden okunur, `OSISUB_NO_FONT_CACHE=1` kapatır)
+- [x] Yazı tipi dizini önbelleği (`<veri>/font-index-v2.tsv`; aile adları asıl yazılışla; yalnızca değişen dosyalar yeniden okunur, `OSISUB_NO_FONT_CACHE=1` kapatır)
 - [x] `kara-templater.lua` yerleşik ve gerçek Aegisub `karaskel-auto4.lua` ile testli
 - [x] MoonScript (`.moon`) betikleri, include klasörlerinden `require`
 - [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
@@ -108,6 +108,7 @@
 - [x] Konuşmaya yapıştır (Zamanlama → Sesten satır oluştur penceresi): başlangıç/bitiş ±250 ms içindeki konuşma sınırına
 - [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)
+- [x] Stil düzenleyicide yazı tipi seçici: kurulu aileler (asıl yazılışla, biçem varyantları gizli) yazarak süzülür; kurulu olmayan yazı tipi uyarısı
 - [x] Stil yöneticisi: yeniden adlandırma `\r` başvurularını da günceller; "Kullanılmayanları sil"
 - [x] Renk seçici iyileştirmeleri (color_ui; düzenleme kutusu, Etiketler sekmesi, stil yöneticisi): videodan pipet (altyazısız kare, 3×3 ortalama, Esc iptal), sağ tık menüsü: `#RRGGBB` / `rgb()` / ASS girişi, ASS/HTML kopyala, son 16 renk; stilde ayrı saydamlık (α) alanı
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)

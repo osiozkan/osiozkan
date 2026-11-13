@@ -115,6 +115,9 @@ pub struct App {
     goto_focus: bool,
     /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
     dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
+    /// Kurulu yazı tipi aileleri (ilk gerektiğinde arka planda taranır)
+    fonts_list: Option<std::sync::Arc<Vec<String>>>,
+    fonts_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
     /// Resim altyazısı OCR penceresi ve arka plan işi
     ocr: Option<windows::OcrWin>,
     tr_last_active: usize,
@@ -531,6 +534,8 @@ impl App {
             goto_open: false,
             dummy_win: None,
             ocr: None,
+            fonts_list: None,
+            fonts_rx: None,
             goto_focus: false,
             tr_last_active: usize::MAX,
             find_focus: false,
@@ -2319,6 +2324,26 @@ impl App {
             self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
             self.job = None;
         }
+    }
+
+    /// Kurulu yazı tipi aileleri; ilk çağrıda taramayı başlatır, hazır değilse None.
+    pub(crate) fn font_families(&mut self) -> Option<std::sync::Arc<Vec<String>>> {
+        if self.fonts_list.is_none() {
+            match &self.fonts_rx {
+                None => {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || { let _ = tx.send(osisub_lua::fonts::FontDb::default().families()); });
+                    self.fonts_rx = Some(rx);
+                }
+                Some(rx) => {
+                    if let Ok(v) = rx.try_recv() {
+                        self.fonts_list = Some(std::sync::Arc::new(v));
+                        self.fonts_rx = None;
+                    }
+                }
+            }
+        }
+        self.fonts_list.clone()
     }
 
     /// Referans altyazıyı ayarla (ızgaradaki Referans sütunu, çeviri sekmesi).

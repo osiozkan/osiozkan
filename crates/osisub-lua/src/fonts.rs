@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use ttf_parser::{name_id, Face};
 
 struct FaceInfo {
+    /// küçük harfli (eşleştirme için)
     family: String,
+    /// yazı tipindeki asıl yazılış (listeleme için)
+    display: String,
     bold: bool,
     italic: bool,
     path: PathBuf,
@@ -60,13 +63,22 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
     }
 }
 
+const STYLE_WORDS: &[&str] = &[
+    "bold", "italic", "oblique", "regular", "light", "medium", "black", "thin", "heavy", "semibold", "demibold", "extrabold", "ultrabold", "extralight", "ultralight", "book", "condensed", "semilight", "normal", "roman", "it", "bd", "bi",
+];
+
+/// Ad, listede bulunan bir aile + yalnızca biçem sözcüklerinden mi oluşuyor?
+fn is_style_variant(name: &str, families: &std::collections::HashSet<String>) -> bool {
+    let words: Vec<String> = name.to_lowercase().split_whitespace().map(str::to_string).collect();
+    (1..words.len()).any(|k| families.contains(&words[..k].join(" ")) && words[k..].iter().all(|w| STYLE_WORDS.contains(&w.as_str())))
+}
+
 fn family_names(face: &Face) -> Vec<String> {
     let mut out = Vec::new();
     for n in face.names() {
         if (n.name_id == name_id::FAMILY || n.name_id == name_id::TYPOGRAPHIC_FAMILY || n.name_id == name_id::FULL_NAME) && n.is_unicode() {
             if let Some(s) = n.to_string() {
-                let s = s.to_lowercase();
-                if !out.contains(&s) {
+                if !out.iter().any(|o: &String| o.to_lowercase() == s.to_lowercase()) {
                     out.push(s);
                 }
             }
@@ -89,8 +101,8 @@ fn parse_faces(path: &Path) -> Vec<FaceInfo> {
     for index in 0..n {
         let Ok(face) = Face::parse(&bytes, index) else { continue };
         let (bold, italic) = (face.is_bold(), face.is_italic());
-        for family in family_names(&face) {
-            out.push(FaceInfo { family, bold, italic, path: path.to_path_buf(), index });
+        for display in family_names(&face) {
+            out.push(FaceInfo { family: display.to_lowercase(), display, bold, italic, path: path.to_path_buf(), index });
         }
     }
     out
@@ -113,13 +125,13 @@ fn scan_files(files: &[PathBuf], cache: Option<&Path>) -> Vec<FaceInfo> {
                 let e = old.entry(path.clone()).or_insert((size, mtime, vec![]));
                 // "-" = yüzü olmayan (bozuk) dosya
                 if f[6] != "-" {
-                    e.2.push(FaceInfo { family: f[6].to_string(), bold: f[4] == "1", italic: f[5] == "1", path, index: f[3].parse().unwrap_or(0) });
+                    e.2.push(FaceInfo { family: f[6].to_lowercase(), display: f[6].to_string(), bold: f[4] == "1", italic: f[5] == "1", path, index: f[3].parse().unwrap_or(0) });
                 }
             }
         }
     }
     let mut faces = vec![];
-    let mut out = String::from("# osisub yazı tipi dizini v1\n");
+    let mut out = String::from("# osisub yazı tipi dizini v2\n");
     let mut changed = old.len() != files.len();
     for path in files {
         let stamp = file_stamp(path).unwrap_or((0, 0));
@@ -135,7 +147,7 @@ fn scan_files(files: &[PathBuf], cache: Option<&Path>) -> Vec<FaceInfo> {
                 out.push_str(&format!("{}\t{}\t{}\t0\t0\t0\t-\n", path.display(), stamp.0, stamp.1));
             }
             for x in &got {
-                out.push_str(&format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", path.display(), stamp.0, stamp.1, x.index, x.bold as u8, x.italic as u8, x.family.replace(['\t', '\n'], " ")));
+                out.push_str(&format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", path.display(), stamp.0, stamp.1, x.index, x.bold as u8, x.italic as u8, x.display.replace(['\t', '\n'], " ")));
             }
         }
         faces.extend(got);
@@ -169,7 +181,7 @@ impl FontDb {
         for d in default_dirs().iter().chain(self.extra_dirs.iter()) {
             walk(d, &mut files, 0);
         }
-        let cache = if std::env::var_os("OSISUB_NO_FONT_CACHE").is_some() { None } else { osisub_core::paths::data_dir().map(|d| d.join("font-index.tsv")) };
+        let cache = if std::env::var_os("OSISUB_NO_FONT_CACHE").is_some() { None } else { osisub_core::paths::data_dir().map(|d| d.join("font-index-v2.tsv")) };
         self.faces = scan_files(&files, cache.as_deref());
     }
 
@@ -187,6 +199,18 @@ impl FontDb {
         let mut v: Vec<PathBuf> = self.faces.iter().filter(|x| x.family == f).map(|x| x.path.clone()).collect();
         v.sort();
         v.dedup();
+        v
+    }
+
+    /// Kurulu aile adları (asıl yazılışla, büyük/küçük harf duyarsız tekil, alfabetik).
+    pub fn families(&mut self) -> Vec<String> {
+        self.scan();
+        let mut seen = std::collections::HashSet::new();
+        let mut v: Vec<String> = self.faces.iter().filter(|f| seen.insert(f.family.clone())).map(|f| f.display.clone()).collect();
+        v.sort_by_key(|a| a.to_lowercase());
+        // "DejaVu Sans Bold" gibi tam adları (aile + yalnızca biçem sözcükleri) listeden çıkar
+        let fams: std::collections::HashSet<String> = seen;
+        v.retain(|name| !is_style_variant(name, &fams));
         v
     }
 
@@ -481,6 +505,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn style_variants_hidden() {
+        let f: std::collections::HashSet<String> = ["dejavu sans", "dejavu sans mono"].iter().map(|s| s.to_string()).collect();
+        assert!(is_style_variant("DejaVu Sans Bold Oblique", &f));
+        assert!(!is_style_variant("DejaVu Sans Mono", &f));
+        assert!(!is_style_variant("DejaVu Sans", &f));
+        assert!(!is_style_variant("Noto Sans Bold", &f));
+    }
+
+    #[test]
     fn index_cache_matches_full_scan() {
         let mut files = vec![];
         for d in default_dirs() {
@@ -498,11 +531,14 @@ mod tests {
         assert!(c.is_file());
         // önbellekten okuma: dosyaları "okunamaz" yapamayız; önbelleği elle işaretleyip kullanıldığını doğrula
         let t = std::fs::read_to_string(&c).unwrap();
-        let fam = first.first().map(|f| f.family.clone()).unwrap_or_default();
+        let fam = first.first().map(|f| f.display.clone()).unwrap_or_default();
         std::fs::write(&c, t.replacen(&format!("\t{}\n", fam), "\tönbellek-ailesi\n", 1)).unwrap();
         let cached = scan_files(&files, Some(&c));
         assert_eq!(key(&full), key(&first));
         assert!(cached.iter().any(|f| f.family == "önbellek-ailesi"), "önbellek kullanılmadı");
+        // asıl yazılış korunur, eşleştirme küçük harfle
+        assert!(full.iter().all(|f| f.family == f.display.to_lowercase()));
+        assert!(full.iter().any(|f| f.display != f.family), "büyük harfli aile adı bekleniyordu");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

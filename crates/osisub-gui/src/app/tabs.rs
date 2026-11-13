@@ -400,7 +400,9 @@ impl App {
             if let Entry::Style(s) = self.doc.script.entries[i].clone() {
                 let mut ns = s.clone();
                 self.style_preview_ui(ui, &ns);
-                if style_ui::edit(ui, &mut ns) && ns != s {
+                let fonts = self.font_families();
+                if fonts.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(300)); }
+                if style_ui::edit(ui, &mut ns, fonts.as_deref().map(|v| v.as_slice())) && ns != s {
                     // Ad değişirse diyalogları da güncelle.
                     let rename = (ns.name != s.name).then(|| (s.name.clone(), ns.name.clone()));
                     let key = format!("style:{}", i);
