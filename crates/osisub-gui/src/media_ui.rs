@@ -1150,21 +1150,16 @@ impl Media {
                 let pscale = ov::get_initial(&d.text, "p").and_then(|t| t.number()).unwrap_or(0.0);
                 let warn = |msg: &str| { p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, msg, egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a)); };
                 if pscale <= 0.0 { warn("Çizim aracı: satır \\p1 çizimi değil"); return; }
-                let num = |n: &str| ov::get_initial(&d.text, n).and_then(|t| t.number());
-                let st = doc.script.style_by_name(&d.style).cloned().unwrap_or_default();
-                let an = num("an").map(|v| v as i32).unwrap_or(st.align);
-                let rot = num("frz").or(num("fr")).unwrap_or(st.angle) != 0.0 || num("frx").unwrap_or(0.0) != 0.0 || num("fry").unwrap_or(0.0) != 0.0;
-                if an != 7 || rot { warn("Çizim aracı yalnızca \\an7 ve döndürmesiz çizimlerde çalışır"); return; }
-                let k = 1.0 / 2f64.powf(pscale - 1.0);
-                let (sx, sy) = (num("fscx").unwrap_or(st.scale_x) / 100.0 * k, num("fscy").unwrap_or(st.scale_y) / 100.0 * k);
                 let (px, py) = (cur.0 as f64, cur.1 as f64);
                 // çizim metni: \p bloğundan sonraki ilk metin parçası
                 let segs = ov::parse(&d.text);
                 let Some(ti) = segs.iter().position(|g| matches!(g, ov::Seg::Text(t) if !t.trim().is_empty())) else { warn("Çizim boş"); return; };
                 let ov::Seg::Text(body) = &segs[ti] else { return };
                 let mut cmds = drawing::parse(body);
-                let scr = |q: (f64, f64)| to_screen((px + q.0 * sx) as f32, (py + q.1 * sy) as f32);
-                let back = |s: Pos2| { let (x, y) = to_script(s); (((x as f64 - px) / sx * 2.0).round() / 2.0, ((y as f64 - py) / sy * 2.0).round() / 2.0) };
+                // Her hizalama/ölçek/eğme/döndürme (libass ile doğrulanmış dönüşüm; core::drawxf)
+                let Some(xf) = osisub_core::drawxf::DrawXf::from_line(&doc.script, &d, (px, py), body, self.persp_dist) else { return };
+                let scr = |q: (f64, f64)| { let s = xf.fwd(q.0, q.1); to_screen(s.0 as f32, s.1 as f32) };
+                let back = |s: Pos2, guess: (f64, f64)| -> Option<(f64, f64)> { let (x, y) = to_script(s); xf.inv((x as f64, y as f64), guess).map(|q| ((q.0 * 2.0).round() / 2.0, (q.1 * 2.0).round() / 2.0)) };
                 for shape in drawing::polylines(&cmds) {
                     let pts: Vec<Pos2> = shape.iter().map(|&q| scr(q)).collect();
                     for w in pts.windows(2) { p.line_segment([w[0], w[1]], Stroke::new(1.5, col)); }
@@ -1181,14 +1176,14 @@ impl Media {
                 if r.drag_started() { self.vt_vdrag = press.or(ptr).and_then(hit); }
                 if r.dragged() {
                     if let (Some((ci, pi)), Some(pos)) = (self.vt_vdrag, ptr) {
-                        if let Some(pt) = cmds.get_mut(ci).and_then(|c| c.pts.get_mut(pi)) { *pt = back(pos); changed = true; }
+                        if let Some(pt) = cmds.get_mut(ci).and_then(|c| c.pts.get_mut(pi)) { if let Some(q) = back(pos, *pt) { *pt = q; changed = true; } }
                     }
                 }
                 if r.drag_stopped() { self.vt_vdrag = None; }
                 if r.clicked() {
                     if let Some(pos) = ptr {
                         match hit(pos) {
-                            None => { drawing::push_point(&mut cmds, back(pos)); changed = true; }
+                            None => { let g = handles.last().map(|h| h.2).unwrap_or((0.0, 0.0)); if let Some(q) = back(pos, g) { drawing::push_point(&mut cmds, q); changed = true; } }
                             Some((ci, pi)) if ui.input(|i| i.modifiers.command) => changed |= drawing::line_to_bezier(&mut cmds, ci, pi),
                             _ => {}
                         }

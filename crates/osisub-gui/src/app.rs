@@ -595,6 +595,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
+            Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("ocr") => app.ocr = Some(windows::OcrWin::default()),
             Some("fixes") => app.fixes_open = true,
             Some("stats") => app.stats_open = true,
@@ -2386,6 +2387,10 @@ impl App {
     /// Perspektif video aracı için etkin satırın kutusunu (yazı tipiyle ölçülür, metin değişince
     /// yeniden) ve kamera uzaklığını hazırlar; araç LayoutRes'siz betiğe yazdıysa LayoutRes'i ekler.
     fn prepare_perspective_tool(&mut self) {
+        if self.media.tool == crate::media_ui::VideoTool::Drawing {
+            self.media.persp_dist = self.perspective_dist_ro();
+            return;
+        }
         if self.media.tool != crate::media_ui::VideoTool::Perspective {
             return;
         }
@@ -2408,7 +2413,16 @@ impl App {
             let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
             self.media.persp_box = osisub_lua::fonts::line_box(db, &self.doc.script, d).ok().map(|b| (at, d.text.clone(), b));
         }
-        self.media.persp_dist = self.perspective_dist(&mut self.doc.script.clone());
+        self.media.persp_dist = self.perspective_dist_ro();
+    }
+
+    /// `perspective_dist`'in betiği değiştirmeyen (ve kopyalamayan) hâli: her karede çağrılabilir.
+    pub(crate) fn perspective_dist_ro(&self) -> f64 {
+        let (_, play_y) = self.doc.script.res();
+        let layout_y = self.doc.script.info("LayoutResY").and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| self.media.info.as_ref().filter(|i| i.has_video).map(|i| i.height as f64))
+            .unwrap_or(play_y as f64);
+        osisub_core::perspective::dist_for(play_y as f64, layout_y)
     }
 
     /// Perspektif için betik koordinatında kamera uzaklığı. LayoutRes: betikte varsa o, yoksa

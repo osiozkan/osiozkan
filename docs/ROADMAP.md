@@ -5,7 +5,7 @@
 ## Sıradaki geceler için öncelikli öneriler
 1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
-3. Video araçları: döndürülmüş / `\an≠7` çizim düzenleme, `\fax/\fay` aracı.
+3. Video araçları: `\fax/\fay` tutamaç aracı (çizim aracı artık döndürülmüş/her hizalamadaki çizimlerde çalışıyor).
 4. libmpv ile donanım hızlandırmalı oynatma.
 5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
 
@@ -22,6 +22,7 @@
 - [x] Override etiketi ayrıştırıcı/yazıcı (gidiş-dönüş güvenli), başlangıç bloğu get/set, temizleyici
 - [x] Harf dönüştür (core::casing; Düzen menüsü, kısayol komutları): BÜYÜK/küçük/Başlık/Cümle — Türkçe i/İ ı/I, etiketler/\N/çizimler korunur
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
+- [x] Çevrilmemiş satır denetimi (core::untranslated; Kalite sekmesi, CLI `check --ref`): referansla aynı metin, Japonca kalmış, Türkçe belgede İngilizce kalmış satır (tipografi/karaoke hariç)
 - [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)
 - [x] Etiket denetimi (core::taglint, QC'de "Etiket"/"Notlar" süzgeci, ızgarada kırmızı altçizgi): eşleşmeyen { }, bilinmeyen/yazım hatalı etiket (\blurr, \fsc100), geçersiz renk/saydamlık, \pos/\move/\fad/\fade/\clip argüman sayısı, satır süresini aşan \fad, satır bittikten sonra başlayan \t/\move, ters zamanlar, \t ile canlandırılamayan etiketler, iç içe \t, birden fazla \pos, bilinmeyen \r stili, karaoke hece toplamı ≠ satır süresi, metinde unutulmuş {not}
 - [x] Etiket uygula (HYDRA benzeri; core::tagapply, Araçlar → Etiket uygula / yeniden hesapla): başlangıç bloğu, tüm bloklar, `\t(t1,t2,ivme)`, harf harf degrade (boşluk/\N atlanır, ara etiketler korunur), satırlar boyunca degrade; renk seçici; eşanlamlılar (\c=\1c, \fr=\frz)
@@ -128,7 +129,8 @@
 - [x] Perspektif video aracı (Video aracı: Perspektif; kısayol komutu `tool_persp`, Aegisub `video/tool/perspective`): 4 köşe tutamacı + içeriden taşıma, her sürüklemede canlı oturtma; dörtgen satırın perspektif etiketlerinden geri hesaplanır (yoksa 4 noktalı kırpma ya da konum çevresinde kutu); LayoutRes otomatik eklenir; sağ tık = perspektifi kaldır (xdotool ile doğrulandı)
 - [x] Video aracı: \p çizim noktalarını düzenleme (\an7, döndürmesiz; ölçek ve \p düzeyi hesaba katılır; ekle/taşı/sil)
 - [x] Vektör kırpma ve çizim araçlarında Ctrl+tık: düz parçayı kübik eğriye (b) çevir (core::drawing::line_to_bezier)
-- [ ] Video araçları: döndürülmüş/\an≠7 çizimler, \fax/\fay
+- [x] Çizim aracı her hizalama, ölçek, \fax/\fay eğme ve \frx/\fry/\frz (\org) ile çalışır (core::drawxf; libass çıktısıyla 7 durumda ≤ 2 px doğrulandı: hizalama yalnızca sınır kutusu boyutunu kullanır, eğme çizimin başlangıcına göre)
+- [ ] Video araçları: \fax/\fay için ayrı tutamaç aracı
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git
