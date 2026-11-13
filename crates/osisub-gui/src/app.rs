@@ -115,6 +115,10 @@ pub struct App {
     goto_focus: bool,
     /// "Basılı tutarak oynat" tuşu basılı ve çalıyor
     hold_playing: bool,
+    /// Pencereye en son gönderilen başlık
+    last_title: Option<String>,
+    /// Arka plan iş parçacıklarının arayüzü uyandırması için
+    egui_ctx: egui::Context,
     /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
     dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
     /// Kurulu yazı tipi aileleri (ilk gerektiğinde arka planda taranır)
@@ -364,11 +368,28 @@ mod grid;
 mod tabs;
 mod windows;
 
+/// Lua işçisinin olaylarını bir aktarıcı iş parçacığından geçirir; her olayda arayüzü uyandırır
+/// (arayüz boştayken çizmez — işçi sonuçları beklemeden görünsün).
+fn wake_on_events(worker: &mut Worker, ctx: &egui::Context) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let src = std::mem::replace(&mut worker.events, rx);
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        while let Ok(ev) = src.recv() {
+            if tx.send(ev).is_err() {
+                break;
+            }
+            ctx.request_repaint();
+        }
+    });
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, args: crate::Args) -> App {
         let crate::Args { file, scripts, screenshot: shot, tab, media, open_win, line, reference, shot_delay, compare } = args;
         theme::setup(&cc.egui_ctx);
-        let worker = Worker::spawn(osisub_core::paths::automation_include_dirs(), vec![]);
+        let mut worker = Worker::spawn(osisub_core::paths::automation_include_dirs(), vec![]);
+        wake_on_events(&mut worker, &cc.egui_ctx);
         let mut status = String::from("Hazır");
         let doc = match file {
             Some(p) => match Document::open(&p) {
@@ -542,6 +563,8 @@ impl App {
             theme_dirty: true,
             goto_open: false,
             hold_playing: false,
+            last_title: None,
+            egui_ctx: cc.egui_ctx.clone(),
             dummy_win: None,
             ocr: None,
             fonts_list: None,
@@ -975,6 +998,7 @@ impl App {
         self.running = None;
         self.tap = None;
         self.worker = Worker::spawn(osisub_core::paths::automation_include_dirs(), vec![]);
+        wake_on_events(&mut self.worker, &self.egui_ctx);
         self.macros.clear();
         let list = self.loaded_scripts.clone();
         for p in list { self.worker.send(Cmd::Load(p)); }
@@ -1819,6 +1843,19 @@ impl App {
         });
     }
 
+    /// Arayüz boştayken çizilmez: arka plan işi sürerken kısa aralıkla yokla, kirli belgede
+    /// otomatik kayıt zamanı gelince uyan.
+    fn schedule_wakeups(&self, ctx: &egui::Context) {
+        let busy = self.qc_rx.is_some() || self.spell_load_rx.is_some() || self.miss_rx.is_some() || self.font_rx.is_some() || self.running.is_some();
+        if busy {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        if self.doc.is_dirty() {
+            let left = 30u64.saturating_sub(self.last_autosave.elapsed().as_secs());
+            ctx.request_repaint_after(std::time::Duration::from_secs(left.max(1)));
+        }
+    }
+
     fn autosave_dir() -> Option<PathBuf> {
         osisub_core::paths::data_dir().map(|d| d.join("autosave"))
     }
@@ -1938,7 +1975,9 @@ impl eframe::App for App {
         if *FRAME_LOG.get_or_init(|| std::env::var_os("OSISUB_FRAME_LOG").is_some()) {
             let t = std::time::Instant::now();
             self.ui_inner(ui, frame);
-            eprintln!("kare {:.2} ms", t.elapsed().as_secs_f64() * 1000.0);
+            // OSISUB_FRAME_LOG=2: yeniden çizimi isteyen kod yerlerini de yaz (boşta sürekli çizimi bulmak için)
+            let causes = if std::env::var("OSISUB_FRAME_LOG").as_deref() == Ok("2") { format!(" {:?}", ui.ctx().repaint_causes()) } else { String::new() };
+            eprintln!("kare {:.2} ms{}", t.elapsed().as_secs_f64() * 1000.0, causes);
         } else {
             self.ui_inner(ui, frame);
         }
@@ -1970,7 +2009,13 @@ impl App {
         self.poll_resync(&ctx);
         self.poll_mt(&ctx);
         self.refresh_caches(); // kısayollar belgeyi değiştirmiş olabilir
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title()));
+        // Başlık yalnızca değişince gönderilir: her viewport komutu yeni bir kare ister (her karede
+        // göndermek boştayken bile ~100 kare/sn sürekli çizime yol açıyordu).
+        let title = self.title();
+        if self.last_title.as_deref() != Some(title.as_str()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.last_title = Some(title);
+        }
 
         if ctx.input(|i| i.viewport().close_requested()) && self.doc.is_dirty() && !self.quit_confirm && self.shot.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -2045,6 +2090,7 @@ impl App {
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();
+        self.schedule_wakeups(&ctx);
         if let Some((title, st)) = self.dialog.as_mut() {
             if let Some(res) = dialog_ui::show(&ctx, title, st) {
                 self.worker.reply_dialog(res);

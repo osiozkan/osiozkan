@@ -15,6 +15,7 @@
 | Alt+↑ / Alt+↓ | Önceki / sonraki satır (her zaman) |
 | F5 | Etkin satırı oynat/durdur (video+ses) |
 | Shift+F5 | Playhead'den oynat/durdur (satır sınırı olmadan, en çok 10 dk) |
+| Ctrl+Boşluk (basılı tut) | Playhead'den oynat; bırakınca durur, playhead orada kalır |
 | F6 / F7 | Playhead'i başlangıç / bitiş yap |
 | S / H | Etkin satırı dolgusuz oynat / durdur (Aegisub ses kipi; metin yazılmıyorken) |
 | Q / W | Başlangıçtan önceki / bitişten sonraki 500 ms'yi oynat |
@@ -34,6 +35,8 @@
 | Ctrl + / Ctrl - | Yakınlaştır / uzaklaştır (arayüz) |
 | Video aracı Kırpma: sağ tık | Kırpmayı kaldır |
 | Video aracı Döndürme: Shift+sürükle | 15° adımlarla döndür |
+| Video aracı Eğme: üst / sağ tutamaç | `\fax` / `\fay` (Shift = 0.05 adım; sağ tık kaldırır) |
+| Renk düğmesi: Pipet, sonra videoya tıkla | Videodan renk al (Esc iptal); renk kutusuna sağ tık: `#RRGGBB`/ASS girişi, son renkler |
 | Karaoke sekmesi → Tuşla zamanla: Boşluk | Çalarken hecenin başlangıcını işaretle |
 
 ## Lua makrolarına kısayol atama

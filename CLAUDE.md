@@ -40,6 +40,7 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - Otomatik mod güvenlik denetimi internetten yeni indirilen betikleri/kodu ÇALIŞTIRMAYI engelleyebilir (2026-11-10'da Aegisub autoload betikleri engellendi). Üçüncü taraf kod gerekiyorsa önce kullanıcıya sor / depoya kullanıcı eklesin.
 - Tipografi/karaoke/fx satırları (`qc::is_typeset`, `qc::is_karaoke`, efekt "fx") QC ve toplu zamanlama işlemlerinde diyalogdan ayrı tutulur; yeni toplu işlem eklerken bunu koru.
 - `osisub_media::ffmpeg_available()` önbellekli; ffmpeg çağıran şeyleri arayüz karesinde doğrudan çağırma, iş parçacığına at.
+- Boştayken çizim YOK (2026-11-13'e kadar her karede `ViewportCommand::Title` gönderildiği için ~100 kare/sn sürekli çiziliyordu). Yeni arka plan işi eklerken sonuç gelince `ctx.request_repaint()` çağır ya da bekleyen alıcıyı `schedule_wakeups`'a ekle; her karede viewport komutu GÖNDERME. Teşhis: `OSISUB_FRAME_LOG=2` yeniden çizimi isteyen kod yerlerini yazar.
 - Arayüz performansı: `OSISUB_FRAME_LOG=1 osisub-gui dosya 2>>log` her karenin süresini yazar (stderr'i `2>>` ile ekle kipinde aç, yoksa işaretler ezilir).
 - `cargo test -p osisub-gui` GUI ikilisini (target/debug/osisub-gui) güncellemez; ekran görüntüsünden önce `cargo build -p osisub-gui`.
 - Ayarlar `$HOME/.config/osisub` altında: GUI testlerinde `HOME=<geçici>` ver (gerçek ayarları kirletme).
