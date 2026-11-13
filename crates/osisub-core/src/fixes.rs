@@ -16,6 +16,8 @@ pub struct Fixes {
     pub remove_hi: bool,
     /// Etiketsiz satırlarda bu karakterden uzun metni iki olaya böl (None = kapalı).
     pub split_long: Option<usize>,
+    /// Satırları dengeli iki satıra kır / kısaları tek satır yap (satır başına karakter; None = kapalı)
+    pub balance_lines: Option<usize>,
     pub min_duration_ms: Option<i64>,
     pub min_gap_ms: Option<i64>,
     pub only: Option<Vec<usize>>,
@@ -23,7 +25,7 @@ pub struct Fixes {
 
 impl Default for Fixes {
     fn default() -> Self {
-        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, split_long: None, min_duration_ms: None, min_gap_ms: None, only: None }
+        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, split_long: None, balance_lines: None, min_duration_ms: None, min_gap_ms: None, only: None }
     }
 }
 
@@ -272,6 +274,9 @@ pub fn apply(script: &mut Script, f: &Fixes) -> Report {
                 }
                 nt = capitalize_after_sentence_ends(&nt);
             }
+            if let Some(max) = f.balance_lines {
+                nt = crate::linebreak::balance(&nt, max);
+            }
             if nt != d.text {
                 d.text = nt;
                 rep.changed_lines += 1;
@@ -281,6 +286,7 @@ pub fn apply(script: &mut Script, f: &Fixes) -> Report {
         let _ = prev_idx;
         prev_idx = Some(i);
     }
+    // Dengelemeden sonra hâlâ sığmayanlar (iki satıra sığmayan metin) bölünebilir
     if let Some(max) = f.split_long {
         rep.split_lines += split_long_lines(script, max, f.only.as_deref());
     }

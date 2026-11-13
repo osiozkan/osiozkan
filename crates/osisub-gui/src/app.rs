@@ -275,6 +275,8 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("case_lower", "Harf: küçük harf"),
     ("case_title", "Harf: Başlık Biçimi"),
     ("case_sentence", "Harf: Cümle biçimi"),
+    ("balance_lines", "Satırları dengele (iki satıra kır / birleştir)"),
+    ("unbreak_lines", "Satır sonlarını kaldır"),
     ("line_next", "Sonraki satır"),
     ("line_prev", "Önceki satır"),
     ("select_lines", "Satırları seç…"),
@@ -1184,6 +1186,8 @@ impl App {
                 if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
             }
             "split_cursor" => self.split_at_cursor(false),
+            "balance_lines" => self.rebreak_selected(true),
+            "unbreak_lines" => self.rebreak_selected(false),
             "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
                 if let Some(fr) = fr.filter(|_| !self.media.keyframes.is_empty()) {
@@ -1487,6 +1491,8 @@ impl App {
                         if ui.button(l).on_hover_text("Seçili satırlar; etiketler ve \\N korunur, Türkçe i/İ ı/I").clicked() { ui.close(); self.change_case(c); }
                     }
                 });
+                if ui.button("Satırları dengele").on_hover_text("Seçili satırları satır başına en çok 'en uzun satır' sınırı kadar karakterle dengeli iki satıra kırar; sığanları tek satır yapar (Subtitle Edit: Auto balance)").clicked() { ui.close(); self.rebreak_selected(true); }
+                if ui.button("Satır sonlarını kaldır").on_hover_text("Seçili satırlardaki \\N'leri boşluğa çevirir").clicked() { ui.close(); self.rebreak_selected(false); }
                 if ui.button("Stil yardımcısı…").on_hover_text("Satır satır stil atama: süz, Enter = uygula + sonraki satır (Aegisub: Styling Assistant)").clicked() { ui.close(); self.style_assist = Some(String::new()); }
                 if ui.button("Üzerine yapıştır…  Ctrl+Shift+V").on_hover_text("Panodaki satırların seçtiğiniz alanlarını (zaman, stil, metin…) seçili satırların üzerine yazar (Aegisub: Paste Over)").clicked() { ui.close(); self.open_paste_over(None); }
                 if ui.button("Satırları seç…").on_hover_text("Stil, konuşan, efekt ya da metne göre seç (Aegisub: Select Lines)").clicked() { self.select_open = true; ui.close(); }
@@ -2297,6 +2303,22 @@ impl App {
             self.status = match r { Ok(p) => format!("Hazır: {p}"), Err(e) => format!("Video işi başarısız: {e}") };
             self.job = None;
         }
+    }
+
+    /// Seçili satırları dengele (`balance`) ya da satır sonlarını kaldır; tipografi/karaoke satırları atlanır.
+    pub(crate) fn rebreak_selected(&mut self, balance: bool) {
+        let max = self.rules.max_line_len.max(10);
+        let changes: Vec<(usize, String)> = self.doc.target_lines().into_iter().filter_map(|i| match self.doc.script.entries.get(i) {
+            Some(Entry::Dialogue(d)) if !qc::is_typeset(d) && !qc::is_karaoke(d) => {
+                let t = if balance { osisub_core::linebreak::balance(&d.text, max) } else { osisub_core::linebreak::unbreak(&d.text) };
+                (t != d.text).then_some((i, t))
+            }
+            _ => None,
+        }).collect();
+        let n = changes.len();
+        let desc = if balance { "Satırları dengele" } else { "Satır sonlarını kaldır" };
+        if n > 0 { self.doc.edit(desc, |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
+        self.status = format!("{desc}: {n} satır");
     }
 
     /// Seçili satırlara harf dönüşümü (Türkçe i/İ duyarlı; etiketler korunur), tek geri-al adımı.

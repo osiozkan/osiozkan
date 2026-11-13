@@ -1776,6 +1776,13 @@ impl App {
             ui.checkbox(&mut f.sentence_case, "Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)");
             ui.checkbox(&mut f.remove_hi, "İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)");
             ui.horizontal(|ui| {
+                let mut on = f.balance_lines.is_some();
+                ui.checkbox(&mut on, "Satırları dengele (satır başına karakter)").on_hover_text("Uzun metni en fazla iki dengeli satıra kırar (noktalamada, bağlaçla bitirmeden); sığan metni tek satır yapar. Tipografi/karaoke satırlarına dokunmaz.");
+                let mut v = f.balance_lines.unwrap_or(self.rules.max_line_len.max(20));
+                ui.add_enabled(on, egui::DragValue::new(&mut v).range(20..=120));
+                f.balance_lines = on.then_some(v);
+            });
+            ui.horizontal(|ui| {
                 let mut on = f.split_long.is_some();
                 ui.checkbox(&mut on, "Uzun satırları böl (karakter)");
                 let mut v = f.split_long.unwrap_or(84);

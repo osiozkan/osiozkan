@@ -16,6 +16,7 @@ pub mod glossary;
 pub mod io;
 pub mod kanjitimer;
 pub mod karaoke;
+pub mod linebreak;
 pub mod merge;
 pub mod motion;
 pub mod overrides;
