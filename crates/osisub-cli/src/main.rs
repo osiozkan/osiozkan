@@ -28,6 +28,7 @@ KULLANIM:
   osisub info <dosya>                     özet bilgi
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
+  osisub song <bölüm.ass> <şarkı.ass> <eski-video> <yeni-video> [çıktı]   OP/ED'yi sesle bulup yerleştir
   osisub ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]   Blu-ray PGS → metin (Tesseract)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
@@ -433,6 +434,22 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             }
             println!("{} grup, {} güvensiz", groups.len(), weak);
             save(&s, &out)
+        }
+        "song" => {
+            // song <bölüm.ass> <şarkı.ass> <eski-bölüm-video> <yeni-bölüm-video> [çıktı]
+            if args.len() < 4 { return Err("kullanım: song <bölüm.ass> <şarkı.ass> <eski video> <yeni video> [çıktı]".into()); }
+            let mut target = load(&args[0])?;
+            let song = load(&args[1])?;
+            let ds: Vec<_> = song.dialogues().filter(|d| !d.comment).collect();
+            let a = ds.iter().map(|d| d.start_time).min().ok_or("şarkı dosyasında satır yok")?;
+            let b = ds.iter().map(|d| d.end_time).max().unwrap_or(a);
+            let old = osisub_media::load_waveform(Path::new(&args[2]))?;
+            let new = osisub_media::load_waveform(Path::new(&args[3]))?;
+            let (off, score) = osisub_media::resync::locate(&old, &new, a, b).ok_or("eski bölümde şarkı aralığı sessiz ya da çok kısa")?;
+            let r = osisub_core::merge::merge_into(&mut target, &song, &osisub_core::merge::MergeOptions { offset_ms: off, sort: true, ..Default::default() });
+            println!("kayma {} ms, eşleşme %{:.0}, {} satır eklendi", off, score * 100.0, r.lines);
+            if score < 0.6 { eprintln!("UYARI: eşleşme düşük, yerleşimi kontrol edin"); }
+            save(&target, args.get(4).unwrap_or(&args[0]))
         }
         "ocr" => {
             // ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]

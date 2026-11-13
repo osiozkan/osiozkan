@@ -149,6 +149,22 @@ pub fn compute_offsets(old: &Waveform, new: &Waveform, lines: &[(i64, i64)], o: 
     out
 }
 
+/// Eski sesteki `[a, b]` parçasını (ör. OP/ED şarkısı) yeni sesin tamamında arar:
+/// (kayma ms, ilinti puanı 0..1). Yeni seste konum = a + kayma. Parça çok kısa/sessizse None.
+pub fn locate(old: &Waveform, new: &Waveform, a: i64, b: i64) -> Option<(i64, f64)> {
+    let rate = old.sample_rate as f64 / DECIM as f64;
+    let (src, dst) = (decimate(old), decimate(new));
+    let (ta, tb) = (ms_to_idx(a, rate).max(0) as usize, (ms_to_idx(b, rate).max(0) as usize).min(src.len()));
+    if tb <= ta {
+        return None;
+    }
+    // Çok uzun şablon gereksiz: ilk 30 sn yeter (OP 90 sn; FFT boyu küçülür)
+    let tb = tb.min(ta + (30.0 * rate) as usize);
+    let mut planner = FftPlanner::new();
+    let (k, score) = best_match(&src[ta..tb], &dst, &mut planner)?;
+    Some((((k as i64 - ta as i64) as f64 * 1000.0 / rate).round() as i64, score))
+}
+
 /// Bir zamanın bağlı olduğu grubun kayması (gruplar arası boşlukta en yakın grup).
 pub fn offset_for(groups: &[Group], t: i64) -> i64 {
     groups
@@ -175,6 +191,19 @@ mod tests {
             out.push((noise * env * 8.0) as i16);
         }
         out
+    }
+
+    #[test]
+    fn locates_song_in_new_episode() {
+        // eski bölüm: 0-10 sn konuşma, 10-40 sn "OP", sonra konuşma
+        let old_ep: Vec<i16> = [speechy(10, 1), speechy(30, 0x0bed), speechy(10, 2)].concat();
+        // yeni bölüm: OP 95. saniyede başlıyor
+        let new_ep: Vec<i16> = [speechy(95, 3), speechy(30, 0x0bed), speechy(20, 4)].concat();
+        let (old, new) = (Waveform { sample_rate: 8000, samples: old_ep }, Waveform { sample_rate: 8000, samples: new_ep });
+        let (off, score) = locate(&old, &new, 10_000, 40_000).unwrap();
+        assert!((off - 85_000).abs() <= 2, "{off}");
+        assert!(score > 0.9, "{score}");
+        assert!(locate(&old, &new, 5000, 5000).is_none());
     }
 
     #[test]

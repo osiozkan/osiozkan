@@ -186,6 +186,8 @@ pub struct App {
     hotkeys_open: bool,
     /// Betik birleştirme penceresi: (eklenecek dosya, seçenekler, kaydırma metni)
     merge_win: Option<(PathBuf, osisub_core::merge::MergeOptions, String)>,
+    /// OP/ED yerleştirme penceresi
+    song_win: Option<windows::SongWin>,
     /// Hareket izleme penceresi
     motion: Option<MotionWin>,
     /// Toplu satır işlemleri penceresi
@@ -321,6 +323,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_shear", "Video aracı: eğme (\\fax/\\fay)"),
     ("hold_play", "Basılı tutarak oynat (playhead'den; bırakınca durur)"),
     ("guide", "Kullanım kılavuzu (F1)"),
+    ("song_place", "OP/ED yerleştir (sesle ya da playhead'e)…"),
     ("split_breaks", "Satır sonlarından böl (süre metne orantılı)"),
     ("split_breaks_keep", "Satır sonlarından böl (aynı zaman)"),
     ("split_karaoke", "Karaoke hecelerine böl (her hece bir satır)"),
@@ -587,6 +590,7 @@ impl App {
             egui_ctx: cc.egui_ctx.clone(),
             dummy_win: None,
             ocr: None,
+            song_win: None,
             fonts_list: None,
             fonts_rx: None,
             goto_focus: false,
@@ -647,6 +651,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
+            Some("song") => app.song_win = Some(windows::SongWin::new()),
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
@@ -1294,6 +1299,7 @@ impl App {
             "split_cursor" => self.split_at_cursor(false),
             "balance_lines" => self.rebreak_selected(true),
             "guide" => self.guide = Some(String::new()),
+            "song_place" => self.song_win = Some(windows::SongWin::new()),
             "split_breaks" | "split_breaks_keep" | "split_karaoke" => {
                 let n = self.doc.split_selected(id == "split_karaoke", id == "split_breaks_keep");
                 self.status = if n == 0 { "Bölünecek satır yok (\\N ya da karaoke etiketi gerekli)".into() } else { format!("{n} satır bölündü") };
@@ -1557,6 +1563,7 @@ impl App {
                     }
                 });
                 if ui.button("Toplu dosya işlemleri…").on_hover_text("Birden çok dosyayı dönüştür / düzelt / kaydır / yeniden örnekle (Subtitle Edit: Batch convert)").clicked() { ui.close(); self.filebatch = Some(FileBatchWin::default()); }
+                if ui.button("OP/ED yerleştir…").on_hover_text("Önceki bölüme göre zamanlanmış şarkı dosyasını bu bölüme sesle eşleştirerek (ya da playhead'e) yerleştir").clicked() { ui.close(); self.song_win = Some(windows::SongWin::new()); }
                 if ui.button("Başka dosyayı birleştir…").on_hover_text("Tabela / OP-ED / diyalog dosyalarını bu belgeye ekler: stil çakışmaları çözülür, farklı çözünürlük yeniden örneklenir, gömülü yazı tipleri taşınır").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
@@ -2156,6 +2163,7 @@ impl App {
         crate::guide_ui::show(&ctx, &mut self.guide);
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) { self.guide = if self.guide.is_some() { None } else { Some(String::new()) }; }
         self.ocr_window(&ctx);
+        self.song_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.autosave();

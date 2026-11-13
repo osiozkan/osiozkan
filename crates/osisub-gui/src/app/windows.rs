@@ -1,5 +1,28 @@
 use super::*;
 
+/// OP/ED yerleştirme penceresi: önceki bölüme göre zamanlanmış şarkı dosyasını yeni bölüme
+/// sesle (ya da playhead'e) yerleştirir.
+#[derive(Default)]
+pub(crate) struct SongWin {
+    song: Option<PathBuf>,
+    old: Option<PathBuf>,
+    by_audio: bool,
+    rx: Option<std::sync::mpsc::Receiver<Result<(osisub_core::Script, i64, f64), String>>>,
+    error: Option<String>,
+}
+
+impl SongWin {
+    pub(crate) fn new() -> SongWin {
+        SongWin { by_audio: true, ..Default::default() }
+    }
+}
+
+/// Şarkı dosyasındaki satırların kapsadığı aralık (yorumlar hariç).
+fn song_span(sc: &osisub_core::Script) -> Option<(i64, i64)> {
+    let ds: Vec<&osisub_core::Dialogue> = sc.dialogues().filter(|d| !d.comment).collect();
+    Some((ds.iter().map(|d| d.start_time).min()?, ds.iter().map(|d| d.end_time).max()?))
+}
+
 /// Resim altyazısı (PGS) OCR penceresi durumu.
 pub(crate) struct OcrWin {
     path: Option<PathBuf>,
@@ -1736,6 +1759,102 @@ impl App {
         if open || busy {
             self.ocr = Some(w);
         }
+    }
+
+    pub(super) fn song_window(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.song_win.take() else { return };
+        // arka plan sonucu
+        if let Some(rx) = &w.rx {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            if let Ok(r) = rx.try_recv() {
+                w.rx = None;
+                match r {
+                    Ok((song, off, score)) => {
+                        self.place_song(&song, off, Some(score));
+                        if score >= 0.6 { return; }
+                    }
+                    Err(e) => w.error = Some(e),
+                }
+            }
+        }
+        let busy = w.rx.is_some();
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("OP/ED yerleştir").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new("Önceki bir bölüme göre zamanlanmış şarkı altyazısını (OP/ED karaoke + çeviri) bu bölüme yerleştirir.").weak());
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy, egui::Button::new("Şarkı dosyası…")).clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() { w.song = Some(p); w.error = None; }
+                }
+                ui.label(w.song.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(seçilmedi)".into()));
+            });
+            ui.radio_value(&mut w.by_audio, true, "Sesle bul: şarkının zamanlandığı ESKİ bölümü seç (açık video yeni bölüm olmalı)");
+            ui.radio_value(&mut w.by_audio, false, "Playhead'e yerleştir (şarkının ilk satırı playhead'de başlar)");
+            if w.by_audio {
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!busy, egui::Button::new("Eski bölüm…")).clicked() {
+                        if let Some(p) = rfd::FileDialog::new().add_filter("Video / ses", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts", "mka", "flac", "wav", "aac", "opus", "mp3"]).pick_file() { w.old = Some(p); w.error = None; }
+                    }
+                    ui.label(w.old.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(seçilmedi)".into()));
+                });
+                if self.media.waveform().is_none() {
+                    ui.label(RichText::new("Önce yeni bölümün videosunu açın (Video → Video / ses aç…); dalga formu yüklenmeli.").color(theme::WARN));
+                }
+            }
+            if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
+            ui.horizontal(|ui| {
+                let ready = w.song.is_some() && !busy && (!w.by_audio || (w.old.is_some() && self.media.waveform().is_some()));
+                if ui.add_enabled(ready, egui::Button::new("Yerleştir")).clicked() { go = true; }
+                if busy { ui.spinner(); ui.label("ses eşleştiriliyor…"); }
+            });
+        });
+        if go {
+            let song = w.song.clone().unwrap();
+            if w.by_audio {
+                let (old, new, c2) = (w.old.clone().unwrap(), self.media.waveform().unwrap(), ctx.clone());
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let r = (|| {
+                        let sc = osisub_core::io::load(&song)?;
+                        let (a, b) = song_span(&sc).ok_or("Şarkı dosyasında satır yok")?;
+                        let ow = osisub_media::load_waveform(&old)?;
+                        let (off, score) = osisub_media::resync::locate(&ow, &new, a, b).ok_or("Eski bölümde şarkı aralığı sessiz ya da çok kısa")?;
+                        Ok((sc, off, score))
+                    })();
+                    let _ = tx.send(r);
+                    c2.request_repaint();
+                });
+                w.rx = Some(rx);
+                w.error = None;
+            } else {
+                match osisub_core::io::load(&song) {
+                    Ok(sc) => match song_span(&sc) {
+                        Some((a, _)) => { let off = self.media.playhead - a; self.place_song(&sc, off, None); return; }
+                        None => w.error = Some("Şarkı dosyasında satır yok".into()),
+                    },
+                    Err(e) => w.error = Some(e),
+                }
+            }
+        }
+        if open || w.rx.is_some() { self.song_win = Some(w); }
+    }
+
+    /// Şarkı dosyasını `off` ms kaydırarak birleştirir ve eklenen satırları seçer.
+    fn place_song(&mut self, song: &osisub_core::Script, off: i64, score: Option<f64>) {
+        let before: std::collections::HashSet<(i64, i64, String)> = self.doc.script.dialogues().map(|d| (d.start_time, d.end_time, d.text.clone())).collect();
+        let mut s = self.doc.script.clone();
+        let opts = osisub_core::merge::MergeOptions { offset_ms: off, sort: true, ..Default::default() };
+        let r = osisub_core::merge::merge_into(&mut s, song, &opts);
+        self.doc.apply_new_script("OP/ED yerleştir", s);
+        let added: Vec<usize> = self.doc.script.entries.iter().enumerate().filter_map(|(i, e)| match e { Entry::Dialogue(d) if !before.contains(&(d.start_time, d.end_time, d.text.clone())) => Some(i), _ => None }).collect();
+        if let Some(&first) = added.first() { self.doc.select(added.clone(), first); self.scroll_to = Some(first); }
+        let sign = if off < 0 { "-" } else { "+" };
+        let mut msg = format!("OP/ED yerleştirildi: {} satır, kayma {sign}{}", r.lines, time::format_ass(off.abs()));
+        if let Some(sc) = score {
+            msg.push_str(&format!(", ses eşleşmesi %{:.0}", sc * 100.0));
+            if sc < 0.6 { msg.push_str(" — DÜŞÜK: yerleşimi kontrol edin (Ctrl+Z geri alır)"); }
+        }
+        self.status = msg;
     }
 
     pub(super) fn open_dummy_window(&mut self) {

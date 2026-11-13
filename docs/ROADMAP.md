@@ -107,6 +107,7 @@
 - [x] Oynatma hızı (0.25–2x, perde korunur; ffmpeg atempo) ve ses seviyesi (Video menüsü, kalıcı); ses saati hızla ölçekli
 - [x] Basılı tutarak oynat (komut `hold_play`, varsayılan Ctrl+Boşluk; playhead'den çalar, bırakınca durur ve playhead orada kalır; xdotool ile doğrulandı)
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
+- [x] OP/ED yerleştir (Dosya menüsü, komut paleti, CLI `song`): önceki bölüme göre zamanlanmış şarkı dosyası, eski bölümün sesi yeni bölümün sesinde FFT çapraz-ilintiyle bulunarak yerleştirilir (osisub-media::resync::locate; gerçek ffmpeg sesiyle uçtan uca testli: kayma birebir, eşleşme %100) ya da playhead'e; stiller/yazı tipleri birleştirilir, eklenen satırlar seçilir, düşük eşleşmede uyarı
 - [x] Sesle yeniden zamanlama (TV → BD; osisub-media::resync, Zamanlama menüsü, CLI `resync`): satır grupları eski seste → yeni seste FFT çapraz-ilinti; eklenen/çıkarılan sahne ve gecikme; güvensiz eşleşmede önceki kayma (günlükte raporlanır)
 - [x] Konuşmaya yapıştır (Zamanlama → Sesten satır oluştur penceresi): başlangıç/bitiş ±250 ms içindeki konuşma sınırına
 - [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
