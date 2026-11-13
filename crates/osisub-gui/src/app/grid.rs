@@ -53,8 +53,20 @@ impl App {
         }
         let mods = ui.input(|i| i.modifiers);
         let has_ref = !self.ref_lines.is_empty();
-        let (show_layer, show_effect, show_margins) = (self.settings.grid_layer, self.settings.grid_effect, self.settings.grid_margins);
-        let extra_w = if show_layer { 28.0 } else { 0.0 } + if show_effect { 80.0 } else { 0.0 } + if show_margins { 3.0 * 34.0 } else { 0.0 };
+        use crate::settings::GridCol;
+        let cols: Vec<GridCol> = self.settings.grid_columns().into_iter().filter(|c| self.settings.grid_visible(*c)).collect();
+        let col_w = |c: GridCol| -> f32 {
+            match c {
+                GridCol::Layer => 28.0,
+                GridCol::Start | GridCol::End => 86.0,
+                GridCol::Dur => 52.0,
+                GridCol::Cps | GridCol::Len => 44.0,
+                GridCol::Style => 90.0,
+                GridCol::Actor | GridCol::Effect => 80.0,
+                GridCol::Margins => 3.0 * 34.0,
+            }
+        };
+        let fixed_w: f32 = 44.0 + cols.iter().map(|c| col_w(*c)).sum::<f32>();
         let avail_w = ui.available_width();
         let mut table = TableBuilder::new(ui)
             .striped(true)
@@ -62,19 +74,16 @@ impl App {
             .resizable(true)
             .cell_layout(egui::Layout::left_to_right(Align::Center))
             .column(Column::exact(44.0));
-        if show_layer { table = table.column(Column::exact(28.0)); }
-        table = table
-            .column(Column::exact(86.0))
-            .column(Column::exact(86.0))
-            .column(Column::exact(52.0))
-            .column(Column::exact(44.0))
-            .column(Column::initial(90.0).clip(true))
-            .column(Column::initial(80.0).clip(true));
-        if show_effect { table = table.column(Column::initial(80.0).clip(true)); }
-        if show_margins { for _ in 0..3 { table = table.column(Column::exact(34.0)); } }
+        for c in &cols {
+            table = match c {
+                GridCol::Style | GridCol::Actor | GridCol::Effect => table.column(Column::initial(col_w(*c)).clip(true)),
+                GridCol::Margins => table.column(Column::exact(34.0)).column(Column::exact(34.0)).column(Column::exact(34.0)),
+                _ => table.column(Column::exact(col_w(*c))),
+            };
+        }
         if has_ref {
-            // Sabit sütunlar ≈ 482 px (+ isteğe bağlı sütunlar); kalanı Referans ve Metin eşit paylaşsın.
-            let w = ((avail_w - 482.0 - extra_w - 16.0) / 2.0).max(120.0);
+            // Kalan genişliği Referans ve Metin eşit paylaşsın.
+            let w = ((avail_w - fixed_w - 16.0) / 2.0).max(120.0);
             table = table.column(Column::initial(w).clip(true).resizable(true));
         }
         table = table.column(Column::remainder().clip(true));
@@ -92,10 +101,20 @@ impl App {
         table
             .header(22.0, |mut h| {
                 let mut titles: Vec<&str> = vec!["#"];
-                if show_layer { titles.push("K"); }
-                titles.extend(["Başlangıç", "Bitiş", "Süre", "KSS", "Stil", "Konuşan"]);
-                if show_effect { titles.push("Efekt"); }
-                if show_margins { titles.extend(["Sol", "Sağ", "Dik"]); }
+                for c in &cols {
+                    match c {
+                        GridCol::Layer => titles.push("K"),
+                        GridCol::Start => titles.push("Başlangıç"),
+                        GridCol::End => titles.push("Bitiş"),
+                        GridCol::Dur => titles.push("Süre"),
+                        GridCol::Cps => titles.push("KSS"),
+                        GridCol::Len => titles.push("Uz."),
+                        GridCol::Style => titles.push("Stil"),
+                        GridCol::Actor => titles.push("Konuşan"),
+                        GridCol::Effect => titles.push("Efekt"),
+                        GridCol::Margins => titles.extend(["Sol", "Sağ", "Dik"]),
+                    }
+                }
                 if has_ref { titles.push("Referans"); }
                 titles.push("Metin");
                 for t in titles {
@@ -131,17 +150,25 @@ impl App {
                         let r = ui.label(col((pos + 1).to_string(), misspelled.then_some(theme::BAD)));
                         if misspelled { r.on_hover_text("Bu satırda yazım hatası olabilir"); }
                     });
-                    if show_layer { row.col(|ui| { ui.label(col(d.layer.to_string(), if d.layer != 0 { Some(theme::ACCENT) } else { None })); }); }
-                    row.col(|ui| { ui.label(col(time::format_ass(d.start_time), if overlap { Some(theme::BAD) } else { None })); });
-                    row.col(|ui| { ui.label(col(time::format_ass(d.end_time), None)); });
-                    row.col(|ui| { ui.label(col(format!("{:.2}", d.duration() as f64 / 1000.0), flags.and_then(|f| f.iter().find(|k| matches!(k, Kind::TooShort | Kind::TooLong | Kind::NegativeDuration)).map(|_| theme::WARN)))); });
-                    row.col(|ui| { ui.label(col(if d.comment { String::new() } else if cps.is_finite() { format!("{:.0}", cps) } else { "∞".into() }, flags.and_then(|f| f.contains(&Kind::ReadingSpeed).then_some(theme::BAD)))); });
-                    row.col(|ui| { ui.label(RichText::new(&d.style).color(if flags.map_or(false, |f| f.contains(&Kind::UnknownStyle)) { theme::BAD } else { Color32::from_gray(180) })); });
-                    row.col(|ui| { ui.label(RichText::new(&d.actor).weak()); });
-                    if show_effect { row.col(|ui| { ui.label(RichText::new(&d.effect).weak()); }); }
-                    if show_margins {
-                        for m in [d.margin_l, d.margin_r, d.margin_t] {
-                            row.col(|ui| { ui.label(col(if m == 0 { String::new() } else { m.to_string() }, None)); });
+                    for c in &cols {
+                        match c {
+                            GridCol::Layer => { row.col(|ui| { ui.label(col(d.layer.to_string(), if d.layer != 0 { Some(theme::ACCENT) } else { None })); }); }
+                            GridCol::Start => { row.col(|ui| { ui.label(col(time::format_ass(d.start_time), if overlap { Some(theme::BAD) } else { None })); }); }
+                            GridCol::End => { row.col(|ui| { ui.label(col(time::format_ass(d.end_time), None)); }); }
+                            GridCol::Dur => { row.col(|ui| { ui.label(col(format!("{:.2}", d.duration() as f64 / 1000.0), flags.and_then(|f| f.iter().find(|k| matches!(k, Kind::TooShort | Kind::TooLong | Kind::NegativeDuration)).map(|_| theme::WARN)))); }); }
+                            GridCol::Cps => { row.col(|ui| { ui.label(col(if d.comment { String::new() } else if cps.is_finite() { format!("{:.0}", cps) } else { "∞".into() }, flags.and_then(|f| f.contains(&Kind::ReadingSpeed).then_some(theme::BAD)))); }); }
+                            GridCol::Len => {
+                                let n = if d.comment || qc::is_typeset(d) { 0 } else { osisub_core::tags::max_line_len(&d.text) };
+                                row.col(|ui| { ui.label(col(if n == 0 { String::new() } else { n.to_string() }, (n > self.rules.max_line_len).then_some(theme::BAD))); });
+                            }
+                            GridCol::Style => { row.col(|ui| { ui.label(RichText::new(&d.style).color(if flags.map_or(false, |f| f.contains(&Kind::UnknownStyle)) { theme::BAD } else { Color32::from_gray(180) })); }); }
+                            GridCol::Actor => { row.col(|ui| { ui.label(RichText::new(&d.actor).weak()); }); }
+                            GridCol::Effect => { row.col(|ui| { ui.label(RichText::new(&d.effect).weak()); }); }
+                            GridCol::Margins => {
+                                for m in [d.margin_l, d.margin_r, d.margin_t] {
+                                    row.col(|ui| { ui.label(col(if m == 0 { String::new() } else { m.to_string() }, None)); });
+                                }
+                            }
                         }
                     }
                     if has_ref {

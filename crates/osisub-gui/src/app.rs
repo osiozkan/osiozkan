@@ -1519,9 +1519,28 @@ impl App {
                 if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
                 ui.separator();
                 ui.menu_button("Izgara sütunları", |ui| {
-                    let mut ch = ui.checkbox(&mut self.settings.grid_layer, "Katman").changed();
-                    ch |= ui.checkbox(&mut self.settings.grid_effect, "Efekt").changed();
-                    ch |= ui.checkbox(&mut self.settings.grid_margins, "Kenar boşlukları (Sol/Sağ/Dik)").changed();
+                    // Göster/gizle ve sırala (# ilk, Metin son sütun sabit)
+                    let mut ch = false;
+                    let cols = self.settings.grid_columns();
+                    let n = cols.len();
+                    egui::Grid::new("grid_cols_menu").num_columns(3).spacing([6.0, 2.0]).show(ui, |ui| {
+                        for (i, c) in cols.into_iter().enumerate() {
+                            let mut on = self.settings.grid_visible(c);
+                            if ui.checkbox(&mut on, c.label()).changed() { self.settings.set_grid_visible(c, on); ch = true; }
+                            if ui.add_enabled(i > 0, egui::Button::new("Yukarı").small()).clicked() { self.settings.move_grid_column(c, -1); ch = true; }
+                            if ui.add_enabled(i + 1 < n, egui::Button::new("Aşağı").small()).clicked() { self.settings.move_grid_column(c, 1); ch = true; }
+                            ui.end_row();
+                        }
+                    });
+                    if ui.button("Varsayılana dön").clicked() {
+                        let d = Settings::default();
+                        self.settings.grid_order = d.grid_order;
+                        self.settings.grid_hidden = d.grid_hidden;
+                        self.settings.grid_layer = d.grid_layer;
+                        self.settings.grid_effect = d.grid_effect;
+                        self.settings.grid_margins = d.grid_margins;
+                        ch = true;
+                    }
                     if ch { self.settings.save(); }
                 });
                 ui.separator();

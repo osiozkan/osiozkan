@@ -86,7 +86,7 @@
 - [x] İskelet: menü, ızgara (sanal kaydırma), düzenleme paneli, stil/kalite/otomasyon/bilgi sekmeleri, Lua diyalog köprüsü, geri al/yinele
 - [x] Izgara sütunları: Katman, Efekt, Kenar boşlukları (Görünüm → Izgara sütunları; kalıcı); yorum satırlarında KSS gösterilmez
 - [x] Pencere boyutu/konumu ve ızgara sütun genişlikleri kalıcı (`<veri>/ui-state.ron`; test kipinde kapalı)
-- [ ] Izgara: sütun sırası
+- [x] Izgara: sütun sırası ve göster/gizle (Görünüm → Izgara sütunları; Yukarı/Aşağı, varsayılana dön); yeni "Uz." sütunu (en uzun satır, sınırı aşan kırmızı)
 - [x] Düzenleme kutusu araç çubuğu (Aegisub gibi): Kalın/İtalik/Altı/Üstü çizili (seçimi sarar, imleçte çevirir, stil varsayılanını bilir), birincil/kenar/gölge rengi (seçimde önceki renk geri yüklenir), \N; ardışık düğmeler aynı seçime uygulanır; etiket renklendirme, KSS sayacı, stil seçici
 - [x] Video önizleme: ffmpeg + libass ile gerçek ASS render'ı (kare başına süreç; yavaş ama doğru)
 - [x] Ses dalga formu: kaydır/yakınlaştır, satır bölgeleri, başlangıç/bitiş sürükle (kareye yapışmalı), sağ tık = bitiş, Shift+tık = başlangıç
