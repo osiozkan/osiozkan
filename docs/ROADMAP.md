@@ -108,7 +108,7 @@
 - [x] Ses zamanlama kısayolları (Aegisub varsayılanları S/H/Q/W/E/D/Z/X; Aegisub hotkey.json eşlemesi; yeniden atanabilir)
 - [x] Stil önizlemesi (libass, Türkçe örnek metin, düzenlenebilir)
 - [x] Stil yöneticisi: yeniden adlandırma `\r` başvurularını da günceller; "Kullanılmayanları sil"
-- [ ] Stil yöneticisi: renk seçici iyileştirmeleri
+- [x] Renk seçici iyileştirmeleri (color_ui; düzenleme kutusu, Etiketler sekmesi, stil yöneticisi): videodan pipet (altyazısız kare, 3×3 ortalama, Esc iptal), sağ tık menüsü: `#RRGGBB` / `rgb()` / ASS girişi, ASS/HTML kopyala, son 16 renk; stilde ayrı saydamlık (α) alanı
 - [x] Konum aracı: videoda \pos sürükle (varsayılan konum stil/hizalamadan türetilir)
 - [x] Video araçları: \pos, \clip (dikdörtgen, köşe tutamaçları), \frz (Shift=15°), \fscx/\fscy
 - [x] Video araçları: \move (başlangıç/bitiş tutamaçları, ikisini birlikte taşıma, sağ tık = \pos)

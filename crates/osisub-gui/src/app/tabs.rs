@@ -570,10 +570,10 @@ impl App {
                             } else if let Some(c) = matches!(t.name.as_str(), "c" | "1c" | "2c" | "3c" | "4c").then(|| osisub_core::color::Color::parse(&t.arg)).flatten() {
                                 ui.horizontal(|ui| {
                                     let mut rgb = [c.r, c.g, c.b];
-                                    let rc = egui::color_picker::color_edit_button_srgb(ui, &mut rgb);
-                                    let rt = ui.add(egui::TextEdit::singleline(&mut v).font(egui::TextStyle::Monospace).desired_width(170.0));
-                                    if rc.changed() { v = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 }.to_tag_string(); }
-                                    rc | rt
+                                    let picked = crate::color_ui::button(ui, ("tagcol", t.name.as_str()), &mut rgb);
+                                    let mut rt = ui.add(egui::TextEdit::singleline(&mut v).font(egui::TextStyle::Monospace).desired_width(170.0));
+                                    if picked { v = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 }.to_tag_string(); rt.mark_changed(); }
+                                    rt
                                 }).inner
                             } else {
                                 ui.add(egui::TextEdit::singleline(&mut v).font(egui::TextStyle::Monospace).desired_width(220.0))

@@ -18,6 +18,8 @@ enum Msg {
     Keyframes(Vec<i64>),
     /// Videodan algılanan değişken kare hızı (VFR)
     Vfr(osisub_core::vfr::Framerate),
+    /// Pipetle videodan alınan renk
+    Picked(Result<[u8; 3], String>),
     /// Sahte video üretildi: (Aegisub `?dummy:` dizesi, sonuç)
     Dummy(String, Result<PathBuf, String>),
 }
@@ -517,6 +519,14 @@ impl Media {
                     self.dummy = Some(key);
                 }
                 Msg::Dummy(_, Err(e)) => self.status = format!("Sahte video: {}", e),
+                Msg::Picked(Ok(c)) => {
+                    self.status = format!("Pipet: {}", osisub_core::color::Color { r: c[0], g: c[1], b: c[2], a: 0 }.to_tag_string());
+                    crate::color_ui::deliver(ctx, c);
+                }
+                Msg::Picked(Err(e)) => {
+                    self.status = format!("Pipet: {}", e);
+                    crate::color_ui::cancel(ctx);
+                }
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
                 Msg::Keyframes(k) => self.keyframes = k,
                 Msg::Vfr(fr) => {
@@ -751,9 +761,39 @@ impl Media {
             }
             ui.painter().text(rect.left_bottom() + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, match &self.timecodes { Some(t) => format!("{}  kare {}  VFR{}", time::format_ass(self.playhead), t.frame_at(self.playhead), if self.timecodes_auto { "" } else { " (timecode)" }), None => time::format_ass(self.playhead) }, egui::FontId::monospace(12.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
         });
+        if crate::color_ui::eyedropper_waiting(ui.ctx()) {
+            // Pipet kipi: tıklama video araçlarına gitmez
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                crate::color_ui::cancel(ui.ctx());
+            } else if let Some((img, vis)) = img_rect {
+                let resp = ui.interact(vis, egui::Id::unique("eyedropper"), Sense::click());
+                let resp = resp.on_hover_cursor(egui::CursorIcon::Crosshair);
+                if let (true, Some(p)) = (resp.clicked(), resp.interact_pointer_pos()) {
+                    self.pick_color(ui.ctx(), ((p.x - img.left()) / img.width()).clamp(0.0, 1.0), ((p.y - img.top()) / img.height()).clamp(0.0, 1.0));
+                }
+            }
+            return;
+        }
         if let (Some((img, vis)), true) = (img_rect, self.tool != VideoTool::None) {
             self.tool_ui(ui, img, vis, doc);
         }
+    }
+
+    /// Pipet: o anki karenin (altyazısız, tam çözünürlük) göreli (u, v) noktasındaki rengi arka planda okur.
+    fn pick_color(&mut self, ctx: &egui::Context, u: f32, v: f32) {
+        let (Some(path), Some(info)) = (self.path.clone(), self.info.clone()) else { return };
+        let (t, tx, ctx2) = (self.playhead, self.tx.clone(), ctx.clone());
+        self.status = "Pipet: renk okunuyor…".into();
+        std::thread::spawn(move || {
+            let r = osisub_media::render_frame(&path, None, t, info.width.max(16), &info).map(|f| {
+                let (w, h) = (f.width as usize, f.height as usize);
+                let x = ((u * w as f32) as usize).min(w.saturating_sub(1));
+                let y = ((v * h as f32) as usize).min(h.saturating_sub(1));
+                crate::color_ui::sample(&f.rgba, w, h, x, y)
+            });
+            let _ = tx.send(Msg::Picked(r));
+            ctx2.request_repaint();
+        });
     }
 
     /// Etkin satırın konumu: `\\pos` ya da stil/hizalamadan türetilen varsayılan.

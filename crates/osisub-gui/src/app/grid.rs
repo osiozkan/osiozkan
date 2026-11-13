@@ -310,7 +310,7 @@ impl App {
                         .unwrap_or(osisub_core::color::Color::WHITE);
                     let mut rgb = [cur.r, cur.g, cur.b];
                     ui.label(RichText::new(label).small());
-                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                    if crate::color_ui::button(ui, name, &mut rgb) {
                         let c = osisub_core::color::Color { r: rgb[0], g: rgb[1], b: rgb[2], a: 0 };
                         let t = osisub_core::overrides::set_tag_range(&nd.text, a, b, if name == "1c" && nd.text.contains("\\c&") { "c" } else { name }, &c.to_tag_string());
                         nd.text = t;

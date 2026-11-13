@@ -34,6 +34,30 @@ impl Color {
         format!("&H{:02X}{:02X}{:02X}{:02X}", self.a, self.b, self.g, self.r)
     }
 
+    /// Kullanıcı girişi: `#RRGGBB` (HTML), `rgb(r, g, b)` / `r,g,b` (onluk) ya da ASS (`&HBBGGRR&`).
+    pub fn parse_any(s: &str) -> Option<Color> {
+        let t = s.trim();
+        if let Some(h) = t.strip_prefix('#') {
+            let h = if h.len() == 3 { h.chars().flat_map(|c| [c, c]).collect::<String>() } else { h.to_string() };
+            if h.len() != 6 {
+                return None;
+            }
+            let v = u32::from_str_radix(&h, 16).ok()?;
+            return Some(Color { r: (v >> 16) as u8, g: (v >> 8) as u8, b: v as u8, a: 0 });
+        }
+        let inner = t.strip_prefix("rgb(").and_then(|r| r.strip_suffix(')')).unwrap_or(t);
+        if inner.contains(',') {
+            let v: Vec<u8> = inner.split(',').map(|x| x.trim().parse::<u8>()).collect::<Result<_, _>>().ok()?;
+            return (v.len() == 3).then(|| Color { r: v[0], g: v[1], b: v[2], a: 0 });
+        }
+        Color::parse(t)
+    }
+
+    /// HTML biçimi: `#RRGGBB`.
+    pub fn to_html(self) -> String {
+        format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
+    }
+
     /// Etiket biçimi: `&HBBGGRR&`.
     pub fn to_tag_string(self) -> String {
         format!("&H{:02X}{:02X}{:02X}&", self.b, self.g, self.r)
@@ -51,5 +75,23 @@ mod tests {
         assert_eq!(c.to_tag_string(), "&HFF8040&");
         assert_eq!(Color::parse("16777215").unwrap().to_style_string(), "&H00FFFFFF");
         assert_eq!(Color::parse("&HFF&").unwrap().r, 255);
+    }
+}
+
+#[cfg(test)]
+mod parse_any_tests {
+    use super::*;
+
+    #[test]
+    fn user_color_inputs() {
+        let c = Color { r: 0x12, g: 0x34, b: 0x56, a: 0 };
+        assert_eq!(Color::parse_any("#123456"), Some(c));
+        assert_eq!(Color::parse_any(" rgb(18, 52, 86) "), Some(c));
+        assert_eq!(Color::parse_any("18,52,86"), Some(c));
+        assert_eq!(Color::parse_any("&H563412&"), Some(c));
+        assert_eq!(Color::parse_any("#fff").map(|c| c.to_html()), Some("#FFFFFF".into()));
+        assert_eq!(c.to_html(), "#123456");
+        assert!(Color::parse_any("#12345").is_none());
+        assert!(Color::parse_any("300,0,0").is_none());
     }
 }

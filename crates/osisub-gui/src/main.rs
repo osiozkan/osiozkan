@@ -1,5 +1,6 @@
 //! osisub-gui: anime altyazı stüdyosu arayüzü.
 mod app;
+mod color_ui;
 mod dialog_ui;
 mod hotkeys;
 mod media_ui;

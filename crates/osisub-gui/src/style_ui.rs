@@ -17,7 +17,16 @@ fn color_row(ui: &mut egui::Ui, label: &str, v: &mut String) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        if ui.color_edit_button_srgba(&mut c).changed() {
+        let mut rgb = [c.r(), c.g(), c.b()];
+        if crate::color_ui::button(ui, label, &mut rgb) {
+            c = Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], c.a());
+            *v = from32(c);
+            changed = true;
+        }
+        // Saydamlık (ASS alfa: 0 = opak, 255 = görünmez)
+        let mut alpha = 255 - c.a();
+        if ui.add(DragValue::new(&mut alpha).range(0..=255).prefix("α ")).on_hover_text("Saydamlık (0 opak, 255 görünmez)").changed() {
+            c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 255 - alpha);
             *v = from32(c);
             changed = true;
         }
