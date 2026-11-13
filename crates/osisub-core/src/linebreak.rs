@@ -15,6 +15,9 @@ const GLUE: &[&str] = &[
     "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at", "for", "with", "i", "my", "your", "if", "that", "so",
 ];
 
+/// Önünden kırılması doğal olan bağlaçlar.
+const CONJ: &[&str] = &["ve", "veya", "ama", "fakat", "ancak", "çünkü", "yoksa", "and", "but", "or", "because"];
+
 /// Görünür metin uzunluğu (etiketsiz, `\N` hariç) ve kırma adayları.
 struct Layout {
     /// Ham metindeki boşluk bayt konumu ve o noktaya kadarki görünür karakter sayısı
@@ -134,6 +137,12 @@ pub fn balance(text: &str, max: usize) -> String {
             if GLUE.contains(&last_word_before(&flat, p).as_str()) {
                 score += 10.0;
             }
+            // Bağlaçtan önce kırmak doğal: "…gittik\Nve çok güzel…"
+            let next = tags::strip_tags(&flat[p + 1..]);
+            let next = next.split(' ').next().unwrap_or("").to_lowercase();
+            if CONJ.contains(&next.as_str()) {
+                score -= 4.0;
+            }
             (p, score)
         })
         .min_by(|x, y| x.1.total_cmp(&y.1));
@@ -160,8 +169,7 @@ mod tests {
         assert_eq!(b, "Bugün okula gitmeyeceğim,\\Nçünkü hastayım ve evde kalmalıyım.");
         // virgül yoksa ortaya en yakın; ilk satır "ve" ile bitmez
         let b = balance("Kardeşimle birlikte sinemaya gittik ve çok güzel bir film izledik", 42);
-        let first = b.split("\\N").next().unwrap();
-        assert!(!first.ends_with(" ve"), "{b}");
+        assert_eq!(b, "Kardeşimle birlikte sinemaya gittik\\Nve çok güzel bir film izledik");
         assert!(b.split("\\N").all(|l| l.chars().count() <= 42), "{b}");
     }
 
