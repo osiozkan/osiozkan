@@ -142,6 +142,7 @@
 - [x] Yerleşik komutlara kısayol atama (Yardım → Kısayolları düzenle; 19 komut)
 - [x] Aegisub kısayol profilini içe aktarma (hotkey.json; 3.0 nesne ve 3.2 "Ctrl-K" biçimleri, Lua makro kısayolları dahil)
 - [x] Belgeye bağlı betikler (Aegisub "Automation Scripts" alanı: `~` göreli, `$` otomasyon tabanı, `/` mutlak; açılışta yüklenir, Otomasyon sekmesinde "belgeye bağlı")
+- [x] Videodaki altyazı izleri penceresi: metin izini tek tıkla referans yap; PGS izinde OCR… (OCR penceresi iz ve dil seçili açılır)
 - [x] Referans altyazıyı video önizlemesinde göster (Video menüsü; üstte gri italik, yalnızca önizlemeye eklenir, kalıcı ayar)
 - [x] Satırları böl (core::splitlines; Düzen → Satırları böl, komut paleti): `\N` noktalarından (süre metne orantılı ya da aynı zaman; baştaki etiketler ve açık italik/kalın taşınır) ve karaoke hecelerine (Aegisub Split by karaoke)
 - [x] Satır dengeleme (core::linebreak; Düzen menüsü, komut paleti, Sık hataları düzelt, CLI `fixes --balance N`): en çok iki dengeli satır, noktalamada kırma, ilk satır bağlaçla bitmez / bağlaçtan önce kırılır, diyalog çizgisinde kırılır, kısa metin tek satır; tipografi/karaoke atlanır; satır sonlarını kaldır

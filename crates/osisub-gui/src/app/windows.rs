@@ -16,6 +16,23 @@ pub(crate) struct OcrWin {
     tess_ok: bool,
 }
 
+impl OcrWin {
+    /// Videodaki belirli bir PGS izi için hazır pencere.
+    pub(crate) fn for_track(path: PathBuf, tracks: &[osisub_media::mux::SubTrack], index: u32) -> OcrWin {
+        let mut w = OcrWin::default();
+        w.tracks = tracks.iter().filter(|t| t.codec == "hdmv_pgs_subtitle").map(|t| (t.index, t.label())).collect();
+        w.track = Some(index);
+        if let Some(l) = tracks.iter().find(|t| t.index == index).map(|t| t.language.clone()) {
+            // MKV dil kodu (eng, jpn…) Tesseract dil adıyla aynı; kuruluysa seç
+            if w.langs.contains(&l) {
+                w.lang = l;
+            }
+        }
+        w.path = Some(path);
+        w
+    }
+}
+
 impl Default for OcrWin {
     fn default() -> Self {
         let langs = osisub_media::ocr::languages();
@@ -1041,7 +1058,8 @@ impl App {
     pub(super) fn tracks_window(&mut self, ctx: &egui::Context) {
         let Some((video, tracks)) = self.tracks_win.take() else { return };
         let mut open = true;
-        let mut action: Option<(usize, bool)> = None; // (iz, aç mı)
+        // (iz, işlem): 0 = aç, 1 = kaydet, 2 = referans yap, 3 = OCR
+        let mut action: Option<(usize, u8)> = None;
         let mut fonts = false;
         egui::Window::new("Videodaki altyazı izleri").open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.label(RichText::new(video.display().to_string()).small().weak());
@@ -1049,9 +1067,15 @@ impl App {
             for (k, t) in tracks.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(t.label());
-                    let text = t.text_ext().is_some();
-                    if ui.add_enabled(text, egui::Button::new("Aç")).on_disabled_hover_text("Resim tabanlı (PGS/VobSub): OCR gerekir").clicked() { action = Some((k, true)); }
-                    if ui.add_enabled(text, egui::Button::new("Kaydet…")).clicked() { action = Some((k, false)); }
+                    if t.text_ext().is_some() {
+                        if ui.button("Aç").clicked() { action = Some((k, 0)); }
+                        if ui.button("Referans yap").on_hover_text("İzi çıkarıp referans altyazı olarak yükler (açık belge değişmez)").clicked() { action = Some((k, 2)); }
+                        if ui.button("Kaydet…").clicked() { action = Some((k, 1)); }
+                    } else if t.codec == "hdmv_pgs_subtitle" {
+                        if ui.button("OCR…").on_hover_text("Blu-ray PGS resim altyazısını Tesseract ile metne çevir").clicked() { action = Some((k, 3)); }
+                    } else {
+                        ui.label(RichText::new("resim tabanlı (desteklenmiyor)").weak());
+                    }
                 });
             }
             ui.separator();
@@ -1065,11 +1089,15 @@ impl App {
                 }
             }
         }
-        if let Some((k, open_it)) = action {
+        if let Some((k, act)) = action {
             let t = &tracks[k];
+            if act == 3 {
+                self.ocr = Some(OcrWin::for_track(video.clone(), &tracks, t.index));
+                return;
+            }
             let ext = t.text_ext().unwrap_or("ass");
             let stem = video.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let out = if open_it {
+            let out = if act != 1 {
                 Some(osisub_core::paths::data_dir().unwrap_or_else(std::env::temp_dir).join("extracted").join(format!("{stem}.{}.{ext}", t.index)))
             } else {
                 rfd::FileDialog::new().add_filter(ext, &[ext]).set_file_name(format!("{stem}.{}.{ext}", t.index)).save_file()
@@ -1079,7 +1107,13 @@ impl App {
                 match osisub_media::mux::extract_subtitle(&video, t, &out) {
                     Ok(()) => {
                         self.status = format!("Çıkarıldı: {}", out.display());
-                        if open_it { self.request(super::Guarded::OpenPath(out)); return; }
+                        if act == 0 { self.request(super::Guarded::OpenPath(out)); return; }
+                        if act == 2 {
+                            match osisub_core::io::load(&out) {
+                                Ok(sc) => { let n = sc.dialogues().count(); self.set_reference(sc); self.status = format!("Referans: {} ({n} satır)", t.label()); return; }
+                                Err(e) => self.status = e,
+                            }
+                        }
                     }
                     Err(e) => self.status = e,
                 }

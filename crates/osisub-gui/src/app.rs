@@ -686,6 +686,11 @@ impl App {
             app.media.open(m, &cc.egui_ctx);
             app.show_media = true;
         }
+        if open_win.as_deref() == Some("tracks") {
+            if let Some(v) = app.media.path.clone() {
+                if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); }
+            }
+        }
         app
     }
 
