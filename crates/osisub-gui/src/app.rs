@@ -1522,7 +1522,6 @@ impl App {
                 if ui.add(egui::Button::new("Seçilenleri birleştir").shortcut_text("Ctrl+M")).clicked() { self.doc.merge_selected(); ui.close(); }
                 if ui.button("Birleştir (ilkini koru)").on_hover_text("Zaman aralığı birleşir, metin ilk satırınki kalır").clicked() { self.run_command("merge_keep", ui.ctx()); ui.close(); }
                 if ui.button("Karaoke olarak birleştir").on_hover_text("Her satır bir hece olur; \\k = satırın süresi").clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
-                if ui.button("Satırları dengele").clicked() { self.doc.balance_selected(self.rules.max_line_len); ui.close(); }
             });
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }

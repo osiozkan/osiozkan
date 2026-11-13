@@ -514,14 +514,14 @@ impl Document {
         true
     }
 
-    /// Satır metnini `balance_lines` ile dengeler.
+    /// Seçili satırları `linebreak::balance` ile dengeler (tipografi/karaoke satırları atlanır).
     pub fn balance_selected(&mut self, max_len: usize) {
         let t = self.target_lines();
         self.edit("Satırları dengele", |tx| {
             for i in t {
                 tx.dialogue_mut(i, |d| {
-                    if !d.text.contains('{') {
-                        d.text = osisub_core::qc::balance_lines(&d.text, max_len);
+                    if !osisub_core::qc::is_typeset(d) && !osisub_core::qc::is_karaoke(d) {
+                        d.text = osisub_core::linebreak::balance(&d.text, max_len);
                     }
                 })
             }

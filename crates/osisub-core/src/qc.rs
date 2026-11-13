@@ -483,25 +483,9 @@ pub fn tr_lower(s: &str) -> String {
     s.chars().flat_map(|c| match c { 'I' => vec!['ı'], 'İ' => vec!['i'], c => c.to_lowercase().collect() }).collect()
 }
 
-/// Uzun düz metni (etiketsiz) en fazla `max_lines` satıra dengeli böler (`\N`).
+/// Metni en fazla iki dengeli satıra böler (`\N`); bkz. `linebreak::balance`.
 pub fn balance_lines(text: &str, max_len: usize) -> String {
-    let flat = text.replace("\\N", " ");
-    let flat = flat.trim();
-    if flat.chars().count() <= max_len {
-        return flat.to_string();
-    }
-    let chars: Vec<char> = flat.chars().collect();
-    let mid = chars.len() / 2;
-    let mut best: Option<usize> = None;
-    for (i, c) in chars.iter().enumerate() {
-        if *c == ' ' && best.map_or(true, |b| i.abs_diff(mid) < b.abs_diff(mid)) {
-            best = Some(i);
-        }
-    }
-    match best {
-        Some(i) => format!("{}\\N{}", chars[..i].iter().collect::<String>().trim_end(), chars[i + 1..].iter().collect::<String>().trim_start()),
-        None => flat.to_string(),
-    }
+    crate::linebreak::balance(text, max_len)
 }
 
 fn html_esc(s: &str) -> String {
