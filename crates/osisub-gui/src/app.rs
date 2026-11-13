@@ -1090,22 +1090,24 @@ impl App {
             let frame_ctx = self.media.framerate().map(|fr| (fr, self.media.keyframes.clone()));
             if self.doc.script.entries.len() < 5000 {
                 let mut issues = qc::check(&self.doc.script, &self.rules);
+                issues.extend(osisub_core::untranslated::check(&self.doc.script, self.reference.as_ref()));
                 if let Some((fr, kf)) = &frame_ctx {
                     issues.extend(qc::frame_issues(&self.doc.script, fr, kf, 3));
-                    issues.sort_by_key(|x| x.entry);
                 }
+                issues.sort_by_key(|x| x.entry);
                 self.set_issues(issues, self.doc.rev);
             } else if self.qc_rx.is_none() && self.qc_changed_at.elapsed() >= std::time::Duration::from_millis(300) {
                 // Büyük belge: düzenleme durunca arka planda hesapla.
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.qc_rx = Some(rx);
-                let (script, rules, rev) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev);
+                let (script, rules, rev, reference) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev, self.reference.clone());
                 std::thread::spawn(move || {
                     let mut issues = qc::check(&script, &rules);
+                    issues.extend(osisub_core::untranslated::check(&script, reference.as_ref()));
                     if let Some((fr, kf)) = &frame_ctx {
                         issues.extend(qc::frame_issues(&script, fr, kf, 3));
-                        issues.sort_by_key(|x| x.entry);
                     }
+                    issues.sort_by_key(|x| x.entry);
                     let _ = tx.send((rev, issues));
                 });
             }
@@ -1468,12 +1470,12 @@ impl App {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
                         match osisub_core::io::load(&p) {
-                            Ok(s) => { self.ref_lines = { let mut v: Vec<(i64, i64, String)> = s.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v }; self.reference = Some(s); self.status = format!("Referans: {}", p.display()); }
+                            Ok(s) => { self.set_reference(s); self.status = format!("Referans: {}", p.display()); }
                             Err(e) => self.status = format!("Hata: {}", e),
                         }
                     }
                 }
-                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; self.ref_lines.clear(); ui.close(); }
+                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; self.ref_lines.clear(); self.issues_key = u64::MAX; ui.close(); }
                 ui.separator();
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
@@ -2351,6 +2353,7 @@ impl App {
         v.sort_by_key(|x| x.0);
         self.ref_lines = v;
         self.reference = Some(sc);
+        self.issues_key = u64::MAX; // çevrilmemiş satır denetimi referansı kullanır
     }
 
     /// Seçili satırları dengele (`balance`) ya da satır sonlarını kaldır; tipografi/karaoke satırları atlanır.

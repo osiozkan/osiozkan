@@ -10,7 +10,7 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
-  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--report rapor.html]
+  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--report rapor.html]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
@@ -259,12 +259,15 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--gap") { r.min_gap_ms = v.parse().map_err(|_| "--gap sayı olmalı")?; }
             let video = opt(&mut args, "--video");
             let report = opt(&mut args, "--report");
+            let reference = opt(&mut args, "--ref").map(|r| load(&r)).transpose()?;
             let s = load(args.first().ok_or("dosya gerekli")?)?;
             let vinfo = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video);
             let vsize = vinfo.as_ref().map(|i| (i.width, i.height));
             let head = qc::script_issues_dar(&s, vsize, vinfo.as_ref().filter(|i| i.dar > 0.0).map(|i| i.dar));
             for m in &head { println!("başlık: {m}"); }
             let mut issues = qc::check(&s, &r);
+            issues.extend(osisub_core::untranslated::check(&s, reference.as_ref()));
+            issues.sort_by_key(|x| x.entry);
             if let Some(v) = video {
                 // kareye dayalı denetimler: sahne değişimine yakınlık (≤3 kare), titreme
                 let vp = Path::new(&v);

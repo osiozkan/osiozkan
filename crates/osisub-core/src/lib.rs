@@ -37,6 +37,7 @@ pub mod timing;
 pub mod tm;
 pub mod ttml;
 pub mod typeset;
+pub mod untranslated;
 pub mod vfr;
 pub mod vtt;
 

@@ -24,6 +24,8 @@ pub enum Kind {
     TagError,
     /// Metinde unutulmuş not/yorum bloğu ya da küçük uyarı (core::taglint)
     Note,
+    /// Çevrilmemiş görünen satır (referansla aynı, Japonca ya da İngilizce kalmış; core::untranslated)
+    Untranslated,
 }
 
 impl Kind {
@@ -31,7 +33,7 @@ impl Kind {
     pub fn category(&self) -> &'static str {
         match self {
             Kind::Overlap | Kind::TooShort | Kind::TooLong | Kind::SmallGap | Kind::NegativeDuration | Kind::NearKeyframe | Kind::Flicker => "zaman",
-            Kind::ReadingSpeed | Kind::LineTooLong | Kind::TooManyLines | Kind::Empty | Kind::DoubleSpace | Kind::EdgeSpace | Kind::UnknownStyle => "metin",
+            Kind::ReadingSpeed | Kind::LineTooLong | Kind::TooManyLines | Kind::Empty | Kind::DoubleSpace | Kind::EdgeSpace | Kind::UnknownStyle | Kind::Untranslated => "metin",
             Kind::TagError => "etiket",
             Kind::Note => "not",
         }
