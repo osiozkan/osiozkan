@@ -8,7 +8,7 @@ pub fn ext_of(p: &Path) -> String {
 }
 
 /// Açılabilen altyazı uzantıları (GUI dosya süzgeçleri, sürükle-bırak, toplu dönüştürme).
-pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "smi", "sami", "txt"];
+pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "itt", "stl", "smi", "sami", "txt"];
 
 pub fn load_str(text: &str, ext: &str) -> Script {
     match ext {
@@ -19,7 +19,7 @@ pub fn load_str(text: &str, ext: &str) -> Script {
         "sub" if text.contains("[INFORMATION]") || text.contains("[SUBTITLE]") => Script::from_dialogues(crate::formats::parse_subviewer(text)),
         "smi" | "sami" => Script::from_dialogues(crate::formats::parse_sami(text)),
         "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
-        "ttml" | "dfxp" | "xml" => Script::from_dialogues(crate::formats::parse_ttml(text)),
+        "ttml" | "dfxp" | "xml" | "itt" => Script::from_dialogues(crate::formats::parse_ttml(text)),
         _ => Script::parse(text),
     }
 }
@@ -51,11 +51,18 @@ pub fn decode_with(bytes: &[u8], label: &str) -> Result<String, String> {
 /// Belirtilen kodlamayla dosya yükle (BOM varsa BOM önceliklidir).
 pub fn load_with_encoding(path: &Path, label: &str) -> Result<Script, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    if crate::stl::is_stl(&bytes) {
+        return crate::stl::parse(&bytes);
+    }
     Ok(load_str(&decode_with(&bytes, label)?, &ext_of(path)))
 }
 
 pub fn load(path: &Path) -> Result<Script, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    // İkili EBU STL: uzantıdan bağımsız imzayla tanınır.
+    if crate::stl::is_stl(&bytes) {
+        return crate::stl::parse(&bytes);
+    }
     Ok(load_str(&decode_bytes(&bytes), &ext_of(path)))
 }
 
@@ -68,15 +75,24 @@ pub fn to_string(s: &Script, ext: &str) -> String {
         "sbv" => crate::formats::write_sbv(s),
         "smi" | "sami" => crate::formats::write_sami(s),
         "ttml" | "dfxp" => crate::formats::write_ttml(s),
+        "itt" => crate::ttml::write(s, crate::ttml::Profile::Itt { fps: 24000.0 / 1001.0 }),
         "txt" => crate::formats::write_txt(s),
         "csv" => crate::formats::write_csv(s),
         _ => s.to_ass_string(),
     }
 }
 
+/// Dosya baytları: metin biçimleri UTF-8, EBU STL ikili.
+pub fn to_bytes(s: &Script, ext: &str) -> Vec<u8> {
+    match ext {
+        "stl" => crate::stl::write(s, 25.0),
+        _ => to_string(s, ext).into_bytes(),
+    }
+}
+
 /// Önce geçici dosyaya yazıp yeniden adlandırır; yarım kalan yazma asıl dosyayı bozmaz.
 pub fn save(s: &Script, path: &Path) -> Result<(), String> {
-    let out = to_string(s, &ext_of(path));
+    let out = to_bytes(s, &ext_of(path));
     let tmp = path.with_extension(format!("{}.tmp", ext_of(path)));
     std::fs::write(&tmp, out).map_err(|e| format!("{}: {}", tmp.display(), e))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("{}: {}", path.display(), e))

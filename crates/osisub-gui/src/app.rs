@@ -850,7 +850,7 @@ impl App {
 
     fn save(&mut self, as_new: bool) {
         let target = if as_new || self.doc.path.is_none() {
-            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("LRC", &["lrc"]).add_filter("MicroDVD", &["sub"]).add_filter("SBV", &["sbv"]).add_filter("SAMI", &["smi"]).add_filter("TTML", &["ttml"]).add_filter("Düz metin", &["txt"]).add_filter("CSV", &["csv"]).save_file()
+            rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("LRC", &["lrc"]).add_filter("MicroDVD", &["sub"]).add_filter("SBV", &["sbv"]).add_filter("SAMI", &["smi"]).add_filter("TTML", &["ttml"]).add_filter("iTunes Timed Text", &["itt"]).add_filter("EBU STL", &["stl"]).add_filter("Düz metin", &["txt"]).add_filter("CSV", &["csv"]).save_file()
         } else {
             self.doc.path.clone()
         };

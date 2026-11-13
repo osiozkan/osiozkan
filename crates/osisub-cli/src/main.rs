@@ -46,7 +46,7 @@ KULLANIM:
 Lua include klasörleri: <yapılandırma>/osisub/automation/include, kurulu Aegisub'ın automation/include'u,
 programın yanındaki include/ ve OSISUB_INCLUDE (yol listesi).
 
-Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD / SubViewer), sbv, smi (SAMI), ttml/dfxp; yazma: txt, csv.
+Desteklenen biçimler: ass, ssa, srt, vtt, lrc, sub (MicroDVD / SubViewer), sbv, smi (SAMI), ttml/dfxp (Netflix, EBU-TT), itt (iTunes), stl (EBU STL, ikili); yazma: txt, csv.
 ";
 
 fn main() -> ExitCode {

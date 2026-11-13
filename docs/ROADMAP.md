@@ -31,7 +31,8 @@
 - [x] ASS Extradata yapılandırılmış erişim (core::extradata; Lua `line.extra` okunur/yazılır, `{=id}` ön eki ayrıştırılır, dosya birleştirmede kimlikler yeniden eşlenir, panoya kimlik yazılmaz)
 - [x] Biçimler: LRC (gelişmiş sözcük zamanlı → \kf), MicroDVD, SBV, TTML/DFXP okuma+yazma; TXT/CSV yazma; CLI toplu dönüştürme
 - [x] Biçimler: SAMI (.smi okuma/yazma, çok dilli dosyada ilk sınıf), SubViewer 2 (.sub okuma; MicroDVD ile otomatik ayrım)
-- [ ] Biçimler: EBU STL, iTT, Netflix TTML tam, PGS/VobSub OCR
+- [x] Biçimler: EBU STL (ikili, ISO 6937 Türkçe karakterler, uzantı blokları, program başlangıç zaman kodu), iTT (kare zaman kodu), TTML ailesi tam okuyucu (Netflix DFXP tickRate/frameRate, EBU-TT `tt:` ön eki, `dur`, span/stil italik-kalın, üst bölge → `\an8`); SRT/VTT'de `{\an8}` konum korunur (VTT `line:0`)
+- [ ] PGS/VobSub OCR
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [x] Timecode dosyaları v1/v2 (VFR, `core::vfr`): Video menüsünden aç/kaydet/kapat; kare adımı, kareye yapışma, `aegisub.frame_from_ms/ms_from_frame`, "Kareye oturt", CLI `--timecodes`
 - [x] Kare doğruluğu: Aegisub START/END anlambilimi (iki kare arasının ortası) — F6/F7, kareye yapışma, anahtar kare yapışması, "Kareye oturt", son-işleyici ve Lua `frame_from_ms/ms_from_frame` santisaniye yuvarlamasına dayanıklı (eskiden 23.976'da bazı satırlar bir kare geç başlıyordu); önizleme playhead'deki kareyi gösterir

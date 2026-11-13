@@ -172,7 +172,7 @@ pub fn write_sbv(script: &Script) -> String {
     let f = |ms: i64| format!("{}:{:02}:{:02}.{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000);
     let mut out = String::new();
     for d in script.dialogues().filter(|d| !d.comment) {
-        out.push_str(&format!("{},{}\n{}\n\n", f(d.start_time), f(d.end_time), srt::ass_text_to_srt(&d.text).replace(['<', '>'], "")));
+        out.push_str(&format!("{},{}\n{}\n\n", f(d.start_time), f(d.end_time), srt::take_an_prefix(&srt::ass_text_to_srt(&d.text)).1.replace(['<', '>'], "")));
     }
     out
 }
@@ -187,60 +187,13 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let i = tag.find(&format!("{}=\"", name))?;
-    let r = &tag[i + name.len() + 2..];
-    Some(&r[..r.find('"')?])
-}
-
-fn ttml_time(s: &str) -> Option<i64> {
-    if let Some(v) = s.strip_suffix("ms") {
-        return v.trim().parse::<f64>().ok().map(|x| x.round() as i64);
-    }
-    if let Some(v) = s.strip_suffix('s') {
-        return v.trim().parse::<f64>().ok().map(|x| (x * 1000.0).round() as i64);
-    }
-    time::parse_generic(s)
-}
-
-/// Basit TTML/DFXP okuyucu: `<p begin end>` içeriği, `<br/>` satır sonu, `<span>` düz metne indirgenir.
+/// TTML/DFXP/iTT/EBU-TT okuyucu (bkz. `crate::ttml`).
 pub fn parse_ttml(text: &str) -> Vec<Dialogue> {
-    let mut out = vec![];
-    let mut rest = text;
-    while let Some(i) = rest.find("<p ") {
-        let r = &rest[i..];
-        let Some(tag_end) = r.find('>') else { break };
-        let tag = &r[..tag_end];
-        let Some(close) = r.find("</p>") else { break };
-        let inner = &r[tag_end + 1..close];
-        if let (Some(b), Some(e)) = (attr(tag, "begin").and_then(ttml_time), attr(tag, "end").and_then(ttml_time)) {
-            let mut t = String::new();
-            let mut s = inner;
-            while let Some(k) = s.find('<') {
-                t.push_str(&s[..k]);
-                let Some(g) = s[k..].find('>') else { break };
-                let tg = &s[k..k + g + 1];
-                if tg.starts_with("<br") {
-                    t.push_str("\\N");
-                }
-                s = &s[k + g + 1..];
-            }
-            t.push_str(s);
-            out.push(Dialogue { start_time: b, end_time: e, text: xml_unescape(&t.split_whitespace().collect::<Vec<_>>().join(" ").replace("\\N ", "\\N")), ..Default::default() });
-        }
-        rest = &r[close + 4..];
-    }
-    out
+    crate::ttml::parse(text)
 }
 
 pub fn write_ttml(script: &Script) -> String {
-    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tt xmlns=\"http://www.w3.org/ns/ttml\" xml:lang=\"tr\">\n  <body>\n    <div>\n");
-    for d in script.dialogues().filter(|d| !d.comment) {
-        let body = xml_escape(&tags::visible_text(&d.text)).replace('\n', "<br/>");
-        out.push_str(&format!("      <p begin=\"{}\" end=\"{}\">{}</p>\n", time::format_vtt(d.start_time), time::format_vtt(d.end_time), body));
-    }
-    out.push_str("    </div>\n  </body>\n</tt>\n");
-    out
+    crate::ttml::write(script, crate::ttml::Profile::Ttml)
 }
 
 // ------------------------------------------------------------------ TXT / CSV

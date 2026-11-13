@@ -75,12 +75,25 @@ fn srt_markup_to_ass(s: &str) -> String {
     out
 }
 
+/// `ass_text_to_srt` çıktısının başındaki `{\\anN}` ön ekini ayırır (VTT/SBV için).
+pub fn take_an_prefix(s: &str) -> (Option<u8>, &str) {
+    if let Some(r) = s.strip_prefix("{\\an") {
+        if let Some(d) = r.chars().next().and_then(|c| c.to_digit(10)) {
+            if r[1..].starts_with('}') {
+                return (Some(d as u8), &r[2..]);
+            }
+        }
+    }
+    (None, s)
+}
+
 /// ASS metnini SRT biçimine indirger (etiketler `<i>` vb. olarak korunur).
 pub fn ass_text_to_srt(s: &str) -> String {
     let mut out = String::new();
     let mut italic = false;
     let mut bold = false;
     let mut underline = false;
+    let mut an: Option<u8> = None;
     let mut chars = s.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
         match c {
@@ -93,13 +106,19 @@ pub fn ass_text_to_srt(s: &str) -> String {
                 let end = i + rel;
                 let block = &s[i + 1..end];
                 for t in block.split('\\').skip(1) {
-                    let on = |t: &str, k: &str| t.strip_prefix(k).map(|v| v.trim() != "0");
-                    if let Some(v) = on(t, "i").filter(|_| !t.starts_with("iclip")) {
+                    // Yalnızca sayısal değerli `\i1`, `\b700`… (`\be`, `\blur`, `\iclip` değil)
+                    let on = |t: &str, k: &str| {
+                        t.strip_prefix(k).map(str::trim).filter(|v| v.chars().all(|c| c.is_ascii_digit())).map(|v| !v.is_empty() && v != "0" && v != "400")
+                    };
+                    if let Some(v) = on(t, "i") {
                         if v != italic { out.push_str(if v { "<i>" } else { "</i>" }); italic = v; }
-                    } else if let Some(v) = on(t, "b").filter(|_| !t.starts_with("blur") && !t.starts_with("bord")) {
+                    } else if let Some(v) = on(t, "b") {
                         if v != bold { out.push_str(if v { "<b>" } else { "</b>" }); bold = v; }
                     } else if let Some(v) = on(t, "u") {
                         if v != underline { out.push_str(if v { "<u>" } else { "</u>" }); underline = v; }
+                    } else if an.is_none() {
+                        // Konum: `{\an8}` SRT'de yaygın kuraldır (Subtitle Edit, oynatıcılar okur).
+                        an = t.strip_prefix("an").and_then(|v| v.trim().parse::<u8>().ok()).filter(|v| (1..=9).contains(v) && *v != 2);
                     }
                 }
                 while let Some(&(j, _)) = chars.peek() {
@@ -117,7 +136,10 @@ pub fn ass_text_to_srt(s: &str) -> String {
     if italic { out.push_str("</i>"); }
     if bold { out.push_str("</b>"); }
     if underline { out.push_str("</u>"); }
-    out
+    match an {
+        Some(a) => format!("{{\\an{}}}{}", a, out),
+        None => out,
+    }
 }
 
 pub fn write(script: &Script) -> String {
@@ -141,5 +163,14 @@ mod tests {
         let s = Script::from_dialogues(d);
         let o = write(&s);
         assert!(o.contains("<i>Selam</i>\nDünya"));
+    }
+
+    #[test]
+    fn position_kept_and_be_is_not_bold() {
+        assert_eq!(ass_text_to_srt("{\\an8\\be1\\blur2}Üst {\\b1}k{\\b0}"), "{\\an8}Üst <b>k</b>");
+        assert_eq!(ass_text_to_srt("{\\an2\\iclip(0,0,1,1)}a"), "a");
+        let d = parse("1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Üst\n");
+        assert_eq!(d[0].text, "{\\an8}Üst");
+        assert!(write(&Script::from_dialogues(d)).contains("{\\an8}Üst"));
     }
 }

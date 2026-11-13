@@ -625,7 +625,7 @@ impl App {
             egui::Grid::new("fb_opts").num_columns(2).show(ui, |ui| {
                 ui.label("Çıktı biçimi");
                 egui::ComboBox::from_id_salt("fb_ext").selected_text(if w.job.out_ext.is_empty() { "aynı".to_string() } else { w.job.out_ext.clone() }).show_ui(ui, |ui| {
-                    for e in ["", "ass", "srt", "vtt", "ttml", "sbv", "smi", "lrc", "txt"] { ui.selectable_value(&mut w.job.out_ext, e.to_string(), if e.is_empty() { "aynı" } else { e }); }
+                    for e in ["", "ass", "srt", "vtt", "ttml", "itt", "stl", "sbv", "smi", "lrc", "txt"] { ui.selectable_value(&mut w.job.out_ext, e.to_string(), if e.is_empty() { "aynı" } else { e }); }
                 });
                 ui.end_row();
                 ui.label("Çıktı klasörü");
