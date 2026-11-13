@@ -37,6 +37,7 @@ pub mod tags;
 pub mod time;
 pub mod timing;
 pub mod tm;
+pub mod trfix;
 pub mod ttml;
 pub mod typeset;
 pub mod untranslated;

@@ -14,6 +14,8 @@ pub struct Fixes {
     pub sentence_case: bool,
     pub dialogue_dash: bool,
     pub remove_hi: bool,
+    /// Türkçe yaygın yazım hataları (herşey → her şey, gelecekmisin → gelecek misin; core::trfix)
+    pub tr_spelling: bool,
     /// Etiketsiz satırlarda bu karakterden uzun metni iki olaya böl (None = kapalı).
     pub split_long: Option<usize>,
     /// Satırları dengeli iki satıra kır / kısaları tek satır yap (satır başına karakter; None = kapalı)
@@ -25,7 +27,7 @@ pub struct Fixes {
 
 impl Default for Fixes {
     fn default() -> Self {
-        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, split_long: None, balance_lines: None, min_duration_ms: None, min_gap_ms: None, only: None }
+        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, tr_spelling: false, split_long: None, balance_lines: None, min_duration_ms: None, min_gap_ms: None, only: None }
     }
 }
 
@@ -240,6 +242,9 @@ pub fn fix_text(text: &str, f: &Fixes) -> String {
     }
     if f.dialogue_dash {
         t = fix_dialogue_dash(&t);
+    }
+    if f.tr_spelling {
+        t = crate::trfix::fix_text(&t).0;
     }
     t
 }

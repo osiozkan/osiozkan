@@ -29,7 +29,7 @@ KULLANIM:
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]   Blu-ray PGS → metin (Tesseract)
-  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tags] [--notes]
+  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
@@ -330,6 +330,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             f.ellipsis = flag(&mut args, "--ellipsis");
             f.sentence_case = flag(&mut args, "--sentence");
             f.remove_hi = flag(&mut args, "--hi");
+            f.tr_spelling = flag(&mut args, "--tr");
             f.balance_lines = opt(&mut args, "--balance").and_then(|v| v.parse().ok());
             f.min_duration_ms = opt(&mut args, "--min-dur").and_then(|v| v.parse().ok());
             f.min_gap_ms = opt(&mut args, "--min-gap").and_then(|v| v.parse().ok());

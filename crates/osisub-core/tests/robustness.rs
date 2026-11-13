@@ -162,6 +162,10 @@ fn night_2026_11_13_parsers_never_panic() {
         let _ = extradata::parse_data_line(&t);
         let _ = linebreak::balance(&t, 1 + r(50));
         let _ = linebreak::unbreak(&t);
+        let _ = osisub_core::trfix::fix_text(&t);
+        let _ = osisub_core::trfix::fix_text(&format!("İŞTE herşey HİÇ BİRŞEY gelecekmisin {t}"));
+        let _ = osisub_core::splitlines::split_at_breaks(&osisub_core::ass::Dialogue { text: t.clone(), ..Default::default() }, r(2) == 0);
+        let _ = osisub_core::splitlines::split_karaoke(&osisub_core::ass::Dialogue { text: format!("{{\\k10}}{t}{{\\k-5}}x"), ..Default::default() });
         let s = Script::parse(&format!("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{t}\n"));
         let _ = untranslated::check(&s, Some(&s));
         let _ = ttml::write(&s, ttml::Profile::Itt { fps: 23.976 });

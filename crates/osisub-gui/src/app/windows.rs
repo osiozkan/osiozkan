@@ -1923,6 +1923,7 @@ impl App {
             ui.checkbox(&mut f.dialogue_dash, "Diyalog çizgisinden sonra boşluk (-Merhaba → - Merhaba)");
             ui.checkbox(&mut f.sentence_case, "Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)");
             ui.checkbox(&mut f.remove_hi, "İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)");
+            ui.checkbox(&mut f.tr_spelling, "Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da, şuan → şu an, gelecekmisin → gelecek misin…)");
             ui.horizontal(|ui| {
                 let mut on = f.balance_lines.is_some();
                 ui.checkbox(&mut on, "Satırları dengele (satır başına karakter)").on_hover_text("Uzun metni en fazla iki dengeli satıra kırar (noktalamada, bağlaçla bitirmeden); sığan metni tek satır yapar. Tipografi/karaoke satırlarına dokunmaz.");

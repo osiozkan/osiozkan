@@ -188,6 +188,12 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
         }
         let (typeset, karaoke) = (is_typeset(d), is_karaoke(d));
         let visible = tags::visible_text(&d.text);
+        if !typeset && !karaoke {
+            let f = crate::trfix::findings(&d.text);
+            if !f.is_empty() {
+                add(Kind::Note, format!("Yazım: {}", f.iter().map(|(a, b)| format!("{a} → {b}")).collect::<Vec<_>>().join(", ")));
+            }
+        }
         if visible.trim().is_empty() && !(1..=9).any(|k| d.text.contains(&format!("\\p{k}"))) {
             add(Kind::Empty, "Boş metin".into());
         }
