@@ -616,8 +616,7 @@ impl App {
         }
         if let Some(r) = reference {
             if let Ok(sc) = osisub_core::io::load(&r) {
-                app.ref_lines = { let mut v: Vec<(i64, i64, String)> = sc.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::visible_text(&d.text).replace('\n', " ⏎ "))).collect(); v.sort_by_key(|x| x.0); v };
-                app.reference = Some(sc);
+                app.set_reference(sc);
             }
         }
         if let Some(first) = app.first_row() {
@@ -635,6 +634,7 @@ impl App {
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
+            Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("tool_shear") => app.media.tool = crate::media_ui::VideoTool::Shear,
@@ -1542,7 +1542,7 @@ impl App {
                         }
                     }
                 }
-                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; self.ref_lines.clear(); self.issues_key = u64::MAX; ui.close(); }
+                if self.reference.is_some() && ui.button("Referansı kapat").clicked() { self.reference = None; self.ref_lines.clear(); self.issues_key = u64::MAX; self.sync_ref_overlay(); ui.close(); }
                 ui.separator();
                 if ui.add(egui::Button::new("Kaydet").shortcut_text("Ctrl+S")).clicked() { ui.close(); self.save(false); }
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
@@ -1687,6 +1687,10 @@ impl App {
                     set(ui, Some(1.85), "1.85:1");
                     set(ui, Some(2.35), "2.35:1");
                 });
+                if ui.checkbox(&mut self.settings.ref_overlay, "Referans altyazıyı videoda göster").on_hover_text("Dosya → Referans altyazı aç ile yüklenen kaynak altyazı (ör. İngilizce) önizlemede üstte gri italik görünür; dosyaya yazılmaz").changed() {
+                    self.settings.save();
+                    self.sync_ref_overlay();
+                }
                 ui.checkbox(&mut self.media.safe_area, "Güvenli alan kılavuzu").on_hover_text("Eylem güvenli (%90) ve başlık güvenli (%80) alan çerçeveleri; TV kırpmasına karşı tabela yerleşimi için");
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!self.media.keyframes.is_empty(), egui::Button::new("< Önceki anahtar kare")).clicked() { self.media.step_keyframe(-1); }
@@ -2451,6 +2455,21 @@ impl App {
         self.ref_lines = v;
         self.reference = Some(sc);
         self.issues_key = u64::MAX; // çevrilmemiş satır denetimi referansı kullanır
+        self.sync_ref_overlay();
+    }
+
+    /// Video önizlemesindeki referans katmanını ayara ve yüklü referansa göre günceller.
+    pub(crate) fn sync_ref_overlay(&mut self) {
+        let want = if self.settings.ref_overlay {
+            self.reference.as_ref().map(|r| std::sync::Arc::new(r.dialogues().filter(|d| !d.comment).map(|d| (d.start_time, d.end_time, osisub_core::tags::strip_tags(&d.text))).collect::<Vec<_>>()))
+        } else {
+            None
+        };
+        let changed = want.as_ref().map(|v| v.len()) != self.media.ref_overlay.as_ref().map(|v| v.len()) || want.is_some() != self.media.ref_overlay.is_some();
+        self.media.ref_overlay = want;
+        if changed || self.media.ref_overlay.is_some() {
+            self.media.invalidate_frames();
+        }
     }
 
     /// Seçili satırları dengele (`balance`) ya da satır sonlarını kaldır; tipografi/karaoke satırları atlanır.

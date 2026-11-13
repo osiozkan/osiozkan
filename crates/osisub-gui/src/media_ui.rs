@@ -132,6 +132,8 @@ pub struct Media {
     pub ar_override: Option<f64>,
     /// videoda güvenli alan kılavuzu (eylem %90, başlık %80)
     pub safe_area: bool,
+    /// Referans altyazı (başlangıç, bitiş, ASS metni) — açıksa önizlemede üstte gri italik gösterilir
+    pub ref_overlay: Option<Arc<Vec<(i64, i64, String)>>>,
     pub video_pan: egui::Vec2,
     pub spectrum: bool,
     /// Oynatma hızı ve ses seviyesi (bir sonraki oynatmada geçerli)
@@ -187,6 +189,7 @@ impl Media {
             vt_qdrag: None,
             persp_box: None,
             safe_area: false,
+            ref_overlay: None,
             ar_override: None,
             persp_dist: osisub_core::perspective::DIST_PX,
             persp_need_layout: false,
@@ -229,6 +232,19 @@ impl Media {
     }
 
     /// Kare önbelleğini boşaltır ve kareyi yeniden ister (en-boy oranı değişince).
+    /// Önizleme ASS'i: belgenin [lo, hi] aralığındaki satırları; referans katmanı açıksa onun
+    /// satırları ayrı bir stille (üstte, gri italik) eklenir. Belge kopyalanmaz.
+    fn preview_ass(&self, doc: &Document, lo: i64, hi: i64) -> String {
+        let mut out = doc.script.to_ass_string_filtered(|d| d.end_time >= lo && d.start_time <= hi, true);
+        if let Some(refs) = &self.ref_overlay {
+            let lines: Vec<&(i64, i64, String)> = refs.iter().filter(|r| r.1 >= lo && r.0 <= hi).collect();
+            if !lines.is_empty() {
+                out = inject_reference(&out, doc.script.res().1, &lines);
+            }
+        }
+        out
+    }
+
     pub fn invalidate_frames(&mut self) {
         self.frame_cache.clear();
         self.frame_shown = (i64::MIN, u64::MAX);
@@ -437,7 +453,7 @@ impl Media {
             let ass = self.tmp_dir.join("play.ass");
             let (lo, hi) = (from - 1000, from + dur + 1000);
             self.sync_preview_fonts(doc);
-            let _ = std::fs::write(&ass, doc.script.to_ass_string_filtered(|d| d.end_time >= lo && d.start_time <= hi, true));
+            let _ = std::fs::write(&ass, self.preview_ass(doc, lo, hi));
             match osisub_media::spawn_play(&p, Some(&ass), from, dur, 640, &info) {
                 Ok(st) => {
                     self.stream = Some(st);
@@ -606,7 +622,7 @@ impl Media {
                 let ass = self.tmp_dir.join("preview.ass");
                 let t0 = self.playhead;
                 self.sync_preview_fonts(doc);
-                let _ = std::fs::write(&ass, doc.script.to_ass_string_filtered(|d| d.start_time <= t0 + 1500 && d.end_time >= t0 - 1000, true));
+                let _ = std::fs::write(&ass, self.preview_ass(doc, t0 - 1000, t0 + 1500));
                 let tx = self.tx.clone();
                 let ctx2 = ctx.clone();
                 // Playhead'de ekranda olan kare (mpv/Aegisub gibi): o karenin başlangıcından iste.
@@ -1591,5 +1607,54 @@ mod play_part_tests {
         assert_eq!(PlayPart::After.range(1000, 3000), (3000, 500));
         assert_eq!(PlayPart::Begin.range(1000, 1300), (1000, 300));
         assert_eq!(PlayPart::End.range(1000, 3000), (2500, 500));
+    }
+}
+
+/// Önizleme ASS metnine referans satırlarını ekler: `OsisubRef` stili ve `Dialogue` satırları
+/// (stiller/olaylar bölümü yoksa oluşturulur). Metindeki `{}` etiket sayılmasın diye `()` yapılır.
+pub fn inject_reference(ass: &str, play_res_y: i32, lines: &[&(i64, i64, String)]) -> String {
+    let nl = if ass.contains("\r\n") { "\r\n" } else { "\n" };
+    let size = (play_res_y.max(100) as f64 / 18.0).round();
+    let style = format!("Style: OsisubRef,Arial,{},&H00D8D8D8,&H000000FF,&H00000000,&H96000000,0,-1,0,0,100,100,0,0,1,{:.1},0,8,20,20,{},1", size, (size / 20.0).max(1.0), (size / 2.0).round());
+    let mut events = String::new();
+    for (a, b, t) in lines {
+        let text = t.replace('{', "(").replace('}', ")").replace('\n', "\\N");
+        events.push_str(&format!("Dialogue: 99,{},{},OsisubRef,,0,0,0,,{}{}", osisub_core::time::format_ass(*a), osisub_core::time::format_ass(*b), text, nl));
+    }
+    let mut out = ass.to_string();
+    // stil: [V4+ Styles] Format satırından sonra
+    match out.find("[V4+ Styles]").and_then(|i| out[i..].find("Format:").map(|k| i + k)).and_then(|k| out[k..].find(nl).map(|e| k + e + nl.len())) {
+        Some(at) => out.insert_str(at, &format!("{}{}", style, nl)),
+        None => out.push_str(&format!("{nl}[V4+ Styles]{nl}Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding{nl}{style}{nl}")),
+    }
+    // olaylar: [Events] Format satırından sonra
+    match out.find("[Events]").and_then(|i| out[i..].find("Format:").map(|k| i + k)).and_then(|k| out[k..].find(nl).map(|e| k + e + nl.len())) {
+        Some(at) => out.insert_str(at, &events),
+        None => out.push_str(&format!("{nl}[Events]{nl}Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text{nl}{events}")),
+    }
+    out
+}
+
+#[cfg(test)]
+mod ref_overlay_tests {
+    use super::*;
+
+    #[test]
+    fn reference_lines_are_injected_into_preview() {
+        let mut sc = osisub_core::Script::new_default();
+        sc.entries.push(osisub_core::Entry::Dialogue(osisub_core::Dialogue { text: "çeviri".into(), ..Default::default() }));
+        let ass = sc.to_ass_string();
+        let r = (0i64, 2000i64, "Where {are} you\ngoing?".to_string());
+        let out = inject_reference(&ass, 1080, &[&r]);
+        let back = osisub_core::Script::parse(&out);
+        assert!(back.style_by_name("OsisubRef").is_some());
+        let texts: Vec<&str> = back.dialogues().map(|d| d.text.as_str()).collect();
+        assert!(texts.contains(&"Where (are) you\\Ngoing?"), "{texts:?}");
+        assert!(texts.contains(&"çeviri"));
+        // bölümsüz boş betik
+        let out2 = inject_reference("[Script Info]\nPlayResY: 720\n", 720, &[&r]);
+        let b2 = osisub_core::Script::parse(&out2);
+        assert_eq!(b2.dialogues().count(), 1);
+        assert!(b2.style_by_name("OsisubRef").is_some());
     }
 }
