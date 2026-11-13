@@ -117,10 +117,17 @@ pub const DEFAULT_COMMAND_KEYS: &[(&str, &str)] = &[
     ("line_prev", "Z"),
 ];
 
+/// Sürüm 2'de eklenen varsayılanlar (yalnızca bir kez eklenir; kullanıcı silerse geri gelmez).
+pub const DEFAULT_COMMAND_KEYS_V2: &[(&str, &str)] = &[("hold_play", "Ctrl+Space")];
+
 /// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
 pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {
+    apply_default_list(binds, command_script, DEFAULT_COMMAND_KEYS)
+}
+
+pub fn apply_default_list(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str, list: &[(&str, &str)]) -> usize {
     let mut n = 0;
-    for (cmd, keys) in DEFAULT_COMMAND_KEYS {
+    for (cmd, keys) in list {
         let taken_cmd = binds.iter().any(|h| h.script == command_script && h.name == *cmd);
         let taken_key = binds.iter().any(|h| parse(&h.keys) == parse(keys));
         if !taken_cmd && !taken_key {

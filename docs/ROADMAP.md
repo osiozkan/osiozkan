@@ -7,7 +7,7 @@
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
 3. Video araçları tamam (eğme aracı, her hizalamada çizim); sıradaki: VobSub OCR, `SubInspector`.
 4. libmpv ile donanım hızlandırmalı oynatma.
-5. Karaoke: gecikme kalibrasyonu, furigana düzeni; basılı tutarak oynat; ızgara sütun sırası.
+5. Karaoke: gecikme kalibrasyonu, furigana düzeni.
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
@@ -103,7 +103,7 @@
 - [x] Uygulama içi ses oynatma (cpal 0.18 + ffmpeg PCM; ses saati playhead/video/tuşla zamanlamayı sürer; aygıt yoksa ffplay'e düşer). HENÜZ GERÇEK AYGITTA TEST EDİLMEDİ (kum havuzunda ses aygıtı yok); mantık sahte çıkışla testli
 - [x] Playhead'den sürekli oynatma (Shift+F5, Video menüsü, kısayol komutu)
 - [x] Oynatma hızı (0.25–2x, perde korunur; ffmpeg atempo) ve ses seviyesi (Video menüsü, kalıcı); ses saati hızla ölçekli
-- [ ] Basılı tutarak oynat
+- [x] Basılı tutarak oynat (komut `hold_play`, varsayılan Ctrl+Boşluk; playhead'den çalar, bırakınca durur ve playhead orada kalır; xdotool ile doğrulandı)
 - [ ] ffmpeg olmadan çalışma (symphonia ile ses çözme)
 - [x] Sesle yeniden zamanlama (TV → BD; osisub-media::resync, Zamanlama menüsü, CLI `resync`): satır grupları eski seste → yeni seste FFT çapraz-ilinti; eklenen/çıkarılan sahne ve gecikme; güvensiz eşleşmede önceki kayma (günlükte raporlanır)
 - [x] Konuşmaya yapıştır (Zamanlama → Sesten satır oluştur penceresi): başlangıç/bitiş ±250 ms içindeki konuşma sınırına

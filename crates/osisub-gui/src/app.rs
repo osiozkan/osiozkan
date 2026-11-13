@@ -113,6 +113,8 @@ pub struct App {
     theme_dirty: bool,
     goto_open: bool,
     goto_focus: bool,
+    /// "Basılı tutarak oynat" tuşu basılı ve çalıyor
+    hold_playing: bool,
     /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
     dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
     /// Kurulu yazı tipi aileleri (ilk gerektiğinde arka planda taranır)
@@ -303,6 +305,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_rotatexy", "Video aracı: 3B döndürme"),
     ("tool_scale", "Video aracı: ölçek"),
     ("tool_shear", "Video aracı: eğme (\\fax/\\fay)"),
+    ("hold_play", "Basılı tutarak oynat (playhead'den; bırakınca durur)"),
     ("tool_persp", "Video aracı: perspektif (4 köşe)"),
     ("tool_draw", "Video aracı: çizim (\\p)"),
 ];
@@ -396,6 +399,11 @@ impl App {
         if settings.hotkey_defaults < 1 {
             crate::hotkeys::apply_defaults(&mut settings.macro_hotkeys, COMMAND_SCRIPT);
             settings.hotkey_defaults = 1;
+            settings.save();
+        }
+        if settings.hotkey_defaults < 2 {
+            crate::hotkeys::apply_default_list(&mut settings.macro_hotkeys, COMMAND_SCRIPT, crate::hotkeys::DEFAULT_COMMAND_KEYS_V2);
+            settings.hotkey_defaults = 2;
             settings.save();
         }
         // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
@@ -533,6 +541,7 @@ impl App {
             backed_up: Default::default(),
             theme_dirty: true,
             goto_open: false,
+            hold_playing: false,
             dummy_win: None,
             ocr: None,
             fonts_list: None,
@@ -1168,6 +1177,7 @@ impl App {
             "dup_shift" => { if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); } }
             "play_line" => self.media.toggle_play(&self.doc, ctx),
             "play_head" => self.media.toggle_play_from_playhead(&self.doc, ctx),
+            "hold_play" => self.status = "Basılı tutarak oynat: kısayol tuşunu basılı tutun (Yardım → Kısayolları düzenle)".into(),
             "set_start" => self.media.set_active_start(&mut self.doc),
             "set_end" => self.media.set_active_end(&mut self.doc),
             "frame_next" => self.media.step_frames(1),
@@ -1308,6 +1318,21 @@ impl App {
                 let plain = !(sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
                 let fkey = sc.logical_key.name().starts_with('F') && sc.logical_key.name().len() > 1;
                 if typing_now && plain && !fkey {
+                    continue;
+                }
+                if script == COMMAND_SCRIPT && name == "hold_play" {
+                    // Tuş basılıyken çal, bırakınca dur (playhead durduğu yerde kalır)
+                    let down = ctx.input_mut(|i| {
+                        let _ = i.consume_shortcut(&sc);
+                        i.key_down(sc.logical_key) && i.modifiers.matches_logically(sc.modifiers)
+                    });
+                    if down && !self.hold_playing {
+                        self.hold_playing = true;
+                        if !self.media.is_playing() { self.media.toggle_play_from_playhead(&self.doc, ctx); }
+                    } else if !down && self.hold_playing {
+                        self.hold_playing = false;
+                        self.media.stop();
+                    }
                     continue;
                 }
                 if script == COMMAND_SCRIPT {
