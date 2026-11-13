@@ -313,6 +313,9 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("tool_shear", "Video aracı: eğme (\\fax/\\fay)"),
     ("hold_play", "Basılı tutarak oynat (playhead'den; bırakınca durur)"),
     ("guide", "Kullanım kılavuzu (F1)"),
+    ("split_breaks", "Satır sonlarından böl (süre metne orantılı)"),
+    ("split_breaks_keep", "Satır sonlarından böl (aynı zaman)"),
+    ("split_karaoke", "Karaoke hecelerine böl (her hece bir satır)"),
     ("tool_persp", "Video aracı: perspektif (4 köşe)"),
     ("tool_draw", "Video aracı: çizim (\\p)"),
 ];
@@ -1248,6 +1251,11 @@ impl App {
             "split_cursor" => self.split_at_cursor(false),
             "balance_lines" => self.rebreak_selected(true),
             "guide" => self.guide = Some(String::new()),
+            "split_breaks" | "split_breaks_keep" | "split_karaoke" => {
+                let n = self.doc.split_selected(id == "split_karaoke", id == "split_breaks_keep");
+                self.status = if n == 0 { "Bölünecek satır yok (\\N ya da karaoke etiketi gerekli)".into() } else { format!("{n} satır bölündü") };
+                self.scroll_to = Some(self.doc.active);
+            }
             "unbreak_lines" => self.rebreak_selected(false),
             "split_cursor_frame" => self.split_at_cursor(true),
             "snap_scenes" => {
@@ -1573,6 +1581,11 @@ impl App {
                     }
                 });
                 if ui.button("Satırları dengele").on_hover_text("Seçili satırları satır başına en çok 'en uzun satır' sınırı kadar karakterle dengeli iki satıra kırar; sığanları tek satır yapar (Subtitle Edit: Auto balance)").clicked() { ui.close(); self.rebreak_selected(true); }
+                ui.menu_button("Satırları böl", |ui| {
+                    if ui.button("Satır sonlarından (süre metne orantılı)").on_hover_text("Her \\N ayrı satır olur; süre karakter sayısına göre paylaşılır (Aegisub/Subtitle Edit: Split)").clicked() { ui.close(); self.run_command("split_breaks", ui.ctx()); }
+                    if ui.button("Satır sonlarından (aynı zaman)").on_hover_text("Her \\N aynı zamanlı ayrı satır olur (ör. ayrı konumlanacak iki konuşmacı)").clicked() { ui.close(); self.run_command("split_breaks_keep", ui.ctx()); }
+                    if ui.button("Karaoke hecelerine").on_hover_text("Her \\k hecesi kendi süresinde ayrı satır olur (Aegisub: Split by karaoke)").clicked() { ui.close(); self.run_command("split_karaoke", ui.ctx()); }
+                });
                 if ui.button("Satır sonlarını kaldır").on_hover_text("Seçili satırlardaki \\N'leri boşluğa çevirir").clicked() { ui.close(); self.rebreak_selected(false); }
                 if ui.button("Stil yardımcısı…").on_hover_text("Satır satır stil atama: süz, Enter = uygula + sonraki satır (Aegisub: Styling Assistant)").clicked() { ui.close(); self.style_assist = Some(String::new()); }
                 if ui.button("Üzerine yapıştır…  Ctrl+Shift+V").on_hover_text("Panodaki satırların seçtiğiniz alanlarını (zaman, stil, metin…) seçili satırların üzerine yazar (Aegisub: Paste Over)").clicked() { ui.close(); self.open_paste_over(None); }

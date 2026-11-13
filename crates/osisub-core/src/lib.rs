@@ -27,6 +27,7 @@ pub mod paths;
 pub mod qc;
 pub mod search;
 pub mod select;
+pub mod splitlines;
 pub mod srt;
 pub mod stats;
 pub mod stl;

@@ -142,6 +142,7 @@
 - [x] Yerleşik komutlara kısayol atama (Yardım → Kısayolları düzenle; 19 komut)
 - [x] Aegisub kısayol profilini içe aktarma (hotkey.json; 3.0 nesne ve 3.2 "Ctrl-K" biçimleri, Lua makro kısayolları dahil)
 - [x] Belgeye bağlı betikler (Aegisub "Automation Scripts" alanı: `~` göreli, `$` otomasyon tabanı, `/` mutlak; açılışta yüklenir, Otomasyon sekmesinde "belgeye bağlı")
+- [x] Satırları böl (core::splitlines; Düzen → Satırları böl, komut paleti): `\N` noktalarından (süre metne orantılı ya da aynı zaman; baştaki etiketler ve açık italik/kalın taşınır) ve karaoke hecelerine (Aegisub Split by karaoke)
 - [x] Satır dengeleme (core::linebreak; Düzen menüsü, komut paleti, Sık hataları düzelt, CLI `fixes --balance N`): en çok iki dengeli satır, noktalamada kırma, ilk satır bağlaçla bitmez / bağlaçtan önce kırılır, diyalog çizgisinde kırılır, kısa metin tek satır; tipografi/karaoke atlanır; satır sonlarını kaldır
 - [x] Stil yardımcısı (Aegisub Styling Assistant; Düzen menüsü): satır metni büyük, stil süzgeci, Enter = uygula + sonraki satır (medya açıksa oynatır), PgUp/PgDn
 - [x] Önceki/sonraki anahtar kareye git (Video menüsü, kısayol komutları, Aegisub `video/frame/next/keyframe`); güvenli alan kılavuzu (%90/%80)

@@ -397,6 +397,44 @@ impl Document {
         self.select((last + 1..last + 1 + n).collect(), last + 1);
     }
 
+    /// Seçili satırları böler: `karaoke` ise hecelere, değilse `\N` noktalarına (`keep_times`: parçalar
+    /// aynı zamanı alır). Tek geri-al adımı; yeni satırlar seçilir. Bölünen satır sayısını döndürür.
+    pub fn split_selected(&mut self, karaoke: bool, keep_times: bool) -> usize {
+        let t = self.target_lines();
+        let mut plan: Vec<(usize, Vec<Entry>)> = Vec::new();
+        for &i in &t {
+            if let Some(Entry::Dialogue(d)) = self.script.entries.get(i) {
+                let parts = if karaoke { osisub_core::splitlines::split_karaoke(d) } else { osisub_core::splitlines::split_at_breaks(d, keep_times) };
+                if parts.len() > 1 {
+                    plan.push((i, parts.into_iter().map(Entry::Dialogue).collect()));
+                }
+            }
+        }
+        if plan.is_empty() {
+            return 0;
+        }
+        let n = plan.len();
+        // yeni seçim: sondan başa uygulanacağı için önce dizinleri hesapla
+        let mut sel = Vec::new();
+        let mut shift = 0usize;
+        for (i, parts) in &plan {
+            for k in 0..parts.len() {
+                sel.push(i + shift + k);
+            }
+            shift += parts.len() - 1;
+        }
+        let desc = if karaoke { "Karaoke hecelerine böl" } else { "Satır sonlarından böl" };
+        self.edit(desc, |tx| {
+            for (i, parts) in plan.into_iter().rev() {
+                tx.remove(i, 1);
+                tx.insert(i, parts);
+            }
+        });
+        let first = sel[0];
+        self.select(sel, first);
+        n
+    }
+
     /// Seçili satırları çoğaltır, kopyaları `frames` kare kaydırır (Aegisub "Duplicate and shift by 1 frame";
     /// kare kare tipografide kullanılır). Kopyalar seçilir.
     pub fn duplicate_shift_frames(&mut self, fr: &osisub_core::vfr::Framerate, frames: i64) {
@@ -704,6 +742,28 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn split_selected_lines() {
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.edit("x", |tx| {
+            tx.dialogue_mut(a, |x| x.text = "bir\\Niki".into());
+            tx.dialogue_mut(a + 2, |x| x.text = "{\\k50}a{\\k150}b".into());
+        });
+        let before = d.script.dialogues().count();
+        d.select(vec![a, a + 1, a + 2], a);
+        assert_eq!(d.split_selected(false, false), 1);
+        assert_eq!(d.script.dialogues().count(), before + 1);
+        assert_eq!(d.selection, vec![a, a + 1]);
+        d.select(vec![a + 3], a + 3);
+        assert_eq!(d.split_selected(true, false), 1);
+        let texts: Vec<(i64, i64, String)> = d.script.dialogues().map(|x| (x.start_time, x.end_time, x.text.clone())).collect();
+        assert_eq!(texts, vec![(0, 1000, "bir".into()), (1000, 2000, "iki".into()), (2000, 4000, "iki".into()), (4000, 4500, "a".into()), (4500, 6000, "b".into())]);
+        d.undo();
+        d.undo();
+        assert_eq!(d.script.dialogues().count(), before);
     }
 
     #[test]
