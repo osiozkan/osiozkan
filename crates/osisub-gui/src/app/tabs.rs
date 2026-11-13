@@ -9,17 +9,44 @@ impl App {
             return;
         };
         let pos = self.rows.iter().position(|&r| r == at).map(|p| p + 1).unwrap_or(0);
+        if !self.ref_lines.is_empty() && ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::I))) {
+            self.tr_insert_original = true;
+        }
+        // İlerleme: metni dolu (ve referanstan farklı) diyalog satırları — sürüm başına önbellekli
+        if self.tr_progress.0 != self.doc.rev || self.tr_progress.3 != self.ref_lines.len() {
+            let (mut done, mut total) = (0usize, 0usize);
+            for dd in self.doc.script.dialogues().filter(|x| !x.comment && !qc::is_typeset(x) && !qc::is_karaoke(x)) {
+                total += 1;
+                let v = osisub_core::tags::visible_text(&dd.text).replace('\n', " ⏎ ");
+                if v.trim().is_empty() { continue; }
+                let end = self.ref_lines.partition_point(|r| r.0 < dd.end_time);
+                let same = self.ref_lines[..end].iter().rev().take(6).any(|r| r.1 > dd.start_time && r.2.trim() == v.trim());
+                if !same { done += 1; }
+            }
+            self.tr_progress = (self.doc.rev, done, total, self.ref_lines.len());
+        }
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("Satır {} / {}", pos, self.rows.len())).strong());
             ui.label(RichText::new(format!("{} → {}", time::format_ass(d.start_time), time::format_ass(d.end_time))).monospace().weak());
+            let (_, done, total, _) = self.tr_progress;
+            if total > 0 {
+                ui.add(egui::ProgressBar::new(done as f32 / total as f32).desired_width(120.0).text(format!("çevrildi {done}/{total}"))).on_hover_text("Metni dolu ve referanstan farklı diyalog satırları (tabela/karaoke hariç)");
+            }
         });
         // Kaynak metin: referanstan eşleşenler
         let (a, b) = (d.start_time, d.end_time);
         let refs = &self.ref_lines;
         let mut hits: Vec<&(i64, i64, String)> = refs.iter().filter(|r| r.1 > a && r.0 < b).collect();
         hits.sort_by_key(|r| -(r.1.min(b) - r.0.max(a)));
+        // Bağlam: referansta bir önceki ve bir sonraki satır (soluk)
+        let in_hits = |r: &(i64, i64, String)| hits.iter().any(|h| std::ptr::eq(*h, r));
+        let prev_ref = refs.iter().rev().find(|r| r.0 < a && !in_hits(r));
+        let next_ref = refs.iter().find(|r| r.0 >= a && !in_hits(r));
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_height(64.0);
+            if let Some(p) = prev_ref {
+                ui.label(RichText::new(format!("↑ {}", p.2)).small().color(Color32::from_gray(130)));
+            }
             if refs.is_empty() {
                 ui.label(RichText::new("Referans altyazı yüklü değil (Dosya → Referans altyazı aç…)").weak());
             } else if hits.is_empty() {
@@ -27,6 +54,9 @@ impl App {
             }
             for h in hits.iter().take(3) {
                 ui.label(RichText::new(&h.2).size(17.0).color(theme::ACCENT));
+            }
+            if let Some(n) = next_ref {
+                ui.label(RichText::new(format!("↓ {}", n.2)).small().color(Color32::from_gray(130)));
             }
         });
         // Eksik terimler (kaynak referansta geçiyor, çeviride karşılığı yok)
@@ -58,6 +88,11 @@ impl App {
         }
         // Çeviri kutusu
         let mut nd = d.clone();
+        if use_tm.is_none() && self.tr_insert_original {
+            self.tr_insert_original = false;
+            let src: Vec<String> = { let mut h = hits.clone(); h.sort_by_key(|r| r.0); h.iter().map(|r| r.2.replace(" ⏎ ", "\\N")).collect() };
+            if !src.is_empty() { use_tm = Some(src.join("\\N")); }
+        }
         if let Some(t) = use_tm.take() {
             let head = osisub_core::overrides::parse(&nd.text).into_iter().take_while(|s| matches!(s, osisub_core::overrides::Seg::Block(_))).collect::<Vec<_>>();
             nd.text = format!("{}{}", osisub_core::overrides::to_string(&head), t);
@@ -103,6 +138,9 @@ impl App {
                 let a = self.doc.active;
                 self.doc.select(vec![a], a);
                 self.start_mt();
+            }
+            if ui.add_enabled(!self.ref_lines.is_empty(), egui::Button::new("Orijinali ekle")).on_hover_text("Referans metnini çeviri kutusuna kopyalar (baştaki etiketler korunur; Ctrl+I)").clicked() {
+                self.tr_insert_original = true;
             }
             if ui.button("Sonraki boş satır").on_hover_text("Metni boş olan sonraki satıra atla (ör. sesten oluşturulanlar)").clicked() {
                 let p = self.rows.iter().position(|&r| r == at).unwrap_or(0);

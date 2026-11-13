@@ -97,6 +97,10 @@ pub struct App {
     glossary: Vec<osisub_core::glossary::Term>,
     gloss_findings: Vec<osisub_core::glossary::Finding>,
     help_open: bool,
+    /// Çeviri sekmesi: (belge sürümü, çevrilmiş, toplam, referans satır sayısı)
+    tr_progress: (u64, usize, usize, usize),
+    /// Çeviri sekmesi: bir sonraki karede referans metnini kutuya ekle
+    tr_insert_original: bool,
     /// Kullanım kılavuzu penceresi (arama metni)
     guide: Option<String>,
     about_open: bool,
@@ -554,6 +558,8 @@ impl App {
             gloss_findings: vec![],
             help_open: false,
             guide: None,
+            tr_progress: (u64::MAX, 0, 0, 0),
+            tr_insert_original: false,
             about_open: false,
             settings,
             reference: None,
