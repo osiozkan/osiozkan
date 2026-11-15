@@ -117,6 +117,7 @@ pub struct App {
     fonts_open: bool,
     fixes_open: bool,
     stats_open: bool,
+    honor_open: bool,
     export_open: bool,
     export_sel: Vec<usize>,
     export_job: Option<ExportJob>,
@@ -583,6 +584,7 @@ impl App {
             fonts_open: false,
             fixes_open: false,
             stats_open: false,
+            honor_open: false,
             export_open: false,
             export_sel: vec![],
             export_job: None,
@@ -667,6 +669,7 @@ impl App {
             Some("whisper") => app.whisper = Some(windows::WhisperWin::default()),
             Some("fixes") => app.fixes_open = true,
             Some("stats") => app.stats_open = true,
+            Some("honor") => app.honor_open = true,
             Some("vad") => app.vad_open = true,
             Some("spell") => { app.tab = Tab::Spell; app.autospell = true; }
             Some("select") => app.select_open = true,
@@ -1953,6 +1956,7 @@ impl App {
                 });
                 if ui.button("Ekler (gömülü yazı tipleri)…").on_hover_text("[Fonts]/[Graphics]: dosyaları ASS'e göm, çıkar, sil").clicked() { self.attach_open = true; ui.close(); }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
+                if ui.button("Saygı ekleri (-san/-kun)…").clicked() { self.honor_open = true; ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
                 if ui.button("Perspektife oturt").on_hover_text("Etkin satıra 4 noktalı vektör kırpma çizin (sol üst, sağ üst, sağ alt, sol alt); satır o dörtgene \\frx\\fry\\frz\\fscx\\fscy\\fax\\org ile oturtulur").clicked() { ui.close(); self.perspective_fit(); }
@@ -2209,6 +2213,7 @@ impl App {
         self.fonts_window(&ctx);
         self.fixes_window(&ctx);
         self.stats_window(&ctx);
+        self.honorifics_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
         self.help_windows(&ctx);

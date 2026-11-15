@@ -1201,7 +1201,7 @@ impl App {
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"), ("tags", "Etiket uygula / yeniden hesapla"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
-            ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"),
+            ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
             ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
@@ -1246,6 +1246,7 @@ impl App {
                 }
                 "ocr" => self.ocr = Some(super::windows::OcrWin::default()),
                 "whisper" => self.whisper = Some(super::windows::WhisperWin::default()),
+                "honor" => self.honor_open = true,
                 "song" => self.song_win = Some(super::windows::SongWin::new()),
                 "collide" => { self.tab = super::Tab::Quality; self.start_collide_check(ctx); }
                 "mux" => self.start_video_job(false),
@@ -2147,6 +2148,41 @@ impl App {
             }
         });
         self.vad_open = open;
+    }
+
+    /// Saygı ekleri (-san/-kun…): ad başına kullanım tablosu ve toplu kaldırma.
+    pub(super) fn honorifics_window(&mut self, ctx: &egui::Context) {
+        if !self.honor_open { return; }
+        let mut open = true;
+        let mut strip = false;
+        egui::Window::new("Saygı ekleri").open(&mut open).collapsible(false).default_width(380.0).show(ctx, |ui| {
+            ui.label(RichText::new("Çeviride adlara bitişik Japonca saygı ekleri (Hinata-kun, Yachi-san…). Ekip kararına (ekleri koru / kaldır) uyumu ve tutarlılığı denetlemek için.").weak());
+            let u = osisub_core::honorifics::usage(&self.doc.script);
+            if u.is_empty() {
+                ui.label("Belgede saygı eki yok.");
+            } else {
+                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    egui::Grid::new("honor_grid").num_columns(2).striped(true).show(ui, |ui| {
+                        for (name, v) in &u {
+                            ui.label(RichText::new(name).strong());
+                            let parts: Vec<String> = v.iter().map(|(s, n)| if s.is_empty() { format!("eksiz ×{n}") } else { format!("-{s} ×{n}") }).collect();
+                            let mixed = v.len() > 1;
+                            ui.label(if mixed { RichText::new(parts.join(", ")).color(theme::WARN) } else { RichText::new(parts.join(", ")) });
+                            ui.end_row();
+                        }
+                    });
+                });
+                ui.label(RichText::new("Sarı: aynı ad farklı biçimlerde geçiyor (bilinçli olabilir).").small().weak());
+                if ui.button("Tüm ekleri kaldır").on_hover_text("Diyaloglardaki ada bitişik saygı eklerini siler (yorumlar hariç; tek geri-al adımı)").clicked() { strip = true; }
+            }
+        });
+        if strip {
+            let mut s = self.doc.script.clone();
+            let n = osisub_core::honorifics::strip_all(&mut s);
+            self.doc.apply_new_script("Saygı eklerini kaldır", s);
+            self.status = format!("{n} satırda saygı eki kaldırıldı");
+        }
+        self.honor_open = open;
     }
 
     pub(super) fn stats_window(&mut self, ctx: &egui::Context) {

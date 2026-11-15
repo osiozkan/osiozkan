@@ -38,6 +38,7 @@
 - [x] PGS (Blu-ray) OCR: yerleşik PGS çözücü (core::pgs: PCS/PDS/ODS/RLE, çoklu nesne, üst konum → \an8) + Tesseract komut satırı (toplu tek süreç; harici, paketlenmez); `.sup` ya da MKV/M2TS izinden; GUI Dosya → Video ile → Resim altyazısını metne çevir (yeni belge ya da referans), CLI `ocr`; gerçek tesseract ile uçtan uca testli
 - [x] Bölümler (chapters): "chapter" efektli satırlar → Matroska XML / OGM / MKV'ye gömme; içe aktarma (dosya ya da MKV)
 - [x] Sesten altyazı: whisper.cpp (GUI + CLI `transcribe`; sahte ikiliyle testli — gerçek modelle doğrulanmadı, model indirme bu ortamda engelli)
+- [x] Saygı ekleri penceresi: ad başına kullanım, tutarsızlık vurgusu, toplu kaldırma
 - [x] Toplu (sezon) kalite raporu: tek HTML, özet tablo (GUI toplu dosya penceresi + CLI `qc-report`)
 - [x] Ekran çakışması denetimi: konumlu tabela ↔ diyalog, libass ile çizerek (GUI Kalite + CLI `check --collide`)
 - [x] VobSub (DVD .idx/.sub ve MKV izi) OCR — yerleşik çözücü, ffmpeg dvdsub ile çapraz doğrulandı
