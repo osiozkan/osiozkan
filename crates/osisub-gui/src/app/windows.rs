@@ -1178,6 +1178,8 @@ impl App {
             ("hotkeys", "Kısayolları düzenle"), ("batch", "Toplu satır işlemleri"), ("typeset", "Degrade / parıltı"), ("motion", "Hareket izleme verisi uygula"), ("tags", "Etiket uygula / yeniden hesapla"),
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
+            ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1219,6 +1221,10 @@ impl App {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
                     if let Some(v) = v { match osisub_media::mux::subtitle_tracks(&v) { Ok(t) => self.tracks_win = Some((v, t)), Err(e) => self.status = e } }
                 }
+                "ocr" => self.ocr = Some(super::windows::OcrWin::default()),
+                "whisper" => self.whisper = Some(super::windows::WhisperWin::default()),
+                "song" => self.song_win = Some(super::windows::SongWin::new()),
+                "collide" => { self.tab = super::Tab::Quality; self.start_collide_check(ctx); }
                 "mux" => self.start_video_job(false),
                 "burn" => self.start_video_job(true),
                 "merge" => {

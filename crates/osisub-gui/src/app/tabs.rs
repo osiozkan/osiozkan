@@ -675,6 +675,20 @@ impl App {
         ui.label(RichText::new("Sayıları sürükleyerek değiştirin (Aegisub'ın görsel araçlarına ek olarak). Aynı satırdaki ardışık değişiklikler tek geri-al adımıdır.").small().weak());
     }
 
+    /// Ekran çakışması denetimini arka planda başlatır (Kalite sekmesi ve komut paleti).
+    pub(super) fn start_collide_check(&mut self, ctx: &egui::Context) {
+        if self.collide_rx.is_some() { return; }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.collide_rx = Some(rx);
+        let (script, rev, ctx) = (self.doc.script.clone(), self.doc.rev, ctx.clone());
+        self.status = "Ekran çakışması denetleniyor…".into();
+        std::thread::spawn(move || {
+            let r = osisub_media::screen_collisions(&script, &std::env::temp_dir().join("osisub-collide"));
+            let _ = tx.send((rev, r));
+            ctx.request_repaint();
+        });
+    }
+
     pub(super) fn karaoke_tab(&mut self, ui: &mut egui::Ui) {
         use osisub_core::karaoke as k;
         let at = self.doc.active;
@@ -857,14 +871,7 @@ impl App {
         ui.horizontal(|ui| {
             let busy = self.collide_rx.is_some();
             if ui.add_enabled(!busy, egui::Button::new(if busy { "Ekran çakışması denetleniyor…" } else { "Ekran çakışmasını denetle" })).on_hover_text("Konumlu (\\pos/\\move) tabela satırlarının aynı anda görünen diyalogla ekranda üst üste binip binmediğini libass ile çizerek ölçer (ffmpeg gerekir)").clicked() {
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.collide_rx = Some(rx);
-                let (script, rev, ctx) = (self.doc.script.clone(), self.doc.rev, ui.ctx().clone());
-                std::thread::spawn(move || {
-                    let r = osisub_media::screen_collisions(&script, &std::env::temp_dir().join("osisub-collide"));
-                    let _ = tx.send((rev, r));
-                    ctx.request_repaint();
-                });
+                self.start_collide_check(ui.ctx());
             }
             if self.collide_issues.0 == self.doc.rev {
                 ui.label(RichText::new(format!("{} çakışma", self.collide_issues.1.len())).weak());
