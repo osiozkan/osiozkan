@@ -180,7 +180,7 @@ pub fn mux_mkv(video: &Path, subtitle: &Path, out: &Path, o: &MuxOptions) -> Res
     let mut cmd = Command::new(crate::ffmpeg_bin());
     cmd.args(["-v", "error", "-y", "-i"]).arg(video).arg("-i").arg(subtitle);
     let chap_file = o.chapters.as_ref().map(|c| {
-        let p = std::env::temp_dir().join(format!("osisub-chapters-{}.txt", std::process::id()));
+        let p = std::env::temp_dir().join(format!("osisub-chapters-{}-{}.txt", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
         (std::fs::write(&p, c), p)
     });
     if let Some((w, p)) = &chap_file {

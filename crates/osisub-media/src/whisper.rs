@@ -76,7 +76,9 @@ pub fn clean(ds: Vec<osisub_core::Dialogue>) -> Vec<osisub_core::Dialogue> {
     for mut d in ds {
         let t = d.text.split_whitespace().collect::<Vec<_>>().join(" ");
         let bare = t.trim_matches(|c: char| "[]()（）♪♫~～ .".contains(c));
-        let sound = (t.starts_with('[') && t.ends_with(']')) || (t.starts_with('(') && t.ends_with(')')) || (t.starts_with('（') && t.ends_with('）'));
+        // yalnızca tek bir parantez grubundan oluşan satır ses betimidir ("[Takeshi] Bekle! [güler]" değil)
+        let one_group = |o: char, c: char| t.starts_with(o) && t.ends_with(c) && !t[o.len_utf8()..t.len() - c.len_utf8()].contains([o, c]);
+        let sound = one_group('[', ']') || one_group('(', ')') || one_group('（', '）');
         if bare.is_empty() || sound {
             continue;
         }
@@ -165,9 +167,9 @@ mod tests {
 
     #[test]
     fn clean_drops_sound_tags_and_merges_repeats() {
-        let v = clean(vec![d(0, 1000, " [Music] "), d(1000, 2000, "Where  are you?"), d(2100, 3000, "Where are you?"), d(3000, 4000, "♪ ♪"), d(4000, 5000, "(音楽)"), d(9000, 9500, "Where are you?"), d(9500, 9900, "(laughs) Okay.")]);
+        let v = clean(vec![d(0, 1000, " [Music] "), d(1000, 2000, "Where  are you?"), d(2100, 3000, "Where are you?"), d(3000, 4000, "♪ ♪"), d(4000, 5000, "(音楽)"), d(9000, 9500, "Where are you?"), d(9500, 9900, "(laughs) Okay."), d(9900, 9950, "[Takeshi] Wait! [laughs]")]);
         let t: Vec<(i64, i64, &str)> = v.iter().map(|d| (d.start_time, d.end_time, d.text.as_str())).collect();
-        assert_eq!(t, vec![(1000, 3000, "Where are you?"), (9000, 9500, "Where are you?"), (9500, 9900, "(laughs) Okay.")]);
+        assert_eq!(t, vec![(1000, 3000, "Where are you?"), (9000, 9500, "Where are you?"), (9500, 9900, "(laughs) Okay."), (9900, 9950, "[Takeshi] Wait! [laughs]")]);
     }
 
     /// Sahte whisper-cli (kabuk betiği) ile uçtan uca: ffmpeg ile ses çıkarma, argümanlar, ilerleme, SRT okuma.

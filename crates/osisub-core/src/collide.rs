@@ -4,7 +4,12 @@
 //! Sınırlar gerçek çizimle ölçülür (`coverage::Bounds`; çizici dışarıdan verilir).
 use crate::ass::{Dialogue, Entry, Script};
 use crate::coverage::Bounds;
-use crate::qc::{is_typeset, Issue, Kind};
+use crate::qc::{Issue, Kind};
+
+/// libass yalnızca `\pos`/`\move`'lu satırları yığmadan (çarpışma önleme) muaf tutar.
+pub fn is_positioned(d: &Dialogue) -> bool {
+    d.text.contains("\\pos(") || d.text.contains("\\move(")
+}
 
 /// Denetlenecek çiftler: (konumlu satırın girdisi, diyalog girdisi, ikisinin de göründüğü an ms).
 /// Yorum ve boş satırlar atlanır; iki konumlu satır (bilinçli katmanlama) ya da iki konumsuz satır
@@ -26,7 +31,7 @@ pub fn pairs(script: &Script) -> Vec<(usize, usize, i64)> {
             if b.start_time >= a.end_time {
                 break;
             }
-            let (ta, tb) = (is_typeset(a), is_typeset(b));
+            let (ta, tb) = (is_positioned(a), is_positioned(b));
             if ta == tb {
                 continue;
             }
@@ -41,14 +46,26 @@ pub fn pairs(script: &Script) -> Vec<(usize, usize, i64)> {
     out
 }
 
-/// Yalnızca `entry` satırını içeren betik (başlık, stiller, yazı tipleri korunur).
+/// `entry` satırının gerçek yerini ölçmek için betik (başlık, stiller, yazı tipleri korunur).
+/// Konumlu satır tek başına çizilir. Konumsuz satırda libass'in yığması (aynı anda görünen
+/// konumsuz satırlar birbirini iter) korunsun diye diğer konumsuz satırlar da kalır ama tamamen
+/// saydam yapılır: yerleşimi etkilerler, kapsamaya girmezler.
 pub fn single_line(script: &Script, entry: usize) -> Script {
     let mut s = script.clone();
+    let target_free = matches!(script.entries.get(entry), Some(Entry::Dialogue(d)) if !is_positioned(d));
     let mut k = 0;
-    s.entries.retain(|e| {
-        let keep = !matches!(e, Entry::Dialogue(_)) || k == entry;
+    s.entries.retain_mut(|e| {
+        let i = k;
         k += 1;
-        keep
+        match e {
+            Entry::Dialogue(_) if i == entry => true,
+            Entry::Dialogue(d) if target_free && !d.comment && !is_positioned(d) => {
+                d.text = format!("{{\\alpha&HFF&}}{}", d.text.replace("\\alpha", "\\xalpha").replace("\\1a", "\\x1a").replace("\\3a", "\\x3a").replace("\\4a", "\\x4a"));
+                true
+            }
+            Entry::Dialogue(_) => false,
+            _ => true,
+        }
     });
     s
 }
@@ -143,7 +160,8 @@ mod tests {
         let s = sc(&[(0, 1, "a"), (0, 1, "b"), (0, 1, "c")]);
         let e = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text == "b")).unwrap();
         let one = single_line(&s, e);
-        assert_eq!(one.dialogues().map(|d| d.text.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        // konumsuz satır: diğer konumsuz satırlar saydam olarak kalır (libass yığması için)
+        assert_eq!(one.dialogues().map(|d| d.text.as_str()).collect::<Vec<_>>(), vec!["{\\alpha&HFF&}a", "b", "{\\alpha&HFF&}c"]);
         assert_eq!(one.styles().count(), s.styles().count());
     }
 }

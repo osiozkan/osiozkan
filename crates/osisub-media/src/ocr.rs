@@ -96,7 +96,8 @@ pub fn load_bitmap_subs(path: &std::path::Path, track: Option<u32>) -> Result<Ve
         None => tracks.iter().find(|t| crate::mux::is_bitmap_sub(&t.codec)),
     }
     .ok_or("PGS/VobSub altyazı izi bulunamadı")?;
-    let tmp = std::env::temp_dir().join(format!("osisub-{}-{}.{}", std::process::id(), t.index, if t.codec == "dvd_subtitle" { "sub" } else { "sup" }));
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let tmp = std::env::temp_dir().join(format!("osisub-{}-{}-{}.{}", std::process::id(), nanos, t.index, if t.codec == "dvd_subtitle" { "sub" } else { "sup" }));
     let r = if t.codec == "dvd_subtitle" {
         crate::mux::extract_vobsub(path, t, &tmp).and_then(|idx_text| {
             let b = std::fs::read(&tmp).map_err(|e| e.to_string())?;

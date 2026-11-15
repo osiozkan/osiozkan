@@ -12,6 +12,9 @@ use crate::pgs::{Bitmap, PgsSub};
 pub struct IdxTrack {
     pub lang: String,
     pub index: u8,
+    /// `timestamp:` satırları: (ms, `.sub` içindeki paket konumu); `delay:` eklenmiş. VSFilter ve
+    /// ffmpeg zamanı buradan alır (çok VOB'lu dökümlerde PTS sıfırlanabilir).
+    pub times: Vec<(i64, u64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +48,7 @@ impl Default for Idx {
 /// CodecPrivate verisidir.
 pub fn parse_idx(s: &str) -> Idx {
     let mut idx = Idx::default();
+    let mut delay = 0i64;
     for line in s.lines() {
         let line = line.trim();
         if line.starts_with('#') {
@@ -72,12 +76,34 @@ pub fn parse_idx(s: &str) -> Idx {
                 // "id: en, index: 0"
                 let lang = v.split(',').next().unwrap_or("").trim().to_string();
                 let index = v.split("index:").nth(1).and_then(|n| n.trim().parse().ok()).unwrap_or(idx.tracks.len() as u8);
-                idx.tracks.push(IdxTrack { lang, index });
+                idx.tracks.push(IdxTrack { lang, index, times: vec![] });
+                delay = 0;
+            }
+            "delay" => delay += parse_idx_time(v).unwrap_or(0),
+            "timestamp" => {
+                // "00:00:01:234, filepos: 000000000"
+                let (t, rest) = v.split_once(',').unwrap_or((v, ""));
+                let pos = rest.split("filepos:").nth(1).and_then(|p| u64::from_str_radix(p.trim(), 16).ok());
+                if let (Some(t), Some(pos), Some(tr)) = (parse_idx_time(t), pos, idx.tracks.last_mut()) {
+                    tr.times.push((t + delay, pos));
+                }
             }
             _ => {}
         }
     }
     idx
+}
+
+/// "HH:MM:SS:mmm" (başta "-" olabilir) → ms
+fn parse_idx_time(t: &str) -> Option<i64> {
+    let t = t.trim();
+    let (neg, t) = t.strip_prefix('-').map_or((false, t), |r| (true, r));
+    let p: Vec<i64> = t.split(':').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
+    if p.len() != 4 || p.iter().any(|&x| !(0..=100_000).contains(&x)) {
+        return None;
+    }
+    let ms = ((p[0] * 60 + p[1]) * 60 + p[2]) * 1000 + p[3];
+    Some(if neg { -ms } else { ms })
 }
 
 fn be16(b: &[u8], i: usize) -> usize {
@@ -90,9 +116,15 @@ fn read_pts(b: &[u8]) -> i64 {
 
 /// `.sub` (MPEG-PS) akışından alt akış başına SPU paketleri: (alt akış, PTS ms, paket).
 pub fn demux(b: &[u8]) -> Vec<(u8, i64, Vec<u8>)> {
+    demux_at(b).into_iter().map(|(s, p, k, _)| (s, p, k)).collect()
+}
+
+/// `demux` + her SPU'nun başladığı paketin (0xBA) dosya konumu (`.idx` filepos ile eşleşir).
+pub fn demux_at(b: &[u8]) -> Vec<(u8, i64, Vec<u8>, u64)> {
     let mut out = Vec::new();
-    // alt akış → (pts, beklenen boyut, tampon)
-    let mut cur: std::collections::HashMap<u8, (i64, usize, Vec<u8>)> = Default::default();
+    // alt akış → (pts, beklenen boyut, tampon, başlangıç konumu)
+    let mut cur: std::collections::HashMap<u8, (i64, usize, Vec<u8>, u64)> = Default::default();
+    let mut pack = 0u64;
     let mut i = 0;
     while i + 6 <= b.len() {
         if !(b[i] == 0 && b[i + 1] == 0 && b[i + 2] == 1) {
@@ -102,6 +134,7 @@ pub fn demux(b: &[u8]) -> Vec<(u8, i64, Vec<u8>)> {
         let code = b[i + 3];
         match code {
             0xBA => {
+                pack = i as u64;
                 if i + 14 <= b.len() && b[i + 4] & 0xC0 == 0x40 {
                     i += 14 + (b[i + 13] & 7) as usize;
                 } else {
@@ -147,9 +180,9 @@ pub fn demux(b: &[u8]) -> Vec<(u8, i64, Vec<u8>)> {
                     let sid = b[data];
                     let payload = &b[data + 1..end];
                     if (0x20..0x40).contains(&sid) {
-                        let e = cur.entry(sid).or_insert((0, 0, Vec::new()));
+                        let e = cur.entry(sid).or_insert((0, 0, Vec::new(), 0));
                         if pts.is_some() || e.2.is_empty() {
-                            *e = (pts.unwrap_or(e.0), 0, Vec::new());
+                            *e = (pts.unwrap_or(e.0), 0, Vec::new(), pack);
                         }
                         e.2.extend_from_slice(payload);
                         if e.1 == 0 && e.2.len() >= 2 {
@@ -158,7 +191,7 @@ pub fn demux(b: &[u8]) -> Vec<(u8, i64, Vec<u8>)> {
                         if e.1 >= 4 && e.2.len() >= e.1 {
                             let mut pkt = std::mem::take(&mut e.2);
                             pkt.truncate(e.1);
-                            out.push((sid - 0x20, e.0, pkt));
+                            out.push((sid - 0x20, e.0, pkt, e.3));
                             e.1 = 0;
                         }
                     }
@@ -317,14 +350,17 @@ pub fn decode_spu(p: &[u8]) -> Option<Spu> {
 /// `.sub` baytları + `.idx` bilgisi → görüntüler (PGS türünde). `track`: idx izi (None = ilk iz).
 /// Bitiş komutu olmayan altyazı bir sonrakinin başlangıcına (en çok 5 sn) kadar sürer.
 pub fn parse(sub: &[u8], idx: &Idx, track: Option<u8>) -> Vec<PgsSub> {
-    let packets = demux(sub);
+    let packets = demux_at(sub);
     let track = track.or_else(|| idx.tracks.first().map(|t| t.index)).or_else(|| packets.first().map(|p| p.0)).unwrap_or(0);
     let mut out: Vec<PgsSub> = Vec::new();
     let mut open: Option<usize> = None;
-    for (sid, pts, pkt) in packets {
+    let idx_times: std::collections::HashMap<u64, i64> = idx.tracks.iter().find(|t| t.index == track).map(|t| t.times.iter().map(|&(ms, p)| (p, ms)).collect()).unwrap_or_default();
+    for (sid, pts, pkt, at) in packets {
         if sid != track {
             continue;
         }
+        // .idx zamanı varsa o geçerli (VSFilter/ffmpeg gibi), yoksa PES PTS
+        let pts = idx_times.get(&at).copied().unwrap_or(pts);
         let Some(spu) = decode_spu(&pkt) else { continue };
         let start = pts + spu.start_ms;
         if let Some(k) = open.take() {
@@ -463,7 +499,7 @@ mod tests {
         assert_eq!(idx.palette[1], (255, 255, 255));
         assert_eq!(idx.palette[3], (255, 0, 0));
         assert_eq!(idx.palette[15], (1, 2, 255));
-        assert_eq!(idx.tracks, vec![IdxTrack { lang: "en".into(), index: 0 }, IdxTrack { lang: "tr".into(), index: 1 }]);
+        assert_eq!(idx.tracks, vec![IdxTrack { lang: "en".into(), index: 0, times: vec![(1000, 0)] }, IdxTrack { lang: "tr".into(), index: 1, times: vec![] }]);
     }
 
     #[test]
@@ -523,6 +559,18 @@ mod tests {
         let t1 = parse(&sub, &idx, None);
         assert_eq!(t1.len(), 1);
         assert_eq!(t1[0].start_ms, 1200);
+    }
+
+    #[test]
+    fn idx_timestamps_and_delay_override_pts() {
+        let px = pattern(20, 4);
+        let a = encode_spu(0, 0, 20, 4, &px, [0, 1, 2, 3], [0, 15, 15, 15], 500);
+        let sub = mux(&[(0, 1000, a.clone()), (0, 2000, a)]);
+        // ikinci SPU 2048. baytta; PTS sıfırlanmış bir dökümü taklit: idx 61.000 ve gecikme +5 sn
+        let idx = parse_idx("id: en, index: 0\ntimestamp: 00:00:01:000, filepos: 000000000\ndelay: 00:00:05:000\ntimestamp: 00:01:01:000, filepos: 000000800\n");
+        assert_eq!(idx.tracks[0].times, vec![(1000, 0), (66000, 0x800)]);
+        let subs = parse(&sub, &idx, None);
+        assert_eq!(subs.iter().map(|s| s.start_ms).collect::<Vec<_>>(), vec![1000, 66000]);
     }
 
     #[test]

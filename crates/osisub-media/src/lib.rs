@@ -374,11 +374,20 @@ pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64]
         return Ok(vec![]);
     }
     let _ = std::fs::create_dir_all(tmp);
-    let ass = tmp.join(format!("coverage-{}.ass", std::process::id()));
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let ass = tmp.join(format!("coverage-{}-{}.ass", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     std::fs::write(&ass, ass_text).map_err(|e| e.to_string())?;
-    let vf = ass_filter(&ass, "");
+    let r = render_coverage_file(&ass, w, h, times_ms);
+    let _ = std::fs::remove_file(&ass);
+    r
+}
+
+fn render_coverage_file(ass: &Path, w: usize, h: usize, times_ms: &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
+    let vf = ass_filter(ass, "");
     let mut out = Vec::with_capacity(times_ms.len());
-    for chunk in times_ms.chunks(200) {
+    // ffmpeg çıktısı bellekte tutulur (kare başına siyah+beyaz w·h·6 bayt): parça ~256 MB'ı aşmasın
+    let per = (256usize << 20) / (w * h * 6);
+    for chunk in times_ms.chunks(per.clamp(1, 200)) {
         let n = chunk.len();
         let pts: Vec<String> = chunk.iter().enumerate().map(|(i, t)| format!("{}*eq(N,{})", t.max(&0), i)).collect();
         let src = |c: &str| format!("color=c={}:s={}x{}:r=25:d={},format=rgb24,settb=1/1000,setpts='{}',{}", c, w, h, (n as f64 + 0.5) / 25.0, pts.join("+"), vf);
@@ -391,7 +400,6 @@ pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64]
             .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
         let fs = w * h * 3;
         if r.stdout.len() < fs * 2 * n {
-            let _ = std::fs::remove_file(&ass);
             return Err(format!("çizilemedi: {}", String::from_utf8_lossy(&r.stderr).trim()));
         }
         for k in 0..n {
@@ -399,7 +407,6 @@ pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64]
             out.push(osisub_core::coverage::bounds_from_bw(&f[..fs], &f[fs..], w, h));
         }
     }
-    let _ = std::fs::remove_file(&ass);
     Ok(out)
 }
 
@@ -550,6 +557,12 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("osisub-collide-{}", std::process::id()));
         let r = super::screen_collisions(&s, &tmp).unwrap();
         assert_eq!(r.len(), 1, "{:?}", r);
+        // libass yığması: iki alt diyalog aynı anda → ikincisi yukarı itilir; tabela itilmiş yerde
+        let ev2 = "Dialogue: 0,0:00:00.00,0:00:03.00,Default,,0,0,0,,Birinci alt satır\nDialogue: 0,0:00:00.00,0:00:03.00,Default,,0,0,0,,İkinci alt satır\nDialogue: 0,0:00:00.00,0:00:03.00,Default,,0,0,0,,{\\an2\\pos(320,290)}TABELA\nDialogue: 0,0:00:00.00,0:00:03.00,Default,,0,0,0,,{\\an2\\pos(600,200)}uzak\n";
+        let s2 = osisub_core::Script::parse(&format!("{head}{ev2}"));
+        let r2 = super::screen_collisions(&s2, &tmp).unwrap();
+        // tabela yalnızca yukarı itilen satırla çakışır (tek başına çizilseydi ikisi de en altta olurdu)
+        assert_eq!(r2.len(), 1, "{:?}", r2);
         assert!(matches!(&s.entries[r[0].entry], osisub_core::Entry::Dialogue(d) if d.text == "{\\an8}Nereye gidiyorsun?"));
         let _ = std::fs::remove_dir_all(&tmp);
     }

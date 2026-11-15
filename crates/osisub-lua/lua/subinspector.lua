@@ -20,9 +20,12 @@ local function frame_of(ms)
   if f then return f end
   return math.floor(ms * 24000 / 1001 / 1000)
 end
+-- Karenin gerçekten gösterildiği an. aegisub.ms_from_frame Aegisub'ın "güvenli başlangıç"ını verir
+-- (önceki kareyle arasının ortası); iki komşu güvenli başlangıcın ortası karenin kendi anıdır.
 local function ms_of(f)
-  local ms = aegisub.ms_from_frame and aegisub.ms_from_frame(f)
-  if ms then return ms end
+  local a = aegisub.ms_from_frame and aegisub.ms_from_frame(f)
+  local b = a and aegisub.ms_from_frame(f + 1)
+  if a and b then return math.floor((a + b) / 2) end
   return math.floor(f * 1001 * 1000 / 24000 + 0.5)
 end
 

@@ -20,14 +20,16 @@ pub fn from_script(s: &Script) -> Vec<Chapter> {
     let mut v: Vec<Chapter> = s
         .dialogues()
         .filter(|d| is_chapter(d))
-        .enumerate()
-        .map(|(i, d)| {
-            let t = crate::tags::strip_tags(&d.text).replace("\\N", " ").trim().to_string();
-            Chapter { start_ms: d.start_time.max(0), title: if t.is_empty() { format!("Bölüm {}", i + 1) } else { t } }
-        })
+        .map(|d| Chapter { start_ms: d.start_time.max(0), title: crate::tags::strip_tags(&d.text).replace("\\N", " ").trim().to_string() })
         .collect();
     v.sort_by_key(|c| c.start_ms);
     v.dedup_by_key(|c| c.start_ms);
+    // adsız bölümler zaman sırasındaki numarasını alır
+    for (i, c) in v.iter_mut().enumerate() {
+        if c.title.is_empty() {
+            c.title = format!("Bölüm {}", i + 1);
+        }
+    }
     v
 }
 
