@@ -6,8 +6,9 @@
 1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
 3. Video araçları, VobSub OCR ve `SubInspector` karşılığı tamam.
-4. libmpv ile donanım hızlandırmalı oynatma.
-5. Karaoke: furigana düzeni (gecikme kalibrasyonu ve sese oturtma tamam).
+4. Paketler: Windows'a whisper-cli + Tesseract, macOS'a ffmpeg (release.yml).
+5. libmpv ile donanım hızlandırmalı oynatma.
+6. Karaoke: furigana düzeni (gecikme kalibrasyonu ve sese oturtma tamam).
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254

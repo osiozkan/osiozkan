@@ -4,16 +4,19 @@
 
 **Resim altyazıları:** Blu-ray PGS ve **DVD VobSub (.idx/.sub, MKV'deki DVD izi)** için yerleşik çözücüler + Tesseract OCR (GUI penceresi: yeni belge ya da referans; CLI `ocr`). VobSub çözücüsü ffmpeg'in dvdsub çözücüsüyle çapraz doğrulandı.
 **Sesten altyazı (Whisper):** videonun sesini whisper.cpp ile yerel olarak yazıya döker — Japonca ham döküm ya da İngilizce çeviri, zamanlanmış satırlar; ses betimleri (`[Music]`) atılır, yinelenen satırlar birleşir (GUI + CLI `transcribe`).
-**Karaoke:** **Sese oturt** — hece sınırlarını sesteki hece başlangıçlarına kaydırır (spektral akı + dinamik programlama; seçili satırlara tek adımda).
+**Karaoke:** **Sese oturt** — hece sınırlarını sesteki hece başlangıçlarına kaydırır (spektral akı + dinamik programlama; seçili satırlara tek adımda). Tuşla zamanlamada tepki gecikmesi her satırdan sonra sesle ölçülüp otomatik düzeltilir.
 **Kalite:** **ekran çakışması** — konumlu tabela satırı aynı anda görünen diyalogla ekranda üst üste biniyorsa libass ile çizerek bulur (Kalite sekmesi, CLI `check --collide`); çevrilmemiş satır denetimi (referansla aynı / Japonca / İngilizce kalmış; CLI `check --ref`); ekran genişliği denetimi gerçek yazı tipiyle (CLI `check --width`); Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da…).
 **Lua:** **`SubInspector.Inspector` yerleşik** — ASSFoundation `getLineBounds` / Aegisub-Motion artık satır sınırlarını ölçebilir (libass ile, gerçek saydamlıkla, ms hassasiyetinde); `line.extra` gerçek Extradata ile.
+**Toplu kalite raporu:** bir sezonun tüm bölümleri tek HTML'de, özet tabloyla (toplu dosya penceresi, CLI `qc-report`).
+**Çeviri:** Saygı ekleri penceresi (-san/-kun…): ad başına kullanım, tutarsızlık vurgusu, toplu kaldırma.
+**Komut paleti:** OCR, Whisper, ekran çakışması, OP/ED yerleştir, kanji zamanlayıcı ve diğer pencereler eklendi.
 **Bölümler (chapters):** Efekt'i `chapter` olan satırlar → Matroska XML / OGM; MKV'ye gömerken bölümler de eklenir; dosyadan ya da MKV'den içe aktarma (CLI `chapters`).
 **Düzenleme:** satır dengeleme (Subtitle Edit auto balance, Türkçe bağlaç kuralı); satırları böl (satır sonlarından / karaoke hecelerinden); basılı tutarak oynat (Ctrl+Boşluk); OP/ED yerleştir (şarkı altyazısını önceki bölümün sesiyle eşleştirip yeni bölüme koyar).
 **Tipografi:** eğme video aracı (`\fax/\fay`); çizim aracı her hizalama/ölçek/eğme/3B dönüşte; renk seçicide videodan pipet.
 **Biçimler:** EBU STL, iTT, tam TTML okuyucu; SRT/VTT konum korunur.
 **Arayüz:** uygulama içi aranabilir kullanım kılavuzu (F1); başlangıç ekranı; ızgara sütunları ayarlanabilir; sahte video (Aegisub dummy video); çeviri sekmesinde bağlam satırları ve ilerleme; referans altyazı video önizlemesinde.
 **Performans:** arayüz boştayken hiç çizmez (önceden sürekli ~100 kare/sn çiziliyordu — dizüstünde pil/CPU).
-**Hata düzeltmeleri:** PGS'de 1 baytlık palet bölümünde çökme (rastgele girdi testinde bulundu).
+**Hata düzeltmeleri:** VobSub zamanları `.idx` `timestamp:`/`delay:` satırlarından alınır (çok VOB'lu dökümlerde PTS sıfırlanması); ekran çakışması denetimi libass'in satır yığmasını hesaba katar. PGS'de 1 baytlık palet bölümünde çökme (rastgele girdi testinde bulundu).
 
 ## 0.5.0 — 2026-11-12 (dördüncü gece)
 

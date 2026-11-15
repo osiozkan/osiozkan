@@ -95,4 +95,11 @@ Dal: `claude/vibrant-clarke-g5biih` (main'den; `-u7myjw` ileri sarıldı). 2026-
 - Tuzak: ffmpeg `setpts` süzgeci zaman tabanına yuvarlar — `color` kaynağı r=25 iken ms değerleri 40 ms'ye yuvarlanıyordu; önce `settb=1/1000`.
 - libass `\p` çizimlerinde kenarlarda alfa≈2'lik pikseller bırakır (sınır testleri ±1 px toleranslı).
 - Ortam: huggingface.co proxy tarafından engelli → Whisper gerçek modelle doğrulanamadı.
+- Aynı gece (devam): karaoke gecikme kalibrasyonu (`karaoke::tap_offset_ms`), toplu kalite raporu (`qc::report_html_multi`, CLI `qc-report`), saygı ekleri (`core::honorifics`), komut paletine yeni pencereler.
+- Bağımsız kod incelemesi (alt ajan) 9 bulgu verdi, hepsi düzeltildi: çakışma denetiminde libass yığması (diğer konumsuz satırlar saydam olarak çizime dahil — gerçek libass testiyle), `is_positioned` yalnız `\pos/\move`, `render_coverage` parça boyu kare boyutuna göre (~256 MB), benzersiz geçici dosyalar, VobSub idx zamanları, SubInspector kare anı, bölüm numarası, Whisper parantez süzgeci.
+
+### Gece sonu durumu (2026-11-15, v0.6.0)
+- Tüm testler yeşil, CI yeşil; 0.6.0 paketleri (Linux/Windows/macOS) Actions'ta.
+- Doğrulanmayanlar: Whisper gerçek modelle (indirme engelli), gerçek ses aygıtı, gerçek ASSFoundation/Aegisub-Motion, kullanıcının kendi Lua betikleri (depoda yok).
+- Sıradaki öneriler: Windows paketine whisper-cli/Tesseract ekleme (release.yml; URL'ler bu ortamda doğrulanamadı), macOS paketine ffmpeg, İngilizce arayüz, furigana düzeni.
 
