@@ -415,3 +415,135 @@ mod tests {
         assert_eq!((l2.as_str(), v2.len()), ("", 1));
     }
 }
+
+/// Hece sınırlarını sesteki hece başlangıçlarına (onset) oturtur. `onset[i]`: satır başından
+/// i. santisaniyedeki başlangıç gücü (ör. spektral akı, `osisub_media::onset_envelope`).
+/// Her sınır mevcut konumunun ±`window_cs` içinde, güçlü bir başlangıca doğru kayar; uzaklık
+/// küçük bir cezayla dengelenir (yakında başlangıç yoksa sınır yerinde kalır). Sınırlar sıralı kalır,
+/// her hece en az 3 cs sürer; 0 süreli heceler (boş başlangıç vb.) olduğu gibi kalır. Dinamik
+/// programlama: tüm sınırlar birlikte en iyi şekilde seçilir.
+pub fn snap_to_onsets(syls: &[Syl], onset: &[f32], window_cs: i64) -> Vec<Syl> {
+    const MIN: i64 = 3;
+    let total = total(syls);
+    // süreli hecelerin indeksleri ve aralarındaki sınırlar (satır başına göre cs)
+    let idx: Vec<usize> = (0..syls.len()).filter(|&i| syls[i].dur > 0).collect();
+    if idx.len() < 2 || onset.is_empty() {
+        return syls.to_vec();
+    }
+    let mut prior = Vec::new();
+    let mut acc = 0;
+    for (i, s) in syls.iter().enumerate() {
+        if s.dur > 0 && i != idx[0] {
+            prior.push(acc);
+        }
+        acc += s.dur;
+    }
+    let maxv = onset.iter().cloned().fold(0.0f32, f32::max);
+    if maxv <= 0.0 {
+        return syls.to_vec();
+    }
+    let w = window_cs.max(1);
+    let val = |p: i64| onset.get(p as usize).copied().unwrap_or(0.0) / maxv;
+    let score = |p: i64, pr: i64| val(p) - 0.15 * (p - pr).abs() as f32 / w as f32;
+    // ilk süreli hecenin başı ve son süreli hecenin sonu sabit
+    let first_start: i64 = syls[..idx[0]].iter().map(|s| s.dur).sum();
+    let end = total;
+    let cands: Vec<Vec<i64>> = prior.iter().map(|&p| ((p - w).max(first_start + MIN)..=(p + w).min(end - MIN)).collect()).collect();
+    if cands.iter().any(|c| c.is_empty()) {
+        return syls.to_vec();
+    }
+    // dp[j][k]: j. sınır k. adayda iken en iyi toplam; geri izleme
+    let n = prior.len();
+    let mut dp: Vec<Vec<f32>> = Vec::with_capacity(n);
+    let mut back: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for j in 0..n {
+        let mut row = vec![f32::NEG_INFINITY; cands[j].len()];
+        let mut brow = vec![0usize; cands[j].len()];
+        for (k, &p) in cands[j].iter().enumerate() {
+            let s = score(p, prior[j]);
+            if j == 0 {
+                if p - first_start >= MIN {
+                    row[k] = s;
+                }
+            } else {
+                let mut best = (f32::NEG_INFINITY, 0);
+                for (q, &pp) in cands[j - 1].iter().enumerate() {
+                    if p - pp >= MIN && dp[j - 1][q] > best.0 {
+                        best = (dp[j - 1][q], q);
+                    }
+                }
+                if best.0 > f32::NEG_INFINITY {
+                    row[k] = best.0 + s;
+                    brow[k] = best.1;
+                }
+            }
+            if j == n - 1 && end - p < MIN {
+                row[k] = f32::NEG_INFINITY;
+            }
+        }
+        dp.push(row);
+        back.push(brow);
+    }
+    let Some((mut k, _)) = dp[n - 1].iter().enumerate().filter(|(_, v)| v.is_finite()).max_by(|a, b| a.1.total_cmp(b.1)) else {
+        return syls.to_vec();
+    };
+    let mut pos = vec![0i64; n];
+    for j in (0..n).rev() {
+        pos[j] = cands[j][k];
+        k = back[j][k];
+    }
+    // sınırlardan süreler
+    let mut out = syls.to_vec();
+    let mut bounds = vec![first_start];
+    bounds.extend(pos);
+    bounds.push(end);
+    for (m, &i) in idx.iter().enumerate() {
+        out[i].dur = bounds[m + 1] - bounds[m];
+    }
+    out
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::*;
+
+    fn syl(d: i64, t: &str) -> Syl {
+        Syl { dur: d, kind: "kf".into(), text: t.into() }
+    }
+
+    #[test]
+    fn moves_boundaries_to_nearby_onsets() {
+        // gerçek başlangıçlar 0, 31, 72, 105 cs; ilk tahmin eşit (30'ar)
+        let mut on = vec![0.05f32; 140];
+        for (p, v) in [(31, 1.0), (72, 0.8), (105, 0.9), (50, 0.2)] {
+            on[p] = v;
+        }
+        let s = vec![syl(0, ""), syl(30, "ka"), syl(30, "ze "), syl(30, "no"), syl(50, " u")];
+        let r = snap_to_onsets(&s, &on, 20);
+        assert_eq!(r.iter().map(|s| s.dur).collect::<Vec<_>>(), vec![0, 31, 41, 33, 35]);
+        assert_eq!(total(&r), total(&s));
+    }
+
+    #[test]
+    fn far_or_absent_onsets_keep_positions() {
+        let mut on = vec![0.0f32; 100];
+        on[90] = 1.0; // pencerenin dışında (75±10)
+        let s = vec![syl(25, "a"), syl(25, "b"), syl(25, "c"), syl(25, "d")];
+        let r = snap_to_onsets(&s, &on, 10);
+        assert_eq!(r.iter().map(|s| s.dur).collect::<Vec<_>>(), vec![25, 25, 25, 25]);
+        assert_eq!(snap_to_onsets(&s, &[], 10), s);
+    }
+
+    #[test]
+    fn keeps_order_and_minimum_length() {
+        // iki sınır da aynı güçlü başlangıca çekilmek ister: biri en az 3 cs ayrı kalmalı
+        let mut on = vec![0.0f32; 60];
+        on[20] = 1.0;
+        let s = vec![syl(18, "a"), syl(4, "b"), syl(38, "c")];
+        let r = snap_to_onsets(&s, &on, 10);
+        let d: Vec<i64> = r.iter().map(|s| s.dur).collect();
+        assert!(d.iter().all(|&x| x >= 3), "{d:?}");
+        assert_eq!(d.iter().sum::<i64>(), 60);
+        assert!(d[0] == 20 || d[0] + d[1] == 20, "{d:?}");
+    }
+}

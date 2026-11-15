@@ -8,6 +8,7 @@ pub mod ocr;
 pub mod mux;
 pub mod resync;
 pub mod whisper;
+pub mod onset;
 
 use std::io::Read;
 use std::path::Path;

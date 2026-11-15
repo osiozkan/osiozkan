@@ -720,6 +720,25 @@ impl App {
             ui.horizontal(|ui| {
                 if ui.button("Süreye ölçekle").clicked() { let mut v = syls.clone(); k::scale_to(&mut v, line_cs); new_syls = Some(v); }
                 if ui.button("Harfe göre dağıt").clicked() { let mut v = syls.clone(); k::distribute(&mut v, line_cs); new_syls = Some(v); }
+                let wave = self.media.waveform();
+                if ui.add_enabled(wave.is_some(), egui::Button::new("Sese oturt")).on_hover_text("Hece sınırlarını sesteki hece başlangıçlarına (vurgu/perde değişimi) kaydırır; her sınır ±0.25 sn içinde en güçlü başlangıca yaklaşır. Seçili tüm karaoke satırlarına uygulanır. (Ses açık olmalı)").clicked() {
+                    if let Some(w) = wave {
+                        let targets: Vec<usize> = if self.doc.selection.len() > 1 { self.doc.selection.clone() } else { vec![at] };
+                        let mut n = 0;
+                        self.doc.edit("Karaokeyi sese oturt", |tx| {
+                            for &i in &targets {
+                                tx.dialogue_mut(i, |dd| {
+                                    if !dd.text.contains("\\k") { return; }
+                                    let (lead, v) = k::parse_with_lead(&dd.text);
+                                    let env = osisub_media::onset::onset_envelope(&w, dd.start_time, dd.end_time);
+                                    let r = k::snap_to_onsets(&v, &env, 25);
+                                    if r != v { dd.text = k::build_with_lead(&lead, &r); n += 1; }
+                                });
+                            }
+                        });
+                        self.status = format!("{n} karaoke satırı sese oturtuldu");
+                    }
+                }
                 if ui.button("Etiketleri kaldır").clicked() { self.doc.edit("Karaoke etiketlerini kaldır", |tx| tx.dialogue_mut(at, |dd| { let v = k::parse(&dd.text); dd.text = v.iter().map(|s| s.text.clone()).collect(); })); }
             });
             // Çubuk

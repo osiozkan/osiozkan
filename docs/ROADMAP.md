@@ -68,6 +68,7 @@
 - [x] Karaoke: oynatırken Boşluk ile tuşla zamanlama (gecikme ayarlı; çekirdek `apply_taps` testli)
 - [x] Karaoke: otomatik Japonca hece (mora) ayırma — romaji (ki|t|to, shi|n|ji, kyo|u) ve kana (きょ|う, っ ayrı); şablonlayıcı: gerçek kara-templater yerleşik
 - [x] Kanji zamanlayıcı (Aegisub Kanji Timer; core::kanjitimer, Araçlar menüsü): romaji `\k` satırının süreleri aynı zamandaki kanji/kana satırına; kana okunuştan (Hepburn/Kunrei, edatlar を/は/へ, っ, ー, küçük kana), kanji dizileri sonraki kanaya kadar otomatik gruplanır; gruplar `ki+mi|no` / `君|の` olarak düzenlenebilir; Uygula ve sonraki
+- [x] Karaoke: heceleri sese oturt (spektral akı onset + dinamik programlama)
 - [ ] Karaoke: gecikmeyi ses saatiyle otomatik kalibre et; furigana düzeni
 
 ## Lua (Automation 4)
