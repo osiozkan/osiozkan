@@ -36,6 +36,7 @@
 - [x] Biçimler: SAMI (.smi okuma/yazma, çok dilli dosyada ilk sınıf), SubViewer 2 (.sub okuma; MicroDVD ile otomatik ayrım)
 - [x] Biçimler: EBU STL (ikili, ISO 6937 Türkçe karakterler, uzantı blokları, program başlangıç zaman kodu), iTT (kare zaman kodu), TTML ailesi tam okuyucu (Netflix DFXP tickRate/frameRate, EBU-TT `tt:` ön eki, `dur`, span/stil italik-kalın, üst bölge → `\an8`); SRT/VTT'de `{\an8}` konum korunur (VTT `line:0`)
 - [x] PGS (Blu-ray) OCR: yerleşik PGS çözücü (core::pgs: PCS/PDS/ODS/RLE, çoklu nesne, üst konum → \an8) + Tesseract komut satırı (toplu tek süreç; harici, paketlenmez); `.sup` ya da MKV/M2TS izinden; GUI Dosya → Video ile → Resim altyazısını metne çevir (yeni belge ya da referans), CLI `ocr`; gerçek tesseract ile uçtan uca testli
+- [x] Bölümler (chapters): "chapter" efektli satırlar → Matroska XML / OGM / MKV'ye gömme; içe aktarma (dosya ya da MKV)
 - [x] Sesten altyazı: whisper.cpp (GUI + CLI `transcribe`; sahte ikiliyle testli — gerçek modelle doğrulanmadı, model indirme bu ortamda engelli)
 - [x] Ekran çakışması denetimi: konumlu tabela ↔ diyalog, libass ile çizerek (GUI Kalite + CLI `check --collide`)
 - [x] VobSub (DVD .idx/.sub ve MKV izi) OCR — yerleşik çözücü, ffmpeg dvdsub ile çapraz doğrulandı

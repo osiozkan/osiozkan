@@ -29,6 +29,7 @@ KULLANIM:
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub song <bölüm.ass> <şarkı.ass> <eski-video> <yeni-video> [çıktı]   OP/ED'yi sesle bulup yerleştir
+  osisub chapters <dosya.ass|video> <çıktı.xml|.txt>   bölümleri (Efekt: chapter satırları) Matroska XML / OGM'ye yaz
   osisub transcribe <video|ses> <çıktı> [--lang ja|auto] [--translate] [--model ggml-x.bin] [--max-len N]
                  sesten zamanlanmış altyazı (whisper.cpp; --translate: İngilizceye)
   osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
@@ -457,6 +458,18 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             println!("kayma {} ms, eşleşme %{:.0}, {} satır eklendi", off, score * 100.0, r.lines);
             if score < 0.6 { eprintln!("UYARI: eşleşme düşük, yerleşimi kontrol edin"); }
             save(&target, args.get(4).unwrap_or(&args[0]))
+        }
+        "chapters" => {
+            let inp = args.first().ok_or("girdi gerekli")?;
+            let out = args.get(1).ok_or("çıktı gerekli (.xml ya da .txt)")?;
+            let ch = match Path::new(inp).extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+                Some("mkv" | "mp4" | "webm") => osisub_media::mux::chapters(Path::new(inp))?,
+                _ => osisub_core::chapters::from_script(&load(inp)?),
+            };
+            let text = if out.ends_with(".txt") { osisub_core::chapters::to_ogm(&ch) } else { osisub_core::chapters::to_matroska_xml(&ch, "tur") };
+            std::fs::write(out, text).map_err(|e| e.to_string())?;
+            println!("{} bölüm yazıldı", ch.len());
+            Ok(())
         }
         "transcribe" => {
             let lang = opt(&mut args, "--lang").unwrap_or_else(|| "auto".into());

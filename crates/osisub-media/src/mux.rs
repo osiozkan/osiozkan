@@ -171,12 +171,22 @@ pub struct MuxOptions {
     pub fonts: Vec<PathBuf>,
     /// Yeni iz varsayılan olsun
     pub default_track: bool,
+    /// Gömülecek bölümler (ffmpeg FFMETADATA metni, `core::chapters::to_ffmetadata`); kaynaktakilerin yerine geçer
+    pub chapters: Option<String>,
 }
 
 /// Videoya altyazıyı MKV izi olarak gömer (yeniden kodlama yok).
 pub fn mux_mkv(video: &Path, subtitle: &Path, out: &Path, o: &MuxOptions) -> Result<(), String> {
     let mut cmd = Command::new(crate::ffmpeg_bin());
     cmd.args(["-v", "error", "-y", "-i"]).arg(video).arg("-i").arg(subtitle);
+    let chap_file = o.chapters.as_ref().map(|c| {
+        let p = std::env::temp_dir().join(format!("osisub-chapters-{}.txt", std::process::id()));
+        (std::fs::write(&p, c), p)
+    });
+    if let Some((w, p)) = &chap_file {
+        w.as_ref().map_err(|e| e.to_string())?;
+        cmd.args(["-f", "ffmetadata", "-i"]).arg(p).args(["-map_chapters", "2"]);
+    }
     cmd.args(["-map", "0:v?", "-map", "0:a?"]);
     let existing = if o.keep_existing_subs { subtitle_tracks(video).map(|t| t.len()).unwrap_or(0) } else { 0 };
     if o.keep_existing_subs {
@@ -202,7 +212,28 @@ pub fn mux_mkv(video: &Path, subtitle: &Path, out: &Path, o: &MuxOptions) -> Res
         cmd.args([format!("-metadata:s:t:{}", existing_att + k), format!("mimetype={}", font_mime(f))]);
     }
     cmd.arg(out);
-    run(&mut cmd)
+    let r = run(&mut cmd);
+    if let Some((_, p)) = chap_file {
+        let _ = std::fs::remove_file(p);
+    }
+    r
+}
+
+/// Videodaki bölümler (ffprobe).
+pub fn chapters(video: &Path) -> Result<Vec<osisub_core::chapters::Chapter>, String> {
+    let o = Command::new(crate::ffprobe_bin()).args(["-v", "error", "-print_format", "json", "-show_chapters"]).arg(video).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).map_err(|e| e.to_string())?;
+    Ok(v["chapters"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|c| osisub_core::chapters::Chapter {
+                    start_ms: (c["start_time"].as_str().and_then(|t| t.parse::<f64>().ok()).unwrap_or(0.0) * 1000.0).round() as i64,
+                    title: c["tags"]["title"].as_str().unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 fn attachment_count(video: &Path) -> usize {
@@ -311,9 +342,11 @@ mod tests {
         assert_eq!((tracks[0].codec.as_str(), tracks[0].language.as_str(), tracks[0].title.as_str(), tracks[0].default), ("ass", "tur", "Türkçe", true));
         // ikinci iz ekle, ilkini koru
         let muxed2 = dir.join("m2.mkv");
-        mux_mkv(&muxed, &sub, &muxed2, &MuxOptions { language: "eng".into(), keep_existing_subs: true, ..Default::default() }).unwrap();
+        let ch = vec![osisub_core::chapters::Chapter { start_ms: 0, title: "Ön bölüm".into() }, osisub_core::chapters::Chapter { start_ms: 1250, title: "Açılış; =1".into() }];
+        mux_mkv(&muxed, &sub, &muxed2, &MuxOptions { language: "eng".into(), keep_existing_subs: true, chapters: Some(osisub_core::chapters::to_ffmetadata(&ch, 2000)), ..Default::default() }).unwrap();
         let t2 = subtitle_tracks(&muxed2).unwrap();
         assert_eq!(t2.iter().map(|t| t.language.as_str()).collect::<Vec<_>>(), vec!["tur", "eng"]);
+        assert_eq!(chapters(&muxed2).unwrap(), ch);
         // çıkar: ASS içeriği korunur
         let out = dir.join("x.ass");
         extract_subtitle(&muxed2, &t2[0], &out).unwrap();

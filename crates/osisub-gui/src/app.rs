@@ -1628,6 +1628,50 @@ impl App {
                         ui.close();
                         self.ocr = Some(windows::OcrWin::default());
                     }
+                    ui.menu_button("Bölümler (chapters)", |ui| {
+                        let n = osisub_core::chapters::from_script(&self.doc.script).len();
+                        ui.label(RichText::new(format!("Belgede {n} bölüm (Efekt: chapter); MKV'ye gömerken eklenir")).weak());
+                        if ui.button("Video konumunda bölüm ekle").on_hover_text("Oynatma konumuna Efekt'i \"chapter\" olan bir yorum satırı ekler; metni bölüm adıdır").clicked() {
+                            ui.close();
+                            let t = self.media.playhead.max(0);
+                            let mut ch = osisub_core::chapters::from_script(&self.doc.script);
+                            if !ch.iter().any(|c| c.start_ms == t) {
+                                ch.push(osisub_core::chapters::Chapter { start_ms: t, title: format!("Bölüm {}", ch.len() + 1) });
+                                ch.sort_by_key(|c| c.start_ms);
+                                let mut s = self.doc.script.clone();
+                                osisub_core::chapters::apply_to_script(&mut s, &ch);
+                                self.doc.apply_new_script("Bölüm ekle", s);
+                                self.status = format!("Bölüm eklendi: {}", osisub_core::time::format_ass(t));
+                            }
+                        }
+                        if ui.add_enabled(n > 0, egui::Button::new("Dışa aktar (Matroska XML / OGM)…")).clicked() {
+                            ui.close();
+                            if let Some(p) = rfd::FileDialog::new().add_filter("Matroska XML", &["xml"]).add_filter("OGM", &["txt"]).set_file_name("bolumler.xml").save_file() {
+                                let ch = osisub_core::chapters::from_script(&self.doc.script);
+                                let text = if osisub_core::io::ext_of(&p) == "txt" { osisub_core::chapters::to_ogm(&ch) } else { osisub_core::chapters::to_matroska_xml(&ch, "tur") };
+                                self.status = match std::fs::write(&p, text) { Ok(()) => format!("{} bölüm yazıldı: {}", ch.len(), p.display()), Err(e) => e.to_string() };
+                            }
+                        }
+                        if ui.button("İçe aktar (XML / OGM / videodan)…").on_hover_text("Bölüm dosyası ya da MKV seçin; belgedeki bölüm satırlarının yerine geçer").clicked() {
+                            ui.close();
+                            if let Some(p) = rfd::FileDialog::new().add_filter("Bölümler / video", &["xml", "txt", "mkv", "mp4"]).pick_file() {
+                                let ch = match osisub_core::io::ext_of(&p).as_str() {
+                                    "xml" | "txt" => std::fs::read(&p).map(|b| osisub_core::chapters::parse(&osisub_core::ass::decode_bytes(&b))).map_err(|e| e.to_string()),
+                                    _ => osisub_media::mux::chapters(&p),
+                                };
+                                match ch {
+                                    Ok(ch) if !ch.is_empty() => {
+                                        let mut s = self.doc.script.clone();
+                                        osisub_core::chapters::apply_to_script(&mut s, &ch);
+                                        self.doc.apply_new_script("Bölümleri içe aktar", s);
+                                        self.status = format!("{} bölüm içe aktarıldı", ch.len());
+                                    }
+                                    Ok(_) => self.status = "Bölüm bulunamadı".into(),
+                                    Err(e) => self.status = e,
+                                }
+                            }
+                        }
+                    });
                     if ui.button("Sesten altyazı (Whisper)…").on_hover_text("Videonun sesini whisper.cpp ile yazıya döker: zamanlanmış satırlar (Japonca döküm ya da İngilizce çeviri)").clicked() {
                         ui.close();
                         self.whisper = Some(windows::WhisperWin::default());
@@ -2438,6 +2482,9 @@ impl App {
             }
         }
         let duration = self.media.info.as_ref().map(|i| i.duration_ms).unwrap_or(0);
+        // Belgedeki "chapter" satırları MKV bölümü olarak gömülür
+        let ch = osisub_core::chapters::from_script(&self.doc.script);
+        let chapters = (!ch.is_empty()).then(|| osisub_core::chapters::to_ffmetadata(&ch, duration.max(ch.last().map_or(0, |c| c.start_ms) + 1000)));
         let progress = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
@@ -2448,7 +2495,7 @@ impl App {
                 let o = osisub_media::mux::BurnOptions { fonts_dir: Some(fonts_dir), ..Default::default() };
                 osisub_media::mux::burn(&video, &ass, &out, &o, dur, |p| p2.store((p * 1000.0) as u32, std::sync::atomic::Ordering::Relaxed), || c2.load(std::sync::atomic::Ordering::Relaxed))
             } else {
-                let o = osisub_media::mux::MuxOptions { language: "tur".into(), title: "Türkçe".into(), fonts: font_files, default_track: true, keep_existing_subs: true };
+                let o = osisub_media::mux::MuxOptions { language: "tur".into(), title: "Türkçe".into(), fonts: font_files, default_track: true, keep_existing_subs: true, chapters };
                 osisub_media::mux::mux_mkv(&video, &ass, &out, &o)
             };
             let _ = tx.send(r.map(|_| out.display().to_string()));
