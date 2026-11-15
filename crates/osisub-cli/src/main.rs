@@ -626,7 +626,9 @@ fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn new_engine(host: HeadlessHost) -> Result<Engine, String> {
+fn new_engine(mut host: HeadlessHost) -> Result<Engine, String> {
+    // SubInspector karşılığı (satır sınırları) ffmpeg/libass ile
+    host.renderer.get_or_insert_with(|| std::sync::Arc::new(|ass: &str, w: u32, h: u32, times: &[i64]| osisub_media::render_coverage(ass, w, h, times, &std::env::temp_dir().join("osisub-inspector"))));
     let mut e = Engine::new(Box::new(host)).map_err(|e| e.to_string())?;
     // GUI ile aynı arama sırası: osisub automation/include, kurulu Aegisub'ın include'u, programın yanındaki include
     for d in osisub_core::paths::automation_include_dirs() {

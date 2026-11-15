@@ -24,6 +24,7 @@ pub mod overrides;
 pub mod perspective;
 pub mod pgs;
 pub mod vobsub;
+pub mod coverage;
 pub mod paths;
 pub mod qc;
 pub mod search;

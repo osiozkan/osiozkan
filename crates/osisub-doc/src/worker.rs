@@ -101,6 +101,9 @@ impl Host for ChannelHost {
     fn clipboard_set(&mut self, text: &str) -> bool {
         crate::sysclip::set(text)
     }
+    fn render_bounds(&mut self, ass: &str, w: u32, h: u32, times: &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
+        osisub_media::render_coverage(ass, w, h, times, &std::env::temp_dir().join("osisub-inspector"))
+    }
     fn get_frame(&mut self, frame: i64, subs_ass: Option<String>) -> Option<(u32, u32, Vec<u8>)> {
         let (video, info, fr) = {
             let m = self.media.lock().ok()?;

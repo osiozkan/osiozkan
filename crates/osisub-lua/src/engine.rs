@@ -72,7 +72,15 @@ pub trait Host {
     fn clipboard_set(&mut self, _text: &str) -> bool {
         false
     }
+    /// SubInspector karşılığı: `ass` betiğini `w`×`h` boyutunda verilen anlarda (ms) çizip her an
+    /// görünenlerin sınırlarını döndürür (`osisub_media::render_coverage`).
+    fn render_bounds(&mut self, _ass: &str, _w: u32, _h: u32, _times: &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
+        Err("bu ortamda altyazı çizici yok".into())
+    }
 }
+
+/// `HeadlessHost` için çizici (CLI ffmpeg/libass'e bağlar): (betik, genişlik, yükseklik, anlar).
+pub type BoundsRenderer = std::sync::Arc<dyn Fn(&str, u32, u32, &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> + Send + Sync>;
 
 /// CLI için: `--param name=value` ile iletişim kutusu değerleri ezilebilir.
 #[derive(Default)]
@@ -83,9 +91,16 @@ pub struct HeadlessHost {
     pub timecodes: Option<std::sync::Arc<osisub_core::vfr::Framerate>>,
     pub video_size: Option<(i32, i32)>,
     pub quiet: bool,
+    pub renderer: Option<BoundsRenderer>,
 }
 
 impl Host for HeadlessHost {
+    fn render_bounds(&mut self, ass: &str, w: u32, h: u32, times: &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
+        match &self.renderer {
+            Some(r) => r(ass, w, h, times),
+            None => Err("bu ortamda altyazı çizici yok".into()),
+        }
+    }
     fn dialog(&mut self, spec: &DialogSpec) -> DialogResult {
         use crate::dialog::DV;
         let mut r = spec.defaults();

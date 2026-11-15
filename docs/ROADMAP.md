@@ -3,9 +3,9 @@
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
 ## Sıradaki geceler için öncelikli öneriler
-1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). `SubInspector.Inspector` karşılığı (ASSFoundation `getLineBounds`); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
+1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
-3. Video araçları ve VobSub OCR tamam; sıradaki: `SubInspector`.
+3. Video araçları, VobSub OCR ve `SubInspector` karşılığı tamam.
 4. libmpv ile donanım hızlandırmalı oynatma.
 5. Karaoke: gecikme kalibrasyonu, furigana düzeni.
 
@@ -76,7 +76,8 @@
 - [ ] Aegisub'ın diğer gelen betiklerinin (strip-tags, select-overlaps, auto-leadin…) otomatik testi — bu gece indirilen betikleri çalıştırmak otomatik mod güvenlik denetimince engellendi; betikler depoya kullanıcı onayıyla eklenmeli
 - [x] DependencyControl uyumluluk katmanı (requireModules, registerMacro(s), ConfigHandler, Logger, sürüm denetimi; güncelleme yapmaz) + yedek `json` modülü; Aegisub'ın automation/include ve autoload klasörleri otomatik; `/` ile iç içe makro menüleri
 - [x] ffi DLL karşılıkları: `BM.BadMutex`, `PT.PreciseTimer` (yerleşik, DepCtrl sürümlü)
-- [ ] `SubInspector.Inspector` karşılığı (libass satır sınırları); gerçek ASSFoundation / Aegisub-Motion ile uçtan uca doğrulama
+- [x] `SubInspector.Inspector` karşılığı (libass satır sınırları, gerçek saydamlıkla; ms hassasiyetinde)
+- [ ] Gerçek ASSFoundation / Aegisub-Motion ile uçtan uca doğrulama (modüller depoda yok)
 - [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] `aegisub.get_frame` (arch1t3cht API: width/height/getPixel/getPixelFormatted; altyazılı kare)

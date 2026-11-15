@@ -33,6 +33,7 @@ pub const MODULES: &[(&str, &str)] = &[
     // ffi DLL isteyen yardımcı kütüphanelerin saf karşılıkları (ASSFoundation, a-mo vb. ister)
     ("BM.BadMutex", include_str!("../lua/badmutex.lua")),
     ("PT.PreciseTimer", include_str!("../lua/precisetimer.lua")),
+    ("SubInspector.Inspector", include_str!("../lua/subinspector.lua")),
 ];
 
 /// Yalnızca include klasörlerinde bulunamazsa kullanılan yedek modüller.

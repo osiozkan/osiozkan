@@ -359,6 +359,42 @@ pub fn render_ass_preview(ass_text: &str, width: u32, height: u32, bg: &str, tmp
     Ok(Frame { width, height, rgba: out.stdout[..need].to_vec() })
 }
 
+/// SubInspector karşılığı: `ass_text` betiğini `width`×`height` boyutunda, video olmadan, verilen
+/// anlarda (ms) libass ile çizer ve her an için görünenlerin sınırlarını döndürür (yoksa None).
+/// Her an siyah ve beyaz zeminde çizilir; fark gerçek saydamlığı verir (`core::coverage`).
+/// Kareler `settb=1/1000` + `setpts` ile istenen anlara (ms hassasiyetinde) yerleştirilir (tek ffmpeg süreci, 200 anlık parçalar).
+pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64], tmp: &Path) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
+    let (w, h) = (width.max(2) as usize, height.max(2) as usize);
+    let _ = std::fs::create_dir_all(tmp);
+    let ass = tmp.join(format!("coverage-{}.ass", std::process::id()));
+    std::fs::write(&ass, ass_text).map_err(|e| e.to_string())?;
+    let vf = ass_filter(&ass, "");
+    let mut out = Vec::with_capacity(times_ms.len());
+    for chunk in times_ms.chunks(200) {
+        let n = chunk.len();
+        let pts: Vec<String> = chunk.iter().enumerate().map(|(i, t)| format!("{}*eq(N,{})", t.max(&0), i)).collect();
+        let src = |c: &str| format!("color=c={}:s={}x{}:r=25:d={},format=rgb24,settb=1/1000,setpts='{}',{}", c, w, h, (n as f64 + 0.5) / 25.0, pts.join("+"), vf);
+        let graph = format!("{}[b];{}[w];[b][w]vstack,format=rgb24[o]", src("black"), src("white"));
+        let r = Command::new(ffmpeg_bin())
+            .args(["-v", "error", "-filter_complex", &graph, "-map", "[o]", "-fps_mode", "passthrough", "-frames:v", &n.to_string(), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+        let fs = w * h * 3;
+        if r.stdout.len() < fs * 2 * n {
+            let _ = std::fs::remove_file(&ass);
+            return Err(format!("çizilemedi: {}", String::from_utf8_lossy(&r.stderr).trim()));
+        }
+        for k in 0..n {
+            let f = &r.stdout[k * fs * 2..(k + 1) * fs * 2];
+            out.push(osisub_core::coverage::bounds_from_bw(&f[..fs], &f[fs..], w, h));
+        }
+    }
+    let _ = std::fs::remove_file(&ass);
+    Ok(out)
+}
+
 /// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
 pub struct PlayStream {
     pub child: std::process::Child,
@@ -484,6 +520,30 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn coverage_bounds_follow_time() {
+        if !crate::ffmpeg_available() {
+            return;
+        }
+        let ass = "[Script Info]\nPlayResX: 640\nPlayResY: 360\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,{\\pos(100,100)\\p1}m 0 0 l 50 0 50 20 0 20\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\move(300,200,400,200)\\c&H000000&\\p1}m 0 0 l 10 0 10 10 0 10\n";
+        let tmp = std::env::temp_dir().join(format!("osisub-cov-{}", std::process::id()));
+        let b = super::render_coverage(ass, 640, 360, &[500, 1000, 3000, 2999, 5000, 1999, 2000], &tmp).unwrap();
+        let r = |i: usize| b[i].as_ref().map(|b| (b.x, b.y, b.w, b.h));
+        // libass kenarlarda alfa≈2'lik pikseller bırakır (SubInspector da sayar): ±1 piksel
+        let near = |a: (i64, i64, i64, i64), e: (i64, i64, i64, i64)| (a.0 - e.0).abs() <= 1 && (a.1 - e.1).abs() <= 1 && (a.2 - e.2).abs() <= 2 && (a.3 - e.3).abs() <= 2;
+        assert!(near(r(0).unwrap(), (100, 100, 50, 20)), "{:?}", r(0));
+        // ikinci satır (siyah kare) başlangıçta 300,200'de: birleşik kutu
+        assert!(near(r(1).unwrap(), (100, 100, 210, 110)), "{:?}", r(1));
+        assert_eq!(r(2), None);
+        let end = r(3).unwrap();
+        assert!(end.0 >= 397 && end.0 <= 400 && (end.1 - 200).abs() <= 1, "{:?}", end);
+        assert_eq!(r(4), None);
+        // ms hassasiyeti: ilk kutu 1999'da görünür, 2000'de yok (yalnız ikinci satır)
+        assert!(r(5).unwrap().0 <= 101);
+        assert!(r(6).unwrap().0 >= 340, "{:?}", r(6));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
 
     #[test]
     fn aspect_ratio() {

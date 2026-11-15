@@ -51,7 +51,7 @@ osisub gerçek DepCtrl yerine **yerleşik bir uyumluluk katmanı** kullanır (ge
 - **Aegisub klasörleri otomatik:** kurulu Aegisub'ın `automation/include` klasörü her zaman aranır, `automation/autoload` betikleri de (Otomasyon sekmesinden kapatılabilir) yüklenir. Windows `%APPDATA%\Aegisub`, Linux `~/.aegisub`, macOS `~/Library/Application Support/Aegisub`; `OSISUB_AEGISUB_DIR` ile değiştirilebilir.
 - Makro adlarındaki `/` Aegisub gibi iç içe alt menü oluşturur.
 - **`BM.BadMutex` ve `PT.PreciseTimer` yerleşik** (2026-11-12): gerçekleri ffi ile yerel DLL yükler; osisub saf karşılıklarını sunar (`lock/tryLock/unlock`; `PT()`, `:timeElapsed()` saniye, `PT.sleep(ms)`), DepCtrl sürüm kaydıyla. ASSFoundation / a-mo'nun bu bağımlılıkları artık karşılanır.
-- Eksik: `SubInspector.Inspector` (libass ile satır sınırlarını ölçen ffi DLL; ASSFoundation `getLineBounds` kullanır).
+- **`SubInspector.Inspector` yerleşik** (2026-11-15): gerçeği libass'i ffi ile yükleyen bir DLL'dir (ASSFoundation `getLineBounds`, Aegisub-Motion kullanır). osisub satırları betiğin başlığı/stilleriyle, video olmadan libass (ffmpeg) ile çizer: `SubInspector(subs)`, `:getBounds(satırlar)` → `bounds, times` (her an için `{x, y, w, h, hash, solid}` ya da `false`; `si_exhaustive = true` olan satırda her kare, yoksa ilk an). Kapsama siyah/beyaz zemin farkından gerçek saydamlıkla ölçülür (kenarlık, gölge, yarı saydam pikseller dahil); `hash` görünüme bağlıdır, konuma değil. Kare zamanları açık videodan (yoksa 23.976). ffmpeg gerekir.
 - Doğrulanmayan: gerçek ASSFoundation / Aegisub-Motion modülleriyle uçtan uca çalıştırma (modüller depoda yok).
 
 ## Belgeye bağlı betikler

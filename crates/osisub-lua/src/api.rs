@@ -149,6 +149,54 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         )?;
     }
     {
+        // SubInspector karşılığı: satırları (Aegisub satır tabloları) betiğin başlığı ve stilleriyle,
+        // video olmadan, verilen anlarda libass ile çizip sınırları döndürür.
+        let inn = inner.clone();
+        let sc = script.clone();
+        native.set(
+            "render_bounds",
+            lua.create_function(move |lua, (lines, times): (Table, Table)| {
+                let mut s = sc.borrow().clone();
+                s.entries.retain(|e| !matches!(e, osisub_core::ass::Entry::Dialogue(_)));
+                for t in lines.sequence_values::<Table>() {
+                    let t = t?;
+                    if t.get::<Option<String>>("class")?.is_none() {
+                        t.set("class", "dialogue")?;
+                    }
+                    if let osisub_core::ass::Entry::Dialogue(mut d) = crate::subs::table_to_entry(&t, "Events")? {
+                        d.comment = false;
+                        s.entries.push(osisub_core::ass::Entry::Dialogue(d));
+                    }
+                }
+                let times: Vec<i64> = times.sequence_values::<f64>().filter_map(|v| v.ok()).map(|v| v.round() as i64).collect();
+                let (w, h) = s.script_resolution();
+                let r = inn.borrow_mut().host.render_bounds(&s.to_ass_string(), w.max(1) as u32, h.max(1) as u32, &times);
+                match r {
+                    Ok(v) => {
+                        let out = lua.create_table()?;
+                        for (i, b) in v.into_iter().enumerate() {
+                            match b {
+                                Some(b) => {
+                                    let t = lua.create_table()?;
+                                    t.set("x", b.x)?;
+                                    t.set("y", b.y)?;
+                                    t.set("w", b.w)?;
+                                    t.set("h", b.h)?;
+                                    t.set("hash", b.hash)?;
+                                    t.set("solid", b.solid)?;
+                                    out.set(i + 1, t)?;
+                                }
+                                None => out.set(i + 1, false)?,
+                            }
+                        }
+                        Ok((Value::Table(out), Value::Nil))
+                    }
+                    Err(e) => Ok((Value::Nil, Value::String(lua.create_string(&e)?))),
+                }
+            })?,
+        )?;
+    }
+    {
         // duvar saati (saniye) ve uyku: PT.PreciseTimer karşılığı için
         let t0 = std::time::Instant::now();
         native.set("clock", lua.create_function(move |_, ()| Ok(t0.elapsed().as_secs_f64()))?)?;
