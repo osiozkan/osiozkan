@@ -531,11 +531,25 @@ impl App {
         let syls = k::parse(&d.text);
         let n = syls.len().min(t.taps.len());
         if n == 0 { return; }
-        let syls = k::apply_taps(&syls, &t.taps, d.duration() / 10);
+        // Kalan gecikmeyi sesle ölç: dokunuşlar sesteki hece başlangıçlarından sistematik olarak
+        // geç/erken ise düzelt ve ayarı güncelle (sonraki satırlar için de geçerli)
+        let mut taps = t.taps.clone();
+        let mut note = String::new();
+        if let Some(w) = self.media.waveform() {
+            let env = osisub_media::onset::onset_envelope(&w, d.start_time, d.end_time);
+            if let Some(off) = k::tap_offset_ms(&taps, &env).filter(|o| o.abs() >= 20) {
+                let new_lat = (self.tap_latency_ms + off).clamp(0, 1000);
+                let applied = new_lat - self.tap_latency_ms;
+                for x in taps.iter_mut() { *x = (*x - applied).max(0); }
+                self.tap_latency_ms = new_lat;
+                note = format!(" • gecikme sesle ölçüldü: {} ms ({:+} ms düzeltildi)", new_lat, applied);
+            }
+        }
+        let syls = k::apply_taps(&syls, &taps, d.duration() / 10);
         let text = k::build(&syls);
         let at = t.line;
         self.doc.edit("Tuşla karaoke zamanlama", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
-        self.status = format!("{} hece zamanlandı", n);
+        self.status = format!("{} hece zamanlandı{}", n, note);
     }
 
     /// Etkin satırın etiket denetçisi: her blok ve etiket ayrı satırda düzenlenebilir; `\t`
@@ -684,7 +698,7 @@ impl App {
                 }
             }
             ui.label("Gecikme (ms)");
-            ui.add(egui::DragValue::new(&mut self.tap_latency_ms).range(0..=1000).speed(5)).on_hover_text("İnsan tepkisi + ses başlatma gecikmesi için düzeltme");
+            ui.add(egui::DragValue::new(&mut self.tap_latency_ms).range(0..=1000).speed(5)).on_hover_text("İnsan tepkisi + ses başlatma gecikmesi için düzeltme. Ses açıksa her tuşla zamanlamadan sonra sesteki hece başlangıçlarıyla karşılaştırılıp otomatik ayarlanır.");
         });
 
         if !has_k {

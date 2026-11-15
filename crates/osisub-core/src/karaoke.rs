@@ -547,3 +547,46 @@ mod snap_tests {
         assert!(d[0] == 20 || d[0] + d[1] == 20, "{d:?}");
     }
 }
+
+/// Tuşla zamanlamada kalan sistematik gecikme: her dokunuşun (satıra göre ms) ±300 ms içindeki en
+/// güçlü ses başlangıcına uzaklığının ortancası (dokunuş − başlangıç; pozitif = geç basılmış).
+/// Güvenilir eşleşme 3'ten azsa None. `onset`: santisaniye başına güç (`snap_to_onsets` gibi).
+pub fn tap_offset_ms(taps_ms: &[i64], onset: &[f32]) -> Option<i64> {
+    let maxv = onset.iter().cloned().fold(0.0f32, f32::max);
+    if maxv <= 0.0 {
+        return None;
+    }
+    let mut d: Vec<i64> = taps_ms
+        .iter()
+        .filter_map(|&t| {
+            let c = t / 10;
+            let (a, b) = ((c - 30).max(0) as usize, ((c + 30).max(0) as usize).min(onset.len().saturating_sub(1)));
+            if a > b {
+                return None;
+            }
+            let (k, v) = (a..=b).map(|k| (k, onset[k])).max_by(|x, y| x.1.total_cmp(&y.1))?;
+            (v >= 0.3 * maxv).then_some(t - k as i64 * 10)
+        })
+        .collect();
+    if d.len() < 3 {
+        return None;
+    }
+    d.sort();
+    Some(d[d.len() / 2])
+}
+
+#[cfg(test)]
+mod tap_offset_tests {
+    #[test]
+    fn median_of_tap_to_onset_distances() {
+        let mut on = vec![0.0f32; 300];
+        for p in [20, 80, 150, 210, 260] {
+            on[p] = 1.0;
+        }
+        // her dokunuş ~120 ms geç, biri gürültülü (+300: eşleşmez/aykırı)
+        let taps = [320, 920, 1610, 2230, 2600 + 290];
+        assert_eq!(super::tap_offset_ms(&taps, &on), Some(120));
+        assert_eq!(super::tap_offset_ms(&taps[..2], &on), None);
+        assert_eq!(super::tap_offset_ms(&taps, &[]), None);
+    }
+}

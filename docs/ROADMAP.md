@@ -7,7 +7,7 @@
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
 3. Video araçları, VobSub OCR ve `SubInspector` karşılığı tamam.
 4. libmpv ile donanım hızlandırmalı oynatma.
-5. Karaoke: gecikme kalibrasyonu, furigana düzeni.
+5. Karaoke: furigana düzeni (gecikme kalibrasyonu ve sese oturtma tamam).
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
@@ -69,7 +69,8 @@
 - [x] Karaoke: otomatik Japonca hece (mora) ayırma — romaji (ki|t|to, shi|n|ji, kyo|u) ve kana (きょ|う, っ ayrı); şablonlayıcı: gerçek kara-templater yerleşik
 - [x] Kanji zamanlayıcı (Aegisub Kanji Timer; core::kanjitimer, Araçlar menüsü): romaji `\k` satırının süreleri aynı zamandaki kanji/kana satırına; kana okunuştan (Hepburn/Kunrei, edatlar を/は/へ, っ, ー, küçük kana), kanji dizileri sonraki kanaya kadar otomatik gruplanır; gruplar `ki+mi|no` / `君|の` olarak düzenlenebilir; Uygula ve sonraki
 - [x] Karaoke: heceleri sese oturt (spektral akı onset + dinamik programlama)
-- [ ] Karaoke: gecikmeyi ses saatiyle otomatik kalibre et; furigana düzeni
+- [x] Karaoke: tuşla zamanlama gecikmesini sesle otomatik kalibre et (dokunuş ↔ onset ortancası)
+- [ ] Karaoke: furigana düzeni
 
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils
