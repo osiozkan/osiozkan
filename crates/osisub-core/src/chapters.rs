@@ -79,7 +79,10 @@ fn parse_hms(t: &str) -> Option<i64> {
     let t = t.trim();
     let (hms, frac) = t.split_once(['.', ',']).unwrap_or((t, "0"));
     let p: Vec<i64> = hms.split(':').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
-    let secs = p.iter().fold(0, |a, x| a * 60 + x);
+    if p.len() > 3 || p.iter().any(|&x| !(0..=1_000_000).contains(&x)) {
+        return None;
+    }
+    let secs = p.iter().fold(0i64, |a, x| a * 60 + x);
     // kesir: 3 haneye kırp/tamamla (XML'de nanosaniye)
     let f: String = frac.chars().take_while(|c| c.is_ascii_digit()).chain(std::iter::repeat('0')).take(3).collect();
     Some(secs * 1000 + f.parse::<i64>().ok()?)
@@ -151,6 +154,14 @@ mod tests {
         // geri okuma
         assert_eq!(parse(&xml), ch);
         assert_eq!(parse(&ogm), ch);
+    }
+
+    #[test]
+    fn garbage_does_not_panic() {
+        for t in ["CHAPTER01=99999999999999:99:99.999", "CHAPTER01=:::", "CHAPTER1NAME=x", "<ChapterAtom><ChapterTimeStart>1:2:3:4:5.9</ChapterTimeStart>", "<ChapterAtom><ChapterTimeStart>00:00:01.5</ChapterTimeStart><ChapterString>a", "CHAPTER01=00:00:01.ü"] {
+            let _ = parse(t);
+        }
+        assert_eq!(parse("CHAPTER01=00:00:01.5\nCHAPTER01NAME=x\n"), vec![Chapter { start_ms: 1500, title: "x".into() }]);
     }
 
     #[test]

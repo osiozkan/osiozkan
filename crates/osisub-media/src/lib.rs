@@ -367,6 +367,12 @@ pub fn render_ass_preview(ass_text: &str, width: u32, height: u32, bg: &str, tmp
 /// Kareler `settb=1/1000` + `setpts` ile istenen anlara (ms hassasiyetinde) yerleştirilir (tek ffmpeg süreci, 200 anlık parçalar).
 pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64], tmp: &Path) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
     let (w, h) = (width.max(2) as usize, height.max(2) as usize);
+    if w > 8192 || h > 8192 {
+        return Err(format!("çözünürlük çok büyük: {w}x{h}"));
+    }
+    if times_ms.is_empty() {
+        return Ok(vec![]);
+    }
     let _ = std::fs::create_dir_all(tmp);
     let ass = tmp.join(format!("coverage-{}.ass", std::process::id()));
     std::fs::write(&ass, ass_text).map_err(|e| e.to_string())?;
