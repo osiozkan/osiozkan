@@ -23,6 +23,30 @@ fn song_span(sc: &osisub_core::Script) -> Option<(i64, i64)> {
     Some((ds.iter().map(|d| d.start_time).min()?, ds.iter().map(|d| d.end_time).max()?))
 }
 
+/// Sesten altyazı (whisper.cpp) penceresi durumu.
+pub(crate) struct WhisperWin {
+    pub(crate) path: Option<PathBuf>,
+    models: Vec<PathBuf>,
+    model: Option<PathBuf>,
+    lang: String,
+    translate: bool,
+    max_len: u32,
+    as_reference: bool,
+    /// İlerleme (0..1) ve sonuç iletileri
+    rx: Option<std::sync::mpsc::Receiver<Result<Option<osisub_core::Script>, String>>>,
+    progress: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    started: Option<std::time::Instant>,
+    error: Option<String>,
+    ok: bool,
+}
+
+impl Default for WhisperWin {
+    fn default() -> Self {
+        let models = osisub_media::whisper::models();
+        WhisperWin { path: None, model: models.first().cloned(), models, lang: "ja".into(), translate: false, max_len: 42, as_reference: false, rx: None, progress: Default::default(), started: None, error: None, ok: osisub_media::whisper::available() }
+    }
+}
+
 /// Resim altyazısı (PGS) OCR penceresi durumu.
 pub(crate) struct OcrWin {
     path: Option<PathBuf>,
@@ -1758,6 +1782,114 @@ impl App {
         });
         if open || busy {
             self.ocr = Some(w);
+        }
+    }
+
+    pub(super) fn whisper_window(&mut self, ctx: &egui::Context) {
+        let Some(mut w) = self.whisper.take() else { return };
+        if let Some(rx) = &w.rx {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            if let Ok(r) = rx.try_recv() {
+                w.rx = None;
+                match r {
+                    Ok(Some(sc)) => {
+                        let n = sc.dialogues().count();
+                        let name = w.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                        if w.as_reference {
+                            self.set_reference(sc);
+                            self.status = format!("Whisper: {n} satır referans olarak yüklendi ({name})");
+                        } else {
+                            self.request(Guarded::OpenScript(sc, format!("Whisper: {n} satır ({name}) — kaydetmeyi unutmayın")));
+                        }
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(e) => w.error = Some(e),
+                }
+            }
+        }
+        if w.path.is_none() {
+            w.path = self.media.path.clone();
+        }
+        let mut open = true;
+        let busy = w.rx.is_some();
+        egui::Window::new("Sesten altyazı (Whisper)").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new("Videonun sesini yerel olarak yazıya döker ve zamanlanmış satırlar üretir (Subtitle Edit \"Audio to text\" gibi). Ham Japonca döküm, İngilizce çeviri ya da boş zamanlama iskeleti için.").weak());
+            if !w.ok {
+                ui.label(RichText::new("whisper.cpp (whisper-cli) bulunamadı. Kurun ya da OSISUB_WHISPER ile yolunu verin; program klasörüne de koyabilirsiniz.").color(theme::BAD));
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy, egui::Button::new("Video/ses seç…")).clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Video / ses", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts", "wav", "flac", "mka", "mp3", "aac", "opus", "ogg"]).pick_file() {
+                        w.path = Some(p);
+                    }
+                }
+                ui.label(w.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(dosya yok)".into()));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Model");
+                let cur = w.model.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "(yok)".into());
+                egui::ComboBox::from_id_salt("whisper_model").selected_text(cur).show_ui(ui, |ui| {
+                    for m in w.models.clone() {
+                        let n = m.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        ui.selectable_value(&mut w.model, Some(m), n);
+                    }
+                });
+                if ui.add_enabled(!busy, egui::Button::new("Model dosyası…")).on_hover_text("whisper.cpp ggml modeli (ör. ggml-small.bin, ggml-large-v3-turbo.bin)").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("ggml model", &["bin"]).pick_file() {
+                        if !w.models.contains(&p) { w.models.push(p.clone()); }
+                        w.model = Some(p);
+                    }
+                }
+            });
+            if w.models.is_empty() {
+                let dir = osisub_core::paths::config_dir().map(|d| d.join("whisper").display().to_string()).unwrap_or_default();
+                ui.label(RichText::new(format!("Model bulunamadı: ggml-*.bin dosyasını {dir} klasörüne koyun ya da seçin.")).color(theme::WARN));
+            }
+            ui.horizontal(|ui| {
+                ui.label("Dil");
+                egui::ComboBox::from_id_salt("whisper_lang").selected_text(w.lang.clone()).show_ui(ui, |ui| {
+                    for (c, n) in [("auto", "otomatik"), ("ja", "Japonca"), ("en", "İngilizce"), ("tr", "Türkçe"), ("ko", "Korece"), ("zh", "Çince")] {
+                        ui.selectable_value(&mut w.lang, c.to_string(), format!("{c} — {n}"));
+                    }
+                });
+                ui.checkbox(&mut w.translate, "İngilizceye çevir");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Satır başına en çok karakter");
+                ui.add(egui::DragValue::new(&mut w.max_len).range(0..=120)).on_hover_text("0 = whisper varsayılanı (uzun bölümler); sözcük sınırında bölünür");
+            });
+            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (açık belgeyi değiştirmez)");
+            if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
+            ui.horizontal(|ui| {
+                let ready = w.path.is_some() && w.model.is_some() && !busy;
+                if ui.add_enabled(ready, egui::Button::new("Başlat")).clicked() {
+                    let (p, o) = (w.path.clone().unwrap(), osisub_media::whisper::Options { model: w.model.clone().unwrap(), lang: w.lang.clone(), translate: w.translate, max_len: w.max_len, threads: 0 });
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let (c2, prog) = (ctx.clone(), w.progress.clone());
+                    prog.store(0, std::sync::atomic::Ordering::Relaxed);
+                    std::thread::spawn(move || {
+                        let r = osisub_media::whisper::transcribe(&p, &o, |f| {
+                            prog.store((f * 1000.0) as u32, std::sync::atomic::Ordering::Relaxed);
+                            c2.request_repaint();
+                        });
+                        let _ = tx.send(r.map(Some));
+                        c2.request_repaint();
+                    });
+                    w.rx = Some(rx);
+                    w.started = Some(std::time::Instant::now());
+                    w.error = None;
+                }
+                if busy {
+                    let f = w.progress.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0;
+                    ui.add(egui::ProgressBar::new(f).desired_width(180.0).show_percentage());
+                    ui.label(format!("{} sn", w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0)));
+                }
+            });
+            ui.label(RichText::new("İpucu: sonucu Çeviri sekmesinde referans olarak kullanın; zamanlamayı Zamanlama → Sahne değişimine yapıştır ile iyileştirin.").weak());
+        });
+        if open || busy {
+            self.whisper = Some(w);
         }
     }
 

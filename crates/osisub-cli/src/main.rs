@@ -29,6 +29,8 @@ KULLANIM:
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub song <bölüm.ass> <şarkı.ass> <eski-video> <yeni-video> [çıktı]   OP/ED'yi sesle bulup yerleştir
+  osisub transcribe <video|ses> <çıktı> [--lang ja|auto] [--translate] [--model ggml-x.bin] [--max-len N]
+                 sesten zamanlanmış altyazı (whisper.cpp; --translate: İngilizceye)
   osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
@@ -455,6 +457,26 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             println!("kayma {} ms, eşleşme %{:.0}, {} satır eklendi", off, score * 100.0, r.lines);
             if score < 0.6 { eprintln!("UYARI: eşleşme düşük, yerleşimi kontrol edin"); }
             save(&target, args.get(4).unwrap_or(&args[0]))
+        }
+        "transcribe" => {
+            let lang = opt(&mut args, "--lang").unwrap_or_else(|| "auto".into());
+            let translate = flag(&mut args, "--translate");
+            let max_len = opt(&mut args, "--max-len").and_then(|v| v.parse().ok()).unwrap_or(0);
+            let model = opt(&mut args, "--model").map(PathBuf::from).or_else(|| osisub_media::whisper::models().into_iter().next()).ok_or("Whisper modeli yok: --model ggml-small.bin verin ya da OSISUB_WHISPER_MODEL ayarlayın")?;
+            let inp = args.first().ok_or("girdi gerekli (video ya da ses)")?;
+            let out = args.get(1).ok_or("çıktı gerekli")?;
+            let o = osisub_media::whisper::Options { model, lang, translate, max_len, threads: 0 };
+            let mut last = -1i32;
+            let sc = osisub_media::whisper::transcribe(Path::new(inp), &o, |p| {
+                let k = (p * 10.0) as i32;
+                if k != last {
+                    last = k;
+                    eprint!("\r%{}", k * 10);
+                }
+            })?;
+            eprintln!();
+            println!("{} satır yazıya döküldü", sc.dialogues().count());
+            save(&sc, out)
         }
         "ocr" => {
             // ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]

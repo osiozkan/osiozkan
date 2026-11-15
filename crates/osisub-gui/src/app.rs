@@ -139,6 +139,7 @@ pub struct App {
     fonts_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
     /// Resim altyazısı OCR penceresi ve arka plan işi
     ocr: Option<windows::OcrWin>,
+    whisper: Option<windows::WhisperWin>,
     tr_last_active: usize,
     find_focus: bool,
     goto_buf: String,
@@ -595,6 +596,7 @@ impl App {
             egui_ctx: cc.egui_ctx.clone(),
             dummy_win: None,
             ocr: None,
+            whisper: None,
             song_win: None,
             fonts_list: None,
             fonts_rx: None,
@@ -662,6 +664,7 @@ impl App {
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("tool_shear") => app.media.tool = crate::media_ui::VideoTool::Shear,
             Some("ocr") => app.ocr = Some(windows::OcrWin::default()),
+            Some("whisper") => app.whisper = Some(windows::WhisperWin::default()),
             Some("fixes") => app.fixes_open = true,
             Some("stats") => app.stats_open = true,
             Some("vad") => app.vad_open = true,
@@ -1625,6 +1628,10 @@ impl App {
                         ui.close();
                         self.ocr = Some(windows::OcrWin::default());
                     }
+                    if ui.button("Sesten altyazı (Whisper)…").on_hover_text("Videonun sesini whisper.cpp ile yazıya döker: zamanlanmış satırlar (Japonca döküm ya da İngilizce çeviri)").clicked() {
+                        ui.close();
+                        self.whisper = Some(windows::WhisperWin::default());
+                    }
                     if ui.button("Videodaki altyazı izleri…").on_hover_text("MKV/MP4 içindeki altyazıyı aç; ekli yazı tiplerini çıkar").clicked() {
                         ui.close();
                         let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
@@ -2186,6 +2193,7 @@ impl App {
         crate::guide_ui::show(&ctx, &mut self.guide);
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) { self.guide = if self.guide.is_some() { None } else { Some(String::new()) }; }
         self.ocr_window(&ctx);
+        self.whisper_window(&ctx);
         self.song_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
