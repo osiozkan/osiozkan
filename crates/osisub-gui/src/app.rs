@@ -1598,7 +1598,7 @@ impl App {
                 if ui.add(egui::Button::new("Farklı kaydet…").shortcut_text("Ctrl+Shift+S")).clicked() { ui.close(); self.save(true); }
                 if ui.button("Dışa aktar (filtreler)…").clicked() { ui.close(); self.export_open = true; }
                 ui.menu_button("Video ile", |ui| {
-                    if ui.button("Resim altyazısını metne çevir (PGS OCR)…").on_hover_text("Blu-ray PGS (.sup ya da MKV izi) → metin; Tesseract gerekir").clicked() {
+                    if ui.button("Resim altyazısını metne çevir (OCR)…").on_hover_text("Blu-ray PGS (.sup) ya da DVD VobSub (.idx/.sub) dosyası veya MKV izi → metin; Tesseract gerekir").clicked() {
                         ui.close();
                         self.ocr = Some(windows::OcrWin::default());
                     }

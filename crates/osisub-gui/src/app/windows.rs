@@ -43,7 +43,7 @@ impl OcrWin {
     /// Videodaki belirli bir PGS izi için hazır pencere.
     pub(crate) fn for_track(path: PathBuf, tracks: &[osisub_media::mux::SubTrack], index: u32) -> OcrWin {
         let mut w = OcrWin::default();
-        w.tracks = tracks.iter().filter(|t| t.codec == "hdmv_pgs_subtitle").map(|t| (t.index, t.label())).collect();
+        w.tracks = tracks.iter().filter(|t| osisub_media::mux::is_bitmap_sub(&t.codec)).map(|t| (t.index, t.label())).collect();
         w.track = Some(index);
         if let Some(l) = tracks.iter().find(|t| t.index == index).map(|t| t.language.clone()) {
             // MKV dil kodu (eng, jpn…) Tesseract dil adıyla aynı; kuruluysa seç
@@ -1094,8 +1094,8 @@ impl App {
                         if ui.button("Aç").clicked() { action = Some((k, 0)); }
                         if ui.button("Referans yap").on_hover_text("İzi çıkarıp referans altyazı olarak yükler (açık belge değişmez)").clicked() { action = Some((k, 2)); }
                         if ui.button("Kaydet…").clicked() { action = Some((k, 1)); }
-                    } else if t.codec == "hdmv_pgs_subtitle" {
-                        if ui.button("OCR…").on_hover_text("Blu-ray PGS resim altyazısını Tesseract ile metne çevir").clicked() { action = Some((k, 3)); }
+                    } else if osisub_media::mux::is_bitmap_sub(&t.codec) {
+                        if ui.button("OCR…").on_hover_text("Resim altyazısını (Blu-ray PGS / DVD VobSub) Tesseract ile metne çevir").clicked() { action = Some((k, 3)); }
                     } else {
                         ui.label(RichText::new("resim tabanlı (desteklenmiyor)").weak());
                     }
@@ -1696,22 +1696,22 @@ impl App {
         }
         let mut open = true;
         let busy = w.rx.is_some();
-        egui::Window::new("Resim altyazısı OCR (PGS)").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+        egui::Window::new("Resim altyazısı OCR (PGS / VobSub)").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
             if !w.tess_ok {
                 ui.label(RichText::new("Tesseract bulunamadı. Kurun (Windows: UB-Mannheim tesseract; Linux: tesseract-ocr paketi) ya da OSISUB_TESSERACT ile yolunu verin. Türkçe için 'tur' dil verisi gerekir.").color(theme::BAD));
             }
             ui.horizontal(|ui| {
                 if ui.add_enabled(!busy, egui::Button::new("Dosya seç…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("PGS / video", &["sup", "mkv", "m2ts", "mks"]).pick_file() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("PGS / VobSub / video", &["sup", "idx", "sub", "mkv", "m2ts", "mks", "mp4", "vob"]).pick_file() {
                         w.tracks.clear();
                         w.track = None;
                         w.error = None;
-                        if osisub_core::io::ext_of(&p) != "sup" {
+                        if !matches!(osisub_core::io::ext_of(&p).as_str(), "sup" | "idx" | "sub") {
                             match osisub_media::mux::subtitle_tracks(&p) {
                                 Ok(t) => {
-                                    w.tracks = t.iter().filter(|t| t.codec == "hdmv_pgs_subtitle").map(|t| (t.index, t.label())).collect();
+                                    w.tracks = t.iter().filter(|t| osisub_media::mux::is_bitmap_sub(&t.codec)).map(|t| (t.index, t.label())).collect();
                                     w.track = w.tracks.first().map(|t| t.0);
-                                    if w.tracks.is_empty() { w.error = Some("Bu videoda PGS izi yok".into()); }
+                                    if w.tracks.is_empty() { w.error = Some("Bu videoda PGS/VobSub izi yok".into()); }
                                 }
                                 Err(e) => w.error = Some(e),
                             }

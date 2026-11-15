@@ -92,6 +92,55 @@ pub fn extract_pgs(video: &Path, track: &SubTrack, out: &Path) -> Result<(), Str
     run(Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-i"]).arg(video).args(["-map", &format!("0:{}", track.index), "-c:s", "copy", "-f", "sup"]).arg(out))
 }
 
+/// Resim tabanlı (OCR'lanabilir) iz mi: Blu-ray PGS ya da DVD VobSub.
+pub fn is_bitmap_sub(codec: &str) -> bool {
+    codec == "hdmv_pgs_subtitle" || codec == "dvd_subtitle"
+}
+
+/// DVD (VobSub) izini MPEG-PS `.sub` olarak çıkarır; `.idx` metni (palet, boyut) Matroska
+/// CodecPrivate'tan okunur (yoksa boş dize → varsayılan palet).
+pub fn extract_vobsub(video: &Path, track: &SubTrack, out: &Path) -> Result<String, String> {
+    if track.codec != "dvd_subtitle" {
+        return Err(format!("{} VobSub değil", track.codec));
+    }
+    run(Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-i"]).arg(video).args(["-map", &format!("0:{}", track.index), "-c:s", "copy", "-f", "mpeg"]).arg(out))?;
+    let o = Command::new(crate::ffprobe_bin())
+        .args(["-v", "error", "-show_data", "-show_streams", "-select_streams", &track.index.to_string()])
+        .arg(video)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(parse_extradata_dump(&String::from_utf8_lossy(&o.stdout)))
+}
+
+/// `ffprobe -show_data` onaltılık dökümünden (extradata=… bölümü) baytları metin olarak çözer.
+pub fn parse_extradata_dump(s: &str) -> String {
+    let mut bytes = Vec::new();
+    let mut inside = false;
+    for line in s.lines() {
+        if line.starts_with("extradata=") {
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let Some((addr, rest)) = line.split_once(": ") else { break };
+        if addr.len() != 8 || !addr.chars().all(|c| c.is_ascii_hexdigit()) {
+            break;
+        }
+        let hex = rest.split("  ").next().unwrap_or("");
+        for g in hex.split_whitespace() {
+            for k in (0..g.len()).step_by(2) {
+                if let Ok(b) = u8::from_str_radix(&g[k..(k + 2).min(g.len())], 16) {
+                    bytes.push(b);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 /// Gömülü yazı tiplerini (MKV ekleri) klasöre çıkarır; çıkarılan dosyaları döndürür.
 pub fn extract_attachments(video: &Path, dir: &Path) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -282,5 +331,14 @@ mod tests {
         assert!(std::fs::metadata(&burned).unwrap().len() > 1000);
         assert!(subtitle_tracks(&burned).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod extradata_tests {
+    #[test]
+    fn hex_dump_decodes_idx_text() {
+        let d = "[STREAM]\nindex=1\nextradata=\n00000000: 7369 7a65 3a20 3732 3078 3438 300a 7061  size: 720x480.pa\n00000010: 6c65 7474 653a 2030 3030 3030 302c 2066  lette: 000000, f\n00000020: 6666 0a                                ff.\n\nextradata_size=35\n";
+        assert_eq!(super::parse_extradata_dump(d), "size: 720x480\npalette: 000000, fff\n");
     }
 }

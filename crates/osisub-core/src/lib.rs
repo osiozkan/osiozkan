@@ -23,6 +23,7 @@ pub mod motion;
 pub mod overrides;
 pub mod perspective;
 pub mod pgs;
+pub mod vobsub;
 pub mod paths;
 pub mod qc;
 pub mod search;

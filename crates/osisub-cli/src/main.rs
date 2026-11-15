@@ -29,7 +29,7 @@ KULLANIM:
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub song <bölüm.ass> <şarkı.ass> <eski-video> <yeni-video> [çıktı]   OP/ED'yi sesle bulup yerleştir
-  osisub ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]   Blu-ray PGS → metin (Tesseract)
+  osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes]
                           (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
@@ -455,7 +455,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             // ocr <girdi.sup|video> <çıktı> [--lang eng] [--track N]
             let lang = opt(&mut args, "--lang").unwrap_or_else(|| "eng".into());
             let track = opt(&mut args, "--track").and_then(|v| v.parse().ok());
-            let inp = args.first().ok_or("girdi gerekli (.sup ya da PGS izli video)")?;
+            let inp = args.first().ok_or("girdi gerekli (.sup, .idx/.sub ya da PGS/VobSub izli video)")?;
             let out = args.get(1).ok_or("çıktı gerekli")?;
             let sc = osisub_media::ocr::ocr_file(Path::new(inp), track, &lang)?;
             println!("{} satır OCR'landı", sc.dialogues().count());
