@@ -26,6 +26,8 @@ pub enum Kind {
     Note,
     /// Çevrilmemiş görünen satır (referansla aynı, Japonca ya da İngilizce kalmış; core::untranslated)
     Untranslated,
+    /// Konumlu tabela/tipografi satırı aynı anda görünen diyalogun üstüne çiziliyor (core::collide)
+    ScreenCollision,
 }
 
 impl Kind {
@@ -34,7 +36,7 @@ impl Kind {
         match self {
             Kind::Overlap | Kind::TooShort | Kind::TooLong | Kind::SmallGap | Kind::NegativeDuration | Kind::NearKeyframe | Kind::Flicker => "zaman",
             Kind::ReadingSpeed | Kind::LineTooLong | Kind::TooManyLines | Kind::Empty | Kind::DoubleSpace | Kind::EdgeSpace | Kind::UnknownStyle | Kind::Untranslated => "metin",
-            Kind::TagError => "etiket",
+            Kind::TagError | Kind::ScreenCollision => "etiket",
             Kind::Note => "not",
         }
     }

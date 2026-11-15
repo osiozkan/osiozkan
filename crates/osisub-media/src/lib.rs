@@ -395,6 +395,16 @@ pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64]
     Ok(out)
 }
 
+/// Ekran çakışması denetimi (`core::collide`): konumlu satırlar ile aynı anda görünen diyaloglar
+/// tek tek libass ile çizilir, sınırları kesişenler bildirilir. Satır başına bir ffmpeg süreci.
+pub fn screen_collisions(script: &osisub_core::Script, tmp: &Path) -> Result<Vec<osisub_core::qc::Issue>, String> {
+    let (w, h) = script.script_resolution();
+    osisub_core::collide::check(script, |entry, times| {
+        let one = osisub_core::collide::single_line(script, entry);
+        render_coverage(&one.to_ass_string(), w.max(1) as u32, h.max(1) as u32, times, tmp)
+    })
+}
+
 /// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
 pub struct PlayStream {
     pub child: std::process::Child,
@@ -520,6 +530,22 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn screen_collision_with_real_libass() {
+        if !crate::ffmpeg_available() {
+            return;
+        }
+        let head = "[Script Info]\nPlayResX: 640\nPlayResY: 360\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+        // üstteki diyalog tabelanın üstüne biniyor; alttaki diyalog uzak tabelayla çakışmıyor
+        let ev = "Dialogue: 0,0:00:00.00,0:00:03.00,Default,,0,0,0,,{\\an8}Nereye gidiyorsun?\nDialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(320,25)}OKUL\nDialogue: 0,0:00:05.00,0:00:07.00,Default,,0,0,0,,Alt satır\nDialogue: 0,0:00:05.00,0:00:07.00,Default,,0,0,0,,{\\pos(320,100)}UZAK\n";
+        let s = osisub_core::Script::parse(&format!("{head}{ev}"));
+        let tmp = std::env::temp_dir().join(format!("osisub-collide-{}", std::process::id()));
+        let r = super::screen_collisions(&s, &tmp).unwrap();
+        assert_eq!(r.len(), 1, "{:?}", r);
+        assert!(matches!(&s.entries[r[0].entry], osisub_core::Entry::Dialogue(d) if d.text == "{\\an8}Nereye gidiyorsun?"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn coverage_bounds_follow_time() {
         if !crate::ffmpeg_available() {

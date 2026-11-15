@@ -60,6 +60,9 @@ pub struct App {
     width_issues: (u64, Vec<Issue>),
     width_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<Issue>)>>,
     width_db: std::sync::Arc<std::sync::Mutex<osisub_lua::fonts::FontDb>>,
+    /// Ekran çakışması denetimi (libass ile çizerek, elle başlatılır): (belge sürümü, sorunlar), iş
+    pub(crate) collide_issues: (u64, Vec<Issue>),
+    pub(crate) collide_rx: Option<std::sync::mpsc::Receiver<(u64, Result<Vec<Issue>, String>)>>,
     start_buf: String,
     end_buf: String,
     style_sel: usize,
@@ -527,6 +530,8 @@ impl App {
             width_issues: (u64::MAX, vec![]),
             width_rx: None,
             width_db: Default::default(),
+            collide_issues: (u64::MAX, vec![]),
+            collide_rx: None,
             start_buf: String::new(),
             end_buf: String::new(),
             style_sel: 0,
@@ -1161,6 +1166,21 @@ impl App {
                 ctx2.request_repaint();
             });
         }
+        if let Some(rx) = &self.collide_rx {
+            if let Ok((rev, r)) = rx.try_recv() {
+                self.collide_rx = None;
+                match r {
+                    Ok(v) => {
+                        self.status = if v.is_empty() { "Ekran çakışması yok".into() } else { format!("{} ekran çakışması bulundu (Kalite sekmesi)", v.len()) };
+                        if rev == self.doc.rev {
+                            self.collide_issues = (rev, v);
+                            self.issues_key = u64::MAX;
+                        }
+                    }
+                    Err(e) => self.status = format!("Ekran çakışması denetlenemedi: {e}"),
+                }
+            }
+        }
         if let Some(rx) = &self.qc_rx {
             if let Ok((rev, issues)) = rx.try_recv() {
                 self.qc_rx = None;
@@ -1185,6 +1205,9 @@ impl App {
                 }
                 if self.width_issues.0 == self.doc.rev {
                     issues.extend(self.width_issues.1.iter().cloned());
+                }
+                if self.collide_issues.0 == self.doc.rev {
+                    issues.extend(self.collide_issues.1.iter().cloned());
                 }
                 issues.sort_by_key(|x| x.entry);
                 self.set_issues(issues, self.doc.rev);
@@ -1920,7 +1943,7 @@ impl App {
     /// Arayüz boştayken çizilmez: arka plan işi sürerken kısa aralıkla yokla, kirli belgede
     /// otomatik kayıt zamanı gelince uyan.
     fn schedule_wakeups(&self, ctx: &egui::Context) {
-        let busy = self.qc_rx.is_some() || self.width_rx.is_some() || self.spell_load_rx.is_some() || self.miss_rx.is_some() || self.font_rx.is_some() || self.running.is_some();
+        let busy = self.qc_rx.is_some() || self.width_rx.is_some() || self.collide_rx.is_some() || self.spell_load_rx.is_some() || self.miss_rx.is_some() || self.font_rx.is_some() || self.running.is_some();
         if busy {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

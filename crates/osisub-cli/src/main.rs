@@ -10,7 +10,7 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
-  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--width] [--report rapor.html]
+  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--width] [--collide] [--report rapor.html]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
@@ -262,6 +262,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let report = opt(&mut args, "--report");
             let reference = opt(&mut args, "--ref").map(|r| load(&r)).transpose()?;
             let width = flag(&mut args, "--width");
+            let collide = flag(&mut args, "--collide");
             let s = load(args.first().ok_or("dosya gerekli")?)?;
             let vinfo = video.as_ref().and_then(|v| osisub_media::probe(Path::new(v)).ok()).filter(|i| i.has_video);
             let vsize = vinfo.as_ref().map(|i| (i.width, i.height));
@@ -273,6 +274,10 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 // gerçek yazı tipiyle ekran genişliği
                 let mut db = osisub_lua::fonts::FontDb::default();
                 issues.extend(osisub_lua::fonts::width_issues(&mut db, &s).into_iter().map(|(entry, message)| qc::Issue { entry, kind: qc::Kind::LineTooLong, message }));
+            }
+            if collide {
+                // konumlu satırların diyalogla ekranda üst üste binmesi (libass ile çizerek)
+                issues.extend(osisub_media::screen_collisions(&s, &std::env::temp_dir().join("osisub-collide"))?);
             }
             issues.sort_by_key(|x| x.entry);
             if let Some(v) = video {

@@ -821,6 +821,22 @@ impl App {
                 }
             });
         }
+        ui.horizontal(|ui| {
+            let busy = self.collide_rx.is_some();
+            if ui.add_enabled(!busy, egui::Button::new(if busy { "Ekran çakışması denetleniyor…" } else { "Ekran çakışmasını denetle" })).on_hover_text("Konumlu (\\pos/\\move) tabela satırlarının aynı anda görünen diyalogla ekranda üst üste binip binmediğini libass ile çizerek ölçer (ffmpeg gerekir)").clicked() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.collide_rx = Some(rx);
+                let (script, rev, ctx) = (self.doc.script.clone(), self.doc.rev, ui.ctx().clone());
+                std::thread::spawn(move || {
+                    let r = osisub_media::screen_collisions(&script, &std::env::temp_dir().join("osisub-collide"));
+                    let _ = tx.send((rev, r));
+                    ctx.request_repaint();
+                });
+            }
+            if self.collide_issues.0 == self.doc.rev {
+                ui.label(RichText::new(format!("{} çakışma", self.collide_issues.1.len())).weak());
+            }
+        });
         if ui.button("Raporu kaydet (HTML)…").on_hover_text("Başlık ve satır sorunlarını ekip QC'si için tek dosyalık HTML rapor olarak kaydeder").clicked() {
             let title = self.doc.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsız".into());
             let def = format!("{}-qc.html", title.trim_end_matches(".ass"));
