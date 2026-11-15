@@ -29,6 +29,7 @@ KULLANIM:
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
                           Mocha/AE keyframe verisini satırlara kare kare uygula (satır no: diyalog sırası, 1'den)
   osisub song <bölüm.ass> <şarkı.ass> <eski-video> <yeni-video> [çıktı]   OP/ED'yi sesle bulup yerleştir
+  osisub qc-report <rapor.html> <dosya...>   birçok bölüm için tek HTML kalite raporu (özet tablo)
   osisub chapters <dosya.ass|video> <çıktı.xml|.txt>   bölümleri (Efekt: chapter satırları) Matroska XML / OGM'ye yaz
   osisub transcribe <video|ses> <çıktı> [--lang ja|auto] [--translate] [--model ggml-x.bin] [--max-len N]
                  sesten zamanlanmış altyazı (whisper.cpp; --translate: İngilizceye)
@@ -458,6 +459,21 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             println!("kayma {} ms, eşleşme %{:.0}, {} satır eklendi", off, score * 100.0, r.lines);
             if score < 0.6 { eprintln!("UYARI: eşleşme düşük, yerleşimi kontrol edin"); }
             save(&target, args.get(4).unwrap_or(&args[0]))
+        }
+        "qc-report" => {
+            // qc-report <rapor.html> <dosya...>: birçok bölüm için tek HTML kalite raporu
+            let out = args.first().ok_or("rapor yolu gerekli")?.clone();
+            if args.len() < 2 { return Err("en az bir altyazı dosyası gerekli".into()); }
+            let mut res = vec![];
+            for f in &args[1..] {
+                let r = osisub_core::filebatch::qc_file(Path::new(f))?;
+                println!("{}: {} sorun", r.0, r.3.len() + r.2.len());
+                res.push(r);
+            }
+            let title = Path::new(&args[1]).parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            std::fs::write(&out, osisub_core::qc::report_html_multi(&title, &res)).map_err(|e| e.to_string())?;
+            println!("rapor: {out}");
+            Ok(())
         }
         "chapters" => {
             let inp = args.first().ok_or("girdi gerekli")?;

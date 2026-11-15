@@ -107,3 +107,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Toplu kalite raporu için tek dosyanın denetimi (varsayılan kurallar + çevrilmemiş satırlar +
+/// betik başlığı): (dosya adı, betik, başlık sorunları, satır sorunları).
+pub fn qc_file(input: &Path) -> Result<(String, Script, Vec<String>, Vec<crate::qc::Issue>), String> {
+    let s = crate::io::load(input)?;
+    let mut issues = crate::qc::check(&s, &crate::qc::Rules::default());
+    issues.extend(crate::untranslated::check(&s, None));
+    issues.sort_by_key(|i| i.entry);
+    let head = crate::qc::script_issues_dar(&s, None, None);
+    let name = input.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    Ok((name, s, head, issues))
+}
+
+#[cfg(test)]
+mod qc_report_tests {
+    #[test]
+    fn multi_file_report_has_summary_and_sections() {
+        let dir = std::env::temp_dir().join(format!("osisub-fbqc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("01.srt");
+        let b = dir.join("02.srt");
+        std::fs::write(&a, "1\n00:00:01,000 --> 00:00:01,100\nÇok kısa <satır>\n\n").unwrap();
+        std::fs::write(&b, "1\n00:00:01,000 --> 00:00:03,000\nTemiz satır.\n\n").unwrap();
+        let files: Vec<_> = [&a, &b].iter().map(|p| super::qc_file(p).unwrap()).collect();
+        assert!(!files[0].3.is_empty());
+        let h = crate::qc::report_html_multi("Sezon 1", &files);
+        assert!(h.contains("Toplu kalite raporu — Sezon 1"));
+        assert!(h.contains("<a href=\"#f0\">01.srt</a>") && h.contains("<hr id=\"f1\">"));
+        assert!(h.contains("&lt;satır&gt;") || h.contains("Çok kısa"));
+        assert_eq!(h.matches("<html").count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

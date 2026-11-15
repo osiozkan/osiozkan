@@ -505,6 +505,25 @@ fn html_esc(s: &str) -> String {
 /// Ekip QC'si için tek dosyalık HTML raporu: başlık sorunları + kategoriye göre satır sorunları
 /// (satır no = ızgaradaki diyalog sırası, zaman, stil, metin, ileti).
 pub fn report_html(script: &Script, title: &str, head: &[String], issues: &[Issue]) -> String {
+    let mut out = report_head(title);
+    out.push_str(&report_body(script, title, head, issues, 1));
+    out.push_str("</body></html>\n");
+    out
+}
+
+fn report_head(title: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("<!doctype html><html lang=\"tr\"><head><meta charset=\"utf-8\"><title>QC: {}</title><style>\n\
+:root{{--bg:#fff;--fg:#1d1d21;--mut:#666;--line:#ddd;--bad:#c0392b;--acc:#b03a6f}}\n\
+@media (prefers-color-scheme:dark){{:root{{--bg:#16171c;--fg:#e8e8ec;--mut:#9a9aa5;--line:#2c2d35;--bad:#ff6b5e;--acc:#e56b9a}}}}\n\
+body{{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:24px}}h1{{font-size:20px}}h2{{font-size:16px;color:var(--acc);margin-top:24px}}\n\
+table{{border-collapse:collapse;width:100%;table-layout:fixed}}th:nth-child(1){{width:3.5em}}th:nth-child(2){{width:7.5em}}th:nth-child(3){{width:9em}}th:nth-child(5){{width:32%}}td,th{{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}}th{{color:var(--mut);font-weight:600}}\n\
+td.n,td.t{{font-family:ui-monospace,monospace;white-space:nowrap}}table.s{{table-layout:auto}}table.s th:nth-child(n){{width:auto}}.m{{color:var(--bad)}}.x{{color:var(--mut)}}</style></head><body>\n", html_esc(title)));
+    out
+}
+
+/// Tek dosyanın rapor bölümü; `h`: dosya başlığının düzeyi (tek rapor 1, toplu raporda 2), bölümler `h+1`.
+fn report_body(script: &Script, title: &str, head: &[String], issues: &[Issue], h: u8) -> String {
     let mut ord = vec![0usize; script.entries.len()];
     let mut n = 0;
     for (i, e) in script.entries.iter().enumerate() {
@@ -514,17 +533,12 @@ pub fn report_html(script: &Script, title: &str, head: &[String], issues: &[Issu
         ord[i] = n;
     }
     let mut out = String::new();
-    out.push_str(&format!("<!doctype html><html lang=\"tr\"><head><meta charset=\"utf-8\"><title>QC: {}</title><style>\n\
-:root{{--bg:#fff;--fg:#1d1d21;--mut:#666;--line:#ddd;--bad:#c0392b;--acc:#b03a6f}}\n\
-@media (prefers-color-scheme:dark){{:root{{--bg:#16171c;--fg:#e8e8ec;--mut:#9a9aa5;--line:#2c2d35;--bad:#ff6b5e;--acc:#e56b9a}}}}\n\
-body{{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:24px}}h1{{font-size:20px}}h2{{font-size:16px;color:var(--acc);margin-top:24px}}\n\
-table{{border-collapse:collapse;width:100%;table-layout:fixed}}th:nth-child(1){{width:3.5em}}th:nth-child(2){{width:7.5em}}th:nth-child(3){{width:9em}}th:nth-child(5){{width:32%}}td,th{{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}}th{{color:var(--mut);font-weight:600}}\n\
-td.n,td.t{{font-family:ui-monospace,monospace;white-space:nowrap}}.m{{color:var(--bad)}}.x{{color:var(--mut)}}</style></head><body>\n", html_esc(title)));
-    out.push_str(&format!("<h1>Kalite raporu — {}</h1><p class=\"x\">{} diyalog satırı, {} satır sorunu, {} başlık sorunu</p>\n", html_esc(title), n, issues.len(), head.len()));
+    let h2 = h + 1;
+    out.push_str(&format!("<h{h}>Kalite raporu — {}</h{h}><p class=\"x\">{} diyalog satırı, {} satır sorunu, {} başlık sorunu</p>\n", html_esc(title), n, issues.len(), head.len()));
     if !head.is_empty() {
-        out.push_str("<h2>Betik başlığı</h2><ul>");
-        for h in head {
-            out.push_str(&format!("<li class=\"m\">{}</li>", html_esc(h)));
+        out.push_str(&format!("<h{h2}>Betik başlığı</h{h2}><ul>"));
+        for m in head {
+            out.push_str(&format!("<li class=\"m\">{}</li>", html_esc(m)));
         }
         out.push_str("</ul>\n");
     }
@@ -533,7 +547,7 @@ td.n,td.t{{font-family:ui-monospace,monospace;white-space:nowrap}}.m{{color:var(
         if rows.is_empty() {
             continue;
         }
-        out.push_str(&format!("<h2>{} ({})</h2><table><tr><th>#</th><th>Zaman</th><th>Stil</th><th>Metin</th><th>Sorun</th></tr>\n", name, rows.len()));
+        out.push_str(&format!("<h{h2}>{} ({})</h{h2}><table><tr><th>#</th><th>Zaman</th><th>Stil</th><th>Metin</th><th>Sorun</th></tr>\n", name, rows.len()));
         for is in rows {
             let (t, st, tx) = match script.entries.get(is.entry) {
                 Some(Entry::Dialogue(d)) => (crate::time::format_ass(d.start_time), d.style.clone(), tags::strip_tags(&d.text).replace("\\N", " / ")),
@@ -543,6 +557,34 @@ td.n,td.t{{font-family:ui-monospace,monospace;white-space:nowrap}}.m{{color:var(
             out.push_str(&format!("<tr><td class=\"n\">{}</td><td class=\"t\">{}</td><td>{}</td><td>{}</td><td class=\"m\">{}</td></tr>\n", ord.get(is.entry).copied().unwrap_or(0), t, html_esc(&st), html_esc(&tx), html_esc(&is.message)));
         }
         out.push_str("</table>\n");
+    }
+    out
+}
+
+/// Bir sezonun/klasörün tüm dosyaları için tek HTML rapor: özet tablo + dosya başına bölümler.
+/// Öğeler: (dosya adı, betik, başlık sorunları, satır sorunları).
+pub fn report_html_multi(title: &str, files: &[(String, Script, Vec<String>, Vec<Issue>)]) -> String {
+    let mut out = report_head(title);
+    out.push_str(&format!("<h1>Toplu kalite raporu — {}</h1><table class=\"s\"><tr><th>#</th><th>Dosya</th><th>Satır</th><th>Zamanlama</th><th>Metin</th><th>Etiket</th><th>Not</th><th>Başlık</th></tr>\n", html_esc(title)));
+    for (k, (name, sc, head, issues)) in files.iter().enumerate() {
+        let c = |cat: &str| issues.iter().filter(|i| i.kind.category() == cat).count();
+        out.push_str(&format!(
+            "<tr><td class=\"n\">{}</td><td><a href=\"#f{}\">{}</a></td><td class=\"n\">{}</td><td class=\"n\">{}</td><td class=\"n\">{}</td><td class=\"n\">{}</td><td class=\"n\">{}</td><td class=\"n\">{}</td></tr>\n",
+            k + 1,
+            k,
+            html_esc(name),
+            sc.dialogues().count(),
+            c("zaman"),
+            c("metin"),
+            c("etiket"),
+            c("not"),
+            head.len()
+        ));
+    }
+    out.push_str("</table>\n");
+    for (k, (name, sc, head, issues)) in files.iter().enumerate() {
+        out.push_str(&format!("<hr id=\"f{}\">", k));
+        out.push_str(&report_body(sc, name, head, issues, 2));
     }
     out.push_str("</body></html>\n");
     out

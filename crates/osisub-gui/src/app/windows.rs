@@ -748,6 +748,29 @@ impl App {
             }
             ui.horizontal(|ui| {
                 if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new("Başlat")).clicked() { start = true; }
+                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new("Kalite raporu (HTML)…")).on_hover_text("Tüm dosyaları denetler (zamanlama, okuma hızı, etiket hataları, çevrilmemiş satırlar, betik başlığı) ve özet tablolu tek bir HTML rapor kaydeder; dosyalar değişmez").clicked() {
+                    if let Some(out) = rfd::FileDialog::new().add_filter("HTML", &["html"]).set_file_name("toplu-qc.html").save_file() {
+                        let files = w.files.clone();
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        let c2 = ui.ctx().clone();
+                        std::thread::spawn(move || {
+                            let mut res = vec![];
+                            for f in &files {
+                                match osisub_core::filebatch::qc_file(f) {
+                                    Ok(r) => { let _ = tx.send(format!("{}: {} sorun", r.0, r.3.len() + r.2.len())); res.push(r); }
+                                    Err(e) => { let _ = tx.send(format!("HATA {}: {e}", f.display())); }
+                                }
+                                c2.request_repaint();
+                            }
+                            let title = files.first().and_then(|f| f.parent()).and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            let msg = match std::fs::write(&out, osisub_core::qc::report_html_multi(&title, &res)) { Ok(()) => format!("Rapor kaydedildi: {}", out.display()), Err(e) => format!("Rapor yazılamadı: {e}") };
+                            let _ = tx.send(msg);
+                            let _ = tx.send(String::new());
+                            c2.request_repaint();
+                        });
+                        w.rx = Some(rx);
+                    }
+                }
                 if running { ui.spinner(); }
             });
             egui::ScrollArea::vertical().id_salt("fb_log").max_height(160.0).stick_to_bottom(true).show(ui, |ui| {
