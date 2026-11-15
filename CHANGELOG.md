@@ -1,5 +1,20 @@
 # Değişiklik günlüğü
 
+## 0.6.0 — 2026-11-15 (beşinci ve altıncı gece)
+
+**Resim altyazıları:** Blu-ray PGS ve **DVD VobSub (.idx/.sub, MKV'deki DVD izi)** için yerleşik çözücüler + Tesseract OCR (GUI penceresi: yeni belge ya da referans; CLI `ocr`). VobSub çözücüsü ffmpeg'in dvdsub çözücüsüyle çapraz doğrulandı.
+**Sesten altyazı (Whisper):** videonun sesini whisper.cpp ile yerel olarak yazıya döker — Japonca ham döküm ya da İngilizce çeviri, zamanlanmış satırlar; ses betimleri (`[Music]`) atılır, yinelenen satırlar birleşir (GUI + CLI `transcribe`).
+**Karaoke:** **Sese oturt** — hece sınırlarını sesteki hece başlangıçlarına kaydırır (spektral akı + dinamik programlama; seçili satırlara tek adımda).
+**Kalite:** **ekran çakışması** — konumlu tabela satırı aynı anda görünen diyalogla ekranda üst üste biniyorsa libass ile çizerek bulur (Kalite sekmesi, CLI `check --collide`); çevrilmemiş satır denetimi (referansla aynı / Japonca / İngilizce kalmış; CLI `check --ref`); ekran genişliği denetimi gerçek yazı tipiyle (CLI `check --width`); Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da…).
+**Lua:** **`SubInspector.Inspector` yerleşik** — ASSFoundation `getLineBounds` / Aegisub-Motion artık satır sınırlarını ölçebilir (libass ile, gerçek saydamlıkla, ms hassasiyetinde); `line.extra` gerçek Extradata ile.
+**Bölümler (chapters):** Efekt'i `chapter` olan satırlar → Matroska XML / OGM; MKV'ye gömerken bölümler de eklenir; dosyadan ya da MKV'den içe aktarma (CLI `chapters`).
+**Düzenleme:** satır dengeleme (Subtitle Edit auto balance, Türkçe bağlaç kuralı); satırları böl (satır sonlarından / karaoke hecelerinden); basılı tutarak oynat (Ctrl+Boşluk); OP/ED yerleştir (şarkı altyazısını önceki bölümün sesiyle eşleştirip yeni bölüme koyar).
+**Tipografi:** eğme video aracı (`\fax/\fay`); çizim aracı her hizalama/ölçek/eğme/3B dönüşte; renk seçicide videodan pipet.
+**Biçimler:** EBU STL, iTT, tam TTML okuyucu; SRT/VTT konum korunur.
+**Arayüz:** uygulama içi aranabilir kullanım kılavuzu (F1); başlangıç ekranı; ızgara sütunları ayarlanabilir; sahte video (Aegisub dummy video); çeviri sekmesinde bağlam satırları ve ilerleme; referans altyazı video önizlemesinde.
+**Performans:** arayüz boştayken hiç çizmez (önceden sürekli ~100 kare/sn çiziliyordu — dizüstünde pil/CPU).
+**Hata düzeltmeleri:** PGS'de 1 baytlık palet bölümünde çökme (rastgele girdi testinde bulundu).
+
 ## 0.5.0 — 2026-11-12 (dördüncü gece)
 
 **Tipografi:** köşe pini izleme (Mocha "CC Power Pin" / AE "Corner Pin" → kare kare perspektif; kırpma homografiyle taşınır; GUI Hareket izleme penceresi veriyi otomatik tanır, CLI `motion`); hareket izlemede doğrusal kip (`\move` + `\t`, tek satır); **çizim video aracı** (`\p` noktalarını videoda düzenle; vektör kırpmada olduğu gibi Ctrl+tık ile eğri); **perspektif video aracı** — 4 köşeyi sürükle, metin canlı olarak dörtgene oturur (Aegisub'ın perspektif aracı gibi; LayoutRes otomatik); **Etiket uygula / yeniden hesapla** (HYDRA + Recalculator benzeri): etiketleri başlangıca, tüm bloklara, `\t` olarak, harf harf ya da satırlar boyunca degrade olarak uygula; sayısal değerleri (`\t` içleri ve `\pos/\move/\org` dahil) topla/çarp.

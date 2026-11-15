@@ -1,6 +1,6 @@
 # osisub — Claude için proje notları
 
-Bu depo kökündeki `README.md` kullanıcının **GitHub profil sayfasıdır; dokunma.** Proje: **osisub**, Rust ile yazılmış anime altyazı stüdyosu (Aegisub + Subtitle Edit'in iyi yönleri, Aegisub Lua betiklerini çalıştırır). Kullanıcı Türk; arayüz ve belgeler **Türkçe**. Çalışma dalı: o gecenin zamanlanmış görevinin verdiği dal (`tools/ship.sh` geçerli dala push eder; önceki geceler `claude/vibrant-clarke-2e8jtn`, `-6oujog`, `-dsxf2y`, `-xt32gt` (2026-11-12, v0.5.0); yeni gece en son dalı main'e değil o dala göre ileri sarmalı) (başka dala push etme, PR yalnızca istenirse).
+Bu depo kökündeki `README.md` kullanıcının **GitHub profil sayfasıdır; dokunma.** Proje: **osisub**, Rust ile yazılmış anime altyazı stüdyosu (Aegisub + Subtitle Edit'in iyi yönleri, Aegisub Lua betiklerini çalıştırır). Kullanıcı Türk; arayüz ve belgeler **Türkçe**. Çalışma dalı: o gecenin zamanlanmış görevinin verdiği dal (`tools/ship.sh` geçerli dala push eder; önceki geceler `claude/vibrant-clarke-2e8jtn`, `-6oujog`, `-dsxf2y`, `-xt32gt` (2026-11-12, v0.5.0), `-u7myjw` (2026-11-13), `-g5biih` (2026-11-15, v0.6.0); yeni gece en son dalı main'e değil o dala göre ileri sarmalı) (başka dala push etme, PR yalnızca istenirse).
 
 ## Gece rutini (zamanlanmış çalışma)
 1. Önce `docs/DEVLOG.md` ve `docs/ROADMAP.md` oku; kaldığın yerden devam et. `CHANGELOG.md`'de sürüm notu tut.
@@ -45,6 +45,8 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - `cargo test -p osisub-gui` GUI ikilisini (target/debug/osisub-gui) güncellemez; ekran görüntüsünden önce `cargo build -p osisub-gui`.
 - Ayarlar `$HOME/.config/osisub` altında: GUI testlerinde `HOME=<geçici>` ver (gerçek ayarları kirletme).
 - Windows: `tools/win-check.sh` (mingw + wine64 + xvfb) CLI çıktısını Linux'la bayt bayt karşılaştırır ve GUI'yi wine'da açar (2026-11-11 hepsi TAMAM). Wine tuzağı: ekransız başlamış wineserver varken GUI takılır → `wineserver -w`.
+- ffmpeg `setpts` değeri girişin zaman tabanına yuvarlanır: ms hassasiyeti için önce `settb=1/1000` (render_coverage).
+- huggingface.co bu ortamda engelli (Whisper modeli indirilemez); whisper testleri sahte `whisper-cli` betiğiyle.
 - CI her push'ta çalışır (Linux/macOS/Windows testleri + ui-e2e); push sonrası `mcp__github__actions_list` ile sonucuna bak.
 - Doğrulanmamış: gerçek ses aygıtı (cpal), macOS'ta GUI'yi elle kullanma, gerçek Windows makinesi (wine dışında), release iş akışı.
 

@@ -81,3 +81,18 @@ Dal: `claude/vibrant-clarke-xt32gt` (main'den; `claude/vibrant-clarke-dsxf2y` il
 ### Gece sonu durumu (2026-11-12, v0.5.0)
 - Tüm testler yeşil; CI her push'ta yeşil (Linux/macOS/Windows). Sürüm commit'i `[nightly]` ile → Release iş akışı paketleri üretir.
 - Doğrulanmayanlar: gerçek ses aygıtı, Windows paketindeki gömülü ffmpeg'in gerçek Windows'ta çalışması, kullanıcının kendi Lua betikleri (depoda yok).
+
+## 2026-11-13 (beşinci gece; kayıt 2026-11-15'te eklendi)
+Dal: `claude/vibrant-clarke-u7myjw`. Gece sonu kaydı/sürüm commit'i yapılmamıştı; işler 0.6.0'a dahil edildi.
+- PGS OCR (Tesseract), çevrilmemiş satır QC'si, satır dengeleme, satırları böl, eğme aracı, uygulama içi kılavuz (F1), EBU STL/iTT/TTML, OP/ED yerleştir, ekran genişliği QC'si, Türkçe yazım hataları.
+- Performans: boştayken çizim yok (`ViewportCommand::Title` her karede gönderiliyordu).
+
+## 2026-11-15 (v0.6.0 — altıncı gece)
+Dal: `claude/vibrant-clarke-g5biih` (main'den; `-u7myjw` ileri sarıldı). 2026-11-14 gecesine ait dal/commit yok.
+- **VobSub OCR:** `core::vobsub` (idx ayrıştırma, MPEG-PS demux, SPU RLE çözücü + test üreticisi); ffmpeg dvdsub çözücüsüyle çapraz doğrulandı; MKV izi için `-f mpeg` ile çıkarma + paleti ffprobe CodecPrivate dökümünden okuma. Gerçek Tesseract ile uçtan uca test (.idx ve MKV).
+- **SubInspector.Inspector:** `core::coverage` (siyah/beyaz zemin farkından alfa), `media::render_coverage` (tek ffmpeg, `settb=1/1000`+`setpts` ile istenen anlar), Lua `osisub.render` köprüsü ve gömülü `SubInspector.Inspector` modülü; Host'a `render_bounds`.
+- **Ekran çakışması QC** (`core::collide` + `media::screen_collisions`), **Whisper** (`media::whisper`, sahte ikiliyle testli), **bölümler** (`core::chapters`, MKV'ye gömme), **karaoke sese oturt** (`core::karaoke::snap_to_onsets`, `media::onset`).
+- Tuzak: ffmpeg `setpts` süzgeci zaman tabanına yuvarlar — `color` kaynağı r=25 iken ms değerleri 40 ms'ye yuvarlanıyordu; önce `settb=1/1000`.
+- libass `\p` çizimlerinde kenarlarda alfa≈2'lik pikseller bırakır (sınır testleri ±1 px toleranslı).
+- Ortam: huggingface.co proxy tarafından engelli → Whisper gerçek modelle doğrulanamadı.
+
