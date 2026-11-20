@@ -126,7 +126,7 @@ Dal: `claude/vibrant-clarke-er83om` (main'den; `-g5biih` ileri sarıldı). 2026-
 
 ### Gece sonu durumu (2026-11-20, v0.7.0)
 - Tüm testler yeşil (core 218, lua, media, gui), CI her push'ta yeşil; uçtan uca GUI testi yeni denetimlerle yerelde TAMAM. 50k satırda medyan 2.1 ms/kare.
-- 0.7.0 paketleri iki kez üretildi (`[nightly]`): Linux/macOS/Windows Actions'ta. macOS ffmpeg: evermeet.cx kalktı (410); ffmpeg-static/ffprobe-static ile ikinci deneme.
+- 0.7.0 paketleri iki kez üretildi (`[nightly]`): Linux/macOS/Windows Actions'ta. macOS ffmpeg: evermeet.cx kalktı (410); ffmpeg-static/ffprobe-static ile ikinci çalıştırmada paket 58 MB, ffmpeg 6.0 ve ffprobe 4.4 runner'da çalıştı.
 - Üç bağımsız kod incelemesi yapıldı, toplam ~30 bulgu düzeltildi (biri eski: Bul/Değiştir tam sözcük + harf duyarsız).
-- Doğrulanmayanlar: kullanıcının kendi Lua betikleri (depoda yok; Drive'daki assmotion-devam-*.zip çok büyük), gerçek ses aygıtı, Japonca Tesseract (jpn verisi yok), Whisper gerçek modeli, macOS paketindeki ffmpeg'in çalışması.
+- Doğrulanmayanlar: kullanıcının kendi Lua betikleri (depoda yok; Drive'daki assmotion-devam-*.zip çok büyük), gerçek ses aygıtı, Japonca Tesseract (jpn verisi yok), Whisper gerçek modeli.
 - Sıradaki öneriler: kullanıcı betiklerini `crates/osisub-lua/tests/fixtures/`'a eklemek; hardsub için kare-doğru sınır inceltme; OCR için tur/jpn dil verisi rehberi; Windows paketine Tesseract.
