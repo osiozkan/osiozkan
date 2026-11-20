@@ -61,6 +61,8 @@ pub(crate) struct OcrWin {
     error: Option<String>,
     /// Tesseract kurulu mu (pencere açılırken bir kez denetlenir)
     tess_ok: bool,
+    /// sonuç gelince yüklü yazım sözlüğüyle OCR düzeltmesi
+    fix: bool,
 }
 
 impl OcrWin {
@@ -100,6 +102,7 @@ pub(crate) struct HardsubWin {
     started: Option<std::time::Instant>,
     error: Option<String>,
     tess_ok: bool,
+    fix: bool,
 }
 
 impl HardsubWin {
@@ -107,7 +110,7 @@ impl HardsubWin {
         let langs = osisub_media::ocr::languages();
         let mut opts = osisub_media::hardsub::HardsubOptions::default();
         if !langs.iter().any(|l| l == "eng") { if let Some(l) = langs.first() { opts.lang = l.clone(); } }
-        HardsubWin { path: video, opts, langs, as_reference: true, rx: None, progress: Default::default(), cancel: Default::default(), started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available() }
+        HardsubWin { path: video, opts, langs, as_reference: true, rx: None, progress: Default::default(), cancel: Default::default(), started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available(), fix: false }
     }
 }
 
@@ -115,7 +118,7 @@ impl Default for OcrWin {
     fn default() -> Self {
         let langs = osisub_media::ocr::languages();
         let lang = if langs.iter().any(|l| l == "eng") { "eng".into() } else { langs.first().cloned().unwrap_or_else(|| "eng".into()) };
-        OcrWin { path: None, tracks: vec![], track: None, langs, lang, as_reference: false, rx: None, started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available() }
+        OcrWin { path: None, tracks: vec![], track: None, langs, lang, as_reference: false, rx: None, started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available(), fix: false }
     }
 }
 
@@ -1774,6 +1777,19 @@ impl App {
         self.resample_open = open;
     }
 
+    /// Yüklü yazım sözlüğüyle OCR düzeltmesi (sözlük yoksa 0).
+    pub(super) fn ocr_fix_script(&self, sc: &mut osisub_core::Script) -> usize {
+        let Some(sp) = self.spell.clone() else { return 0 };
+        let mut total = 0;
+        for e in sc.entries.iter_mut() {
+            if let Entry::Dialogue(d) = e {
+                let (t, n) = osisub_core::ocrfix::fix_text(&d.text, &|w| sp.check(w));
+                if n > 0 { d.text = t; total += n; }
+            }
+        }
+        total
+    }
+
     pub(super) fn text_import_window(&mut self, ctx: &egui::Context) {
         use osisub_core::textimport as ti;
         let Some(w) = self.text_import.as_mut() else { return };
@@ -1837,11 +1853,12 @@ impl App {
             if let Ok(r) = rx.try_recv() {
                 w.rx = None;
                 match r {
-                    Ok(sc) => {
+                    Ok(mut sc) => {
                         let n = sc.dialogues().count();
+                        let fixed = if w.fix { self.ocr_fix_script(&mut sc) } else { 0 };
                         if w.as_reference {
                             self.set_reference(sc);
-                            self.status = format!("Gömülü altyazı: {n} satır referans olarak yüklendi");
+                            self.status = format!("Gömülü altyazı: {n} satır referans olarak yüklendi{}", if fixed > 0 { format!(", {fixed} OCR hatası düzeltildi") } else { String::new() });
                         } else {
                             self.request(Guarded::OpenScript(sc, format!("Gömülü altyazı: {n} satır — denetleyip kaydedin")));
                         }
@@ -1895,6 +1912,7 @@ impl App {
             });
             ui.checkbox(&mut w.opts.also_top, "Üst bölgeyi de tara (tabela çevirileri / notlar; {\\an8} ile, süre iki katı)");
             ui.checkbox(&mut w.as_reference, "Referans olarak yükle (çeviri kaynağı; açık belge değişmez)");
+            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin");
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
                 if ui.add_enabled(w.path.is_some() && !busy && w.tess_ok, egui::Button::new("Başlat")).clicked() {
@@ -1932,7 +1950,8 @@ impl App {
             if let Ok(r) = rx.try_recv() {
                 w.rx = None;
                 match r {
-                    Ok(sc) => {
+                    Ok(mut sc) => {
+                        if w.fix { self.ocr_fix_script(&mut sc); }
                         let n = sc.dialogues().count();
                         let name = w.path.as_ref().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                         if w.as_reference {
@@ -1987,6 +2006,7 @@ impl App {
                 ui.add(TextEdit::singleline(&mut w.lang).desired_width(90.0)).on_hover_text("Birden çok dil: eng+jpn");
             });
             ui.checkbox(&mut w.as_reference, "Referans olarak yükle (açık belgeyi değiştirmez; ızgarada Referans sütunu)");
+            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin");
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
                 let ready = w.path.is_some() && !busy;
