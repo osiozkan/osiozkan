@@ -1883,6 +1883,7 @@ impl App {
                 });
                 ui.end_row();
             });
+            ui.checkbox(&mut w.opts.also_top, "Üst bölgeyi de tara (tabela çevirileri / notlar; {\\an8} ile, süre iki katı)");
             ui.checkbox(&mut w.as_reference, "Referans olarak yükle (çeviri kaynağı; açık belge değişmez)");
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
@@ -1894,7 +1895,7 @@ impl App {
                     pr.store(0f32.to_bits(), Ordering::Relaxed);
                     std::thread::spawn(move || {
                         let c3 = c2.clone();
-                        let r = osisub_media::hardsub::extract(&p, &o, &|f| { pr.store(f.to_bits(), Ordering::Relaxed); c3.request_repaint(); }, &cancel);
+                        let r = osisub_media::hardsub::extract_all(&p, &o, &|f| { pr.store(f.to_bits(), Ordering::Relaxed); c3.request_repaint(); }, &cancel);
                         let _ = tx.send(r);
                         c2.request_repaint();
                     });

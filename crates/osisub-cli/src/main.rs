@@ -19,7 +19,7 @@ KULLANIM:
                           w×h kutuyu 4 köşeye oturtan \\frx\\fry\\frz\\fscx\\fscy\\fax\\org etiketleri
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
-  osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200]   gömülü altyazıyı metne çevir
+  osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200] [--also-top]   gömülü altyazıyı metne çevir
   osisub export-text <girdi.ass> <metin.txt> [--speakers]   diyalogları çevirmen için düz metne (tabela/karaoke hariç)
   osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
@@ -244,8 +244,9 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             if let Some(v) = opt(&mut args, "--bottom") { o.bottom = v.parse().map_err(|_| "--bottom 0-1 arası")?; }
             if let Some(v) = opt(&mut args, "--fps") { o.fps = v.parse().map_err(|_| "--fps sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--bright") { o.detect.bright = v.parse().map_err(|_| "--bright 0-255")?; }
+            o.also_top = flag(&mut args, "--also-top");
             let [v, out] = args.as_slice() else { return Err("kullanım: hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--fps 5]".into()) };
-            let s = osisub_media::hardsub::extract(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
+            let s = osisub_media::hardsub::extract_all(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
             eprintln!("\r{} satır", s.dialogues().count());
             save(&s, out)
         }

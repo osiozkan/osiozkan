@@ -19,16 +19,33 @@ pub struct HardsubOptions {
     /// Tesseract dili ("eng", "tur", "eng+jpn"…)
     pub lang: String,
     pub detect: Options,
+    /// Ayrıca üst %30'u da tara; oradan gelen satırlar `{\an8}` alır (tabela çevirileri/notlar)
+    pub also_top: bool,
 }
 
 impl Default for HardsubOptions {
     fn default() -> Self {
-        HardsubOptions { top: 0.70, bottom: 1.0, fps: 5.0, width: 1280, lang: "eng".into(), detect: Options::default() }
+        HardsubOptions { top: 0.70, bottom: 1.0, fps: 5.0, width: 1280, lang: "eng".into(), detect: Options::default(), also_top: false }
     }
 }
 
 fn even(v: f64) -> u32 {
     ((v / 2.0).round() as u32 * 2).max(2)
+}
+
+/// `extract` + `also_top` ise ikinci geçişte üst bölge (`{\an8}` satırları); sonuç zamana göre sıralı.
+pub fn extract_all(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<osisub_core::Script, String> {
+    if !o.also_top {
+        return extract(video, o, progress, cancel);
+    }
+    let mut s = extract(video, o, &|f| progress(f * 0.5), cancel)?;
+    let top = HardsubOptions { top: 0.0, bottom: 0.30, also_top: false, ..o.clone() };
+    let t = extract(video, &top, &|f| progress(0.5 + f * 0.5), cancel)?;
+    let mut ds: Vec<osisub_core::ass::Dialogue> = s.dialogues().cloned().collect();
+    ds.extend(t.dialogues().cloned().map(|mut d| { d.text = format!("{{\\an8}}{}", d.text); d }));
+    ds.sort_by_key(|d| d.start_time);
+    s = osisub_core::Script::from_dialogues(ds);
+    Ok(s)
 }
 
 /// Videodaki gömülü altyazıyı satırlara çevirir. `progress(0..1)` aşama ilerlemesi; `cancel`
