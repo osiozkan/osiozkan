@@ -48,6 +48,11 @@ k ctrl+z; k ctrl+s; sleep 1
 checkno "makro tek adımda geri alındı" "0:00:02.00,0:00:04.20,Default,Sakura"
 # .bak yedeği
 [ -f "$TMP/t.ass.bak" ] && echo "TAMAM: .bak yedeği var" || { echo "HATA: .bak yok"; fail=1; }
+# zaman damgalı kayıt yedekleri (autoback)
+ls "${XDG_DATA_HOME:-$HOME/.local/share}/osisub/autoback/" 2>/dev/null | grep -q '^t\.' && echo "TAMAM: autoback yedeği var" || { echo "HATA: autoback yok"; fail=1; }
+# yer imi (Ctrl+F2) dosyada Extradata olarak saklanır
+click 200 129; k ctrl+F2; k ctrl+s; sleep 1
+check "yer imi kaydedildi" "osisub.bookmark"
 
 kill $APID 2>/dev/null; kill $XPID 2>/dev/null
 grep -q panicked "$TMP/log" && { echo "ÇÖKME"; grep -A6 panicked "$TMP/log"; fail=1; }
