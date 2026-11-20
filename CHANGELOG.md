@@ -3,6 +3,7 @@
 ## 0.7.0 — geliştiriliyor (yedinci gece, 2026-11-20)
 
 **Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`). Okunuşu elle yazmanız gerekmez: Kanji zamanlayıcıda *Furigana okunuşu ekle* romaji hecelerinden hiragana okunuşu üretir (ki+mi → 君|きみ).
+**Gömülü (hardsub) altyazıyı metne çevir:** videoya yakılmış altyazıyı satır zamanlarıyla birlikte okur (Tesseract) — ham yayındaki İngilizce/Çince yakılı altyazıyı çeviri kaynağı (referans) yapmak için; bölge (alt/üst), örnekleme hızı ve metin parlaklığı ayarlanabilir, ilerleme + iptal (Dosya → Video ile, CLI `hardsub`).
 **Dosyayı böl:** kesme zamanlarında (ör. OP sonu) ya da eşit parçalara; parça zamanı isteğe bağlı sıfırlanır (Dosya menüsü, CLI `split`).
 **Yer imleri:** Ctrl+F2 ile satıra yer imi (isteğe bağlı notla), F2 / Shift+F2 ile gezinme, Düzen → Yer imleri listesi; dosyanın içinde saklanır (Aegisub'da açıp kaydetmek bozmaz).
 **Kalite:** **ad tutarlılığı** — sık geçen karakter adının yanlış yazılmış tekil biçimleri ("Hinta" ↔ 40 kez "Hinata") Kalite sekmesinde not olarak çıkar; *Gereksiz etiketleri sil* (`{\fs20\fs30}` → `{\fs30}`, tekrarlanan `\i1`…; CLI `fixes --redundant`); hazır kural profilleri — Netflix (yetişkin 17 kar/sn, çocuk 13), Fansub, TV yayını (EBU, 37 karakter); Kalite sekmesinde tek seçim, CLI `check --profile netflix`.

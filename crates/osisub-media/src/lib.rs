@@ -5,6 +5,7 @@
 pub mod audio;
 pub mod mt;
 pub mod ocr;
+pub mod hardsub;
 pub mod mux;
 pub mod resync;
 pub mod whisper;

@@ -45,6 +45,7 @@
 - [x] Saygı ekleri penceresi: ad başına kullanım, tutarsızlık vurgusu, toplu kaldırma
 - [x] Toplu (sezon) kalite raporu: tek HTML, özet tablo (GUI toplu dosya penceresi + CLI `qc-report`)
 - [x] Ekran çakışması denetimi: konumlu tabela ↔ diyalog, libass ile çizerek (GUI Kalite + CLI `check --collide`)
+- [x] Gömülü (hardsub) altyazı OCR (core::hardsub + media::hardsub; Dosya → Video ile, komut paleti, CLI `hardsub`): ffmpeg alt/üst bölgeyi 5 kare/sn gri akıtır; parlak bileşenlerden çevresi koyu kenarla çevrili ve harf boyutlu olanlar metin (beyaz zemin, sahne çizgileri, harf iç boşlukları elenir); hücre imzası farkıyla satır sınırları (akış halinde, satır başına bir kare bellekte); gri tonlu 2× görüntü → Tesseract; aynı metinli bitişik satırlar birleşir, OCR gürültüsü temizlenir; referans olarak yüklenebilir. libass ile yakılmış testsrc2 ve sarı/kalın/gölgeli/fade metinli fraktal videoda uçtan uca testli (zaman ±250 ms, metin ≥ %90)
 - [x] VobSub (DVD .idx/.sub ve MKV izi) OCR — yerleşik çözücü, ffmpeg dvdsub ile çapraz doğrulandı
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)
 - [x] Timecode dosyaları v1/v2 (VFR, `core::vfr`): Video menüsünden aç/kaydet/kapat; kare adımı, kareye yapışma, `aegisub.frame_from_ms/ms_from_frame`, "Kareye oturt", CLI `--timecodes`

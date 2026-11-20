@@ -19,6 +19,7 @@ KULLANIM:
                           w×h kutuyu 4 köşeye oturtan \\frx\\fry\\frz\\fscx\\fscy\\fax\\org etiketleri
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
+  osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200]   gömülü altyazıyı metne çevir
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
@@ -233,6 +234,18 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             eprintln!("genişlik {w:.2}, yükseklik {h:.2}");
             println!("{d}");
             Ok(())
+        }
+        "hardsub" => {
+            let mut o = osisub_media::hardsub::HardsubOptions::default();
+            if let Some(v) = opt(&mut args, "--lang") { o.lang = v; }
+            if let Some(v) = opt(&mut args, "--top") { o.top = v.parse().map_err(|_| "--top 0-1 arası")?; }
+            if let Some(v) = opt(&mut args, "--bottom") { o.bottom = v.parse().map_err(|_| "--bottom 0-1 arası")?; }
+            if let Some(v) = opt(&mut args, "--fps") { o.fps = v.parse().map_err(|_| "--fps sayı olmalı")?; }
+            if let Some(v) = opt(&mut args, "--bright") { o.detect.bright = v.parse().map_err(|_| "--bright 0-255")?; }
+            let [v, out] = args.as_slice() else { return Err("kullanım: hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--fps 5]".into()) };
+            let s = osisub_media::hardsub::extract(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
+            eprintln!("\r{} satır", s.dialogues().count());
+            save(&s, out)
         }
         "split" => {
             let parts_n = opt(&mut args, "--parts").map(|v| v.parse::<usize>().map_err(|_| "--parts sayı olmalı")).transpose()?;

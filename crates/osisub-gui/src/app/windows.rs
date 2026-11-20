@@ -80,6 +80,29 @@ impl OcrWin {
     }
 }
 
+/// Gömülü (hardsub) altyazıyı metne çevir penceresi (osisub_media::hardsub).
+pub(crate) struct HardsubWin {
+    path: Option<PathBuf>,
+    opts: osisub_media::hardsub::HardsubOptions,
+    langs: Vec<String>,
+    as_reference: bool,
+    rx: Option<std::sync::mpsc::Receiver<Result<osisub_core::Script, String>>>,
+    progress: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    started: Option<std::time::Instant>,
+    error: Option<String>,
+    tess_ok: bool,
+}
+
+impl HardsubWin {
+    pub(crate) fn new(video: Option<PathBuf>) -> Self {
+        let langs = osisub_media::ocr::languages();
+        let mut opts = osisub_media::hardsub::HardsubOptions::default();
+        if !langs.iter().any(|l| l == "eng") { if let Some(l) = langs.first() { opts.lang = l.clone(); } }
+        HardsubWin { path: video, opts, langs, as_reference: true, rx: None, progress: Default::default(), cancel: Default::default(), started: None, error: None, tess_ok: osisub_media::ocr::tesseract_available() }
+    }
+}
+
 impl Default for OcrWin {
     fn default() -> Self {
         let langs = osisub_media::ocr::languages();
@@ -1205,7 +1228,7 @@ impl App {
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
-            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1245,6 +1268,7 @@ impl App {
                 "todraw" => self.text_to_drawing(false),
                 "furigana" => self.furigana_layout(),
                 "bookmarks" => self.bookmarks_open = true,
+                "hardsub" => self.hardsub = Some(super::windows::HardsubWin::new(self.media.path.clone())),
                 "split_file" => self.split_win = Some((String::new(), 2, false)),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
@@ -1729,6 +1753,101 @@ impl App {
             }
         });
         self.resample_open = open;
+    }
+
+    pub(super) fn hardsub_window(&mut self, ctx: &egui::Context) {
+        use std::sync::atomic::Ordering;
+        let Some(mut w) = self.hardsub.take() else { return };
+        if w.path.is_none() { w.path = self.media.path.clone(); }
+        if let Some(rx) = &w.rx {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            if let Ok(r) = rx.try_recv() {
+                w.rx = None;
+                match r {
+                    Ok(sc) => {
+                        let n = sc.dialogues().count();
+                        if w.as_reference {
+                            self.set_reference(sc);
+                            self.status = format!("Gömülü altyazı: {n} satır referans olarak yüklendi");
+                        } else {
+                            self.request(Guarded::OpenScript(sc, format!("Gömülü altyazı: {n} satır — denetleyip kaydedin")));
+                        }
+                        return;
+                    }
+                    Err(e) => w.error = Some(e),
+                }
+            }
+        }
+        let mut open = true;
+        let busy = w.rx.is_some();
+        egui::Window::new("Gömülü altyazıyı metne çevir (hardsub OCR)").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new("Videoya yakılmış altyazıyı okur: kenarlı (outline) açık renkli metnin belirip kaybolduğu anlar satır olur, her satır Tesseract ile okunur. Sonucu mutlaka denetleyin.").weak());
+            if !w.tess_ok {
+                ui.label(RichText::new("Tesseract bulunamadı (OSISUB_TESSERACT ile yol verilebilir).").color(theme::BAD));
+            }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!busy, egui::Button::new("Video seç…")).clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file() { w.path = Some(p); }
+                }
+                match &w.path {
+                    Some(p) => { ui.label(p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).on_hover_text(p.display().to_string()); }
+                    None => { ui.label("(video yok)"); }
+                }
+            });
+            egui::Grid::new("hs_grid").num_columns(2).show(ui, |ui| {
+                ui.label("Taranan bölge");
+                ui.horizontal(|ui| {
+                    let mut t = (w.opts.top * 100.0).round() as i32;
+                    let mut b = (w.opts.bottom * 100.0).round() as i32;
+                    ui.label("üst %"); if ui.add(egui::DragValue::new(&mut t).range(0..=95)).changed() { w.opts.top = t as f64 / 100.0; }
+                    ui.label("alt %"); if ui.add(egui::DragValue::new(&mut b).range(5..=100)).changed() { w.opts.bottom = b as f64 / 100.0; }
+                    if ui.small_button("Alt").on_hover_text("Diyalog: alt %30").clicked() { w.opts.top = 0.70; w.opts.bottom = 1.0; }
+                    if ui.small_button("Üst").on_hover_text("Üstteki altyazılar/notlar: üst %30").clicked() { w.opts.top = 0.0; w.opts.bottom = 0.30; }
+                });
+                ui.end_row();
+                ui.label("Örnekleme");
+                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.fps).range(2.0..=24.0).speed(0.5)); ui.label("kare/sn (yüksek = daha hassas zaman, daha yavaş)"); });
+                ui.end_row();
+                ui.label("Metin parlaklığı ≥");
+                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.detect.bright).range(100..=255)); ui.label("(sarı/renkli metinde düşürün)"); });
+                ui.end_row();
+                ui.label("Dil");
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("hs_lang").selected_text(w.opts.lang.clone()).show_ui(ui, |ui| {
+                        for l in w.langs.clone() { ui.selectable_value(&mut w.opts.lang, l.clone(), l); }
+                    });
+                    ui.add(TextEdit::singleline(&mut w.opts.lang).desired_width(90.0)).on_hover_text("Birden çok dil: eng+jpn; Türkçe için 'tur' dil verisi gerekir");
+                });
+                ui.end_row();
+            });
+            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (çeviri kaynağı; açık belge değişmez)");
+            if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
+            ui.horizontal(|ui| {
+                if ui.add_enabled(w.path.is_some() && !busy && w.tess_ok, egui::Button::new("Başlat")).clicked() {
+                    let (p, o) = (w.path.clone().unwrap(), w.opts.clone());
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let (pr, cancel, c2) = (w.progress.clone(), w.cancel.clone(), ctx.clone());
+                    cancel.store(false, Ordering::Relaxed);
+                    pr.store(0f32.to_bits(), Ordering::Relaxed);
+                    std::thread::spawn(move || {
+                        let c3 = c2.clone();
+                        let r = osisub_media::hardsub::extract(&p, &o, &|f| { pr.store(f.to_bits(), Ordering::Relaxed); c3.request_repaint(); }, &cancel);
+                        let _ = tx.send(r);
+                        c2.request_repaint();
+                    });
+                    w.rx = Some(rx);
+                    w.started = Some(std::time::Instant::now());
+                    w.error = None;
+                }
+                if busy {
+                    let f = f32::from_bits(w.progress.load(Ordering::Relaxed));
+                    ui.add(egui::ProgressBar::new(f).desired_width(180.0).text(format!("%{:.0} · {} sn", f * 100.0, w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0))));
+                    if ui.button("İptal").clicked() { w.cancel.store(true, Ordering::Relaxed); }
+                }
+            });
+        });
+        if !open { w.cancel.store(true, Ordering::Relaxed); return; }
+        self.hardsub = Some(w);
     }
 
     pub(super) fn ocr_window(&mut self, ctx: &egui::Context) {

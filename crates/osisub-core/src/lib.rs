@@ -17,6 +17,7 @@ pub mod fonts_used;
 pub mod formats;
 pub mod furigana;
 pub mod glossary;
+pub mod hardsub;
 pub mod io;
 pub mod kanjitimer;
 pub mod karaoke;

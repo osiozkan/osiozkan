@@ -147,6 +147,7 @@ pub struct App {
     fonts_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
     /// Resim altyazısı OCR penceresi ve arka plan işi
     ocr: Option<windows::OcrWin>,
+    hardsub: Option<windows::HardsubWin>,
     whisper: Option<windows::WhisperWin>,
     tr_last_active: usize,
     find_focus: bool,
@@ -622,6 +623,7 @@ impl App {
             egui_ctx: cc.egui_ctx.clone(),
             dummy_win: None,
             ocr: None,
+            hardsub: None,
             whisper: None,
             song_win: None,
             fonts_list: None,
@@ -687,6 +689,7 @@ impl App {
             Some("song") => app.song_win = Some(windows::SongWin::new()),
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
+            Some("hardsub") => app.hardsub = Some(windows::HardsubWin::new(app.media.path.clone())),
             Some("split") => app.split_win = Some(("0:00:09.00".into(), 2, false)),
             Some("bookmarks") => app.bookmarks_open = true,
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
@@ -1699,6 +1702,10 @@ impl App {
                         ui.close();
                         self.ocr = Some(windows::OcrWin::default());
                     }
+                    if ui.button("Gömülü (hardsub) altyazıyı metne çevir…").on_hover_text("Videoya yakılmış altyazıyı satır zamanlarıyla birlikte okur (Tesseract); çeviri kaynağı olarak referansa yüklenebilir").clicked() {
+                        ui.close();
+                        self.hardsub = Some(windows::HardsubWin::new(self.media.path.clone()));
+                    }
                     ui.menu_button("Bölümler (chapters)", |ui| {
                         let n = osisub_core::chapters::from_script(&self.doc.script).len();
                         ui.label(RichText::new(format!("Belgede {n} bölüm (Efekt: chapter); MKV'ye gömerken eklenir")).weak());
@@ -2330,6 +2337,7 @@ impl App {
         crate::guide_ui::show(&ctx, &mut self.guide);
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) { self.guide = if self.guide.is_some() { None } else { Some(String::new()) }; }
         self.ocr_window(&ctx);
+        self.hardsub_window(&ctx);
         self.whisper_window(&ctx);
         self.song_window(&ctx);
         self.import_window(&ctx);
