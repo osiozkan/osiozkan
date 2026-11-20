@@ -103,3 +103,15 @@ Dal: `claude/vibrant-clarke-g5biih` (main'den; `-u7myjw` ileri sarıldı). 2026-
 - Doğrulanmayanlar: Whisper gerçek modelle (indirme engelli), gerçek ses aygıtı, gerçek ASSFoundation/Aegisub-Motion, kullanıcının kendi Lua betikleri (depoda yok).
 - Sıradaki öneriler: Windows paketine whisper-cli/Tesseract ekleme (release.yml; URL'ler bu ortamda doğrulanamadı), macOS paketine ffmpeg, İngilizce arayüz, furigana düzeni.
 
+
+## 2026-11-20 (yedinci gece, v0.7.0)
+Dal: `claude/vibrant-clarke-er83om` (main'den; `-g5biih` ileri sarıldı). 2026-11-16…19 gecelerine ait dal yok. Ortam: `xvfb xdotool libxkbcommon-x11-0 libasound2-dev fonts-ipafont-gothic tesseract-ocr` kuruldu.
+- **Furigana düzeni** (core::furigana, fonts::apply_furigana): `漢字|かんじ` heceleri → okunuşsuz ana satır + hece ortasına `\an2\pos` okunuş satırları (`<stil>-furigana`), hecesiyle vurgulanır; libass render'ıyla görsel doğrulandı (IPA Gothic). Kanji zamanlayıcıda romajiden otomatik okunuş (`romaji_to_hiragana`).
+- **Aegisub satır işlemleri** (core::lineops): Recombine Lines, zamanları ardışık yap, değiş tokuş; ızgarada etiket göster/sadeleştir/gizle.
+- **Yer imleri** (core::bookmarks; Extradata `osisub.bookmark`): Ctrl+F2 / F2 / Shift+F2, liste penceresi, not (xdotool ile doğrulandı).
+- **QC profilleri** (Netflix yetişkin/çocuk, fansub, TV/EBU), **gereksiz etiketleri sil** (core::tagclean), **ad tutarlılığı** (core::names), **dosyayı böl** (core::filesplit).
+- **Gömülü (hardsub) altyazı OCR** (core::hardsub + media::hardsub): kenarla çevrili parlak bileşenler, akış halinde satır sınırı, gri 2× görüntü → Tesseract. 1080p'de ~30× gerçek zaman (release, 4 çekirdek).
+- Bağımsız kod incelemesi (alt ajan) 12 bulgu: düzeltilenler — yer imi notu düzenlenemiyordu (egui tamponu her karede sıfırlanıyordu), `re|n|a|i` → れない (hece sınırı kayboluyordu), boşluk/ē/m+b/va, Extradata olaylardan önce gelince yer imi yanlış satıra, CJK glifi olmayan yazı tipinde kanji genişliği yarım ölçülüyordu (artık 1 em), satır başı/sonu boşlukları, tek hatalı satır tüm furigana işlemini durduruyordu, eksik stilde ad, yeniden çalıştırmada eski çıktı (zaman yerine stille eşleşme), Recombine'da araya giren satır. Bilinçli bırakılan: furigana'da `\an`/`\pos` ilk-geçerli önceliği ve ikinci baştaki blok (nadir).
+- Tuzak: egui'de her karede yeniden kurulan `TextEdit` tamponu yazılanı kaybeder — düzenleme tamponunu uygulama durumunda tut.
+- Tuzak: hardsub'da maske "parlak + yakında koyu" piksel olarak kurulursa beyaz zeminde metnin çevresi de girer; bağlı bileşen + çevre oranı + harf boyutu + iç boşluk (kutu içinde kutu) kuralları gerekti.
+- Google Drive'da kullanıcının `assmotion-devam-*.zip` (Lua betikleri olabilir, 1.4–2.5 MB) ve `OsiSub_tum_kod_3.x.txt` dökümleri bulundu; bağlama çekilemeyecek kadar büyük, açılmadı. Kullanıcının Lua betikleri hâlâ depoda yok.
