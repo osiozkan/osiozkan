@@ -46,6 +46,7 @@
 - [x] Saygı ekleri penceresi: ad başına kullanım, tutarsızlık vurgusu, toplu kaldırma
 - [x] Toplu (sezon) kalite raporu: tek HTML, özet tablo (GUI toplu dosya penceresi + CLI `qc-report`)
 - [x] Ekran çakışması denetimi: konumlu tabela ↔ diyalog, libass ile çizerek (GUI Kalite + CLI `check --collide`)
+- [x] OCR hatalarını düzelt (core::ocrfix; Araçlar menüsü, CLI `ocr-fix`; Subtitle Edit OCR fix engine): sözlükte olmayan sözcüklerde rn↔m, l↔I, 0↔O, vv→w, cl→d… (zayıf n↔u/c↔e yalnız 6+ harfte), olağan harf düzeni şartı, tam sözcük önce (l'm → I'm), Türkçe ek korunur; gerçek en_US Hunspell ile doğrulandı
 - [x] Gömülü (hardsub) altyazı OCR (core::hardsub + media::hardsub; Dosya → Video ile, komut paleti, CLI `hardsub`): ffmpeg alt/üst bölgeyi 5 kare/sn gri akıtır; parlak bileşenlerden çevresi koyu kenarla çevrili ve harf boyutlu olanlar metin (beyaz zemin, sahne çizgileri, harf iç boşlukları elenir); hücre imzası farkıyla satır sınırları (akış halinde, satır başına bir kare bellekte); gri tonlu 2× görüntü → Tesseract; aynı metinli bitişik satırlar birleşir, OCR gürültüsü temizlenir; referans olarak yüklenebilir. libass ile yakılmış testsrc2 ve sarı/kalın/gölgeli/fade metinli fraktal videoda uçtan uca testli (zaman ±250 ms, metin ≥ %90)
 - [x] VobSub (DVD .idx/.sub ve MKV izi) OCR — yerleşik çözücü, ffmpeg dvdsub ile çapraz doğrulandı
 - [x] Zamanlama: videodan anahtar kareler, kareye/anahtar kareye yapışma, son-işleyici (lead-in/out, bitişik satır, anahtar kare)

@@ -27,6 +27,7 @@ pub mod linebreak;
 pub mod lineops;
 pub mod merge;
 pub mod names;
+pub mod ocrfix;
 pub mod motion;
 pub mod overrides;
 pub mod perspective;

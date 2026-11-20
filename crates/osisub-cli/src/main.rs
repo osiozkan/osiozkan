@@ -23,6 +23,7 @@ KULLANIM:
   osisub export <girdi> <çıktı> [--strip-comments] [--clean-info] [--fix-styles] [--strip-notes] [--clean-tags]   yayın kopyası (yerleşik süzgeçler)
   osisub export-text <girdi.ass> <metin.txt> [--speakers]   diyalogları çevirmen için düz metne (tabela/karaoke hariç)
   osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
+  osisub ocr-fix <girdi> <çıktı> --aff <sözlük.aff> --dic <sözlük.dic>   OCR karışıklıklarını (rn/m, l/I, 0/O…) sözlükle düzelt
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
@@ -281,6 +282,22 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let mut s = load(timing)?;
             let (n, left, _) = ti::fill_existing(&mut s, &items, 0, speakers);
             eprintln!("{n} satıra yerleştirildi{}", if left > 0 { format!(", {left} metin satırı arttı") } else { String::new() });
+            save(&s, out)
+        }
+        "ocr-fix" => {
+            let aff = opt(&mut args, "--aff").ok_or("--aff gerekli")?;
+            let dic = opt(&mut args, "--dic").ok_or("--dic gerekli")?;
+            let [inp, out] = args.as_slice() else { return Err("kullanım: ocr-fix <girdi> <çıktı> --aff x.aff --dic x.dic".into()) };
+            let sp = osisub_spell::Speller::load(Path::new(&aff), Path::new(&dic))?;
+            let mut s = load(inp)?;
+            let mut total = 0;
+            for e in s.entries.iter_mut() {
+                let Entry::Dialogue(d) = e else { continue };
+                if d.comment { continue; }
+                let (t, n) = osisub_core::ocrfix::fix_text(&d.text, &|w| sp.check(w));
+                if n > 0 { d.text = t; total += n; }
+            }
+            eprintln!("{total} sözcük düzeltildi");
             save(&s, out)
         }
         "split" => {

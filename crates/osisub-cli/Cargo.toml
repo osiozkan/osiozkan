@@ -12,3 +12,4 @@ path = "src/main.rs"
 osisub-core = { path = "../osisub-core" }
 osisub-lua = { path = "../osisub-lua" }
 osisub-media = { path = "../osisub-media" }
+osisub-spell = { path = "../osisub-spell" }

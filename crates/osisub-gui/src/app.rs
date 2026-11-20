@@ -326,6 +326,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
     ("select_overlaps", "Çakışan satırları seç"),
+    ("ocr_fix", "OCR hatalarını düzelt (yazım sözlüğüyle)"),
     ("bookmark_toggle", "Yer imi koy / kaldır"),
     ("bookmark_next", "Sonraki yer imi"),
     ("bookmark_prev", "Önceki yer imi"),
@@ -1373,6 +1374,26 @@ impl App {
                 let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
                 if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
             }
+            "ocr_fix" => {
+                match self.spell.clone() {
+                    None => self.status = "Önce Yazım sekmesinden bir sözlük yükleyin (OCR dilindeki, ör. en_US)".into(),
+                    Some(sp) => {
+                        let mut targets = self.doc.target_lines();
+                        if targets.len() <= 1 { targets = (0..self.doc.script.entries.len()).collect(); }
+                        let mut s = self.doc.script.clone();
+                        let mut total = 0;
+                        for i in targets {
+                            if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) {
+                                if d.comment { continue; }
+                                let (t, n) = osisub_core::ocrfix::fix_text(&d.text, &|w| sp.check(w));
+                                if n > 0 { d.text = t; total += n; }
+                            }
+                        }
+                        self.doc.apply_new_script("OCR hatalarını düzelt", s);
+                        self.status = format!("OCR: {total} sözcük düzeltildi (rn→m, l→I, 0→o…; Ctrl+Z geri alır)");
+                    }
+                }
+            }
             "select_overlaps" => {
                 let v = osisub_core::lineops::overlapping(&self.doc.script, true);
                 if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
@@ -2076,6 +2097,7 @@ impl App {
                 if ui.button("Ekler (gömülü yazı tipleri)…").on_hover_text("[Fonts]/[Graphics]: dosyaları ASS'e göm, çıkar, sil").clicked() { self.attach_open = true; ui.close(); }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Saygı ekleri (-san/-kun)…").clicked() { self.honor_open = true; ui.close(); }
+                if ui.button("OCR hatalarını düzelt").on_hover_text("OCR/hardsub sonrası: sözlükte olmayan sözcüklerde rn↔m, l↔I, 0↔O, vv→w gibi karışıklıkları dener, sözlükte bulunan biçimi yazar. Yazım sekmesinde yüklü sözlüğü kullanır; birden çok satır seçiliyse yalnızca onlara").clicked() { self.run_command("ocr_fix", ui.ctx()); ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
                 if ui.button("Perspektife oturt").on_hover_text("Etkin satıra 4 noktalı vektör kırpma çizin (sol üst, sağ üst, sağ alt, sol alt); satır o dörtgene \\frx\\fry\\frz\\fscx\\fscy\\fax\\org ile oturtulur").clicked() { ui.close(); self.perspective_fit(); }

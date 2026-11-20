@@ -2425,6 +2425,7 @@ dependencies = [
  "osisub-core",
  "osisub-lua",
  "osisub-media",
+ "osisub-spell",
 ]
 
 [[package]]
