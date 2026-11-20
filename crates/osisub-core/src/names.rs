@@ -92,6 +92,11 @@ pub fn check(script: &Script) -> Vec<Issue> {
     let names: Vec<(&String, &Stat)> = caps.iter().filter(|(w, _)| !is_lower_word(w)).collect();
     let mut out = vec![];
     for (rare, rs) in &names {
+        // yalnızca cümle başında geçen seyrek biçim büyük olasılıkla sıradan bir sözcüktür
+        // (Bırak ↔ Burak, Selam ↔ Selim, Unut ↔ Umut): ad yazım hatası cümle ortasında da görünür
+        if !rs.mid {
+            continue;
+        }
         let rc: Vec<char> = rare.chars().collect();
         let best = names.iter()
             .filter(|(w, s)| w != rare && s.mid && s.count >= 4 && s.count >= rs.count * 4)
@@ -130,16 +135,20 @@ mod tests {
     #[test]
     fn tutarsiz_ad() {
         let mut l = vec!["Bence Hinata haklı.", "Hinata'yı gördün mü?", "Sen de mi Hinata?", "Gel, Hinata!", "Sana Hinata'dan bahsettim."];
-        l.push("Hinta nerede?"); // yazım hatası
+        l.push("Sen de mi Hinta?"); // yazım hatası (cümle ortasında)
+        l.push("Hinte geldi."); // yalnızca cümle başında: sıradan sözcük olabilir, uyarılmaz
         l.push("Bana bak."); // Bana/Sana: sıradan sözcükler (küçük harfle de geçer)
         l.push("Sana söyledim, bana inan, sana da.");
         let s = sc(&l);
         let v = check(&s);
         assert_eq!(v.len(), 1, "{:?}", v.iter().map(|i| &i.message).collect::<Vec<_>>());
         assert!(v[0].message.contains("\"Hinta\"") && v[0].message.contains("5 kez \"Hinata\""));
-        let hinta = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text.starts_with("Hinta"))).unwrap();
+        let hinta = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text.contains("Hinta"))).unwrap();
         assert_eq!(v[0].entry, hinta);
         // eşit sıklıkta iki biçim (iki farklı karakter: Yui / Yuki gibi) uyarılmaz
+        // Türkçe yaygın sözcük cümle başında (Bırak ↔ Burak)
+        let s = sc(&["Ben Burak.", "Sen Burak mısın?", "Gel Burak!", "Hey Burak.", "Bırak onu."]);
+        assert!(check(&s).is_empty());
         let s = sc(&["Haruka geldi.", "Ben Haruka.", "Haruki burada.", "Sen Haruki misin?"]);
         assert!(check(&s).is_empty());
     }

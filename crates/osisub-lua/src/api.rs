@@ -237,7 +237,7 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         native.set("furigana_has", lua.create_function(|_, t: String| Ok(c::furigana::has_furigana(&t)))?)?;
         native.set("romaji_to_kana", lua.create_function(|_, t: String| Ok(c::kanjitimer::romaji_to_hiragana(&t)))?)?;
         native.set("visible_text", lua.create_function(|_, t: String| Ok(c::tags::visible_text(&t)))?)?;
-        native.set("time_format", lua.create_function(|_, ms: f64| Ok(c::time::format_ass(ms.round() as i64)))?)?;
+        native.set("time_format", lua.create_function(|_, ms: f64| Ok(c::time::format_ass(if ms.is_finite() { ms.round().clamp(-3.6e11, 3.6e11) as i64 } else { 0 })))?)?;
         native.set("time_parse", lua.create_function(|_, t: String| Ok(c::time::parse_generic(&t)))?)?;
     }
     g.set("__osisub_native", native)?;

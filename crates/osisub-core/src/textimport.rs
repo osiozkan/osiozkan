@@ -25,7 +25,8 @@ fn split_speaker(line: &str) -> Option<(String, String)> {
     if name.is_empty() || name.chars().count() > 24 || name.split_whitespace().count() > 3 || !rest.starts_with(' ') {
         return None;
     }
-    if !name.chars().next()?.is_alphabetic() || name.chars().any(|c| c.is_ascii_digit() || "/.,!?".contains(c)) {
+    // ad: harfle başlar; harf, rakam, boşluk, nokta, tire, kesme (Guard 2, Dr. Who); URL değil
+    if !name.chars().next()?.is_alphabetic() || name.contains("//") || !name.chars().all(|c| c.is_alphanumeric() || " .-'’".contains(c)) {
         return None;
     }
     Some((name.to_string(), rest.trim().to_string()))
@@ -41,6 +42,11 @@ pub fn parse(text: &str, split: Split, speakers: bool) -> Vec<Item> {
         let mut parts: Vec<String> = vec![];
         for (k, l) in lines.iter().enumerate() {
             let l = l.trim();
+            // dışa aktarımın kaçışları: "\#…" / "\//…" (yorum sanılmasın), ": metin" (ad yok)
+            let l = l.strip_prefix('\\').filter(|r| r.starts_with('#') || r.starts_with("//")).unwrap_or(l);
+            if speakers && k == 0 {
+                if let Some(r) = l.strip_prefix(": ") { parts.push(r.to_string()); continue; }
+            }
             match (speakers, k == 0, split_speaker(l)) {
                 (true, true, Some((a, r))) => { actor = a; parts.push(r); }
                 _ => parts.push(l.to_string()),
@@ -102,7 +108,8 @@ pub fn fill_existing(script: &mut Script, items: &[Item], from: usize, actors: b
         let Some(x) = it.next() else { break };
         // baştaki etiket bloğu (ör. {\an8}) korunur
         let lead = if d.text.starts_with('{') { d.text.find('}').map(|e| d.text[..=e].to_string()).filter(|b| !b.contains("\\k")).unwrap_or_default() } else { String::new() };
-        d.text = format!("{lead}{}", x.text);
+        // dışa aktarımda boş satır "-" olarak yazılır
+        d.text = if x.text == "-" { lead } else { format!("{lead}{}", x.text) };
         if actors && !x.actor.is_empty() {
             d.actor = x.actor.clone();
         }
@@ -123,8 +130,15 @@ pub fn export(script: &Script, speakers: bool) -> String {
         }
         let t = crate::tags::visible_text(&d.text).replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
         let t = if t.is_empty() { "-".to_string() } else { t };
-        if speakers && !d.actor.trim().is_empty() {
+        if speakers && !d.actor.trim().is_empty() && split_speaker(&format!("{}: x", d.actor.trim())).is_some() {
             out.push_str(&format!("{}: {}\n", d.actor.trim(), t));
+            continue;
+        }
+        // satır başında yorum işareti varsa kaçış (ad önekli satırda gerekmez)
+        let t = if t.starts_with('#') || t.starts_with("//") { format!("\\{t}") } else { t };
+        if speakers && (split_speaker(&t).is_some() || t.starts_with(": ")) {
+            // ad gibi görünen metin ("Dinle: geliyorlar") geri alınırken ada dönüşmesin
+            out.push_str(&format!(": {t}\n"));
         } else {
             out.push_str(&t);
             out.push('\n');
@@ -177,6 +191,24 @@ mod tests {
         let first = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
         assert_eq!(fill_existing(&mut s, &items, first, true).0, 2);
         assert_eq!(s.dialogues().next().unwrap().text, "{\\i1}Selam dünya");
+    }
+
+    #[test]
+    fn gidis_donus_kacislari() {
+        let mut s = Script::new_default();
+        s.entries.retain(|e| !matches!(e, Entry::Dialogue(_)));
+        for (a, t) in [("", "#1 hayranın benim"), ("", "Dinle: geliyorlar"), ("Guard 2", "Dur!"), ("", ""), ("Dr. Who", "// yorum değil")] {
+            s.entries.push(Entry::Dialogue(Dialogue { actor: a.into(), text: t.into(), ..Default::default() }));
+        }
+        let before: Vec<(String, String)> = s.dialogues().map(|d| (d.actor.clone(), d.text.clone())).collect();
+        let txt = export(&s, true);
+        let items = parse(&txt, Split::Lines, true);
+        assert_eq!(items.len(), 5, "{txt}");
+        let first = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        for e in s.entries.iter_mut() { if let Entry::Dialogue(d) = e { d.text = "X".into(); d.actor.clear(); } }
+        fill_existing(&mut s, &items, first, true);
+        let after: Vec<(String, String)> = s.dialogues().map(|d| (d.actor.clone(), d.text.clone())).collect();
+        assert_eq!(after, before, "{txt}");
     }
 
     #[test]

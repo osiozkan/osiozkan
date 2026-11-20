@@ -25,6 +25,16 @@ fn canon(name: &str) -> &str {
     }
 }
 
+/// `\fs+5` / `\fs-5`: göreli boyut.
+fn is_relative(t: &Tag) -> bool {
+    t.name == "fs" && t.arg.trim_start().starts_with(['+', '-'])
+}
+
+/// Ayrıştırıcının `fs` sandığı `\fsc` (ölçek sıfırlama) gibi sayı olmayan bağımsız değişkenler.
+fn is_unknown(t: &Tag) -> bool {
+    t.name == "fs" && !t.arg.trim().is_empty() && !is_relative(t) && t.number().is_none()
+}
+
 fn norm_arg(a: &str) -> String {
     a.trim().trim_matches(|c| c == '(' || c == ')').trim().to_ascii_uppercase()
 }
@@ -39,8 +49,15 @@ pub fn clean(text: &str) -> Option<String> {
     let mut out: Vec<Seg> = Vec::with_capacity(segs.len());
     for seg in segs {
         let Seg::Block(tags) = seg else { out.push(seg); continue };
-        if tags.iter().any(|t| t.name.is_empty()) || tags.is_empty() {
-            out.push(Seg::Block(tags)); // not bloğu / boş blok: dokunma
+        if tags.is_empty() {
+            out.push(Seg::Block(tags));
+            continue;
+        }
+        if tags.iter().any(|t| t.name.is_empty() || is_unknown(t)) {
+            // not / bilinmeyen etiket içeren blok: dokunma; içindeki gerçek etiketlerin etkisi
+            // izlenmediği için durum sıfırlanır (yoksa sonraki gerekli etiket silinebilir)
+            if tags.iter().any(|t| !t.name.is_empty()) { state.clear(); }
+            out.push(Seg::Block(tags));
             continue;
         }
         let has_t = tags.iter().any(|t| t.name == "t");
@@ -51,7 +68,7 @@ pub fn clean(text: &str) -> Option<String> {
             let mut seen: Vec<String> = vec![];
             for (i, t) in tags.iter().enumerate().rev() {
                 let n = canon(&t.name);
-                if !STATEFUL.contains(&n) {
+                if !STATEFUL.contains(&n) || is_relative(t) {
                     if n == "r" { break; } // \r öncesini olduğu gibi bırak
                     continue;
                 }
@@ -79,9 +96,22 @@ pub fn clean(text: &str) -> Option<String> {
                 kept.push(t);
                 continue;
             }
-            if tracking && !has_t && !is_draw && STATEFUL.contains(&n.as_str()) {
+            if STATEFUL.contains(&n.as_str()) {
+                if is_relative(&t) {
+                    // \fs+5: geçerli boyuta göreli — değer bilinmez
+                    state.remove(&n);
+                    kept.push(t);
+                    continue;
+                }
                 let v = norm_arg(&t.arg);
-                if state.get(&n) == Some(&v) { continue; }
+                // çizim / \t bloklarında ya da \t sonrasında silme yok, ama durum yine güncellenir
+                if tracking && !has_t && !is_draw && state.get(&n) == Some(&v) { continue; }
+                // \bord ↔ \xbord/\ybord, \shad ↔ \xshad/\yshad birbirini ezer
+                for fam in [["bord", "xbord", "ybord"], ["shad", "xshad", "yshad"]] {
+                    if fam.contains(&n.as_str()) {
+                        for k in fam { if k != n { state.remove(k); } }
+                    }
+                }
                 state.insert(n, v);
             }
             kept.push(t);
@@ -134,6 +164,12 @@ mod tests {
         assert_eq!(c("{\\k10}a{\\k10}b"), "{\\k10}a{\\k10}b");
         assert_eq!(c("{\\b1}a{not}{\\b1}b"), "{\\b1}a{not}b");
         assert!(clean("düz metin").is_none());
+        // inceleme bulguları: bunların hiçbiri silinmemeli
+        for t in ["{\\i1}a{\\i0\\foo}b{\\i1}c", "{\\i1}a{TL notu\\i0}b{\\i1}c", "{\\fs20}a{\\p1\\fs30}m 0 0 l 1 1{\\p0\\fs20}b",
+                  "{\\bord2}a{\\xbord5}b{\\bord2}c", "{\\xbord2}a{\\bord5}b{\\xbord2}c", "{\\shad2}a{\\yshad5}b{\\shad2}c",
+                  "{\\fs+5\\fs+5}a", "{\\fs+5}a{\\fs+5}b", "{\\fscx50}a{\\fsc}b{\\fscx50}c"] {
+            assert_eq!(c(t), t, "{t}");
+        }
         assert!(clean("{\\an8}a").is_none());
     }
 }

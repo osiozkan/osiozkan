@@ -35,7 +35,8 @@ fn even(v: f64) -> u32 {
 
 /// `extract` + `also_top` ise ikinci geçişte üst bölge (`{\an8}` satırları); sonuç zamana göre sıralı.
 pub fn extract_all(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<osisub_core::Script, String> {
-    if !o.also_top {
+    // bölge zaten üstse ikinci geçiş aynı alanı tarar (yinelenen satırlar)
+    if !o.also_top || o.top < 0.3 {
         return extract(video, o, progress, cancel);
     }
     let mut s = extract(video, o, &|f| progress(f * 0.5), cancel)?;
@@ -51,6 +52,9 @@ pub fn extract_all(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), can
 /// Videodaki gömülü altyazıyı satırlara çevirir. `progress(0..1)` aşama ilerlemesi; `cancel`
 /// ayarlanırsa durur. Dönüş: zamanlanmış ve OCR'lanmış betik.
 pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<osisub_core::Script, String> {
+    if !(o.fps.is_finite() && o.fps > 0.0) {
+        return Err("Örnekleme hızı (fps) 0'dan büyük olmalı".into());
+    }
     let info = crate::probe(video)?;
     if !info.has_video || info.width == 0 || info.height == 0 {
         return Err("Videoda görüntü akışı yok".into());
@@ -65,12 +69,17 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
     let ow = even((o.width as f64).min(vw));
     let oh = even(ch as f64 * ow as f64 / vw);
     let vf = format!("fps={},crop={}:{}:0:{},scale={}:{}:flags=area,format=gray", o.fps, info.width, ch, cy, ow, oh);
+    // -noautorotate: crop/scale boyutları ffprobe'un saklanan boyutuyla aynı kalsın (dönmüş videoda
+    // ffmpeg aksi halde kareyi döndürür ve kırpma "too big" hatasıyla sessizce boş sonuç verir).
+    // stderr geçici dosyaya: hata iletisi raporlanır, boru tıkanması olmaz.
+    let errf = std::env::temp_dir().join(format!("osisub-hardsub-{}-{}.log", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    let err_out = std::fs::File::create(&errf).map(Stdio::from).unwrap_or(Stdio::null());
     let mut child = Command::new(crate::ffmpeg_bin())
-        .args(["-v", "error", "-nostdin", "-i"])
+        .args(["-v", "error", "-nostdin", "-noautorotate", "-i"])
         .arg(video)
         .args(["-an", "-sn", "-vf", &vf, "-f", "rawvideo", "pipe:1"])
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(err_out)
         .spawn()
         .map_err(|e| format!("ffmpeg çalıştırılamadı: {e}"))?;
     let mut out = child.stdout.take().ok_or("ffmpeg çıktısı yok")?;
@@ -97,6 +106,12 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
         }
     }
     let _ = child.wait();
+    let err_text = std::fs::read_to_string(&errf).unwrap_or_default();
+    let _ = std::fs::remove_file(&errf);
+    // hiç kare yoksa ffmpeg hatasını bildir (boş "başarılı" sonuç yerine)
+    if k == 0 {
+        return Err(format!("ffmpeg kare üretmedi: {}", err_text.lines().last().unwrap_or("bilinmeyen hata")));
+    }
     let end = if info.duration_ms > 0 { info.duration_ms } else { (k as f64 * step) as i64 };
     let found = seg.finish(end);
     progress(0.85);
