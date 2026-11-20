@@ -1235,8 +1235,10 @@ impl App {
         if self.issues_key != self.doc.rev {
             // Video açıksa kareye dayalı denetimler (sahne değişimi yakınlığı, titreme) da eklenir.
             let frame_ctx = self.media.framerate().map(|fr| (fr, self.media.keyframes.clone()));
+            let vdur = self.media.info.as_ref().filter(|i| i.has_video).map(|i| i.duration_ms).unwrap_or(0);
             if self.doc.script.entries.len() < 5000 {
                 let mut issues = qc::check(&self.doc.script, &self.rules);
+                issues.extend(qc::beyond_end(&self.doc.script, vdur));
                 issues.extend(osisub_core::untranslated::check(&self.doc.script, self.reference.as_ref()));
                 if let Some((fr, kf)) = &frame_ctx {
                     issues.extend(qc::frame_issues(&self.doc.script, fr, kf, 3));
@@ -1256,6 +1258,7 @@ impl App {
                 let (script, rules, rev, reference) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev, self.reference.clone());
                 std::thread::spawn(move || {
                     let mut issues = qc::check(&script, &rules);
+                    issues.extend(qc::beyond_end(&script, vdur));
                     issues.extend(osisub_core::untranslated::check(&script, reference.as_ref()));
                     if let Some((fr, kf)) = &frame_ctx {
                         issues.extend(qc::frame_issues(&script, fr, kf, 3));

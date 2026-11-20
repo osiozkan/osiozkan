@@ -366,6 +366,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 let fr = osisub_media::frame_timestamps(vp).ok().and_then(osisub_core::vfr::Framerate::from_timestamps).or_else(|| osisub_media::probe(vp).ok().map(|i| osisub_core::vfr::Framerate::cfr(i.fps)).filter(|f| f.fps() > 0.0)).ok_or("videonun kare hızı okunamadı")?;
                 let kf = osisub_media::keyframes(vp)?;
                 issues.extend(qc::frame_issues(&s, &fr, &kf, 3));
+                if let Ok(i) = osisub_media::probe(vp) { issues.extend(qc::beyond_end(&s, i.duration_ms)); }
                 issues.sort_by_key(|x| x.entry);
             }
             for is in &issues {

@@ -28,13 +28,15 @@ pub enum Kind {
     Untranslated,
     /// Konumlu tabela/tipografi satırı aynı anda görünen diyalogun üstüne çiziliyor (core::collide)
     ScreenCollision,
+    /// Satır video bitiminden sonra başlıyor / bitiyor (kaydırma, yanlış video)
+    BeyondVideo,
 }
 
 impl Kind {
     /// Kalite sekmesindeki süzgeç grubu: "zaman", "metin", "etiket", "not".
     pub fn category(&self) -> &'static str {
         match self {
-            Kind::Overlap | Kind::TooShort | Kind::TooLong | Kind::SmallGap | Kind::NegativeDuration | Kind::NearKeyframe | Kind::Flicker => "zaman",
+            Kind::Overlap | Kind::TooShort | Kind::TooLong | Kind::SmallGap | Kind::NegativeDuration | Kind::NearKeyframe | Kind::Flicker | Kind::BeyondVideo => "zaman",
             Kind::ReadingSpeed | Kind::LineTooLong | Kind::TooManyLines | Kind::Empty | Kind::DoubleSpace | Kind::EdgeSpace | Kind::UnknownStyle | Kind::Untranslated => "metin",
             Kind::TagError | Kind::ScreenCollision => "etiket",
             Kind::Note => "not",
@@ -115,6 +117,43 @@ pub fn cps(d: &Dialogue) -> f64 {
         return f64::INFINITY;
     }
     tags::visible_len(&d.text) as f64 * 1000.0 / dur as f64
+}
+
+/// Video süresine göre: video bittikten sonra başlayan (hiç görünmez) ya da bitimden sonra biten
+/// satırlar (yorumlar hariç). `duration_ms` ≤ 0 ise denetim yapılmaz.
+pub fn beyond_end(script: &Script, duration_ms: i64) -> Vec<Issue> {
+    if duration_ms <= 0 {
+        return vec![];
+    }
+    let mut out = vec![];
+    for (i, e) in script.entries.iter().enumerate() {
+        let Entry::Dialogue(d) = e else { continue };
+        if d.comment { continue; }
+        if d.start_time >= duration_ms {
+            out.push(Issue { entry: i, kind: Kind::BeyondVideo, message: format!("Video bittikten sonra başlıyor (video {})", crate::time::format_ass(duration_ms)) });
+        } else if d.end_time > duration_ms + 1000 {
+            out.push(Issue { entry: i, kind: Kind::BeyondVideo, message: format!("Video bitiminden {:.1} sn sonra bitiyor", (d.end_time - duration_ms) as f64 / 1000.0) });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod beyond_tests {
+    use super::*;
+    #[test]
+    fn video_sonrasi() {
+        let s = Script::from_dialogues(vec![
+            Dialogue { start_time: 0, end_time: 1000, ..Default::default() },
+            Dialogue { start_time: 9000, end_time: 10500, ..Default::default() },
+            Dialogue { start_time: 9000, end_time: 12000, ..Default::default() },
+            Dialogue { start_time: 10000, end_time: 11000, ..Default::default() },
+        ]);
+        let v = beyond_end(&s, 10000);
+        assert_eq!(v.len(), 2);
+        assert!(v[0].message.contains("2.0 sn") && v[1].message.contains("başlıyor"));
+        assert!(beyond_end(&s, 0).is_empty());
+    }
 }
 
 /// Kareye dayalı zamanlama denetimleri (video gerekir): sahne değişimine yakın başlangıç/bitiş ve

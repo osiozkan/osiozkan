@@ -14,6 +14,7 @@
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü
 - [x] QC: çakışma, süre, okuma hızı, satır uzunluğu, bilinmeyen stil, boşluk
+- [x] QC video süresi: video bittikten sonra başlayan / bitimden >1 sn sonra biten satırlar (video açıkken; CLI `check --video`)
 - [x] QC kural profilleri: Netflix (yetişkin/çocuk), Fansub, TV yayını (EBU), varsayılan — Kalite sekmesi açılır listesi, CLI `check --profile`
 - [x] QC raporu (HTML, tek dosya; Kalite sekmesi → Raporu kaydet, CLI `check --report`): başlık + kategoriye göre satır sorunları, açık/koyu tema
 - [x] QC betik başlığı: PlayRes yok/en-boy oranı videoyla uyuşmuyor, ScaledBorderAndShadow, YCbCr Matrix (HD video + TV.601), yinelenen stil adı; tek tıkla düzeltme (Kalite sekmesi), CLI check
