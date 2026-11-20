@@ -63,6 +63,19 @@ fn parsers_never_panic() {
                 let _ = osisub_core::bookmarks::list(&sc);
             }
             let _ = osisub_core::filesplit::split_times(&sc, &[500, 100], true);
+            // sonraki modüller
+            for sp in [osisub_core::textimport::Split::Lines, osisub_core::textimport::Split::Blocks] {
+                let items = osisub_core::textimport::parse(&t, sp, true);
+                let _ = osisub_core::textimport::fill_existing(&mut sc.clone(), &items, 0, true);
+            }
+            let _ = osisub_core::textimport::export(&sc, true);
+            let _ = osisub_core::consistency::check(&sc, Some(&sc));
+            let _ = osisub_core::ocrfix::fix_text(&t, &|w| w.len() % 3 == 0);
+            let _ = osisub_core::hardsub::tidy(&t);
+            let mut ex = sc.clone();
+            osisub_core::exportfilters::apply(&mut ex, &osisub_core::exportfilters::Builtins { strip_comments: true, clean_info: true, fix_styles: true, strip_notes: true, clean_tags: true });
+            let _ = osisub_core::lineops::overlapping(&sc, true);
+            let _ = osisub_core::qc::beyond_end(&sc, 700);
         }
         let _ = tags::visible_text(&t);
         let _ = tags::karaoke_syllables(&t);
