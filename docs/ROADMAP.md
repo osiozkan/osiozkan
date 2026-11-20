@@ -3,10 +3,10 @@
 Öncelik sırası yukarıdan aşağıya. Tamamlananlar `[x]`.
 
 ## Sıradaki geceler için öncelikli öneriler
-1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
+1. **Kullanıcının kendi Lua betikleri** ile regresyon testi (en kritik; betikler depoya eklenmeli → `crates/osisub-lua/tests/fixtures/`). Google Drive'da `assmotion-devam-*.zip` arşivleri görüldü (1.4–2.5 MB; bağlama çekilemedi) — kullanıcı betikleri depoya koyarsa doğrudan test edilir. gerçek ASSFoundation / Aegisub-Motion ile uçtan uca deneme.
 2. **Gerçek makinede doğrulama:** ses aygıtı (F5, tuşla zamanlama gecikmesi), Windows paketi (gömülü ffmpeg ile video/ses), macOS'ta GUI. Gece paketleri artık her gece Actions'ta (Release).
 3. Video araçları, VobSub OCR ve `SubInspector` karşılığı tamam.
-4. Paketler: Windows'a whisper-cli + Tesseract, macOS'a ffmpeg (release.yml).
+4. Paketler: Windows'a whisper-cli + Tesseract; macOS ffmpeg'i 0.7.0'da eklendi (evermeet.cx, `continue-on-error` — gece çalıştırmasında doğrulanmalı).
 5. libmpv ile donanım hızlandırmalı oynatma.
 6. Karaoke: furigana tamam (okunuş romajiden otomatik: kanji zamanlayıcı); romaji satırı olmayan şarkılar için kanji okunuş sözlüğü düşünülebilir.
 
