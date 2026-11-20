@@ -14,6 +14,7 @@
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü
 - [x] QC: çakışma, süre, okuma hızı, satır uzunluğu, bilinmeyen stil, boşluk
+- [x] "Yayına hazır mı?" kontrol listesi (Araçlar menüsü, komut paleti): başlık / zamanlama / metin / çevrilmemiş / etiket / notlar / ad-çeviri tutarlılığı / yazım — TAMAM ya da sorun sayısı, Göster ile Kalite sekmesinde süzülmüş
 - [x] QC video süresi: video bittikten sonra başlayan / bitimden >1 sn sonra biten satırlar (video açıkken; CLI `check --video`)
 - [x] QC kural profilleri: Netflix (yetişkin/çocuk), Fansub, TV yayını (EBU), varsayılan — Kalite sekmesi açılır listesi, CLI `check --profile`
 - [x] QC raporu (HTML, tek dosya; Kalite sekmesi → Raporu kaydet, CLI `check --report`): başlık + kategoriye göre satır sorunları, açık/koyu tema

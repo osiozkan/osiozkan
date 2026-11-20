@@ -2422,6 +2422,55 @@ impl App {
         if !open { self.split_win = None; }
     }
 
+    /// Yayın öncesi kontrol listesi: mevcut denetimlerin özeti; satıra tıklayınca ilgili yere.
+    pub(super) fn ready_window(&mut self, ctx: &egui::Context) {
+        if !self.ready_open { return; }
+        use osisub_core::qc::Kind;
+        let mut open = true;
+        let video = self.media.info.as_ref().filter(|i| i.has_video).map(|i| (i.width, i.height));
+        let head = qc::script_issues(&self.doc.script, video);
+        let count = |f: &dyn Fn(&qc::Issue) -> bool| self.issues.iter().filter(|i| f(i)).count();
+        let rows: Vec<(&str, usize, &'static str, String)> = vec![
+            ("Betik başlığı (PlayRes, YCbCr, ScaledBorder…)", head.len(), "", head.first().cloned().unwrap_or_default()),
+            ("Zamanlama (çakışma, süre, titreme, sahne değişimi)", count(&|i| i.kind.category() == "zaman"), "zaman", String::new()),
+            ("Metin (okuma hızı, uzunluk, boş, stil)", count(&|i| i.kind.category() == "metin" && i.kind != Kind::Untranslated), "metin", String::new()),
+            ("Çevrilmemiş satır", count(&|i| i.kind == Kind::Untranslated), "metin", String::new()),
+            ("Etiket hataları / ekran çakışması", count(&|i| i.kind.category() == "etiket"), "etiket", String::new()),
+            ("Unutulmuş {not} blokları", count(&|i| i.kind == Kind::Note && i.message.starts_with("Metinde not")), "not", String::new()),
+            ("Ad / çeviri tutarsızlığı", count(&|i| i.kind == Kind::Note && (i.message.starts_with("Ad tutarsız") || i.message.starts_with("Tutarsız çeviri"))), "not", String::new()),
+            ("Diğer notlar (yazım önerileri, küçük uyarılar)", count(&|i| i.kind == Kind::Note && !i.message.starts_with("Metinde not") && !i.message.starts_with("Ad tutarsız") && !i.message.starts_with("Tutarsız çeviri")), "not", String::new()),
+            ("Yazım hataları", if self.spell.is_some() { self.misses.len() } else { usize::MAX }, "", String::new()),
+        ];
+        let mut goto: Option<&'static str> = None;
+        let mut spell = false;
+        egui::Window::new("Yayına hazır mı?").open(&mut open).collapsible(false).default_width(470.0).show(ctx, |ui| {
+            egui::Grid::new("ready_grid").num_columns(3).striped(true).show(ui, |ui| {
+                for (label, n, cat, hint) in &rows {
+                    let (txt, col) = match *n {
+                        0 => ("TAMAM".to_string(), Color32::from_rgb(0x5c, 0xc0, 0x6a)),
+                        usize::MAX => ("sözlük yok".to_string(), Color32::GRAY),
+                        n => (format!("{n} sorun"), theme::BAD),
+                    };
+                    let r = ui.label(*label);
+                    if !hint.is_empty() { r.on_hover_text(hint); }
+                    ui.label(RichText::new(txt).strong().color(col));
+                    if *n > 0 && *n != usize::MAX {
+                        if label.starts_with("Yazım") { if ui.small_button("Göster").clicked() { spell = true; } }
+                        else if ui.small_button("Göster").clicked() { goto = Some(cat); }
+                    } else { ui.label(""); }
+                    ui.end_row();
+                }
+            });
+            let fonts_hint = "Yazı tiplerinin kurulu/gömülü olduğunu Araçlar → Yazı tipi denetimi ile; ekran çakışmasını Kalite sekmesindeki düğmeyle denetleyin.";
+            ui.label(RichText::new(fonts_hint).small().weak());
+            if self.media.path.is_none() { ui.label(RichText::new("Video açık değil: sahne değişimi, titreme ve video süresi denetimleri yapılmadı.").small().color(theme::WARN)); }
+            if self.reference.is_none() { ui.label(RichText::new("Referans altyazı yok: çevrilmemiş/tutarlılık denetimi yalnızca kısmen yapıldı.").small().weak()); }
+        });
+        if let Some(c) = goto { self.qc_filter = c; self.tab = Tab::Quality; }
+        if spell { self.tab = Tab::Spell; }
+        self.ready_open = open;
+    }
+
     /// Kayıt yedekleri (core::backup): karşılaştır / yeni belge olarak aç.
     pub(super) fn backups_window(&mut self, ctx: &egui::Context) {
         if !self.backups_open { return; }

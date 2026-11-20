@@ -121,6 +121,7 @@ pub struct App {
     /// Yer imleri penceresi; (rev, yer imi Extradata kimlikleri) ızgara önbelleği
     bookmarks_open: bool,
     backups_open: bool,
+    ready_open: bool,
     /// yer imi notu düzenleme tamponu: (girdi indeksi, metin)
     bookmark_edit: Option<(usize, String)>,
     /// Dosyayı böl penceresi: (kesme zamanları metni, eşit parça sayısı, zamanı sıfırla)
@@ -325,6 +326,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("paste_over", "Üzerine yapıştır…"),
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
+    ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
     ("select_overlaps", "Çakışan satırları seç"),
     ("ocr_fix", "OCR hatalarını düzelt (yazım sözlüğüyle)"),
     ("bookmark_toggle", "Yer imi koy / kaldır"),
@@ -614,6 +616,7 @@ impl App {
             honor_open: false,
             bookmarks_open: false,
             backups_open: false,
+            ready_open: false,
             bookmark_edit: None,
             split_win: None,
             bookmark_ids: (u64::MAX, Default::default()),
@@ -699,6 +702,7 @@ impl App {
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("textimport") => app.text_import = Some(windows::TextImportWin { text: "Sakura: Birinci çeviri satırı.\nKenji: İkinci satır.\n# atlanır\nÜçüncü satır".into(), speakers: true, ..Default::default() }),
+            Some("ready") => app.ready_open = true,
             Some("backups") => app.backups_open = true,
             Some("export") => app.export_open = true,
             Some("hardsub") => app.hardsub = Some(windows::HardsubWin::new(app.media.path.clone())),
@@ -1396,6 +1400,7 @@ impl App {
                     }
                 }
             }
+            "ready_check" => self.ready_open = true,
             "select_overlaps" => {
                 let v = osisub_core::lineops::overlapping(&self.doc.script, true);
                 if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
@@ -2121,6 +2126,7 @@ impl App {
                     self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
                 }
                 ui.separator();
+                if ui.button("Yayına hazır mı?…").on_hover_text("Yayın öncesi kontrol listesi: başlık, zamanlama, metin, etiket, çeviri, yazım, notlar — tek bakışta").clicked() { self.ready_open = true; ui.close(); }
                 if ui.button("Kalite kontrolü göster").clicked() { self.tab = Tab::Quality; ui.close(); }
                 if ui.button("Metni temizle (etiket + boşluk)").clicked() {
                     let mut s = self.doc.script.clone();
@@ -2364,6 +2370,7 @@ impl App {
         self.honorifics_window(&ctx);
         self.bookmarks_window(&ctx);
         self.backups_window(&ctx);
+        self.ready_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
