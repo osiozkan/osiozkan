@@ -112,6 +112,27 @@ pub fn fill_existing(script: &mut Script, items: &[Item], from: usize, actors: b
     (n, it.count(), touched)
 }
 
+/// Çevirmene gönderilecek düz metin: `fill_existing`'in atladığı satırlar (yorum, tabela, karaoke,
+/// fx) hariç, her diyalog bir satır (`\N` → " / " yerine boşluk, etiketler çıkarılır); `speakers`
+/// ise "Ad: " öneki. İçe aktarıldığında aynı satırlara sırayla geri yerleşir.
+pub fn export(script: &Script, speakers: bool) -> String {
+    let mut out = String::new();
+    for d in script.dialogues() {
+        if d.comment || crate::qc::is_typeset(d) || crate::qc::is_karaoke(d) || d.effect.eq_ignore_ascii_case("fx") {
+            continue;
+        }
+        let t = crate::tags::visible_text(&d.text).replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+        let t = if t.is_empty() { "-".to_string() } else { t };
+        if speakers && !d.actor.trim().is_empty() {
+            out.push_str(&format!("{}: {}\n", d.actor.trim(), t));
+        } else {
+            out.push_str(&t);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +162,21 @@ mod tests {
         assert_eq!((d[0].start_time, d[0].end_time), (1000, 2000)); // min süre
         assert_eq!(d[1].start_time, 2100);
         assert!(d[1].end_time - d[1].start_time > 2000);
+    }
+
+    #[test]
+    fn disa_aktar_ve_geri_yerlestir() {
+        let mut s = Script::new_default();
+        s.entries.retain(|e| !matches!(e, Entry::Dialogue(_)));
+        for (a, t) in [("Hinata", "{\\i1}Merhaba\\Ndünya"), ("", "{\\pos(1,2)}TABELA"), ("", "Adsız satır")] {
+            s.entries.push(Entry::Dialogue(Dialogue { actor: a.into(), text: t.into(), ..Default::default() }));
+        }
+        let txt = export(&s, true);
+        assert_eq!(txt, "Hinata: Merhaba dünya\nAdsız satır\n");
+        let items = parse(&txt.replace("Merhaba dünya", "Selam dünya"), Split::Lines, true);
+        let first = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        assert_eq!(fill_existing(&mut s, &items, first, true).0, 2);
+        assert_eq!(s.dialogues().next().unwrap().text, "{\\i1}Selam dünya");
     }
 
     #[test]

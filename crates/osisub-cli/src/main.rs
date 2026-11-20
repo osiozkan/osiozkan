@@ -20,6 +20,7 @@ KULLANIM:
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
   osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200]   gömülü altyazıyı metne çevir
+  osisub export-text <girdi.ass> <metin.txt> [--speakers]   diyalogları çevirmen için düz metne (tabela/karaoke hariç)
   osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
@@ -247,6 +248,12 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let s = osisub_media::hardsub::extract(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
             eprintln!("\r{} satır", s.dialogues().count());
             save(&s, out)
+        }
+        "export-text" => {
+            let speakers = flag(&mut args, "--speakers");
+            let [inp, out] = args.as_slice() else { return Err("kullanım: export-text <girdi.ass> <metin.txt> [--speakers]".into()) };
+            let s = load(inp)?;
+            std::fs::write(out, osisub_core::textimport::export(&s, speakers)).map_err(|e| format!("{out}: {e}"))
         }
         "import-text" => {
             use osisub_core::textimport as ti;

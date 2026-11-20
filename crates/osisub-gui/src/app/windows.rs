@@ -1788,6 +1788,7 @@ impl App {
             ui.label(format!("{} altyazı", items.len()));
             ui.horizontal(|ui| {
                 if ui.add_enabled(!items.is_empty(), egui::Button::new("Etkin satırdan itibaren zamanlamaya yerleştir")).on_hover_text("Zamanlanmış satırların metni sırayla bu metinle değiştirilir (yorum, tabela ve karaoke satırları atlanır; baştaki {\\an8} gibi etiketler korunur)").clicked() { act = 2; }
+                if ui.button("Belgeden metni al").on_hover_text("Açık belgenin diyaloglarını (tabela/karaoke hariç) \"Ad: replik\" biçiminde buraya koyar: çevirmene gönderip geri yerleştirmek için").clicked() { w.text = ti::export(&self.doc.script, w.speakers); }
                 if ui.add_enabled(!items.is_empty(), egui::Button::new("Yeni satırlar olarak ekle")).on_hover_text("Etkin satırdan sonra; süreler okuma hızına göre (playhead ya da etkin satırın bitişinden başlar)").clicked() { act = 1; }
             });
         });
