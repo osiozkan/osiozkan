@@ -96,19 +96,31 @@ pub fn word_diff_html(a: &str, b: &str) -> String {
             l[i][j] = if x[i] == y[j] { l[i + 1][j + 1] + 1 } else { l[i + 1][j].max(l[i][j + 1]) };
         }
     }
-    let (mut i, mut j, mut out) = (0, 0, Vec::new());
+    // (tür, sözcük): 0 aynı, 1 silinen, 2 eklenen — eşitlikte önce silinen
+    let (mut i, mut j, mut ops): (usize, usize, Vec<(u8, &str)>) = (0, 0, Vec::new());
     while i < x.len() || j < y.len() {
         if i < x.len() && j < y.len() && x[i] == y[j] {
-            out.push(esc(x[i]));
+            ops.push((0, x[i]));
             i += 1;
             j += 1;
-        } else if j < y.len() && (i == x.len() || l[i][j + 1] >= l[i + 1][j]) {
-            out.push(format!("<ins>{}</ins>", esc(y[j])));
-            j += 1;
+        } else if i < x.len() && (j == y.len() || l[i + 1][j] >= l[i][j + 1]) {
+            ops.push((1, x[i]));
+            i += 1;
         } else {
-            out.push(format!("<del>{}</del>", esc(x[i])));
-            i += 1;
+            ops.push((2, y[j]));
+            j += 1;
         }
+    }
+    // ardışık aynı türdeki sözcükleri tek blokta topla
+    let mut out: Vec<String> = vec![];
+    let mut k = 0;
+    while k < ops.len() {
+        let kind = ops[k].0;
+        let mut e = k;
+        while e < ops.len() && ops[e].0 == kind { e += 1; }
+        let words = ops[k..e].iter().map(|o| esc(o.1)).collect::<Vec<_>>().join(" ");
+        out.push(match kind { 0 => words, 1 => format!("<del>{words}</del>"), _ => format!("<ins>{words}</ins>") });
+        k = e;
     }
     out.join(" ")
 }
@@ -145,12 +157,13 @@ mod tests {
     #[test]
     fn sozcuk_farki_ve_rapor() {
         assert_eq!(word_diff_html("Bugün hava çok güzel", "Bugün hava gerçekten çok güzel"), "Bugün hava <ins>gerçekten</ins> çok güzel");
-        assert_eq!(word_diff_html("a <b>", "a c"), "a <ins>c</ins> <del>&lt;b&gt;</del>");
+        assert_eq!(word_diff_html("a <b>", "a c"), "a <del>&lt;b&gt;</del> <ins>c</ins>");
+        assert_eq!(word_diff_html("bir iki üç", "dört beş"), "<del>bir iki üç</del> <ins>dört beş</ins>");
         let old = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "Merhaba dunya".into(), ..Default::default() }, Dialogue { start_time: 5000, end_time: 6000, text: "Silinen".into(), ..Default::default() }]);
         let new = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "Merhaba dünya".into(), ..Default::default() }]);
         let ch = compare(&old, &new);
         let h = report_html("Bölüm 1", &old, &new, &ch);
-        assert!(h.contains("<del>dunya</del> <ins>dünya</ins>") || h.contains("<ins>dünya</ins> <del>dunya</del>"), "{h}");
+        assert!(h.contains("Merhaba <del>dunya</del> <ins>dünya</ins>"), "{h}");
         assert!(h.contains("<del>Silinen</del>") && h.contains("−1 silindi"));
     }
 
