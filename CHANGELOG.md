@@ -1,5 +1,9 @@
 # Değişiklik günlüğü
 
+## 0.7.0 — geliştiriliyor (yedinci gece, 2026-11-20)
+
+**Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`).
+
 ## 0.6.0 — 2026-11-15 (beşinci ve altıncı gece)
 
 **Resim altyazıları:** Blu-ray PGS ve **DVD VobSub (.idx/.sub, MKV'deki DVD izi)** için yerleşik çözücüler + Tesseract OCR (GUI penceresi: yeni belge ya da referans; CLI `ocr`). VobSub çözücüsü ffmpeg'in dvdsub çözücüsüyle çapraz doğrulandı.

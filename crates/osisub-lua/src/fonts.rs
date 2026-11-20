@@ -564,6 +564,38 @@ mod tests {
     }
 
     #[test]
+    fn furigana_applied_and_rerun() {
+        use osisub_core::ass::Entry;
+        let mut db = FontDb::default();
+        let Some(fam) = ["DejaVu Sans", "Liberation Sans", "Arial", "Noto Sans"].into_iter().find(|f| db.has_family(f)) else { return };
+        let src = format!("[Script Info]\nPlayResX: 640\nPlayResY: 360\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Kara,{fam},40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,8,20,20,20,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Kara,,0,0,0,,{{\\k20}}ab|xy{{\\k30}}cd\nDialogue: 0,0:00:01.00,0:00:02.00,Kara,,0,0,0,,düz satır\nDialogue: 0,0:00:02.00,0:00:03.00,Kara,,0,0,0,,{{\\k20}}ef{{\\kf30}}gh|z\n");
+        let mut sc = osisub_core::Script::parse(&src);
+        let dl = |s: &osisub_core::Script| s.entries.iter().enumerate().filter_map(|(i, e)| if let Entry::Dialogue(d) = e { Some((i, d.clone())) } else { None }).collect::<Vec<_>>();
+        let all: Vec<usize> = dl(&sc).iter().map(|x| x.0).collect();
+        let (n, added) = apply_furigana(&mut db, &mut sc, &all, 0.5).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(added.len(), 4);
+        assert!(sc.style_by_name("Kara-furigana").is_some_and(|s| s.fontsize == 20.0));
+        let v = dl(&sc);
+        let texts: Vec<(bool, &str, &str)> = v.iter().map(|(_, d)| (d.comment, d.effect.as_str(), d.style.as_str())).collect();
+        assert_eq!(texts, vec![(true, "karaoke", "Kara"), (false, "fx", "Kara"), (false, "fx", "Kara-furigana"), (false, "", "Kara"), (true, "karaoke", "Kara"), (false, "fx", "Kara"), (false, "fx", "Kara-furigana")]);
+        assert_eq!(v[1].1.text, "{\\k20}ab{\\k30}cd");
+        for &a in &added { assert!(matches!(&sc.entries[a], Entry::Dialogue(d) if d.effect == "fx")); }
+        // okunuş "ab"nin ortasında, üstte (an8, MarginV 20)
+        let w_ab = db.extents(&line_metrics(sc.style_by_name("Kara").unwrap(), ""), "ab").unwrap().0;
+        let w_all = db.extents(&line_metrics(sc.style_by_name("Kara").unwrap(), ""), "abcd").unwrap().0;
+        let x = 20.0 + (600.0 - w_all) / 2.0 + w_ab / 2.0;
+        let pos = osisub_core::overrides::get_initial(&v[2].1.text, "pos").unwrap().args();
+        assert!((pos[0].trim().parse::<f64>().unwrap() - x).abs() < 0.01 && pos[1].trim() == "20", "{pos:?} {x}");
+        assert!(v[6].1.text.contains("\\k20}{\\kf30}z"), "{}", v[6].1.text);
+        // yeniden çalıştır: kaynak yorumdan önceki çıktı değiştirilir, satır sayısı aynı kalır
+        let before = sc.entries.len();
+        let first = v[0].0;
+        let (n, _) = apply_furigana(&mut db, &mut sc, &[first], 0.5).unwrap();
+        assert_eq!((n, sc.entries.len()), (1, before));
+    }
+
+    #[test]
     fn style_variants_hidden() {
         let f: std::collections::HashSet<String> = ["dejavu sans", "dejavu sans mono"].iter().map(|s| s.to_string()).collect();
         assert!(is_style_variant("DejaVu Sans Bold Oblique", &f));
@@ -615,4 +647,84 @@ mod tests {
         assert!((sw - w).abs() < 0.01 && sh == 50.0);
         assert!(shape.starts_with("m ") && shape.contains(" b ") || shape.contains(" l "));
     }
+}
+
+/// Satırın baştaki etiketlerle birlikte geçerli yazı tipi ölçüleri.
+fn line_metrics(st: &osisub_core::ass::Style, text: &str) -> StyleMetrics {
+    use osisub_core::overrides;
+    let get = |n: &str| overrides::get_initial(text, n);
+    StyleMetrics {
+        fontname: get("fn").map(|t| t.arg.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(st.fontname.clone()),
+        fontsize: get("fs").and_then(|t| t.number()).unwrap_or(st.fontsize),
+        bold: get("b").and_then(|t| t.number()).map_or(st.bold, |v| v != 0.0),
+        italic: get("i").and_then(|t| t.number()).map_or(st.italic, |v| v != 0.0),
+        scale_x: get("fscx").and_then(|t| t.number()).unwrap_or(st.scale_x),
+        scale_y: get("fscy").and_then(|t| t.number()).unwrap_or(st.scale_y),
+        spacing: get("fsp").and_then(|t| t.number()).unwrap_or(st.spacing),
+    }
+}
+
+/// Furigana düzeni (core::furigana) belgeye: `targets` girdilerindeki `漢字|かんじ` heceli satırlar
+/// yorum (efekt `karaoke`, yeniden çalıştırmak için kaynak) olur; arkasına okunuşsuz ana satır ve
+/// okunuş satırları (efekt `fx`) eklenir; eksik `<stil>-furigana` stilleri oluşturulur. Kaynak
+/// satır zaten `karaoke` yorumuysa ardından gelen aynı zamanlı `fx` satırları (önceki çıktı)
+/// yenisiyle değiştirilir. Dönüş: (işlenen satır, eklenen satırların girdi indeksleri).
+pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets: &[usize], scale: f64) -> Result<(usize, Vec<usize>), String> {
+    use osisub_core::{ass::Entry, furigana};
+    let res = script.res();
+    let mut targets: Vec<usize> = targets.to_vec();
+    targets.sort_unstable();
+    targets.dedup();
+    let mut done = 0;
+    let mut added: Vec<usize> = vec![];
+    let mut new_styles: Vec<osisub_core::ass::Style> = vec![];
+    // sondan başa: önceki indeksler kaymaz
+    for &i in targets.iter().rev() {
+        let Some(Entry::Dialogue(src)) = script.entries.get(i).cloned() else { continue };
+        if !furigana::has_furigana(&src.text) || (src.comment && !src.effect.eq_ignore_ascii_case("karaoke")) {
+            continue;
+        }
+        let st = script.style_by_name(&src.style).cloned().unwrap_or_default();
+        let fst = script.style_by_name(&format!("{}-furigana", st.name)).cloned()
+            .or_else(|| new_styles.iter().find(|s| s.name == format!("{}-furigana", st.name)).cloned())
+            .unwrap_or_else(|| { let f = furigana::style_for(&st, scale); new_styles.push(f.clone()); f });
+        let mm = line_metrics(&st, &src.text);
+        let fm = line_metrics(&fst, "");
+        let main_h = mm.fontsize * mm.scale_y / 100.0;
+        let mut measure = |t: &str, furi: bool| db.extents(if furi { &fm } else { &mm }, t).map(|e| e.0);
+        let (mut main, furis) = furigana::layout(&src, &st, res, main_h, &mut measure)?;
+        // önceki çıktıyı sil
+        let mut end = i + 1;
+        if src.comment {
+            while let Some(Entry::Dialogue(x)) = script.entries.get(end) {
+                if x.effect.eq_ignore_ascii_case("fx") && x.start_time == src.start_time && x.end_time == src.end_time && !x.comment { end += 1; } else { break; }
+            }
+        }
+        let removed = end - (i + 1);
+        script.entries.drain(i + 1..end);
+        let mut c = src.clone();
+        c.comment = true;
+        c.effect = "karaoke".into();
+        main.comment = false;
+        main.effect = "fx".into();
+        let mut ins = vec![Entry::Dialogue(main)];
+        ins.extend(furis.into_iter().map(|mut f| { f.comment = false; f.effect = "fx".into(); Entry::Dialogue(f) }));
+        let n = ins.len();
+        script.entries[i] = Entry::Dialogue(c);
+        script.entries.splice(i + 1..i + 1, ins);
+        // sonraki işlenmiş satırların indekslerini kaydır
+        let shift = n as isize - removed as isize;
+        for a in added.iter_mut() { *a = (*a as isize + shift) as usize; }
+        added.extend(i + 1..i + 1 + n);
+        done += 1;
+    }
+    if !new_styles.is_empty() {
+        let at = script.entries.iter().rposition(|e| matches!(e, Entry::Style(_))).map(|i| i + 1).unwrap_or(0);
+        let k = new_styles.len();
+        // satırlar sondan işlendi: stilleri belge sırasına çevir
+        script.entries.splice(at..at, new_styles.into_iter().rev().map(Entry::Style));
+        for a in added.iter_mut() { if *a >= at { *a += k; } }
+    }
+    added.sort_unstable();
+    Ok((done, added))
 }

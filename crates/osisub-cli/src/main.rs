@@ -14,6 +14,7 @@ KULLANIM:
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
+  osisub furigana <girdi> [çıktı] [--lines 5,6] [--scale 0.5]   karaoke {\\k}漢字|かんじ okunuşlarını üste yerleştir
   osisub perspective <dörtgen: x,y x,y x,y x,y> --size G,Y [--playres-y N --layoutres-y N]
                           w×h kutuyu 4 köşeye oturtan \\frx\\fry\\frz\\fscx\\fscy\\fax\\org etiketleri
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
@@ -180,6 +181,23 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 let t = osisub_lua::fonts::line_to_drawing(&mut db, &s, d).map_err(|e| format!("satır {k}: {e}"))?;
                 if let Entry::Dialogue(d) = &mut s.entries[i] { d.text = t; }
             }
+            save(&s, &out)
+        }
+        "furigana" => {
+            // furigana <girdi> [çıktı] [--lines 5,6] [--scale 0.5]
+            let lines_arg = opt(&mut args, "--lines");
+            let scale: f64 = opt(&mut args, "--scale").map(|v| v.parse().map_err(|_| "--scale sayı olmalı")).transpose()?.unwrap_or(osisub_core::furigana::SCALE);
+            if args.is_empty() { return Err("kullanım: furigana <girdi> [çıktı] [--lines 5,6] [--scale 0.5]".into()); }
+            let out = args.get(1).cloned().unwrap_or_else(|| args[0].clone());
+            let mut s = load(&args[0])?;
+            let dl: Vec<usize> = s.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).map(|(i, _)| i).collect();
+            let targets: Vec<usize> = match lines_arg {
+                Some(l) => l.split(',').map(|n| n.trim().parse::<usize>().ok().and_then(|k| dl.get(k.wrapping_sub(1)).copied()).ok_or(format!("geçersiz satır no: {n}"))).collect::<Result<_, _>>()?,
+                None => dl,
+            };
+            let mut db = osisub_lua::fonts::FontDb::default();
+            let (n, added) = osisub_lua::fonts::apply_furigana(&mut db, &mut s, &targets, scale)?;
+            eprintln!("{n} satır düzenlendi, {} satır eklendi", added.len());
             save(&s, &out)
         }
         "perspective" => {

@@ -1966,6 +1966,7 @@ impl App {
                 });
                 if ui.button("Makine çevirisi…").on_hover_text("DeepL / Google / LibreTranslate / Claude ile seçili satırları çevir (kendi API anahtarınızla)").clicked() { ui.close(); self.mt_open = true; }
                 if ui.button("Kanji zamanlayıcı…").on_hover_text("Romaji karaoke zamanlamasını kanji/kana satırına aktar (Aegisub: Kanji Timer)").clicked() { ui.close(); self.kanji = Some(KanjiWin::default()); }
+                if ui.button("Furigana düzeni").on_hover_text("Karaoke hecelerindeki 漢字|かんじ okunuşlarını ana satırın üstüne küçük, hecesiyle birlikte vurgulanan satırlar olarak yerleştirir (karaskel furigana; şablon gerekmez). Kaynak satır yorum olarak kalır; yeniden çalıştırınca çıktı yenilenir").clicked() { ui.close(); self.furigana_layout(); }
                 if ui.button("Etiket uygula / yeniden hesapla…").on_hover_text("HYDRA + Recalculator benzeri: etiketleri başlangıca, tüm bloklara, \\t olarak ya da harf/satır degradesi olarak uygula; değerleri topla/çarp").clicked() { ui.close(); self.tagw = Some(TagWin::default()); }
                 if ui.button("Degrade / parıltı…").on_hover_text("Kırpma şeritleriyle renk/saydamlık degradesi, parıltı (glow) katmanı").clicked() { ui.close(); self.tsw = Some(TypesetWin::default()); }
                 if ui.button("Hareket izleme verisi uygula…").on_hover_text("Mocha / After Effects keyframe verisini seçili satırlara kare kare uygular (Aegisub-Motion)").clicked() {
@@ -2721,6 +2722,23 @@ impl App {
         if let Some(Entry::Dialogue(x)) = s.entries.get_mut(idx) { x.text = text; }
         self.doc.apply_new_script("Perspektife oturt", s);
         self.status = format!("Perspektif: köşe hatası {:.2} px, frx {:.1}° fry {:.1}°", err, p.frx, p.fry);
+    }
+
+    /// Seçili satırlara furigana düzeni (osisub_lua::fonts::apply_furigana); eklenen satırlar seçilir.
+    fn furigana_layout(&mut self) {
+        let db = self.font_db.get_or_insert_with(osisub_lua::fonts::FontDb::default);
+        let targets = self.doc.target_lines();
+        let mut s = self.doc.script.clone();
+        match osisub_lua::fonts::apply_furigana(db, &mut s, &targets, osisub_core::furigana::SCALE) {
+            Ok((0, _)) => self.status = "Seçili satırlarda furigana yok (hece biçimi: {\\k20}漢字|かんじ)".into(),
+            Ok((n, added)) => {
+                self.doc.apply_new_script("Furigana düzeni", s);
+                if let Some(&a) = added.first() { self.doc.active = a; }
+                self.doc.selection = added;
+                self.status = format!("Furigana: {n} satır düzenlendi (kaynaklar yorum olarak korundu)");
+            }
+            Err(e) => self.status = e,
+        }
     }
 
     /// Seçili satırları `\p1` çizimine çevirir; `as_clip` ise etkin satırın şeklini mutlak `\clip(...)` olarak panoya koyar.

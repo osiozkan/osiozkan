@@ -8,7 +8,7 @@
 3. Video araçları, VobSub OCR ve `SubInspector` karşılığı tamam.
 4. Paketler: Windows'a whisper-cli + Tesseract, macOS'a ffmpeg (release.yml).
 5. libmpv ile donanım hızlandırmalı oynatma.
-6. Karaoke: furigana düzeni (gecikme kalibrasyonu ve sese oturtma tamam).
+6. Karaoke: furigana tamam; sıradaki: furigana için kanji okunuş sözlüğü (otomatik okunuş).
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
@@ -73,7 +73,7 @@
 - [x] Kanji zamanlayıcı (Aegisub Kanji Timer; core::kanjitimer, Araçlar menüsü): romaji `\k` satırının süreleri aynı zamandaki kanji/kana satırına; kana okunuştan (Hepburn/Kunrei, edatlar を/は/へ, っ, ー, küçük kana), kanji dizileri sonraki kanaya kadar otomatik gruplanır; gruplar `ki+mi|no` / `君|の` olarak düzenlenebilir; Uygula ve sonraki
 - [x] Karaoke: heceleri sese oturt (spektral akı onset + dinamik programlama)
 - [x] Karaoke: tuşla zamanlama gecikmesini sesle otomatik kalibre et (dokunuş ↔ onset ortancası)
-- [ ] Karaoke: furigana düzeni
+- [x] Karaoke: furigana düzeni (core::furigana + fonts::apply_furigana; Araçlar menüsü, komut paleti, CLI `furigana`): `漢字|かんじ` heceleri → okunuşsuz ana satır + hece ortasına `\an2\pos` okunuş satırları (`<stil>-furigana`, %50), hecesiyle vurgulanır; her hizalama/\pos; kaynak `karaoke` yorumu, yeniden çalıştırınca yenilenir; libass render'ıyla görsel doğrulandı
 
 ## Lua (Automation 4)
 - [x] subs nesnesi, register_macro/filter, dialog.display, re, unicode, lfs, karaskel, utils

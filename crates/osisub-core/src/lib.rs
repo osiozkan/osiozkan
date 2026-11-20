@@ -13,6 +13,7 @@ pub mod filebatch;
 pub mod fixes;
 pub mod fonts_used;
 pub mod formats;
+pub mod furigana;
 pub mod glossary;
 pub mod io;
 pub mod kanjitimer;
