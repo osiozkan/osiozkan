@@ -1036,6 +1036,27 @@ impl App {
 
     // ------------------------------------------------------------ Lua
 
+    /// Sık işlemler araç çubuğu (Görünüm → Araç çubuğu).
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            let b = |ui: &mut egui::Ui, t: &str, tip: &str| ui.add(egui::Button::new(t).small()).on_hover_text(tip).clicked();
+            if b(ui, "Aç", "Ctrl+O") { self.request(Guarded::OpenDialog); }
+            if b(ui, "Kaydet", "Ctrl+S") { self.save(false); }
+            ui.separator();
+            if b(ui, "Geri al", "Ctrl+Z") { if let Some(d) = self.doc.undo() { self.status = format!("Geri alındı: {d}"); } }
+            if b(ui, "Yinele", "Ctrl+Y") { if let Some(d) = self.doc.redo() { self.status = format!("Yinelendi: {d}"); } }
+            if b(ui, "Bul", "Ctrl+F") { self.find_open = true; self.find_focus = true; }
+            ui.separator();
+            if b(ui, "Satırı oynat", "F5") { self.run_command("play_line", ui.ctx()); }
+            if b(ui, "Kaydır", "Zamanlama → Kaydır / kareye oturt") { self.timing_open = true; }
+            if b(ui, "Yer imi", "Ctrl+F2") { self.run_command("bookmark_toggle", ui.ctx()); }
+            ui.separator();
+            if b(ui, "Kalite", "Kalite sekmesi") { self.tab = Tab::Quality; }
+            if b(ui, "Yayına hazır mı?", "Kontrol listesi") { self.ready_open = true; }
+            if b(ui, "Komut paleti", "Ctrl+Shift+P") { self.palette = Some((String::new(), 0)); }
+        });
+    }
+
     /// Lua konsolu: kodu geçici betik olarak sarar, yükler; yüklenince (pump_events) çalıştırılır.
     pub(super) fn run_console(&mut self) {
         let Some(dir) = osisub_core::paths::data_dir().map(|d| d.join("console")) else { self.status = "Veri klasörü yok".into(); return };
@@ -1929,6 +1950,7 @@ impl App {
                 if ui.add(egui::Button::new("Uzaklaştır").shortcut_text("Ctrl -")).clicked() { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
                 if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
                 ui.separator();
+                if ui.checkbox(&mut self.settings.toolbar, "Araç çubuğu").on_hover_text("Menünün altında sık işlemler (aç, kaydet, geri al, oynat, kalite…)").changed() { self.settings.save(); }
                 ui.menu_button("Izgarada etiketler", |ui| {
                     for (v, l, h) in [(0u8, "Göster", "Etiket bloklarını olduğu gibi göster"), (1, "Sadeleştir", "Her etiket bloğu {…} olarak görünür (Aegisub varsayılanı)"), (2, "Gizle", "Yalnızca görünür metin")] {
                         if ui.radio(self.settings.grid_tags == v, l).on_hover_text(h).clicked() { self.settings.grid_tags = v; self.settings.save(); ui.close(); }
@@ -2356,6 +2378,9 @@ impl App {
         }
 
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
+        if self.settings.toolbar {
+            egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        }
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(j) = &self.job {

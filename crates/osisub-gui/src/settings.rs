@@ -41,6 +41,8 @@ pub struct Settings {
     pub ref_overlay: bool,
     /// Izgarada etiket blokları: 0 göster, 1 sadeleştir (`{…}`), 2 gizle (Aegisub tag hiding)
     pub grid_tags: u8,
+    /// Menünün altında sık işlemler araç çubuğu
+    pub toolbar: bool,
     /// Elle yüklenen (otomatik yükleme klasörü dışındaki) betikler; açılışta yeniden yüklenir
     pub scripts: Vec<String>,
     /// Kurulu Aegisub'ın automation/autoload betiklerini de yükle
@@ -99,6 +101,7 @@ impl Default for Settings {
             grid_hidden: vec!["len".into()],
             ref_overlay: false,
             grid_tags: 0,
+            toolbar: false,
             scripts: vec![],
             aegisub_autoload: true,
             play_speed: 1.0,

@@ -6,7 +6,7 @@
 **Ekip:** sürüm karşılaştırmasını sözcük düzeyinde farklı HTML rapor olarak kaydet (editör → çevirmen; CLI `compare --report`); yer imleri listesini notlarıyla panoya kopyala.
 **Yedekler:** her kayıttan önce dosyanın önceki hali saklanır (dosya başına son 20); *Dosya → Yedekler…* ile karşılaştırın ya da geri açın (Aegisub autoback gibi).
 **Dışa aktar:** yerleşik süzgeçler (Aegisub'daki gibi) — yorumları ve kullanılmayan stilleri sil, Script Info'yu temizle (video yolu vb. proje bilgisi yayına gitmez), tanımsız stilleri Default yap, notları ve gereksiz etiketleri sil; belge değişmez (CLI `export`).
-**Arayüz:** boş ekranda *Hızlı başla*: ham videodan çeviriye başla (videoda altyazı izi varsa referans seçimi, yoksa hardsub OCR), çeviri metnini yerleştir, Whisper, PGS/VobSub OCR.
+**Arayüz:** isteğe bağlı araç çubuğu (Görünüm → Araç çubuğu); boş ekranda *Hızlı başla*: ham videodan çeviriye başla (videoda altyazı izi varsa referans seçimi, yoksa hardsub OCR), çeviri metnini yerleştir, Whisper, PGS/VobSub OCR.
 **Lua konsolu:** Otomasyon sekmesinde betik dosyası yazmadan açık belgede Lua çalıştırın (subs/sel/active, Ctrl+Enter, Ctrl+Z ile geri alınır).
 **Lua:** `require "osisub"` — betikler osisub çekirdeğini kullanabilir: gereksiz etiket temizliği, etiket denetimi, Türkçe harf dönüşümü, satır dengeleme, Türkçe yazım düzeltme, furigana, romaji→kana, zaman biçimleri (bkz. LUA_UYUMLULUK.md).
 **OCR hatalarını düzelt:** OCR/hardsub sonrası yazım sözlüğüyle rn→m, l'm→I'm, d0or→door gibi tipik karışıklıkları düzeltir (Araçlar menüsü, CLI `ocr-fix`).
