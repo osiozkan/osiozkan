@@ -20,6 +20,7 @@ KULLANIM:
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
   osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200]   gömülü altyazıyı metne çevir
+  osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
@@ -245,6 +246,18 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let [v, out] = args.as_slice() else { return Err("kullanım: hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--fps 5]".into()) };
             let s = osisub_media::hardsub::extract(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
             eprintln!("\r{} satır", s.dialogues().count());
+            save(&s, out)
+        }
+        "import-text" => {
+            use osisub_core::textimport as ti;
+            let blocks = flag(&mut args, "--blocks");
+            let speakers = flag(&mut args, "--speakers");
+            let [txt, timing, out] = args.as_slice() else { return Err("kullanım: import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]".into()) };
+            let text = osisub_core::ass::decode_bytes(&std::fs::read(txt).map_err(|e| format!("{txt}: {e}"))?);
+            let items = ti::parse(&text, if blocks { ti::Split::Blocks } else { ti::Split::Lines }, speakers);
+            let mut s = load(timing)?;
+            let (n, left, _) = ti::fill_existing(&mut s, &items, 0, speakers);
+            eprintln!("{n} satıra yerleştirildi{}", if left > 0 { format!(", {left} metin satırı arttı") } else { String::new() });
             save(&s, out)
         }
         "split" => {

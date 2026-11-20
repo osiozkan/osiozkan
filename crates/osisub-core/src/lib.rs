@@ -45,6 +45,7 @@ pub mod stl;
 pub mod taglint;
 pub mod tagapply;
 pub mod tagclean;
+pub mod textimport;
 pub mod tags;
 pub mod time;
 pub mod timing;

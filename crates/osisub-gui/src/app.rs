@@ -148,6 +148,7 @@ pub struct App {
     /// Resim altyazısı OCR penceresi ve arka plan işi
     ocr: Option<windows::OcrWin>,
     hardsub: Option<windows::HardsubWin>,
+    text_import: Option<windows::TextImportWin>,
     whisper: Option<windows::WhisperWin>,
     tr_last_active: usize,
     find_focus: bool,
@@ -624,6 +625,7 @@ impl App {
             dummy_win: None,
             ocr: None,
             hardsub: None,
+            text_import: None,
             whisper: None,
             song_win: None,
             fonts_list: None,
@@ -689,6 +691,7 @@ impl App {
             Some("song") => app.song_win = Some(windows::SongWin::new()),
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
+            Some("textimport") => app.text_import = Some(windows::TextImportWin { text: "Sakura: Birinci çeviri satırı.\nKenji: İkinci satır.\n# atlanır\nÜçüncü satır".into(), speakers: true, ..Default::default() }),
             Some("hardsub") => app.hardsub = Some(windows::HardsubWin::new(app.media.path.clone())),
             Some("split") => app.split_win = Some(("0:00:09.00".into(), 2, false)),
             Some("bookmarks") => app.bookmarks_open = true,
@@ -1669,6 +1672,7 @@ impl App {
                         self.merge_win = Some((p, osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into()));
                     }
                 }
+                if ui.button("Düz metin içe aktar…").on_hover_text("Çevirmenin düz metnini zamanlanmış satırlara sırayla yerleştir ya da yeni satırlar oluştur; \"Ad: replik\" konuşana alınır (Subtitle Edit: Import plain text)").clicked() { ui.close(); self.text_import = Some(windows::TextImportWin { speakers: true, ..Default::default() }); }
                 if ui.button("Dosyayı böl…").on_hover_text("Kesme zamanlarında (ör. OP sonu) ya da eşit satır sayısıyla ayrı dosyalara böl; başlık/stiller/ekler her parçaya kopyalanır (Subtitle Edit: Split)").clicked() { ui.close(); self.split_win = Some((String::new(), 2, false)); }
                 if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
                     ui.close();
@@ -2338,6 +2342,7 @@ impl App {
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) { self.guide = if self.guide.is_some() { None } else { Some(String::new()) }; }
         self.ocr_window(&ctx);
         self.hardsub_window(&ctx);
+        self.text_import_window(&ctx);
         self.whisper_window(&ctx);
         self.song_window(&ctx);
         self.import_window(&ctx);

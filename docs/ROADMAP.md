@@ -56,6 +56,7 @@
 - [x] Resim tabanlı altyazı OCR: PGS (bkz. Biçimler); VobSub henüz yok
 - [x] Referans altyazı (zamana göre eşleşen satırlar editörde gösterilir)
 - [x] Toplu dosya işlemleri (core::filebatch; Dosya menüsü; Subtitle Edit Batch convert): çok dosya/klasör → biçim dönüştür, kaydır, sık hatalar, yorumları sil, yeniden örnekle; çıktı klasörü/son ek, üzerine yazma koruması, arka planda günlüklü
+- [x] Düz metin içe aktar (core::textimport; Dosya menüsü, komut paleti, CLI `import-text`; Subtitle Edit Import plain text): satır ya da boş satırlı blok; "Ad: replik" → Konuşan; `#`/`//` yorum; zamanlanmış satırlara sırayla yerleştir (yorum/tabela/karaoke atlanır, baştaki etiket korunur) ya da okuma hızıyla yeni satırlar (xdotool ile doğrulandı)
 - [x] Dosyayı böl (core::filesplit; Dosya menüsü, komut paleti, CLI `split`; Subtitle Edit Split): kesme zamanlarında ya da eşit satır sayısıyla, isteğe bağlı zaman sıfırlama; başlık/stiller/ekler her parçada, kullanılmayan Extradata temizlenir, üzerine yazmaz
 - [x] Dosya birleştirme (core::merge; Dosya → Başka dosyayı birleştir…, CLI `merge`): stil çakışmasında "Ad (2)" + `\r` başvuruları, farklı çözünürlükte otomatik yeniden örnekleme, zaman kaydırma (OP/ED), gömülü yazı tipleri; toplu işlemlerden sonra etkin satır/seçim içeriğe göre korunur
 - [x] Yazı tipi denetimi (kullanılan/eksik yazı tipleri, dosyaları klasöre topla)

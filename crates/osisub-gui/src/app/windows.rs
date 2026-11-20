@@ -80,6 +80,14 @@ impl OcrWin {
     }
 }
 
+/// Düz metin içe aktarma penceresi (core::textimport).
+#[derive(Default)]
+pub(crate) struct TextImportWin {
+    pub text: String,
+    pub blocks: bool,
+    pub speakers: bool,
+}
+
 /// Gömülü (hardsub) altyazıyı metne çevir penceresi (osisub_media::hardsub).
 pub(crate) struct HardsubWin {
     path: Option<PathBuf>,
@@ -1228,7 +1236,7 @@ impl App {
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
-            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("text_import", "Düz metin içe aktar"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1268,6 +1276,7 @@ impl App {
                 "todraw" => self.text_to_drawing(false),
                 "furigana" => self.furigana_layout(),
                 "bookmarks" => self.bookmarks_open = true,
+                "text_import" => self.text_import = Some(super::windows::TextImportWin { speakers: true, ..Default::default() }),
                 "hardsub" => self.hardsub = Some(super::windows::HardsubWin::new(self.media.path.clone())),
                 "split_file" => self.split_win = Some((String::new(), 2, false)),
                 "tracks" => {
@@ -1753,6 +1762,59 @@ impl App {
             }
         });
         self.resample_open = open;
+    }
+
+    pub(super) fn text_import_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::textimport as ti;
+        let Some(w) = self.text_import.as_mut() else { return };
+        let mut open = true;
+        let mut act = 0; // 1 yeni satırlar, 2 mevcut zamanlamaya
+        let items = ti::parse(&w.text, if w.blocks { ti::Split::Blocks } else { ti::Split::Lines }, w.speakers);
+        egui::Window::new("Düz metin içe aktar").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.label(RichText::new("Çeviri metnini yapıştırın ya da .txt dosyasından alın. '#' ya da '//' ile başlayan satırlar atlanır.").weak());
+            ui.horizontal(|ui| {
+                if ui.button("Dosyadan…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Metin", &["txt", "md"]).pick_file() {
+                        if let Ok(b) = std::fs::read(&p) { w.text = osisub_core::ass::decode_bytes(&b); }
+                    }
+                }
+                ui.radio_value(&mut w.blocks, false, "Her satır bir altyazı");
+                ui.radio_value(&mut w.blocks, true, "Boş satırla ayrılmış bloklar");
+                ui.checkbox(&mut w.speakers, "\"Ad: replik\" → Konuşan");
+            });
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                ui.add(TextEdit::multiline(&mut w.text).desired_rows(12).desired_width(f32::INFINITY).hint_text("Hinata: Merhaba!\nKageyama: Geç kaldın."));
+            });
+            ui.label(format!("{} altyazı", items.len()));
+            ui.horizontal(|ui| {
+                if ui.add_enabled(!items.is_empty(), egui::Button::new("Etkin satırdan itibaren zamanlamaya yerleştir")).on_hover_text("Zamanlanmış satırların metni sırayla bu metinle değiştirilir (yorum, tabela ve karaoke satırları atlanır; baştaki {\\an8} gibi etiketler korunur)").clicked() { act = 2; }
+                if ui.add_enabled(!items.is_empty(), egui::Button::new("Yeni satırlar olarak ekle")).on_hover_text("Etkin satırdan sonra; süreler okuma hızına göre (playhead ya da etkin satırın bitişinden başlar)").clicked() { act = 1; }
+            });
+        });
+        if act == 2 {
+            let mut s = self.doc.script.clone();
+            let (n, left, touched) = ti::fill_existing(&mut s, &items, self.doc.active, w.speakers);
+            self.doc.apply_new_script("Düz metni zamanlamaya yerleştir", s);
+            if let Some(&a) = touched.first() { self.doc.active = a; }
+            self.doc.selection = touched;
+            self.status = if left > 0 { format!("{n} satıra yerleştirildi; {left} metin satırı arttı (zamanlanmış satır kalmadı)") } else { format!("{n} satıra yerleştirildi") };
+            open = false;
+        } else if act == 1 {
+            let at = self.doc.active;
+            let (start, style) = match self.doc.script.entries.get(at) {
+                Some(Entry::Dialogue(d)) => (if self.media.path.is_some() { self.media.playhead } else { d.end_time }, d.style.clone()),
+                _ => (self.media.playhead, "Default".to_string()),
+            };
+            let ds = ti::to_dialogues(&items, start, self.rules.max_cps.min(17.0), self.rules.min_duration_ms.max(1000), self.rules.max_duration_ms, 120, &style);
+            let n = ds.len();
+            let pos = if matches!(self.doc.script.entries.get(at), Some(Entry::Dialogue(_))) { at + 1 } else { self.doc.script.entries.len() };
+            self.doc.edit("Düz metin içe aktar", |tx| tx.insert(pos, ds.into_iter().map(Entry::Dialogue).collect()));
+            self.doc.selection = (pos..pos + n).collect();
+            self.doc.active = pos;
+            self.status = format!("{n} satır eklendi");
+            open = false;
+        }
+        if !open { self.text_import = None; }
     }
 
     pub(super) fn hardsub_window(&mut self, ctx: &egui::Context) {
