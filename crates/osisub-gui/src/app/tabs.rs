@@ -746,6 +746,18 @@ impl App {
                 if tot != line_cs { ui.label(RichText::new("(süre uyuşmuyor)").color(theme::WARN)); }
             });
             ui.horizontal(|ui| {
+                ui.label("Seçili satırlarda tür:");
+                for kk in ["k", "kf", "ko"] {
+                    if ui.small_button(format!("\\{kk}")).on_hover_text(match kk { "k" => "anında vurgu", "kf" => "soldan sağa dolan vurgu", _ => "kenar (outline) vurgusu" }).clicked() {
+                        let mut s = self.doc.script.clone();
+                        for i in self.doc.target_lines() {
+                            if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) { d.text = k::set_kind(&d.text, kk); }
+                        }
+                        self.doc.apply_new_script("Karaoke türü", s);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
                 if ui.button("Süreye ölçekle").clicked() { let mut v = syls.clone(); k::scale_to(&mut v, line_cs); new_syls = Some(v); }
                 if ui.button("Harfe göre dağıt").clicked() { let mut v = syls.clone(); k::distribute(&mut v, line_cs); new_syls = Some(v); }
                 let wave = self.media.waveform();

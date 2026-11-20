@@ -113,6 +113,17 @@ pub fn build(syls: &[Syl]) -> String {
     out
 }
 
+/// Satırdaki tüm hecelerin karaoke türünü değiştirir (`k`, `kf`, `ko`); baştaki etiketler ve
+/// hece içi etiketler korunur. Karaoke değilse metin aynen döner.
+pub fn set_kind(text: &str, kind: &str) -> String {
+    let (lead, syls) = parse_with_lead(text);
+    if syls.is_empty() || !matches!(kind, "k" | "kf" | "ko") {
+        return text.to_string();
+    }
+    let v: Vec<Syl> = syls.into_iter().map(|mut s| { s.kind = kind.to_string(); s }).collect();
+    build_with_lead(&lead, &v)
+}
+
 pub fn total(syls: &[Syl]) -> i64 {
     syls.iter().map(|s| s.dur).sum()
 }
@@ -313,6 +324,17 @@ pub fn equal_syllables(parts: &[String], total_cs: i64, kind: &str) -> Vec<Syl> 
     let base = total_cs.max(0) / n;
     let rem = total_cs.max(0) % n;
     parts.iter().enumerate().map(|(i, t)| Syl { dur: base + if (i as i64) < rem { 1 } else { 0 }, kind: kind.to_string(), text: t.clone() }).collect()
+}
+
+#[cfg(test)]
+mod set_kind_tests {
+    use super::*;
+    #[test]
+    fn tur_degistir() {
+        assert_eq!(set_kind("{\\an8}{\\k20}ki{\\K30\\1c&HFF&}mi", "ko"), "{\\an8}{\\ko20}ki{\\ko30\\1c&HFF&}mi");
+        assert_eq!(set_kind("düz metin", "kf"), "düz metin");
+        assert_eq!(set_kind("{\\k5}a", "x"), "{\\k5}a");
+    }
 }
 
 #[cfg(test)]

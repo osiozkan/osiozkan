@@ -84,6 +84,7 @@
 - [x] Karaoke: heceleri sese oturt (spektral akı onset + dinamik programlama)
 - [x] Karaoke: tuşla zamanlama gecikmesini sesle otomatik kalibre et (dokunuş ↔ onset ortancası)
 - [x] Kanji zamanlayıcıda "Furigana okunuşu ekle": kanji gruplarının okunuşu eşlenen romaji hecelerinden hiragana (`kanjitimer::romaji_to_hiragana`: Hepburn/Kunrei, っ, ん, ō)
+- [x] Karaoke: seçili satırların hece türünü toplu değiştir (`\\k`/`\\kf`/`\\ko`; karaoke::set_kind)
 - [x] Karaoke: furigana düzeni (core::furigana + fonts::apply_furigana; Araçlar menüsü, komut paleti, CLI `furigana`): `漢字|かんじ` heceleri → okunuşsuz ana satır + hece ortasına `\an2\pos` okunuş satırları (`<stil>-furigana`, %50), hecesiyle vurgulanır; her hizalama/\pos; kaynak `karaoke` yorumu, yeniden çalıştırınca yenilenir; libass render'ıyla görsel doğrulandı
 
 ## Lua (Automation 4)
