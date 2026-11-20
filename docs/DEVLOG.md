@@ -123,3 +123,10 @@ Dal: `claude/vibrant-clarke-er83om` (main'den; `-g5biih` ileri sarıldı). 2026-
 - Tuzak: Rust `fancy_regex` ile `\s+([,.!?])` → `$1` gibi değiştirme kuralları `search::convert_repl` üzerinden çalışır; çoklu değiştir de aynı yolu kullanır.
 - Üçüncü bağımsız inceleme (alt ajan): **eski bir Bul/Değiştir hatası** bulundu — fancy-regex'te ileri/geri bakış içeren desende `case_insensitive` bayrağı etkisiz kalıyordu: "tam sözcük" + harf duyarsız aramada "naruto" "Naruto"yu hiç bulmuyordu (satır içi `(?i)` ile düzeltildi); `\N` harf sayılıyordu (N→M kuralı `\N`'yi bozuyordu, satır sonundan sonraki sözcük tam sözcük sayılmıyordu); harf duyarsız kipte ı/i katlanıyordu (`(?-i:[ıI])`). Ayrıca: yedekler göreli yolla anahtarlanıyordu (iki klasördeki `tr.ass` yedekleri karışıyordu → canonicalize) ve yedeğin yedeği asıl listeye karışıyordu (katı ad süzgeci); OCR düzeltmesi "OOO"yu "000" yapıyordu; çoklu değiştir sayımları seçim/belge değişince yenilenmiyordu; TSV'de BOM; konsol başka makro çalışırken takılıyordu; Clean Script Info `Timer`'ı siliyordu.
 - Tuzak: fancy-regex'te harf duyarsızlığı için `RegexBuilder::case_insensitive` yerine desene `(?i)` koy (bakış ifadeli desenlerde bayrak işlemiyor).
+
+### Gece sonu durumu (2026-11-20, v0.7.0)
+- Tüm testler yeşil (core 218, lua, media, gui), CI her push'ta yeşil; uçtan uca GUI testi yeni denetimlerle yerelde TAMAM. 50k satırda medyan 2.1 ms/kare.
+- 0.7.0 paketleri iki kez üretildi (`[nightly]`): Linux/macOS/Windows Actions'ta. macOS ffmpeg: evermeet.cx kalktı (410); ffmpeg-static/ffprobe-static ile ikinci deneme.
+- Üç bağımsız kod incelemesi yapıldı, toplam ~30 bulgu düzeltildi (biri eski: Bul/Değiştir tam sözcük + harf duyarsız).
+- Doğrulanmayanlar: kullanıcının kendi Lua betikleri (depoda yok; Drive'daki assmotion-devam-*.zip çok büyük), gerçek ses aygıtı, Japonca Tesseract (jpn verisi yok), Whisper gerçek modeli, macOS paketindeki ffmpeg'in çalışması.
+- Sıradaki öneriler: kullanıcı betiklerini `crates/osisub-lua/tests/fixtures/`'a eklemek; hardsub için kare-doğru sınır inceltme; OCR için tur/jpn dil verisi rehberi; Windows paketine Tesseract.
