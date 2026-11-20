@@ -46,20 +46,23 @@ jobs:
           cp ff/*/bin/ffmpeg.exe ff/*/bin/ffprobe.exe dist/ffmpeg/
           cp ff/*/bin/ffplay.exe dist/ffmpeg/ 2>/dev/null || true
           cp ff/*/LICENSE.txt dist/ffmpeg/ 2>/dev/null || true
-      - name: macOS için ffmpeg ekle (evermeet.cx statik derleme, x86_64 — Apple Silicon'da Rosetta 2 ile; lisans THIRD_PARTY.md)
+      - name: macOS için ffmpeg ekle (ffmpeg-static / ffprobe-static GPL derlemeleri; lisans THIRD_PARTY.md)
         if: runner.os == 'macOS'
         # indirme başarısız olursa paket ffmpeg'siz yine üretilir (sistemdeki ffmpeg kullanılır)
         continue-on-error: true
         shell: bash
         run: |
+          set +e
           mkdir -p dist/ffmpeg
+          arch=$(uname -m); [ "$arch" = "arm64" ] || arch=x64
+          curl -fsSL "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-$arch.gz" | gunzip > dist/ffmpeg/ffmpeg || rm -f dist/ffmpeg/ffmpeg
+          (cd "$RUNNER_TEMP" && npm install --no-save --no-audit --no-fund ffprobe-static@3.1.0 >/dev/null 2>&1) && cp "$RUNNER_TEMP/node_modules/ffprobe-static/bin/darwin/$arch/ffprobe" dist/ffmpeg/ 2>/dev/null
+          chmod +x dist/ffmpeg/* 2>/dev/null
           for t in ffmpeg ffprobe; do
-            curl -fsSL -o $t.zip "https://evermeet.cx/ffmpeg/getrelease/$t/zip"
-            unzip -q -o $t.zip -d dist/ffmpeg
+            if [ -s dist/ffmpeg/$t ] && dist/ffmpeg/$t -hide_banner -version | head -1; then echo "$t TAMAM"; else echo "$t YOK"; rm -f dist/ffmpeg/$t; fi
           done
-          chmod +x dist/ffmpeg/*
-          file dist/ffmpeg/ffmpeg
-          dist/ffmpeg/ffmpeg -hide_banner -version | head -1
+          rmdir dist/ffmpeg 2>/dev/null
+          exit 0
       - uses: actions/upload-artifact@v4
         with:
           name: osisub-${{ matrix.name }}-${{ github.sha }}

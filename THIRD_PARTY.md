@@ -10,7 +10,7 @@ osisub'a gömülü olarak dağıtılan Lua kaynakları ve lisansları:
 
 
 ## FFmpeg (yalnızca Windows paketi)
-Windows sürüm paketi `ffmpeg/` klasöründe BtbN/FFmpeg-Builds'in GPL derlemesini (ffmpeg, ffprobe, ffplay) getirir; ayrı programlar olarak çağrılır. Lisans: GPL-3.0 (paketteki `ffmpeg/LICENSE.txt`), kaynak: https://ffmpeg.org ve https://github.com/BtbN/FFmpeg-Builds. macOS sürüm paketi (indirilebildiyse) `ffmpeg/` klasöründe evermeet.cx'in statik ffmpeg/ffprobe derlemesini (x86_64; Apple Silicon'da Rosetta 2) getirir; GPL, kaynak: https://evermeet.cx/ffmpeg/ . İnternetten indirilen imzasız ikililer için macOS ilk açılışta uyarabilir: `xattr -dr com.apple.quarantine <paket klasörü>`. osisub ffmpeg'i önce `OSISUB_FFMPEG`/`OSISUB_FFPROBE`/`OSISUB_FFPLAY`, sonra programın yanındaki `ffmpeg/` klasörü, sonra PATH'te arar.
+Windows sürüm paketi `ffmpeg/` klasöründe BtbN/FFmpeg-Builds'in GPL derlemesini (ffmpeg, ffprobe, ffplay) getirir; ayrı programlar olarak çağrılır. Lisans: GPL-3.0 (paketteki `ffmpeg/LICENSE.txt`), kaynak: https://ffmpeg.org ve https://github.com/BtbN/FFmpeg-Builds. macOS sürüm paketi (indirilebildiyse) `ffmpeg/` klasöründe statik ffmpeg (https://github.com/eugeneware/ffmpeg-static, b6.0) ve ffprobe (npm `ffprobe-static` 3.1.0) derlemelerini getirir; GPL, kaynak: https://ffmpeg.org . İnternetten indirilen imzasız ikililer için macOS ilk açılışta uyarabilir: `xattr -dr com.apple.quarantine <paket klasörü>`. osisub ffmpeg'i önce `OSISUB_FFMPEG`/`OSISUB_FFPROBE`/`OSISUB_FFPLAY`, sonra programın yanındaki `ffmpeg/` klasörü, sonra PATH'te arar.
 
 ## Tesseract OCR (harici, isteğe bağlı)
 PGS OCR için `tesseract` komutu çağrılır (Apache-2.0). osisub ile dağıtılmaz; kullanıcı kurar (`OSISUB_TESSERACT` ile yol verilebilir).
