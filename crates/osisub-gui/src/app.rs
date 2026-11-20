@@ -325,6 +325,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("paste_over", "Üzerine yapıştır…"),
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
+    ("select_overlaps", "Çakışan satırları seç"),
     ("bookmark_toggle", "Yer imi koy / kaldır"),
     ("bookmark_next", "Sonraki yer imi"),
     ("bookmark_prev", "Önceki yer imi"),
@@ -1372,6 +1373,11 @@ impl App {
                 let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
                 if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
             }
+            "select_overlaps" => {
+                let v = osisub_core::lineops::overlapping(&self.doc.script, true);
+                if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
+                self.status = format!("{} çakışan satır seçildi (aynı stil ve katman)", v.len());
+            }
             "bookmark_toggle" => {
                 let i = self.doc.active;
                 let mut s = self.doc.script.clone();
@@ -1819,6 +1825,7 @@ impl App {
                 if ui.button("Birleştir (ilkini koru)").on_hover_text("Zaman aralığı birleşir, metin ilk satırınki kalır").clicked() { self.run_command("merge_keep", ui.ctx()); ui.close(); }
                 if ui.button("Karaoke olarak birleştir").on_hover_text("Her satır bir hece olur; \\k = satırın süresi").clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
                 if ui.button("Satırları yeniden birleştir").on_hover_text("Aegisub Recombine Lines: örtüşen konuşmalar için bölünmüş \"A\" / \"A\\NB\" / \"B\" satırlarını her cümle tek satır olacak şekilde geri birleştirir").clicked() { self.run_command("recombine", ui.ctx()); ui.close(); }
+                if ui.button("Çakışan satırları seç").on_hover_text("Aynı stil ve katmanda zamanı çakışan diyalog satırları (Aegisub: Select overlaps)").clicked() { self.run_command("select_overlaps", ui.ctx()); ui.close(); }
                 ui.menu_button("Yer imleri", |ui| {
                     if ui.add(egui::Button::new("Yer imi koy / kaldır").shortcut_text("Ctrl+F2")).clicked() { self.run_command("bookmark_toggle", ui.ctx()); ui.close(); }
                     if ui.add(egui::Button::new("Sonraki yer imi").shortcut_text("F2")).clicked() { self.run_command("bookmark_next", ui.ctx()); ui.close(); }

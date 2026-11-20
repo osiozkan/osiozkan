@@ -81,6 +81,41 @@ pub fn recombine(script: &mut Script, idx: &[usize]) -> Vec<usize> {
     (at..at + n).collect()
 }
 
+/// Zamanı başka bir satırla çakışan diyalog satırları (Aegisub "Select overlaps"): yorumlar,
+/// tipografi/karaoke/fx satırları dışarıda; `same_style` ise yalnızca aynı stil+katman içinde.
+pub fn overlapping(script: &Script, same_style: bool) -> Vec<usize> {
+    let mut v: Vec<(i64, i64, usize, String)> = script.entries.iter().enumerate().filter_map(|(i, e)| match e {
+        Entry::Dialogue(d) if !d.comment && !crate::qc::is_typeset(d) && !crate::qc::is_karaoke(d) && !d.effect.eq_ignore_ascii_case("fx") && d.end_time > d.start_time => {
+            Some((d.start_time, d.end_time, i, if same_style { format!("{}\u{0}{}", d.style, d.layer) } else { String::new() }))
+        }
+        _ => None,
+    }).collect();
+    v.sort_by(|a, b| a.3.cmp(&b.3).then(a.0.cmp(&b.0)));
+    let mut out = vec![];
+    let mut k = 0;
+    while k < v.len() {
+        // aynı gruptaki satırlar başlangıca göre sıralı: en geç biten öncekiyle karşılaştır
+        let mut far: Option<(i64, usize)> = None;
+        let g = v[k].3.clone();
+        while k < v.len() && v[k].3 == g {
+            let (s, e, i, _) = (v[k].0, v[k].1, v[k].2, ());
+            if let Some((fe, fi)) = far {
+                if s < fe {
+                    out.push(i);
+                    out.push(fi);
+                }
+            }
+            if far.is_none_or(|(fe, _)| e > fe) {
+                far = Some((e, i));
+            }
+            k += 1;
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +145,16 @@ mod tests {
         let i = idx(&s);
         assert_eq!(make_continuous(&mut s, &i[..2], true), 1);
         assert_eq!(dl(&s).iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), [(0, 900), (900, 2000), (2500, 3000)]);
+    }
+
+    #[test]
+    fn cakisanlar() {
+        let mut s = sc(&[(0, 1000, "a"), (500, 1500, "b"), (2000, 3000, "c"), (2900, 3100, "d"), (5000, 6000, "e")]);
+        let i = idx(&s);
+        assert_eq!(overlapping(&s, true), vec![i[0], i[1], i[2], i[3]]);
+        if let Entry::Dialogue(d) = &mut s.entries[i[1]] { d.style = "Diger".into(); }
+        assert_eq!(overlapping(&s, true), vec![i[2], i[3]]);
+        assert_eq!(overlapping(&s, false).len(), 4);
     }
 
     #[test]
