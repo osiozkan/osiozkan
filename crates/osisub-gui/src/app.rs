@@ -313,6 +313,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("paste_over", "Üzerine yapıştır…"),
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
+    ("recombine", "Satırları yeniden birleştir (örtüşen bölünmüş satırlar)"),
+    ("swap_lines", "İki satırı değiş tokuş et"),
+    ("continuous_end", "Zamanları ardışık yap (bitişi uzat)"),
+    ("continuous_start", "Zamanları ardışık yap (başlangıcı çek)"),
     ("perspective", "Perspektife oturt (4 noktalı vektör kırpmadan)"),
     ("split_cursor", "İmleçte böl (süre metne orantılı)"),
     ("split_cursor_frame", "İmleçte böl (video karesinde)"),
@@ -1325,6 +1329,31 @@ impl App {
                 let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
                 if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
             }
+            "recombine" => {
+                let mut s = self.doc.script.clone();
+                let r = osisub_core::lineops::recombine(&mut s, &self.doc.target_lines());
+                if r.is_empty() { self.status = "Yeniden birleştirmek için en az iki satır seçin".into(); } else {
+                    self.doc.apply_new_script("Satırları yeniden birleştir", s);
+                    self.doc.active = r[0];
+                    self.status = format!("{} satır oluştu", r.len());
+                    self.doc.selection = r;
+                }
+            }
+            "swap_lines" => {
+                let t = self.doc.target_lines();
+                if t.len() != 2 { self.status = "Değiş tokuş için tam iki satır seçin".into(); } else {
+                    let mut s = self.doc.script.clone();
+                    s.entries.swap(t[0], t[1]);
+                    self.doc.apply_new_script("Satırları değiş tokuş et", s);
+                    self.doc.selection = t;
+                }
+            }
+            "continuous_end" | "continuous_start" => {
+                let mut s = self.doc.script.clone();
+                let n = osisub_core::lineops::make_continuous(&mut s, &self.doc.target_lines(), id == "continuous_start");
+                self.doc.apply_new_script("Zamanları ardışık yap", s);
+                self.status = format!("{n} boşluk/örtüşme kapatıldı");
+            }
             "split_cursor" => self.split_at_cursor(false),
             "balance_lines" => self.rebreak_selected(true),
             "guide" => self.guide = Some(String::new()),
@@ -1723,10 +1752,16 @@ impl App {
                 if ui.add(egui::Button::new("Seçilenleri birleştir").shortcut_text("Ctrl+M")).clicked() { self.doc.merge_selected(); ui.close(); }
                 if ui.button("Birleştir (ilkini koru)").on_hover_text("Zaman aralığı birleşir, metin ilk satırınki kalır").clicked() { self.run_command("merge_keep", ui.ctx()); ui.close(); }
                 if ui.button("Karaoke olarak birleştir").on_hover_text("Her satır bir hece olur; \\k = satırın süresi").clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
+                if ui.button("Satırları yeniden birleştir").on_hover_text("Aegisub Recombine Lines: örtüşen konuşmalar için bölünmüş \"A\" / \"A\\NB\" / \"B\" satırlarını her cümle tek satır olacak şekilde geri birleştirir").clicked() { self.run_command("recombine", ui.ctx()); ui.close(); }
+                if ui.button("İki satırı değiş tokuş et").clicked() { self.run_command("swap_lines", ui.ctx()); ui.close(); }
             });
             ui.menu_button("Zamanlama", |ui| {
                 if ui.button("Kaydır / kareye oturt…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.resync_rx.is_none(), egui::Button::new("Sesle yeniden zamanla (TV → BD)…")).on_hover_text("Altyazı eski videoya göre zamanlanmışsa: açık (yeni) videonun sesiyle eşleyip her satır grubunu kaydırır (farklı kurgu, eklenen/çıkarılan sahneler, gecikme)").clicked() { ui.close(); self.start_resync(); }
+                ui.menu_button("Zamanları ardışık yap", |ui| {
+                    if ui.button("Bitişi sonraki satıra uzat").on_hover_text("Seçili satırlar arasındaki boşluk/örtüşme: her satırın bitişi sonrakinin başlangıcı olur").clicked() { self.run_command("continuous_end", ui.ctx()); ui.close(); }
+                    if ui.button("Başlangıcı önceki satıra çek").on_hover_text("Her satırın başlangıcı öncekinin bitişi olur").clicked() { self.run_command("continuous_start", ui.ctx()); ui.close(); }
+                });
                 if ui.button("Toplu satır işlemleri…").on_hover_text("Aynı metinli/kısa satırları birleştir, süreleri okuma hızına göre hesapla (Subtitle Edit)").clicked() { self.batch = Some(BatchWin::default()); ui.close(); }
                 if ui.button("Son-işleyici (lead-in/out, anahtar kare)…").clicked() { self.timing_open = true; ui.close(); }
                 if ui.add_enabled(self.media.waveform().is_some(), egui::Button::new("Sesten satır oluştur…")).clicked() { self.vad_open = true; ui.close(); }
@@ -1760,6 +1795,11 @@ impl App {
                 if ui.add(egui::Button::new("Uzaklaştır").shortcut_text("Ctrl -")).clicked() { self.settings.zoom = (self.settings.zoom - 0.1).max(0.6); self.theme_dirty = true; }
                 if ui.button("Yakınlaştırmayı sıfırla").clicked() { self.settings.zoom = 1.0; self.theme_dirty = true; }
                 ui.separator();
+                ui.menu_button("Izgarada etiketler", |ui| {
+                    for (v, l, h) in [(0u8, "Göster", "Etiket bloklarını olduğu gibi göster"), (1, "Sadeleştir", "Her etiket bloğu {…} olarak görünür (Aegisub varsayılanı)"), (2, "Gizle", "Yalnızca görünür metin")] {
+                        if ui.radio(self.settings.grid_tags == v, l).on_hover_text(h).clicked() { self.settings.grid_tags = v; self.settings.save(); ui.close(); }
+                    }
+                });
                 ui.menu_button("Izgara sütunları", |ui| {
                     // Göster/gizle ve sırala (# ilk, Metin son sütun sabit)
                     let mut ch = false;

@@ -1,12 +1,17 @@
 use super::*;
 
 impl App {
-    pub(super) fn highlighted(text: &str, dim: bool) -> LayoutJob {
+    /// `tags`: 0 etiketleri göster, 1 her bloğu `{…}` olarak sadeleştir, 2 gizle (çizim satırı hep kısaltılır).
+    pub(super) fn highlighted(text: &str, dim: bool, tags: u8) -> LayoutJob {
         let mut job = LayoutJob::default();
         let base = if dim { Color32::from_gray(120) } else { Color32::from_gray(225) };
         for p in osisub_core::tags::split(text) {
             match p {
-                osisub_core::tags::Part::Block(b) => job.append(&format!("{{{}}}", b), 0.0, TextFormat { color: theme::TAG_COLOR, font_id: egui::FontId::monospace(11.0), ..Default::default() }),
+                osisub_core::tags::Part::Block(b) => match tags {
+                    0 => job.append(&format!("{{{}}}", b), 0.0, TextFormat { color: theme::TAG_COLOR, font_id: egui::FontId::monospace(11.0), ..Default::default() }),
+                    1 => job.append("{…}", 0.0, TextFormat { color: theme::TAG_COLOR, font_id: egui::FontId::monospace(11.0), ..Default::default() }),
+                    _ => {}
+                },
                 osisub_core::tags::Part::Text(t) => job.append(&t.replace("\\N", " ⏎ ").replace("\\n", " ⏎ "), 0.0, TextFormat { color: base, ..Default::default() }),
             }
         }
@@ -190,7 +195,7 @@ impl App {
                     }
                     let tag_err = flags.map_or(false, |f| f.contains(&Kind::TagError));
                     row.col(|ui| {
-                        let r = ui.add(egui::Label::new(Self::highlighted(&d.text, dim)).truncate());
+                        let r = ui.add(egui::Label::new(Self::highlighted(&d.text, dim, self.settings.grid_tags)).truncate());
                         if tag_err {
                             // etiket hatası: metnin altında kırmızı çizgi
                             ui.painter().hline(r.rect.x_range(), r.rect.bottom() - 1.0, egui::Stroke::new(1.5, theme::BAD));

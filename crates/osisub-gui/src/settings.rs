@@ -39,6 +39,8 @@ pub struct Settings {
     pub grid_hidden: Vec<String>,
     /// Referans altyazıyı video önizlemesinde üstte göster
     pub ref_overlay: bool,
+    /// Izgarada etiket blokları: 0 göster, 1 sadeleştir (`{…}`), 2 gizle (Aegisub tag hiding)
+    pub grid_tags: u8,
     /// Elle yüklenen (otomatik yükleme klasörü dışındaki) betikler; açılışta yeniden yüklenir
     pub scripts: Vec<String>,
     /// Kurulu Aegisub'ın automation/autoload betiklerini de yükle
@@ -96,6 +98,7 @@ impl Default for Settings {
             grid_order: vec![],
             grid_hidden: vec!["len".into()],
             ref_overlay: false,
+            grid_tags: 0,
             scripts: vec![],
             aegisub_autoload: true,
             play_speed: 1.0,
