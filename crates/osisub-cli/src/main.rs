@@ -10,7 +10,7 @@ const HELP: &str = "osisub - anime altyazı aracı (komut satırı)
 
 KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
-  osisub check <dosya> [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--width] [--collide] [--report rapor.html]
+  osisub check <dosya> [--profile netflix|netflix-kids|fansub|tv] [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--width] [--collide] [--report rapor.html]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
   osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
@@ -274,7 +274,10 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "check" => {
-            let mut r = Rules::default();
+            let mut r = match opt(&mut args, "--profile") {
+                Some(p) => Rules::preset(&p).ok_or_else(|| format!("bilinmeyen profil: {p} (olanlar: {})", Rules::presets().iter().map(|p| p.0).collect::<Vec<_>>().join(", ")))?,
+                None => Rules::default(),
+            };
             if let Some(v) = opt(&mut args, "--cps") { r.max_cps = v.parse().map_err(|_| "--cps sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--len") { r.max_line_len = v.parse().map_err(|_| "--len sayı olmalı")?; }
             if let Some(v) = opt(&mut args, "--min-ms") { r.min_duration_ms = v.parse().map_err(|_| "--min-ms sayı olmalı")?; }

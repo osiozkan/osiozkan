@@ -886,6 +886,16 @@ impl App {
             }
         }
         let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label("Kural profili");
+            let cur = self.rules.matching_preset();
+            let label = qc::Rules::presets().into_iter().find(|p| Some(p.0) == cur).map(|p| p.1).unwrap_or("Özel");
+            egui::ComboBox::from_id_salt("qc_preset").selected_text(label).show_ui(ui, |ui| {
+                for (id, name, r) in qc::Rules::presets() {
+                    if ui.selectable_label(cur == Some(id), name).clicked() { self.rules = r; changed = true; }
+                }
+            });
+        });
         egui::Grid::new("rules").num_columns(2).show(ui, |ui| {
             ui.label("Azami kar/sn"); changed |= ui.add(egui::DragValue::new(&mut self.rules.max_cps).range(5.0..=60.0)).changed(); ui.end_row();
             ui.label("Azami satır uzunluğu"); changed |= ui.add(egui::DragValue::new(&mut self.rules.max_line_len).range(10..=120)).changed(); ui.end_row();

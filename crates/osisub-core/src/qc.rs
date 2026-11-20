@@ -66,6 +66,49 @@ impl Default for Rules {
     }
 }
 
+impl Rules {
+    /// Hazır kural profilleri: (kimlik, ad, kurallar). Netflix değerleri "Turkish Timed Text Style
+    /// Guide" + genel zamanlama kurallarından (yetişkin 17 kar/sn, çocuk 13; 42 karakter; en az
+    /// 5/6 sn; en çok 7 sn; satırlar arası 2 kare ≈ 83 ms); yayın profili EBU Teletext (37 karakter).
+    pub fn presets() -> Vec<(&'static str, &'static str, Rules)> {
+        vec![
+            ("default", "Varsayılan (osisub)", Rules::default()),
+            ("netflix", "Netflix (yetişkin)", Rules { min_duration_ms: 833, max_duration_ms: 7000, max_cps: 17.0, max_line_len: 42, max_lines: 2, min_gap_ms: 83 }),
+            ("netflix-kids", "Netflix (çocuk)", Rules { min_duration_ms: 833, max_duration_ms: 7000, max_cps: 13.0, max_line_len: 42, max_lines: 2, min_gap_ms: 83 }),
+            ("fansub", "Fansub (anime, esnek)", Rules { min_duration_ms: 500, max_duration_ms: 10000, max_cps: 25.0, max_line_len: 55, max_lines: 3, min_gap_ms: 0 }),
+            ("tv", "TV yayını (EBU Teletext)", Rules { min_duration_ms: 1000, max_duration_ms: 6000, max_cps: 15.0, max_line_len: 37, max_lines: 2, min_gap_ms: 120 }),
+        ]
+    }
+
+    pub fn preset(id: &str) -> Option<Rules> {
+        Self::presets().into_iter().find(|p| p.0.eq_ignore_ascii_case(id)).map(|p| p.2)
+    }
+
+    /// Kurallar bir profille birebir aynıysa profil kimliği.
+    pub fn matching_preset(&self) -> Option<&'static str> {
+        Self::presets().into_iter().find(|p| {
+            let r = &p.2;
+            r.min_duration_ms == self.min_duration_ms && r.max_duration_ms == self.max_duration_ms && r.max_cps == self.max_cps && r.max_line_len == self.max_line_len && r.max_lines == self.max_lines && r.min_gap_ms == self.min_gap_ms
+        }).map(|p| p.0)
+    }
+}
+
+#[cfg(test)]
+mod preset_tests {
+    use super::*;
+    #[test]
+    fn profiller() {
+        assert_eq!(Rules::default().matching_preset(), Some("default"));
+        let n = Rules::preset("Netflix").unwrap();
+        assert_eq!((n.max_cps, n.max_line_len, n.min_gap_ms), (17.0, 42, 83));
+        assert_eq!(n.matching_preset(), Some("netflix"));
+        assert!(Rules::preset("yok").is_none());
+        let mut c = n.clone();
+        c.max_cps = 18.0;
+        assert_eq!(c.matching_preset(), None);
+    }
+}
+
 pub fn cps(d: &Dialogue) -> f64 {
     let dur = d.duration();
     if dur <= 0 {
