@@ -3,6 +3,7 @@
 ## 0.7.0 — geliştiriliyor (yedinci gece, 2026-11-20)
 
 **Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`). Okunuşu elle yazmanız gerekmez: Kanji zamanlayıcıda *Furigana okunuşu ekle* romaji hecelerinden hiragana okunuşu üretir (ki+mi → 君|きみ).
+**Lua:** `require "osisub"` — betikler osisub çekirdeğini kullanabilir: gereksiz etiket temizliği, etiket denetimi, Türkçe harf dönüşümü, satır dengeleme, Türkçe yazım düzeltme, furigana, romaji→kana, zaman biçimleri (bkz. LUA_UYUMLULUK.md).
 **Gömülü (hardsub) altyazıyı metne çevir:** videoya yakılmış altyazıyı satır zamanlarıyla birlikte okur (Tesseract) — ham yayındaki İngilizce/Çince yakılı altyazıyı çeviri kaynağı (referans) yapmak için; bölge (alt/üst), örnekleme hızı ve metin parlaklığı ayarlanabilir, ilerleme + iptal (Dosya → Video ile, CLI `hardsub`).
 **Dosyayı böl:** kesme zamanlarında (ör. OP sonu) ya da eşit parçalara; parça zamanı isteğe bağlı sıfırlanır (Dosya menüsü, CLI `split`).
 **Yer imleri:** Ctrl+F2 ile satıra yer imi (isteğe bağlı notla), F2 / Shift+F2 ile gezinme, Düzen → Yer imleri listesi; dosyanın içinde saklanır (Aegisub'da açıp kaydetmek bozmaz).

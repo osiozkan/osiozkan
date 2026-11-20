@@ -208,6 +208,38 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             })?,
         )?;
     }
+    {
+        // osisub'a özgü yardımcılar (`require "osisub"`): Aegisub'da olmayan, betiklerin
+        // osisub çekirdeğini kullanabilmesi için saf metin işlevleri
+        use osisub_core as c;
+        native.set("tags_clean", lua.create_function(|_, t: String| Ok(c::tagclean::clean(&t).unwrap_or(t)))?)?;
+        native.set("tags_strip_notes", lua.create_function(|_, t: String| Ok(c::taglint::strip_notes(&t)))?)?;
+        native.set("tags_lint", lua.create_function(|lua, (t, dur): (String, Option<f64>)| {
+            let d = c::ass::Dialogue { start_time: 0, end_time: dur.unwrap_or(5000.0) as i64, text: t, style: "Default".into(), ..Default::default() };
+            let out = lua.create_table()?;
+            for (i, f) in c::taglint::lint(&d, &["Default"]).into_iter().enumerate() {
+                let (kind, m) = match f { c::taglint::Finding::Error(m) => ("error", m), c::taglint::Finding::Note(m) => ("note", m) };
+                let e = lua.create_table()?;
+                e.set("kind", kind)?;
+                e.set("message", m)?;
+                out.set(i + 1, e)?;
+            }
+            Ok(out)
+        })?)?;
+        native.set("case", lua.create_function(|_, (t, mode, tr): (String, String, Option<bool>)| {
+            let k = match mode.as_str() { "upper" => c::casing::Case::Upper, "lower" => c::casing::Case::Lower, "title" => c::casing::Case::Title, "sentence" => c::casing::Case::Sentence, _ => return Err(mlua::Error::runtime("kip: upper|lower|title|sentence")) };
+            Ok(c::casing::apply(&t, k, tr.unwrap_or(true)))
+        })?)?;
+        native.set("balance", lua.create_function(|_, (t, max): (String, Option<usize>)| Ok(c::linebreak::balance(&t, max.unwrap_or(42))))?)?;
+        native.set("unbreak", lua.create_function(|_, t: String| Ok(c::linebreak::unbreak(&t)))?)?;
+        native.set("tr_fix", lua.create_function(|_, t: String| Ok(c::trfix::fix_text(&t)))?)?;
+        native.set("furigana_strip", lua.create_function(|_, t: String| Ok(c::furigana::strip(&t)))?)?;
+        native.set("furigana_has", lua.create_function(|_, t: String| Ok(c::furigana::has_furigana(&t)))?)?;
+        native.set("romaji_to_kana", lua.create_function(|_, t: String| Ok(c::kanjitimer::romaji_to_hiragana(&t)))?)?;
+        native.set("visible_text", lua.create_function(|_, t: String| Ok(c::tags::visible_text(&t)))?)?;
+        native.set("time_format", lua.create_function(|_, ms: f64| Ok(c::time::format_ass(ms.round() as i64)))?)?;
+        native.set("time_parse", lua.create_function(|_, t: String| Ok(c::time::parse_generic(&t)))?)?;
+    }
     g.set("__osisub_native", native)?;
 
     // ---- kayıt

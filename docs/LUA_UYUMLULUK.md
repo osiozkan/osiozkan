@@ -22,6 +22,23 @@ Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil), `unknown`. Alanl
 
 **Filtreler:** GUI'de *Dosya → Dışa aktar (filtreler)…* öncelik sırasıyla çalıştırıp dosyaya yazar.
 
+## osisub'a özgü API (`require "osisub"`)
+
+Aegisub'da olmayan, osisub çekirdeğini betiklerden kullanmak için (betiğiniz Aegisub'da da çalışacaksa `local ok, osisub = pcall(require, "osisub")` ile koşullu kullanın):
+
+| İşlev | Ne yapar |
+|---|---|
+| `osisub.tags.clean(metin)` | Gereksiz etiketleri siler (`{\fs20\fs30}` → `{\fs30}`, tekrarlanan `\i1`…) |
+| `osisub.tags.lint(metin, süre_ms?)` | Etiket hataları: `{ {kind="error"\|"note", message=…}, … }` |
+| `osisub.tags.strip_notes(metin)`, `osisub.tags.visible(metin)` | Not bloklarını sil / görünür metin |
+| `osisub.text.upper/lower/title/sentence(metin, türkçe?)` | Harf dönüşümü (varsayılan Türkçe i/İ ı/I; etiketler, `\N` korunur) |
+| `osisub.text.balance(metin, en_çok?)`, `osisub.text.unbreak(metin)` | İki dengeli satıra kır / satır sonlarını kaldır |
+| `osisub.text.tr_fix(metin)` | Türkçe yaygın yazım hataları → `(düzeltilmiş, sayı)` |
+| `osisub.furigana.strip(metin)`, `osisub.furigana.has(metin)` | `漢字\|かんじ` okunuşları |
+| `osisub.romaji_to_kana(romaji)` | Hepburn/Kunrei → hiragana |
+| `osisub.time.format(ms)`, `osisub.time.parse(metin)` | `0:00:00.00` ↔ ms |
+| `osisub.render.bounds(satırlar, anlar)` | libass ile satır sınırları (SubInspector karşılığı) |
+
 ## Bilinen farklar / eksikler
 
 - `text_extents` yazı tipi sistemde yoksa kaba tahmine düşer (Yazı tipi denetimi penceresi eksikleri gösterir).

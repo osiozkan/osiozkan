@@ -94,6 +94,20 @@ function all_checks(subs, sel, active)
   aegisub.log("100%% güvenli\n")
   local ok, res = aegisub.dialog.display({ { class = "label", label = "Merhaba", x = 0, y = 0 }, { class = "dropdown", name = "dd", items = { "a", "b" }, value = "b", x = 0, y = 1 }, { class = "color", name = "col", value = "&HFF0000&" } }, { "Tamam", "Vazgeç" }, { ok = "Tamam", cancel = "Vazgeç" })
   check(ok == "Tamam" and res.dd == "b" and res.col == "&HFF0000&", "dialog.display")
+  -- osisub'a özgü API
+  local os_ = require "osisub"
+  check(os_.tags.clean("{\\fs20\\fs30}a{\\i1}b{\\i1}c") == "{\\fs30}a{\\i1}bc", "osisub.tags.clean")
+  check(os_.text.upper("istanbul ılık") == "İSTANBUL ILIK", "osisub.text.upper (Türkçe)")
+  check(os_.text.upper("istanbul", false) == "ISTANBUL", "osisub.text.upper (tr kapalı)")
+  local fixed, n = os_.text.tr_fix("herşey yada hiçbirşey")
+  check(fixed == "her şey ya da hiçbir şey" and n == 3, "osisub.text.tr_fix " .. tostring(fixed))
+  check(os_.romaji_to_kana("kimi no na wa") == "きみのなわ", "osisub.romaji_to_kana")
+  check(os_.furigana.strip("{\\k20}君|きみ{\\k10}の") == "{\\k20}君{\\k10}の" and os_.furigana.has("{\\k5}a|b"), "osisub.furigana")
+  check(os_.time.format(3723450) == "1:02:03.45" and os_.time.parse("0:00:01.50") == 1500, "osisub.time")
+  check(os_.tags.visible("{\\b1}a{x}b") == "ab", "osisub.tags.visible")
+  local lint = os_.tags.lint("{\\blurr2}a", 1000)
+  check(#lint >= 1 and lint[1].kind == "error", "osisub.tags.lint")
+  check(os_.text.balance("Bu çok uzun bir satır ve ikiye bölünmesi gerekiyor sanırım", 30):find("\\N") ~= nil, "osisub.text.balance")
   aegisub.set_undo_point("uyumluluk")
   return { first }
 end

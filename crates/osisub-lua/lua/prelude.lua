@@ -6,6 +6,22 @@ __osisub_native = nil
 package.loaded["osisub.time"] = { clock = N.clock, sleep = N.sleep }
 -- SubInspector.Inspector karşılığı için libass çizici
 package.loaded["osisub.render"] = { bounds = N.render_bounds }
+-- osisub'a özgü API (Aegisub'da yok): require "osisub"
+package.loaded["osisub"] = {
+  version = "0.7.0",
+  tags = { clean = N.tags_clean, strip_notes = N.tags_strip_notes, lint = N.tags_lint, visible = N.visible_text },
+  text = {
+    upper = function(t, tr) return N.case(t, "upper", tr) end,
+    lower = function(t, tr) return N.case(t, "lower", tr) end,
+    title = function(t, tr) return N.case(t, "title", tr) end,
+    sentence = function(t, tr) return N.case(t, "sentence", tr) end,
+    balance = N.balance, unbreak = N.unbreak, tr_fix = N.tr_fix,
+  },
+  furigana = { strip = N.furigana_strip, has = N.furigana_has },
+  romaji_to_kana = N.romaji_to_kana,
+  time = { format = N.time_format, parse = N.time_parse, clock = N.clock, sleep = N.sleep },
+  render = package.loaded["osisub.render"],
+}
 
 function __new_script_env(script_dir)
   local env = setmetatable({}, { __index = G })
