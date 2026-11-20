@@ -46,6 +46,23 @@ fn parsers_never_panic() {
             let _ = osisub_core::taglint::lint(&d, &["Default"]);
             let _ = osisub_core::taglint::repair(&d);
             let _ = osisub_core::taglint::strip_notes(&t);
+            // 2026-11-20: furigana, gereksiz etiket, romaji, ad denetimi, satır işlemleri
+            let _ = osisub_core::tagclean::clean(&t);
+            let _ = osisub_core::furigana::strip(&t);
+            let _ = osisub_core::furigana::has_furigana(&t);
+            let mut w = |x: &str, _: bool| Some(x.chars().count() as f64 * 10.0);
+            let _ = osisub_core::furigana::layout(&d, &osisub_core::ass::Style::default(), (640, 360), 40.0, &mut w);
+            let _ = osisub_core::kanjitimer::romaji_to_hiragana(&t);
+            let mut sc = Script::parse(&format!("[Events]\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{}\nDialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{}\n", t.replace('\n', " "), t.replace('\n', " ")));
+            let _ = osisub_core::names::check(&sc);
+            let idx: Vec<usize> = (0..sc.entries.len()).collect();
+            let _ = osisub_core::lineops::recombine(&mut sc.clone(), &idx);
+            let _ = osisub_core::lineops::make_continuous(&mut sc.clone(), &idx, true);
+            if let Some(i) = sc.entries.iter().position(|e| matches!(e, osisub_core::ass::Entry::Dialogue(_))) {
+                osisub_core::bookmarks::set(&mut sc, i, Some(&t));
+                let _ = osisub_core::bookmarks::list(&sc);
+            }
+            let _ = osisub_core::filesplit::split_times(&sc, &[500, 100], true);
         }
         let _ = tags::visible_text(&t);
         let _ = tags::karaoke_syllables(&t);
