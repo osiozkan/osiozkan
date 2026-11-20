@@ -120,6 +120,8 @@ pub struct App {
     honor_open: bool,
     /// Yer imleri penceresi; (rev, yer imi Extradata kimlikleri) ızgara önbelleği
     bookmarks_open: bool,
+    /// Dosyayı böl penceresi: (kesme zamanları metni, eşit parça sayısı, zamanı sıfırla)
+    split_win: Option<(String, usize, bool)>,
     bookmark_ids: (u64, std::collections::HashSet<u32>),
     export_open: bool,
     export_sel: Vec<usize>,
@@ -602,6 +604,7 @@ impl App {
             stats_open: false,
             honor_open: false,
             bookmarks_open: false,
+            split_win: None,
             bookmark_ids: (u64::MAX, Default::default()),
             export_open: false,
             export_sel: vec![],
@@ -681,6 +684,8 @@ impl App {
             Some("song") => app.song_win = Some(windows::SongWin::new()),
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
+            Some("split") => app.split_win = Some(("0:00:09.00".into(), 2, false)),
+            Some("bookmarks") => app.bookmarks_open = true,
             Some("tool_draw") => app.media.tool = crate::media_ui::VideoTool::Drawing,
             Some("tool_shear") => app.media.tool = crate::media_ui::VideoTool::Shear,
             Some("ocr") => app.ocr = Some(windows::OcrWin::default()),
@@ -1658,6 +1663,7 @@ impl App {
                         self.merge_win = Some((p, osisub_core::merge::MergeOptions { sort: true, ..Default::default() }, "0:00:00.00".into()));
                     }
                 }
+                if ui.button("Dosyayı böl…").on_hover_text("Kesme zamanlarında (ör. OP sonu) ya da eşit satır sayısıyla ayrı dosyalara böl; başlık/stiller/ekler her parçaya kopyalanır (Subtitle Edit: Split)").clicked() { ui.close(); self.split_win = Some((String::new(), 2, false)); }
                 if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
@@ -2292,6 +2298,7 @@ impl App {
         self.stats_window(&ctx);
         self.honorifics_window(&ctx);
         self.bookmarks_window(&ctx);
+        self.split_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
         self.help_windows(&ctx);

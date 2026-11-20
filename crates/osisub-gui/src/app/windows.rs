@@ -1205,7 +1205,7 @@ impl App {
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
-            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1245,6 +1245,7 @@ impl App {
                 "todraw" => self.text_to_drawing(false),
                 "furigana" => self.furigana_layout(),
                 "bookmarks" => self.bookmarks_open = true,
+                "split_file" => self.split_win = Some((String::new(), 2, false)),
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
                     if let Some(v) = v { match osisub_media::mux::subtitle_tracks(&v) { Ok(t) => self.tracks_win = Some((v, t)), Err(e) => self.status = e } }
@@ -2153,6 +2154,59 @@ impl App {
             }
         });
         self.vad_open = open;
+    }
+
+    /// Dosyayı böl (core::filesplit): kesme zamanları / eşit parça, isteğe bağlı zaman sıfırlama.
+    pub(super) fn split_window(&mut self, ctx: &egui::Context) {
+        let Some((cuts, n, rebase)) = self.split_win.as_mut() else { return };
+        let mut open = true;
+        let mut go = false;
+        let playhead = self.media.playhead;
+        let script = &self.doc.script;
+        egui::Window::new("Dosyayı böl").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label("Kesme zamanları (virgülle; satırlar başlangıç zamanına göre dağıtılır):");
+            ui.add(TextEdit::singleline(cuts).hint_text("0:01:30.00, 0:22:10.00").desired_width(400.0));
+            ui.horizontal(|ui| {
+                if ui.button("Playhead'i ekle").clicked() {
+                    if !cuts.trim().is_empty() { cuts.push_str(", "); }
+                    cuts.push_str(&time::format_ass(playhead));
+                }
+                ui.separator();
+                ui.add(egui::DragValue::new(n).range(2..=50));
+                if ui.button("parçaya eşit böl").on_hover_text("Satır sayısı eşit olacak kesme zamanlarını hesaplar").clicked() {
+                    *cuts = osisub_core::filesplit::equal_cuts(script, *n).iter().map(|&t| time::format_ass(t)).collect::<Vec<_>>().join(", ");
+                }
+            });
+            ui.checkbox(rebase, "Her parçanın zamanını kendi başlangıcından sıfırla").on_hover_text("Ör. bölümden OP'yi ayırıp başka bölüme yerleştirmek için");
+            let parsed: Vec<Option<i64>> = cuts.split(',').filter(|c| !c.trim().is_empty()).map(|c| osisub_core::time::parse_generic(c)).collect();
+            if parsed.iter().any(|c| c.is_none()) {
+                ui.label(RichText::new("Geçersiz zaman var").color(theme::BAD));
+            } else if !parsed.is_empty() {
+                let parts = osisub_core::filesplit::split_times(script, &parsed.iter().flatten().copied().collect::<Vec<_>>(), false);
+                ui.label(format!("{} parça: {}", parts.len(), parts.iter().map(|p| format!("{} satır", p.dialogues().count())).collect::<Vec<_>>().join(", ")));
+                if ui.button("Böl ve kaydet…").clicked() { go = true; }
+            }
+        });
+        if go {
+            let (cuts, _, rebase) = self.split_win.clone().unwrap();
+            let c: Vec<i64> = cuts.split(',').filter_map(|c| osisub_core::time::parse_generic(c)).collect();
+            let def = self.doc.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "parca.ass".into());
+            if let Some(base) = rfd::FileDialog::new().set_file_name(&def).add_filter("ASS", &["ass"]).save_file() {
+                let parts = osisub_core::filesplit::split_times(&self.doc.script, &c, rebase);
+                let paths = osisub_core::filesplit::part_paths(&base, parts.len());
+                if let Some(p) = paths.iter().find(|p| p.exists()) {
+                    self.status = format!("Dosya zaten var, üzerine yazılmadı: {}", p.display());
+                } else {
+                    let mut err = None;
+                    for (s, p) in parts.iter().zip(&paths) {
+                        if let Err(e) = osisub_core::io::save(s, p) { err = Some(e); break; }
+                    }
+                    self.status = match err { Some(e) => format!("Kaydedilemedi: {e}"), None => format!("{} parça kaydedildi: {}", parts.len(), paths[0].display()) };
+                    if self.status.contains("parça kaydedildi") { open = false; }
+                }
+            }
+        }
+        if !open { self.split_win = None; }
     }
 
     /// Yer imleri listesi: tıkla = satıra git, not düzenle, kaldır.

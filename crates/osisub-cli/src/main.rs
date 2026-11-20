@@ -19,6 +19,7 @@ KULLANIM:
                           w×h kutuyu 4 köşeye oturtan \\frx\\fry\\frz\\fscx\\fscy\\fax\\org etiketleri
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
+  osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
@@ -230,6 +231,26 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let (d, w, h) = db.text_shape(&st, text).ok_or(format!("yazı tipi bulunamadı: {}", st.fontname))?;
             eprintln!("genişlik {w:.2}, yükseklik {h:.2}");
             println!("{d}");
+            Ok(())
+        }
+        "split" => {
+            let parts_n = opt(&mut args, "--parts").map(|v| v.parse::<usize>().map_err(|_| "--parts sayı olmalı")).transpose()?;
+            let rebase = flag(&mut args, "--rebase");
+            let input = args.first().ok_or("kullanım: split <girdi> (<zaman,zaman…> | --parts N) [--rebase]")?.clone();
+            let s = load(&input)?;
+            let cuts: Vec<i64> = match (parts_n, args.get(1)) {
+                (Some(n), _) => osisub_core::filesplit::equal_cuts(&s, n),
+                (None, Some(c)) => c.split(',').map(|t| osisub_core::time::parse_generic(t).ok_or(format!("geçersiz zaman: {t}"))).collect::<Result<_, _>>()?,
+                _ => return Err("kesme zamanları ya da --parts N gerekli".into()),
+            };
+            if cuts.is_empty() { return Err("bölünecek yer yok".into()); }
+            let parts = osisub_core::filesplit::split_times(&s, &cuts, rebase);
+            let paths = osisub_core::filesplit::part_paths(Path::new(&input), parts.len());
+            if let Some(p) = paths.iter().find(|p| p.exists()) { return Err(format!("dosya zaten var: {}", p.display())); }
+            for (p, path) in parts.iter().zip(paths) {
+                osisub_core::io::save(p, &path)?;
+                eprintln!("{}: {} satır", path.display(), p.dialogues().count());
+            }
             Ok(())
         }
         "merge" => {

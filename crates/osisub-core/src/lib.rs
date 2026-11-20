@@ -11,6 +11,7 @@ pub mod drawxf;
 pub mod dummy;
 pub mod extradata;
 pub mod filebatch;
+pub mod filesplit;
 pub mod fixes;
 pub mod fonts_used;
 pub mod formats;
