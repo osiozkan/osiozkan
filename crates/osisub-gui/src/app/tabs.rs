@@ -924,6 +924,16 @@ impl App {
                     }
                 });
             }
+            if ui.button("Gereksiz etiketleri sil").on_hover_text("Aynı blokta ezilen etiketleri ({\\fs20\\fs30} → {\\fs30}) ve önceki değeri tekrarlayan etiketleri ({\\i1}a{\\i1}b) siler; \\t, \\r, \\pos gibi etiketler ve karaoke korunur (Aegisub Clean Tags)").clicked() {
+                apply(self, "Gereksiz etiketleri sil", &|s| {
+                    for e in s.entries.iter_mut() {
+                        if let Entry::Dialogue(d) = e {
+                            if d.comment || d.effect.eq_ignore_ascii_case("fx") { continue; }
+                            if let Some(t) = osisub_core::tagclean::clean(&d.text) { d.text = t; }
+                        }
+                    }
+                });
+            }
             if self.issues.iter().any(|i| i.kind == Kind::Note && i.message.starts_with("Metinde not")) && ui.button("Notları sil").on_hover_text("Diyalog metnindeki {çevirmen notu} bloklarını siler (yayın öncesi)").clicked() {
                 apply(self, "Notları sil", &|s| {
                     for e in s.entries.iter_mut() {

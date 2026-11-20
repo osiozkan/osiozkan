@@ -36,7 +36,7 @@ KULLANIM:
   osisub transcribe <video|ses> <çıktı> [--lang ja|auto] [--translate] [--model ggml-x.bin] [--max-len N]
                  sesten zamanlanmış altyazı (whisper.cpp; --translate: İngilizceye)
   osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
-  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes]
+  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes] [--redundant]
                           (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
@@ -392,7 +392,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             f.balance_lines = opt(&mut args, "--balance").and_then(|v| v.parse().ok());
             f.min_duration_ms = opt(&mut args, "--min-dur").and_then(|v| v.parse().ok());
             f.min_gap_ms = opt(&mut args, "--min-gap").and_then(|v| v.parse().ok());
-            let (tags, notes) = (flag(&mut args, "--tags"), flag(&mut args, "--notes"));
+            let (tags, notes, redundant) = (flag(&mut args, "--tags"), flag(&mut args, "--notes"), flag(&mut args, "--redundant"));
             let inp = args.first().ok_or("girdi gerekli")?.clone();
             let out = args.get(1).cloned().unwrap_or_else(|| inp.clone());
             let mut s = load(&inp)?;
@@ -409,8 +409,11 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 if tags && !d.effect.eq_ignore_ascii_case("fx") {
                     if let Some(t) = osisub_core::taglint::repair(d) { d.text = t; tag_changes += 1; }
                 }
+                if redundant && !d.effect.eq_ignore_ascii_case("fx") {
+                    if let Some(t) = osisub_core::tagclean::clean(&d.text) { d.text = t; tag_changes += 1; }
+                }
             }
-            if tags || notes { println!("{} satırda etiket/not düzeltildi", tag_changes); }
+            if tags || notes || redundant { println!("{} satırda etiket/not düzeltildi", tag_changes); }
             save(&s, &out)
         }
         "resample" => {
