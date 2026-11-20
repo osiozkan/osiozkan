@@ -20,6 +20,7 @@ KULLANIM:
   osisub shape <metin> [--font Ad] [--size N] [--bold] [--italic] [--fscx N] [--fscy N] [--fsp N]
                           metni ASS çizimine (\\p1) çevir; (0,0) = hücrenin sol üstü
   osisub hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--bottom 1.0] [--fps 5] [--bright 200] [--also-top]   gömülü altyazıyı metne çevir
+  osisub export <girdi> <çıktı> [--strip-comments] [--clean-info] [--fix-styles] [--strip-notes] [--clean-tags]   yayın kopyası (yerleşik süzgeçler)
   osisub export-text <girdi.ass> <metin.txt> [--speakers]   diyalogları çevirmen için düz metne (tabela/karaoke hariç)
   osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
@@ -248,6 +249,20 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             let [v, out] = args.as_slice() else { return Err("kullanım: hardsub <video> <çıktı.ass> [--lang eng] [--top 0.7] [--fps 5]".into()) };
             let s = osisub_media::hardsub::extract_all(Path::new(v), &o, &|f| eprint!("\r%{:.0}  ", f * 100.0), &std::sync::atomic::AtomicBool::new(false))?;
             eprintln!("\r{} satır", s.dialogues().count());
+            save(&s, out)
+        }
+        "export" => {
+            let b = osisub_core::exportfilters::Builtins {
+                strip_comments: flag(&mut args, "--strip-comments"),
+                clean_info: flag(&mut args, "--clean-info"),
+                fix_styles: flag(&mut args, "--fix-styles"),
+                strip_notes: flag(&mut args, "--strip-notes"),
+                clean_tags: flag(&mut args, "--clean-tags"),
+            };
+            let [inp, out] = args.as_slice() else { return Err("kullanım: export <girdi> <çıktı> [--strip-comments] [--clean-info] [--fix-styles] [--strip-notes] [--clean-tags]".into()) };
+            let mut s = load(inp)?;
+            let n = osisub_core::exportfilters::apply(&mut s, &b);
+            eprintln!("{n} değişiklik");
             save(&s, out)
         }
         "export-text" => {

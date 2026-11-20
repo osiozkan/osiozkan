@@ -128,6 +128,8 @@ pub struct App {
     export_open: bool,
     export_sel: Vec<usize>,
     export_job: Option<ExportJob>,
+    /// yerleşik dışa aktarım süzgeçleri (Lua süzgeçlerinden sonra)
+    export_builtins: osisub_core::exportfilters::Builtins,
     tap: Option<TapState>,
     tap_latency_ms: i64,
     backed_up: std::collections::HashSet<PathBuf>,
@@ -614,6 +616,7 @@ impl App {
             export_open: false,
             export_sel: vec![],
             export_job: None,
+            export_builtins: Default::default(),
             tap: None,
             tap_latency_ms: 200,
             backed_up: Default::default(),
@@ -692,6 +695,7 @@ impl App {
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("textimport") => app.text_import = Some(windows::TextImportWin { text: "Sakura: Birinci çeviri satırı.\nKenji: İkinci satır.\n# atlanır\nÜçüncü satır".into(), speakers: true, ..Default::default() }),
+            Some("export") => app.export_open = true,
             Some("hardsub") => app.hardsub = Some(windows::HardsubWin::new(app.media.path.clone())),
             Some("split") => app.split_win = Some(("0:00:09.00".into(), 2, false)),
             Some("bookmarks") => app.bookmarks_open = true,
@@ -1126,6 +1130,7 @@ impl App {
                                 let mut job = self.export_job.take().unwrap();
                                 job.script = done.script;
                                 if job.queue.is_empty() {
+                                    osisub_core::exportfilters::apply(&mut job.script, &self.export_builtins);
                                     match osisub_core::io::save(&job.script, &job.path) {
                                         Ok(()) => self.status = format!("Dışa aktarıldı: {}", job.path.display()),
                                         Err(e) => self.status = format!("Hata: {}", e),

@@ -94,6 +94,7 @@
 - [x] ffi DLL karşılıkları: `BM.BadMutex`, `PT.PreciseTimer` (yerleşik, DepCtrl sürümlü)
 - [x] `SubInspector.Inspector` karşılığı (libass satır sınırları, gerçek saydamlıkla; ms hassasiyetinde)
 - [ ] Gerçek ASSFoundation / Aegisub-Motion ile uçtan uca doğrulama (modüller depoda yok)
+- [x] Yerleşik dışa aktarım süzgeçleri (core::exportfilters; Dışa aktar penceresi, CLI `export`): yorumları ve kullanılmayan stilleri sil (`\\r` başvuruları korunur), Script Info'yu temizle (proje çöpü dahil), tanımsız stilleri Default yap, notları sil, gereksiz etiketleri sil; Lua süzgeçlerinden sonra çalışır
 - [x] Dışa aktarım filtreleri (register_filter): Dosya → Dışa aktar (öncelik sırası, belge değişmez); CLI: `osisub run girdi builtin:kara-templater.lua "Karaoke template" çıktı`
 - [x] `aegisub.frame_from_ms/ms_from_frame/video_size/get_audio_selection/project_properties` GUI'den (video+etkin satır)
 - [x] `aegisub.get_frame` (arch1t3cht API: width/height/getPixel/getPixelFormatted; altyazılı kare)

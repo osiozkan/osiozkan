@@ -10,6 +10,7 @@ pub mod drawing;
 pub mod drawxf;
 pub mod dummy;
 pub mod extradata;
+pub mod exportfilters;
 pub mod filebatch;
 pub mod filesplit;
 pub mod fixes;

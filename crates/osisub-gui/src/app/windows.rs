@@ -1491,12 +1491,22 @@ impl App {
                     if on { self.export_sel.push(*id); } else { self.export_sel.retain(|x| x != id); }
                 }
             }
-            ui.label(RichText::new("Seçili filtreler öncelik sırasıyla (büyükten küçüğe) çalışır; belge değişmez, sonuç dosyaya yazılır.").weak().small());
+            ui.separator();
+            ui.label(RichText::new("Yerleşik").strong());
+            let b = &mut self.export_builtins;
+            ui.checkbox(&mut b.strip_comments, "Yorumları ve kullanılmayan stilleri sil").on_hover_text("Şablon/not yorumları ve hiçbir satırın (\\r dahil) kullanmadığı stiller çıkar (Aegisub: Strip comments and unused styles)");
+            ui.checkbox(&mut b.clean_info, "Script Info'yu temizle").on_hover_text("Yalnızca oynatıcının ihtiyaç duyduğu anahtarlar (PlayRes, LayoutRes, WrapStyle, ScaledBorderAndShadow, YCbCr Matrix…) kalır; proje çöpü (video yolu vb.) silinir (Aegisub: Clean Script Info)");
+            ui.checkbox(&mut b.fix_styles, "Tanımsız stilleri Default yap").on_hover_text("Aegisub: Fix styles");
+            ui.checkbox(&mut b.strip_notes, "Metindeki {notları} sil");
+            ui.checkbox(&mut b.clean_tags, "Gereksiz etiketleri sil");
+            ui.label(RichText::new("Seçili Lua filtreleri öncelik sırasıyla (büyükten küçüğe), ardından yerleşikler çalışır; belge değişmez, sonuç dosyaya yazılır.").weak().small());
             if ui.add_enabled(self.running.is_none(), egui::Button::new("Dışa aktar…")).clicked() {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("Düz metin", &["txt"]).save_file() {
                     let mut queue: Vec<usize> = filters.iter().filter(|f| self.export_sel.contains(&f.0)).map(|f| f.0).collect();
                     if queue.is_empty() {
-                        match osisub_core::io::save(&self.doc.script, &p) { Ok(()) => self.status = format!("Dışa aktarıldı: {}", p.display()), Err(e) => self.status = format!("Hata: {}", e) }
+                        let mut sc = self.doc.script.clone();
+                        osisub_core::exportfilters::apply(&mut sc, &self.export_builtins);
+                        match osisub_core::io::save(&sc, &p) { Ok(()) => self.status = format!("Dışa aktarıldı: {}", p.display()), Err(e) => self.status = format!("Hata: {}", e) }
                     } else {
                         let first = queue.remove(0);
                         self.export_job = Some(ExportJob { queue, script: self.doc.script.clone(), path: p });
