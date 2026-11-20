@@ -74,7 +74,8 @@ pub fn to_tsv(rules: &[Rule]) -> String {
 }
 
 pub fn from_tsv(t: &str) -> Vec<Rule> {
-    t.lines()
+    // Not Defteri'nin UTF-8 BOM'u ilk kuralın "açık" alanını bozmasın
+    t.trim_start_matches('\u{feff}').lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
         .filter_map(|l| {
             let p: Vec<&str> = l.splitn(6, '\t').collect();
@@ -127,5 +128,6 @@ mod tests {
         let mut rules = examples();
         rules.push(Rule { find: "a\tb\\c\nd".into(), replace: "x".into(), regex: true, whole_word: true, ..Default::default() });
         assert_eq!(from_tsv(&to_tsv(&rules)), rules);
+        assert!(from_tsv(&format!("\u{feff}{}", to_tsv(&[Rule { find: "a".into(), ..Default::default() }])))[0].on);
     }
 }

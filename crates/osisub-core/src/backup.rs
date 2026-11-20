@@ -35,7 +35,9 @@ pub fn stamp(t: SystemTime) -> String {
 fn prefix(src: &Path) -> (String, String) {
     let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into());
     let ext = src.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "ass".into());
-    (format!("{stem}.{}.", path_hash(src)), ext)
+    // aynı dosya göreli/mutlak yolla açılsa da (ya da iki klasördeki "tr.ass") doğru eşleşsin
+    let canon = std::fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    (format!("{stem}.{}.", path_hash(&canon)), ext)
 }
 
 /// `src`'nin şimdiki halini yedekler (dosya yoksa `None`) ve eskileri budar.
@@ -69,7 +71,11 @@ pub fn list(dir: &Path, src: &Path) -> Vec<(PathBuf, String)> {
             let name = e.file_name().to_string_lossy().to_string();
             let rest = name.strip_prefix(&pre)?;
             let st = rest.rsplit_once('.').map(|x| x.0).unwrap_or(rest).to_string();
-            Some((e.path(), st))
+            // yalnızca "YYYYMMDD-HHMMSS[-k]" (yedeğin yedeği vb. başka adlar karışmasın)
+            let b = st.as_bytes();
+            let ok = b.len() >= 15 && b[..8].iter().all(u8::is_ascii_digit) && b[8] == b'-' && b[9..15].iter().all(u8::is_ascii_digit)
+                && (b.len() == 15 || (b[15] == b'-' && b.len() > 16 && b[16..].iter().all(u8::is_ascii_digit)));
+            ok.then(|| (e.path(), st))
         })
         .collect();
     v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
@@ -110,6 +116,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&l[0].0).unwrap(), "sürüm 4");
         assert!(l[0].1.starts_with("19700101-000144"));
         assert_eq!(list(&dir, &b).len(), 1, "farklı klasördeki aynı ad ayrı");
+        // yedeğin kendisi açılıp kaydedilirse onun yedekleri asıl dosyanın listesine karışmaz
+        let bk = l[0].0.clone();
+        make(&dir, &bk, 3, UNIX_EPOCH + Duration::from_secs(500)).unwrap();
+        assert_eq!(list(&dir, &a).len(), 3);
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -19,7 +19,7 @@ pub struct Builtins {
     pub clean_tags: bool,
 }
 
-const KEEP_INFO: &[&str] = &["ScriptType", "PlayResX", "PlayResY", "LayoutResX", "LayoutResY", "WrapStyle", "ScaledBorderAndShadow", "YCbCr Matrix", "Collisions", "PlayDepth", "Kerning", "Title", "Language"];
+const KEEP_INFO: &[&str] = &["ScriptType", "PlayResX", "PlayResY", "LayoutResX", "LayoutResY", "WrapStyle", "ScaledBorderAndShadow", "YCbCr Matrix", "Collisions", "PlayDepth", "Kerning", "Timer", "Title", "Language"];
 
 /// Seçili yerleşik süzgeçleri uygular; değişiklik sayısını döndürür.
 pub fn apply(s: &mut Script, b: &Builtins) -> usize {

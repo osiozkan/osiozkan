@@ -124,6 +124,7 @@ pub struct App {
     ready_open: bool,
     /// Çoklu değiştir: kurallar ve önizleme sonuçları (açıksa Some)
     mrep: Option<(Vec<osisub_core::multireplace::Rule>, Vec<Result<usize, String>>, bool)>,
+    mrep_key: Option<(u64, usize, Option<usize>, bool)>,
     /// Lua konsolu: kod ve yüklendiğinde çalıştırılacak mı
     console_code: String,
     console_pending: bool,
@@ -624,6 +625,7 @@ impl App {
             backups_open: false,
             ready_open: false,
             mrep: None,
+            mrep_key: None,
             console_code: "-- subs, sel, active kullanılabilir; örnek (Türkçe uyumlu büyük harf):\nlocal osisub = require \"osisub\"\nfor _, i in ipairs(sel) do\n  local l = subs[i]\n  l.text = osisub.text.upper(l.text)\n  subs[i] = l\nend\naegisub.log(#sel .. \" satır\\n\")".into(),
             console_pending: false,
             bookmark_edit: None,
@@ -1167,7 +1169,9 @@ impl App {
                         self.macros.push(MacroEntry { info: m, script: info.name.clone() });
                     }
                     if console {
-                        if let (true, Some(id)) = (std::mem::take(&mut self.console_pending), first) { self.run_macro(id); }
+                        if let (true, Some(id)) = (std::mem::take(&mut self.console_pending), first) {
+                            if self.running.is_some() { self.status = "Lua konsolu: başka bir makro çalışıyor, bitince yeniden deneyin".into(); } else { self.run_macro(id); }
+                        }
                         continue;
                     }
                     self.status = format!("Betik yüklendi: {}", info.name);

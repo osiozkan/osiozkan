@@ -40,8 +40,9 @@ pub struct Hit {
 
 fn tr_class(c: char) -> Option<&'static str> {
     match c {
-        'i' | 'İ' => Some("[iİ]"),
-        'ı' | 'I' => Some("[ıI]"),
+        // harf duyarsız kipte de i/ı ayrımı korunsun (ı ↔ i katlanmasın)
+        'i' | 'İ' => Some("(?-i:[iİ])"),
+        'ı' | 'I' => Some("(?-i:[ıI])"),
         _ => None,
     }
 }
@@ -61,7 +62,12 @@ pub fn build(o: &Options) -> Result<Regex, String> {
     if o.whole_word {
         pat = format!(r"(?<![\p{{L}}\p{{N}}_])(?:{})(?![\p{{L}}\p{{N}}_])", pat);
     }
-    RegexBuilder::new(&pat).case_insensitive(!o.match_case).build().map_err(|e| e.to_string())
+    // fancy-regex: ileri/geri bakış içeren desende `case_insensitive` bayrağı etkisiz kalıyor
+    // (tam sözcük + harf duyarsız hiç eşleşmiyordu) — satır içi `(?i)` kullan
+    if !o.match_case {
+        pat = format!("(?i){pat}");
+    }
+    RegexBuilder::new(&pat).build().map_err(|e| e.to_string())
 }
 
 fn eligible(o: &Options, i: usize, d: &Dialogue) -> bool {
@@ -86,7 +92,8 @@ pub fn find_all(script: &Script, o: &Options) -> Result<Vec<Hit>, String> {
             continue;
         }
         for &f in &o.fields {
-            let hay = if f == Field::Text && o.ignore_tags { crate::tags::strip_tags(&d.text) } else { field_ref(d, f).to_string() };
+            // \N \n \h harf sayılmasın (tam sözcük satır başında da eşleşsin)
+            let hay = if f == Field::Text && o.ignore_tags { crate::tags::strip_tags(&d.text).replace("\\N", " ").replace("\\n", " ").replace("\\h", " ") } else { field_ref(d, f).to_string() };
             if re.is_match(&hay).map_err(|e| e.to_string())? {
                 hits.push(Hit { entry: i, field: f });
             }
@@ -118,6 +125,26 @@ fn convert_repl(r: &str, regex: bool) -> String {
     out
 }
 
+/// `\N` `\n` `\h` kaçışlarını koruyarak yalnızca aralarındaki metinde değiştirir
+/// ("N" → "M" kuralı `\N`'yi bozmasın; satır sonundan sonraki sözcük tam sözcük sayılsın).
+fn replace_between_escapes(re: &Regex, t: &str, repl: &str) -> String {
+    let mut out = String::new();
+    let mut seg = String::new();
+    let mut it = t.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\\' && matches!(it.peek(), Some('N' | 'n' | 'h')) {
+            out.push_str(&re.replace_all(&seg, repl));
+            seg.clear();
+            out.push(c);
+            out.push(it.next().unwrap());
+        } else {
+            seg.push(c);
+        }
+    }
+    out.push_str(&re.replace_all(&seg, repl));
+    out
+}
+
 /// Tümünü değiştirir; değişen alan sayısını döndürür.
 pub fn replace_all(script: &mut Script, o: &Options) -> Result<usize, String> {
     let re = build(o)?;
@@ -140,7 +167,7 @@ pub fn replace_all(script: &mut Script, o: &Options) -> Result<usize, String> {
                             out.push_str(b);
                             out.push('}');
                         }
-                        crate::tags::Part::Text(t) => out.push_str(&re.replace_all(t, repl.as_str())),
+                        crate::tags::Part::Text(t) => out.push_str(&replace_between_escapes(&re, t, &repl)),
                     }
                 }
                 out
@@ -164,6 +191,31 @@ pub fn replace_all(script: &mut Script, o: &Options) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tam_sozcuk_harf_duyarsiz_ve_kacislar() {
+        let mut sc = Script::from_dialogues(vec![
+            Dialogue { text: "Naruto geldi, NARUTO!".into(), ..Default::default() },
+            Dialogue { text: "Merhaba.\\Nnaruto geldi".into(), ..Default::default() },
+            Dialogue { text: "Bir\\Niki ilik".into(), ..Default::default() },
+        ]);
+        let o = Options { pattern: "naruto".into(), replacement: "Sasuke".into(), whole_word: true, ignore_tags: true, ..Default::default() };
+        assert_eq!(find_all(&sc, &o).unwrap().len(), 2);
+        assert_eq!(replace_all(&mut sc, &o).unwrap(), 2);
+        let t: Vec<String> = sc.dialogues().map(|d| d.text.clone()).collect();
+        assert_eq!(t[0], "Sasuke geldi, Sasuke!");
+        assert_eq!(t[1], "Merhaba.\\NSasuke geldi");
+        // \N korunur
+        let o = Options { pattern: "N".into(), replacement: "M".into(), match_case: true, ignore_tags: true, ..Default::default() };
+        replace_all(&mut sc, &o).unwrap();
+        assert!(sc.dialogues().nth(2).unwrap().text.starts_with("Bir\\Niki"));
+        // Türkçe ı/i ayrımı harf duyarsız kipte de
+        let o = Options { pattern: "ılık".into(), ..Default::default() };
+        assert!(find_all(&sc, &o).unwrap().is_empty(), "ılık, ilik'i bulmamalı");
+        let o = Options { pattern: "çağrı".into(), whole_word: true, ..Default::default() };
+        let sc2 = Script::from_dialogues(vec![Dialogue { text: "Çağrı geldi".into(), ..Default::default() }]);
+        assert_eq!(find_all(&sc2, &o).unwrap().len(), 1);
+    }
 
     fn script() -> Script {
         Script::from_dialogues(vec![

@@ -23,6 +23,11 @@ fn normal_case(w: &str) -> bool {
     letters.len() <= 1 || letters[1..].iter().all(|c| c.is_lowercase()) || letters.iter().all(|c| c.is_uppercase())
 }
 
+/// Adayda harf kalmadıysa (OOO → 000) yalnızca özgün sözcükte zaten rakam varsa kabul (1O → 10).
+fn keeps_letters(orig: &str, cand: &str) -> bool {
+    cand.chars().any(|c| c.is_alphabetic()) || orig.chars().any(|c| c.is_ascii_digit())
+}
+
 /// Tek sözcüğü düzeltmeyi dener: önce aynen, sonra her karışıklığı tek tek her konumda, sonra
 /// aynı karışıklığı tüm konumlarda. Bulunamazsa `None`.
 pub fn fix_word(w: &str, is_word: &dyn Fn(&str) -> bool) -> Option<String> {
@@ -36,14 +41,14 @@ pub fn fix_word(w: &str, is_word: &dyn Fn(&str) -> bool) -> Option<String> {
         while let Some(p) = w[start..].find(from) {
             let at = start + p;
             let cand = format!("{}{}{}", &w[..at], to, &w[at + from.len()..]);
-            if normal_case(&cand) && is_word(&cand) {
+            if normal_case(&cand) && keeps_letters(w, &cand) && is_word(&cand) {
                 return Some(cand);
             }
             start = at + from.len();
         }
         if w.matches(from).count() > 1 {
             let cand = w.replace(from, to);
-            if normal_case(&cand) && is_word(&cand) {
+            if normal_case(&cand) && keeps_letters(w, &cand) && is_word(&cand) {
                 return Some(cand);
             }
         }
@@ -116,6 +121,10 @@ mod tests {
         assert_eq!(fix_word("door", &dict), None);
         assert_eq!(fix_word("xyz", &dict), None);
         assert_eq!(fix_word("1999", &dict), None);
+        // harfsiz her şeyi kabul eden sözlük (Hunspell rakamları kabul eder): OOO → 000 olmamalı
+        let any_digits = |w: &str| !w.chars().any(|c| c.is_alphabetic());
+        assert_eq!(fix_word("OOO", &any_digits), None);
+        assert_eq!(fix_word("1O", &any_digits).as_deref(), Some("10"));
     }
 
     #[test]

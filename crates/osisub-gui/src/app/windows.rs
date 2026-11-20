@@ -2442,6 +2442,7 @@ impl App {
     pub(super) fn mrep_window(&mut self, ctx: &egui::Context) {
         use osisub_core::multireplace as mr;
         let Some((mut rules, mut pv, mut only_sel)) = self.mrep.take() else { return };
+        let was_sel = only_sel;
         let mut open = true;
         let mut apply = false;
         let mut changed = false;
@@ -2490,7 +2491,11 @@ impl App {
             });
         });
         let only: Option<Vec<usize>> = if only_sel { Some(self.doc.target_lines()) } else { None };
-        if changed || pv.len() != rules.len() {
+        // belge, seçim ya da kapsam değişince canlı sayımlar yenilenir
+        let key = (self.doc.rev, self.doc.selection.len(), self.doc.selection.first().copied(), only_sel);
+        let stale = self.mrep_key != Some(key);
+        self.mrep_key = Some(key);
+        if changed || stale || was_sel != only_sel || pv.len() != rules.len() {
             pv = mr::preview(&self.doc.script, &rules, only.as_deref());
             if changed { if let Some(p) = Self::mrep_path() { if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); } let _ = std::fs::write(p, mr::to_tsv(&rules)); } }
         }
