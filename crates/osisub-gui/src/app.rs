@@ -120,6 +120,8 @@ pub struct App {
     honor_open: bool,
     /// Yer imleri penceresi; (rev, yer imi Extradata kimlikleri) ızgara önbelleği
     bookmarks_open: bool,
+    /// yer imi notu düzenleme tamponu: (girdi indeksi, metin)
+    bookmark_edit: Option<(usize, String)>,
     /// Dosyayı böl penceresi: (kesme zamanları metni, eşit parça sayısı, zamanı sıfırla)
     split_win: Option<(String, usize, bool)>,
     bookmark_ids: (u64, std::collections::HashSet<u32>),
@@ -604,6 +606,7 @@ impl App {
             stats_open: false,
             honor_open: false,
             bookmarks_open: false,
+            bookmark_edit: None,
             split_win: None,
             bookmark_ids: (u64::MAX, Default::default()),
             export_open: false,
@@ -2816,12 +2819,13 @@ impl App {
         let targets = self.doc.target_lines();
         let mut s = self.doc.script.clone();
         match osisub_lua::fonts::apply_furigana(db, &mut s, &targets, osisub_core::furigana::SCALE) {
-            Ok((0, _)) => self.status = "Seçili satırlarda furigana yok (hece biçimi: {\\k20}漢字|かんじ)".into(),
-            Ok((n, added)) => {
+            Ok((0, _, _)) => self.status = "Seçili satırlarda furigana yok (hece biçimi: {\\k20}漢字|かんじ)".into(),
+            Ok((n, added, skipped)) => {
                 self.doc.apply_new_script("Furigana düzeni", s);
                 if let Some(&a) = added.first() { self.doc.active = a; }
                 self.doc.selection = added;
                 self.status = format!("Furigana: {n} satır düzenlendi (kaynaklar yorum olarak korundu)");
+                if let Some(e) = skipped.first() { self.status.push_str(&format!("; {} satır atlandı: {e}", skipped.len())); }
             }
             Err(e) => self.status = e,
         }

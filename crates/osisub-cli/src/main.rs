@@ -197,7 +197,8 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
                 None => dl,
             };
             let mut db = osisub_lua::fonts::FontDb::default();
-            let (n, added) = osisub_lua::fonts::apply_furigana(&mut db, &mut s, &targets, scale)?;
+            let (n, added, skipped) = osisub_lua::fonts::apply_furigana(&mut db, &mut s, &targets, scale)?;
+            for e in &skipped { eprintln!("atlandı: {e}"); }
             eprintln!("{n} satır düzenlendi, {} satır eklendi", added.len());
             save(&s, &out)
         }

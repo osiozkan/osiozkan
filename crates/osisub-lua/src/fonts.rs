@@ -281,7 +281,8 @@ impl FontDb {
         let mut w = 0.0;
         for c in text.chars() {
             let adv = *fd.adv.entry(c).or_insert_with(|| {
-                face.glyph_index(c).and_then(|g| face.glyph_hor_advance(g)).map(|a| a as f64).unwrap_or(fd.upem * 0.5)
+                // glif yoksa libass yedek yazı tipine düşer: geniş (CJK/kana/tam genişlik) karakterler ~1 em
+                face.glyph_index(c).and_then(|g| face.glyph_hor_advance(g)).map(|a| a as f64).unwrap_or(if is_wide(c) { fd.upem } else { fd.upem * 0.5 })
             });
             // Aegisub/VSFilter/libass: harf aralığı da yatay ölçekle çarpılır
             w += (adv * ppu + st.spacing) * st.scale_x / 100.0;
@@ -572,7 +573,7 @@ mod tests {
         let mut sc = osisub_core::Script::parse(&src);
         let dl = |s: &osisub_core::Script| s.entries.iter().enumerate().filter_map(|(i, e)| if let Entry::Dialogue(d) = e { Some((i, d.clone())) } else { None }).collect::<Vec<_>>();
         let all: Vec<usize> = dl(&sc).iter().map(|x| x.0).collect();
-        let (n, added) = apply_furigana(&mut db, &mut sc, &all, 0.5).unwrap();
+        let (n, added, _) = apply_furigana(&mut db, &mut sc, &all, 0.5).unwrap();
         assert_eq!(n, 2);
         assert_eq!(added.len(), 4);
         assert!(sc.style_by_name("Kara-furigana").is_some_and(|s| s.fontsize == 20.0));
@@ -591,7 +592,9 @@ mod tests {
         // yeniden çalıştır: kaynak yorumdan önceki çıktı değiştirilir, satır sayısı aynı kalır
         let before = sc.entries.len();
         let first = v[0].0;
-        let (n, _) = apply_furigana(&mut db, &mut sc, &[first], 0.5).unwrap();
+        // kaynağı yeniden zamanla: eski çıktı yine değiştirilir
+        if let Entry::Dialogue(d) = &mut sc.entries[first] { d.start_time += 100; d.end_time += 100; }
+        let (n, _, _) = apply_furigana(&mut db, &mut sc, &[first], 0.5).unwrap();
         assert_eq!((n, sc.entries.len()), (1, before));
     }
 
@@ -649,6 +652,11 @@ mod tests {
     }
 }
 
+/// Doğu Asya geniş karakteri mi (CJK ideogram, kana, hangul, tam genişlik biçimler)?
+fn is_wide(c: char) -> bool {
+    matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0x303E | 0x3040..=0x33FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6)
+}
+
 /// Satırın baştaki etiketlerle birlikte geçerli yazı tipi ölçüleri.
 fn line_metrics(st: &osisub_core::ass::Style, text: &str) -> StyleMetrics {
     use osisub_core::overrides;
@@ -669,13 +677,14 @@ fn line_metrics(st: &osisub_core::ass::Style, text: &str) -> StyleMetrics {
 /// okunuş satırları (efekt `fx`) eklenir; eksik `<stil>-furigana` stilleri oluşturulur. Kaynak
 /// satır zaten `karaoke` yorumuysa ardından gelen aynı zamanlı `fx` satırları (önceki çıktı)
 /// yenisiyle değiştirilir. Dönüş: (işlenen satır, eklenen satırların girdi indeksleri).
-pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets: &[usize], scale: f64) -> Result<(usize, Vec<usize>), String> {
+pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets: &[usize], scale: f64) -> Result<(usize, Vec<usize>, Vec<String>), String> {
     use osisub_core::{ass::Entry, furigana};
     let res = script.res();
     let mut targets: Vec<usize> = targets.to_vec();
     targets.sort_unstable();
     targets.dedup();
     let mut done = 0;
+    let mut skipped: Vec<String> = vec![];
     let mut added: Vec<usize> = vec![];
     let mut new_styles: Vec<osisub_core::ass::Style> = vec![];
     // sondan başa: önceki indeksler kaymaz
@@ -684,7 +693,8 @@ pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets
         if !furigana::has_furigana(&src.text) || (src.comment && !src.effect.eq_ignore_ascii_case("karaoke")) {
             continue;
         }
-        let st = script.style_by_name(&src.style).cloned().unwrap_or_default();
+        // stil yoksa adı korunur (okunuş stili `<ad>-furigana` satırların stiliyle eşleşsin)
+        let st = script.style_by_name(&src.style).cloned().unwrap_or_else(|| osisub_core::ass::Style { name: src.style.clone(), ..Default::default() });
         let fst = script.style_by_name(&format!("{}-furigana", st.name)).cloned()
             .or_else(|| new_styles.iter().find(|s| s.name == format!("{}-furigana", st.name)).cloned())
             .unwrap_or_else(|| { let f = furigana::style_for(&st, scale); new_styles.push(f.clone()); f });
@@ -692,12 +702,19 @@ pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets
         let fm = line_metrics(&fst, "");
         let main_h = mm.fontsize * mm.scale_y / 100.0;
         let mut measure = |t: &str, furi: bool| db.extents(if furi { &fm } else { &mm }, t).map(|e| e.0);
-        let (mut main, furis) = furigana::layout(&src, &st, res, main_h, &mut measure)?;
+        // tek hatalı satır (\\N, yazı tipi yok) tüm işlemi durdurmaz: atlanır, raporlanır
+        let (mut main, furis) = match furigana::layout(&src, &st, res, main_h, &mut measure) {
+            Ok(x) => x,
+            Err(e) => { skipped.push(e); continue; }
+        };
         // önceki çıktıyı sil
         let mut end = i + 1;
         if src.comment {
             while let Some(Entry::Dialogue(x)) = script.entries.get(end) {
-                if x.effect.eq_ignore_ascii_case("fx") && x.start_time == src.start_time && x.end_time == src.end_time && !x.comment { end += 1; } else { break; }
+                // hemen ardından gelen, kaynağın ya da okunuş stilindeki fx satırları önceki çıktıdır
+                // (kaynak yeniden zamanlanmış olabilir: zamana bakılmaz)
+                let ours = x.style == src.style || x.style == format!("{}-furigana", src.style);
+                if x.effect.eq_ignore_ascii_case("fx") && !x.comment && ours { end += 1; } else { break; }
             }
         }
         let removed = end - (i + 1);
@@ -726,5 +743,9 @@ pub fn apply_furigana(db: &mut FontDb, script: &mut osisub_core::Script, targets
         for a in added.iter_mut() { if *a >= at { *a += k; } }
     }
     added.sort_unstable();
-    Ok((done, added))
+    if done == 0 {
+        if let Some(e) = skipped.into_iter().next() { return Err(e); }
+        return Ok((0, added, vec![]));
+    }
+    Ok((done, added, skipped))
 }

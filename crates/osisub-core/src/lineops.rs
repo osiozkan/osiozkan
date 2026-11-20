@@ -50,12 +50,12 @@ pub fn recombine(script: &mut Script, idx: &[usize]) -> Vec<usize> {
     lines.sort_by_key(|d| d.start_time); // kararlı: eşit başlangıçta dosya sırası
     // (parça, satır şablonu, başlangıç, bitiş)
     let mut out: Vec<Dialogue> = vec![];
-    let mut open: Vec<usize> = vec![]; // `out` içinde hâlâ uzayabilen satırlar
     for d in &lines {
         let segs = segments(&d.text);
         let mut next_open = vec![];
         for s in segs {
-            let hit = open.iter().copied().find(|&k| out[k].text == s && out[k].end_time >= d.start_time && !next_open.contains(&k));
+            // parça, bitişi bu satırın başlangıcına ulaşan (araya başka satır girse de) çıktıyı uzatır
+            let hit = (0..out.len()).rev().find(|&k| out[k].text == s && out[k].end_time >= d.start_time && !next_open.contains(&k));
             match hit {
                 Some(k) => {
                     out[k].end_time = out[k].end_time.max(d.end_time);
@@ -69,7 +69,6 @@ pub fn recombine(script: &mut Script, idx: &[usize]) -> Vec<usize> {
                 }
             }
         }
-        open = next_open;
     }
     // sıra: başlangıç, sonra oluşum sırası (kararlı)
     out.sort_by_key(|d| d.start_time);
@@ -130,6 +129,11 @@ mod tests {
         let i = idx(&s);
         recombine(&mut s, &i);
         assert_eq!(dl(&s), vec![(0, 2000, "A".into()), (1000, 3000, "B".into()), (2000, 4000, "C".into())]);
+        // araya başka satır girse de örtüşen parça birleşir
+        let mut s = sc(&[(0, 2000, "A"), (0, 2000, "B"), (2000, 4000, "A\\NB")]);
+        let i = idx(&s);
+        recombine(&mut s, &i);
+        assert_eq!(dl(&s), vec![(0, 4000, "A".into()), (0, 4000, "B".into())]);
         // tek satır: değişiklik yok
         let mut s = sc(&[(0, 1000, "A\\NB")]);
         let i = idx(&s);

@@ -2215,7 +2215,7 @@ impl App {
         let mut open = true;
         let mut jump = None;
         let mut change: Option<(usize, Option<String>)> = None;
-        egui::Window::new("Yer imleri").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new("Yer imleri").open(&mut open).collapsible(false).min_width(480.0).show(ctx, |ui| {
             let list = osisub_core::bookmarks::list(&self.doc.script);
             if list.is_empty() {
                 ui.label("Yer imi yok. Satırda Ctrl+F2 ile koyun; F2 / Shift+F2 ile gezin. Yer imleri dosyada (Extradata) saklanır.");
@@ -2227,8 +2227,15 @@ impl App {
                     for (i, note) in &list {
                         let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(*i) else { continue };
                         if ui.selectable_label(self.doc.active == *i, format!("{} ({})", pos_of.get(i).copied().unwrap_or(0), time::format_ass(d.start_time))).clicked() { jump = Some(*i); }
-                        let mut n = note.clone();
-                        if ui.add(TextEdit::singleline(&mut n).hint_text("not…").desired_width(150.0)).lost_focus() && n != *note { change = Some((*i, Some(n))); }
+                        // düzenleme tamponu karelerden bağımsız tutulur; odak kaybında / Enter'da kaydedilir
+                        let editing = self.bookmark_edit.as_ref().is_some_and(|e| e.0 == *i);
+                        let mut n = if editing { self.bookmark_edit.as_ref().unwrap().1.clone() } else { note.clone() };
+                        let r = ui.add(TextEdit::singleline(&mut n).hint_text("not…").desired_width(150.0));
+                        if r.changed() || r.has_focus() { self.bookmark_edit = Some((*i, n.clone())); }
+                        if r.lost_focus() {
+                            if n != *note { change = Some((*i, Some(n))); }
+                            self.bookmark_edit = None;
+                        }
                         ui.add(egui::Label::new(RichText::new(osisub_core::tags::visible_text(&d.text).replace('\n', " ")).weak()).truncate());
                         if ui.small_button("Kaldır").clicked() { change = Some((*i, None)); }
                         ui.end_row();

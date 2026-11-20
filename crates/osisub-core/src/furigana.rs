@@ -85,7 +85,13 @@ pub fn layout(d: &Dialogue, st: &Style, res: (i32, i32), main_h: f64, measure: &
         x += w;
         t += s.dur;
     }
-    let total_w = x;
+    // libass/VSFilter satır başı ve sonundaki boşlukları hizalamada saymaz
+    let vis = crate::tags::visible_text(&strip(&d.text));
+    let lead_ws: String = vis.chars().take_while(|c| c.is_whitespace()).collect();
+    let trail_ws: String = if lead_ws.len() == vis.len() { String::new() } else { vis.chars().rev().take_while(|c| c.is_whitespace()).collect() };
+    let lw = if lead_ws.is_empty() { 0.0 } else { measure(&lead_ws, false).unwrap_or(0.0) };
+    let tw = if trail_ws.is_empty() { 0.0 } else { measure(&trail_ws, false).unwrap_or(0.0) };
+    let total_w = (x - lw - tw).max(0.0);
     let get = |n: &str| overrides::get_initial(&d.text, n);
     let an = get("an").and_then(|t| t.number()).map(|v| v as i32).unwrap_or(st.align);
     let col = an.rem_euclid(3); // 1 sol, 2 orta, 0 sağ
@@ -113,6 +119,7 @@ pub fn layout(d: &Dialogue, st: &Style, res: (i32, i32), main_h: f64, measure: &
     main.text = strip(&d.text);
     let mut out = vec![];
     for (cx, start, s, r) in parts {
+        let cx = cx - lw;
         let mut f = d.clone();
         f.style = format!("{}-furigana", d.style);
         f.margin_l = 0;
@@ -178,6 +185,17 @@ mod tests {
         let (_, f) = layout(&d, &st3, (640, 360), 40.0, &mut mono).unwrap();
         // genişlik 60, sol = 640-40-60 = 540, orta 560; üst 360-10-40
         assert_eq!(f[0].text, "{\\an2\\pos(560,310)\\k10}x");
+    }
+
+    #[test]
+    fn bosluklar_kirpilir() {
+        let st = Style { margin_l: 10, margin_r: 10, margin_b: 20, align: 2, fontsize: 40.0, ..Default::default() };
+        let a = Dialogue { text: "{\\k20}君|きみ{\\k30}の".into(), ..Default::default() };
+        let b = Dialogue { text: "{\\k0} {\\k20}君|きみ{\\k30}の{\\k0} ".into(), ..Default::default() };
+        let (_, fa) = layout(&a, &st, (640, 360), 40.0, &mut mono).unwrap();
+        let (_, fb) = layout(&b, &st, (640, 360), 40.0, &mut mono).unwrap();
+        let pos = |t: &str| overrides::get_initial(t, "pos").unwrap().arg;
+        assert_eq!(pos(&fa[0].text), pos(&fb[0].text));
     }
 
     #[test]

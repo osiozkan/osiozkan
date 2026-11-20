@@ -229,19 +229,20 @@ pub fn romaji_to_hiragana(r: &str) -> String {
         ("ma", "ま"), ("mi", "み"), ("mu", "む"), ("me", "め"), ("mo", "も"),
         ("ya", "や"), ("yu", "ゆ"), ("yo", "よ"),
         ("ra", "ら"), ("ri", "り"), ("ru", "る"), ("re", "れ"), ("ro", "ろ"),
-        ("wa", "わ"), ("wo", "を"), ("vu", "ゔ"),
+        ("wa", "わ"), ("wo", "を"), ("vu", "ゔ"), ("va", "ゔぁ"), ("vi", "ゔぃ"), ("ve", "ゔぇ"), ("vo", "ゔぉ"),
         ("a", "あ"), ("i", "い"), ("u", "う"), ("e", "え"), ("o", "お"),
     ];
     let s: String = r.chars().flat_map(|c| c.to_lowercase()).flat_map(|c| match c {
         'ā' | 'â' => "aa".chars().collect::<Vec<_>>(),
-        'ē' | 'ê' => "ei".chars().collect(),
+        'ē' | 'ê' => "ee".chars().collect(),
         'ī' | 'î' => "ii".chars().collect(),
         'ō' | 'ô' => "ou".chars().collect(),
         'ū' | 'û' => "uu".chars().collect(),
         // tire / boşluk hece ayırıcıdır (ren-ai → れんあい): kesme işareti gibi davranır
         '-' => vec!['\''],
+        c if c.is_whitespace() => vec!['\''],
         c => vec![c],
-    }).filter(|c| !c.is_whitespace()).collect();
+    }).collect();
     let b: Vec<char> = s.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -252,6 +253,12 @@ pub fn romaji_to_hiragana(r: &str) -> String {
         if c == 'n' && (i + 1 == b.len() || (!vowel(b[i + 1]) && b[i + 1] != 'y')) {
             out.push('ん');
             i += if b.get(i + 1) == Some(&'\'') { 2 } else { 1 };
+            continue;
+        }
+        // geleneksel Hepburn: b/m/p önünde ん "m" yazılır (shimbun, gumma)
+        if c == 'm' && matches!(b.get(i + 1), Some('b' | 'm' | 'p')) {
+            out.push('ん');
+            i += 1;
             continue;
         }
         // çift ünsüz → っ (tch → っち)
@@ -292,7 +299,8 @@ pub fn build_with_furigana(src: &[Syl], counts: &[usize], dest_groups: &[String]
     let mut j = 0;
     for (n, g) in counts.iter().zip(groups.iter_mut()) {
         if has_kanji(g) && !g.contains(['|', '｜']) {
-            let rom: String = src[j..j + n].iter().map(|s| s.visible()).collect();
+            // hece sınırı korunur: "n" hecesinden sonra ünlü gelirse ん olarak kalsın (re|n|a|i → れんあい)
+            let rom: String = src[j..j + n].iter().map(|s| { let v = s.visible(); let t = v.trim(); if t.ends_with(['n', 'N']) { format!("{t}'") } else { t.to_string() } }).collect();
             let r = romaji_to_hiragana(&rom);
             if !r.is_empty() {
                 *g = format!("{}|{}", g.trim_end(), r);
@@ -313,7 +321,7 @@ mod tests {
 
     #[test]
     fn romajiden_hiragana() {
-        for (r, h) in [("kimi", "きみ"), ("namae", "なまえ"), ("kyou", "きょう"), ("kitto", "きっと"), ("konnichiwa", "こんにちわ"), ("shinjitsu", "しんじつ"), ("sinzitu", "しんじつ"), ("kan'i", "かんい"), ("tōkyō", "とうきょう"), ("matcha", "まっちゃ"), ("Hoshi", "ほし"), ("ren-ai", "れんあい"), ("minna", "みんな")] {
+        for (r, h) in [("kimi", "きみ"), ("namae", "なまえ"), ("kyou", "きょう"), ("kitto", "きっと"), ("konnichiwa", "こんにちわ"), ("shinjitsu", "しんじつ"), ("sinzitu", "しんじつ"), ("kan'i", "かんい"), ("tōkyō", "とうきょう"), ("matcha", "まっちゃ"), ("Hoshi", "ほし"), ("ren-ai", "れんあい"), ("minna", "みんな"), ("ren ai", "れんあい"), ("onēsan", "おねえさん"), ("shimbun", "しんぶん"), ("gumma", "ぐんま"), ("vaiorin", "ゔぁいおりん")] {
             assert_eq!(romaji_to_hiragana(r), h, "{r}");
         }
         assert!(has_kanji("名前") && has_kanji("人々") && !has_kanji("きみ"));
@@ -327,6 +335,10 @@ mod tests {
         let fur = build_with_furigana(&src, &c, &d).unwrap();
         assert!(crate::furigana::has_furigana(&fur));
         assert_eq!(crate::furigana::strip(&fur), build(&src, &c, &d).unwrap());
+        let src = syls("re|n|a|i");
+        assert_eq!(build_with_furigana(&src, &[4], &["恋愛".to_string()]).unwrap(), "{\\k40}恋愛|れんあい");
+        let src = syls("ki|t|to");
+        assert_eq!(build_with_furigana(&src, &[3], &["屹度".to_string()]).unwrap(), "{\\k30}屹度|きっと");
     }
 
     #[test]

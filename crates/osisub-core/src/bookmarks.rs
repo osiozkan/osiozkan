@@ -29,14 +29,31 @@ pub fn set(script: &mut Script, idx: usize, note: Option<&str>) -> bool {
         Some(n) => { vals.insert(KEY.to_string(), n.to_string()); }
         None => { vals.remove(KEY); }
     }
+    // intern_extra/clean_extradata yalnızca Extradata girdisi ekler/siler; bölüm olaylardan önce de
+    // olabilir. Satırı, öncesindeki Extradata dışı girdi sayısıyla yeniden bul.
+    let k = script.entries[..idx].iter().filter(|e| !is_extra(e)).count();
     let new_ids = script.intern_extra(&vals);
-    // intern_extra Extradata bölümüne satır ekleyebilir; satır indeksi bölüm olaylardan sonra
-    // olduğundan kaymaz, yine de satırı içerikle değil indeksle güvenle bulmak için yeniden al.
-    if let Some(Entry::Dialogue(d)) = script.entries.get_mut(idx) {
+    let at = locate(script, k);
+    if let Some(Entry::Dialogue(d)) = script.entries.get_mut(at) {
         d.extra = new_ids;
     }
     script.clean_extradata();
     true
+}
+
+fn is_extra(e: &Entry) -> bool {
+    e.section() == crate::extradata::SEC_EXTRADATA
+}
+
+/// Öncesinde `k` tane Extradata dışı girdi bulunan Extradata dışı ilk girdinin indeksi.
+fn locate(script: &Script, k: usize) -> usize {
+    let mut n = 0;
+    for (i, e) in script.entries.iter().enumerate() {
+        if is_extra(e) { continue; }
+        if n == k { return i; }
+        n += 1;
+    }
+    script.entries.len()
 }
 
 /// Tüm yer imleri: (girdi indeksi, not), dosya sırasıyla.
@@ -96,6 +113,21 @@ mod tests {
         set(&mut s, d[3], None);
         assert!(list(&s).is_empty());
         assert!(s.extradata().is_empty());
+    }
+
+    #[test]
+    fn extradata_once_gelirse() {
+        // [Aegisub Extradata] olaylardan önce: satır indeksi kayar
+        let src = "[Script Info]\nScriptType: v4.00+\n\n[Aegisub Extradata]\nData: 1,x,ex\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{=1}a\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,b\n";
+        let mut s = Script::parse(src);
+        let b = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text == "b")).unwrap();
+        set(&mut s, b, Some("not"));
+        let l = list(&s);
+        assert_eq!(l.len(), 1);
+        assert!(matches!(&s.entries[l[0].0], Entry::Dialogue(d) if d.text == "b"));
+        let a = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(d) if d.text == "a")).unwrap();
+        let Entry::Dialogue(d) = &s.entries[a] else { panic!() };
+        assert_eq!(s.extra_values(&d.extra).get("x").map(|v| v.as_str()), Some("x"));
     }
 
     #[test]
