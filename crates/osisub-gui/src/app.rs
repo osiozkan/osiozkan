@@ -118,6 +118,9 @@ pub struct App {
     fixes_open: bool,
     stats_open: bool,
     honor_open: bool,
+    /// Yer imleri penceresi; (rev, yer imi Extradata kimlikleri) ızgara önbelleği
+    bookmarks_open: bool,
+    bookmark_ids: (u64, std::collections::HashSet<u32>),
     export_open: bool,
     export_sel: Vec<usize>,
     export_job: Option<ExportJob>,
@@ -313,6 +316,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("paste_over", "Üzerine yapıştır…"),
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
+    ("bookmark_toggle", "Yer imi koy / kaldır"),
+    ("bookmark_next", "Sonraki yer imi"),
+    ("bookmark_prev", "Önceki yer imi"),
+    ("bookmarks", "Yer imleri…"),
     ("recombine", "Satırları yeniden birleştir (örtüşen bölünmüş satırlar)"),
     ("swap_lines", "İki satırı değiş tokuş et"),
     ("continuous_end", "Zamanları ardışık yap (bitişi uzat)"),
@@ -453,6 +460,11 @@ impl App {
             settings.hotkey_defaults = 2;
             settings.save();
         }
+        if settings.hotkey_defaults < 3 {
+            crate::hotkeys::apply_default_list(&mut settings.macro_hotkeys, COMMAND_SCRIPT, crate::hotkeys::DEFAULT_COMMAND_KEYS_V3);
+            settings.hotkey_defaults = 3;
+            settings.save();
+        }
         // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
         if settings.aegisub_autoload {
             for d in osisub_core::paths::aegisub_automation_dirs() {
@@ -589,6 +601,8 @@ impl App {
             fixes_open: false,
             stats_open: false,
             honor_open: false,
+            bookmarks_open: false,
+            bookmark_ids: (u64::MAX, Default::default()),
             export_open: false,
             export_sel: vec![],
             export_job: None,
@@ -1329,6 +1343,22 @@ impl App {
                 let m = if id == "merge_keep" { osisub_doc::MergeMode::KeepFirst } else { osisub_doc::MergeMode::Karaoke };
                 if !self.doc.merge_selected_as(m) { self.status = "Birleştirmek için ardışık en az iki satır seçin".into(); }
             }
+            "bookmark_toggle" => {
+                let i = self.doc.active;
+                let mut s = self.doc.script.clone();
+                let on = osisub_core::bookmarks::get(&s, i).is_none();
+                if osisub_core::bookmarks::set(&mut s, i, on.then_some("")) {
+                    self.doc.apply_new_script(if on { "Yer imi koy" } else { "Yer imini kaldır" }, s);
+                    self.status = if on { "Yer imi kondu (F2 sonraki, Shift+F2 önceki; not: Düzen → Yer imleri)".into() } else { "Yer imi kaldırıldı".into() };
+                }
+            }
+            "bookmark_next" | "bookmark_prev" => {
+                match osisub_core::bookmarks::next(&self.doc.script, self.doc.active, id == "bookmark_next") {
+                    Some(e) => { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
+                    None => self.status = "Yer imi yok (Ctrl+F2 ile koyun)".into(),
+                }
+            }
+            "bookmarks" => self.bookmarks_open = true,
             "recombine" => {
                 let mut s = self.doc.script.clone();
                 let r = osisub_core::lineops::recombine(&mut s, &self.doc.target_lines());
@@ -1753,6 +1783,12 @@ impl App {
                 if ui.button("Birleştir (ilkini koru)").on_hover_text("Zaman aralığı birleşir, metin ilk satırınki kalır").clicked() { self.run_command("merge_keep", ui.ctx()); ui.close(); }
                 if ui.button("Karaoke olarak birleştir").on_hover_text("Her satır bir hece olur; \\k = satırın süresi").clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
                 if ui.button("Satırları yeniden birleştir").on_hover_text("Aegisub Recombine Lines: örtüşen konuşmalar için bölünmüş \"A\" / \"A\\NB\" / \"B\" satırlarını her cümle tek satır olacak şekilde geri birleştirir").clicked() { self.run_command("recombine", ui.ctx()); ui.close(); }
+                ui.menu_button("Yer imleri", |ui| {
+                    if ui.add(egui::Button::new("Yer imi koy / kaldır").shortcut_text("Ctrl+F2")).clicked() { self.run_command("bookmark_toggle", ui.ctx()); ui.close(); }
+                    if ui.add(egui::Button::new("Sonraki yer imi").shortcut_text("F2")).clicked() { self.run_command("bookmark_next", ui.ctx()); ui.close(); }
+                    if ui.add(egui::Button::new("Önceki yer imi").shortcut_text("Shift+F2")).clicked() { self.run_command("bookmark_prev", ui.ctx()); ui.close(); }
+                    if ui.button("Yer imleri listesi…").clicked() { self.bookmarks_open = true; ui.close(); }
+                });
                 if ui.button("İki satırı değiş tokuş et").clicked() { self.run_command("swap_lines", ui.ctx()); ui.close(); }
             });
             ui.menu_button("Zamanlama", |ui| {
@@ -2255,6 +2291,7 @@ impl App {
         self.fixes_window(&ctx);
         self.stats_window(&ctx);
         self.honorifics_window(&ctx);
+        self.bookmarks_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
         self.help_windows(&ctx);

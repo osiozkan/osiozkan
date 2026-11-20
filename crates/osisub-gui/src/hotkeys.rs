@@ -119,6 +119,8 @@ pub const DEFAULT_COMMAND_KEYS: &[(&str, &str)] = &[
 
 /// Sürüm 2'de eklenen varsayılanlar (yalnızca bir kez eklenir; kullanıcı silerse geri gelmez).
 pub const DEFAULT_COMMAND_KEYS_V2: &[(&str, &str)] = &[("hold_play", "Ctrl+Space")];
+/// 0.7.0: yer imleri (Subtitle Edit / VS Code alışkanlığı)
+pub const DEFAULT_COMMAND_KEYS_V3: &[(&str, &str)] = &[("bookmark_toggle", "Ctrl+F2"), ("bookmark_next", "F2"), ("bookmark_prev", "Shift+F2")];
 
 /// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
 pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {

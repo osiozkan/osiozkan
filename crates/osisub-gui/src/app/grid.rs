@@ -19,6 +19,7 @@ impl App {
     }
 
     pub(super) fn grid(&mut self, ui: &mut egui::Ui) {
+        if self.bookmark_ids.0 != self.doc.rev { self.bookmark_ids = (self.doc.rev, osisub_core::bookmarks::ids(&self.doc.script)); }
         ui.horizontal(|ui| {
             ui.label("Ara:");
             ui.add(TextEdit::singleline(&mut self.filter).hint_text("Süz (metin, stil, konuşan)…").desired_width(260.0));
@@ -162,9 +163,14 @@ impl App {
                         }
                         _ => false,
                     };
+                    let bookmarked = !d.extra.is_empty() && d.extra.iter().any(|id| self.bookmark_ids.1.contains(id));
                     row.col(|ui| {
-                        let r = ui.label(col((pos + 1).to_string(), misspelled.then_some(theme::BAD)));
-                        if misspelled { r.on_hover_text("Bu satırda yazım hatası olabilir"); }
+                        let txt = if bookmarked { format!("» {}", pos + 1) } else { (pos + 1).to_string() };
+                        let r = ui.label(col(txt, if misspelled { Some(theme::BAD) } else if bookmarked { Some(theme::ACCENT) } else { None }));
+                        if misspelled { r.on_hover_text("Bu satırda yazım hatası olabilir"); } else if bookmarked {
+                            let note = osisub_core::bookmarks::get(&self.doc.script, ei).unwrap_or_default();
+                            r.on_hover_text(if note.is_empty() { "Yer imi".to_string() } else { format!("Yer imi: {note}") });
+                        }
                     });
                     for c in &cols {
                         match c {

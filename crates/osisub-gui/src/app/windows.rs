@@ -1202,7 +1202,7 @@ impl App {
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
-            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("file_batch", "Toplu dosya işlemleri"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1241,6 +1241,7 @@ impl App {
                 "file_batch" => self.filebatch = Some(super::FileBatchWin::default()),
                 "todraw" => self.text_to_drawing(false),
                 "furigana" => self.furigana_layout(),
+                "bookmarks" => self.bookmarks_open = true,
                 "tracks" => {
                     let v = self.media.path.clone().or_else(|| rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file());
                     if let Some(v) = v { match osisub_media::mux::subtitle_tracks(&v) { Ok(t) => self.tracks_win = Some((v, t)), Err(e) => self.status = e } }
@@ -2149,6 +2150,42 @@ impl App {
             }
         });
         self.vad_open = open;
+    }
+
+    /// Yer imleri listesi: tıkla = satıra git, not düzenle, kaldır.
+    pub(super) fn bookmarks_window(&mut self, ctx: &egui::Context) {
+        if !self.bookmarks_open { return; }
+        let mut open = true;
+        let mut jump = None;
+        let mut change: Option<(usize, Option<String>)> = None;
+        egui::Window::new("Yer imleri").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            let list = osisub_core::bookmarks::list(&self.doc.script);
+            if list.is_empty() {
+                ui.label("Yer imi yok. Satırda Ctrl+F2 ile koyun; F2 / Shift+F2 ile gezin. Yer imleri dosyada (Extradata) saklanır.");
+                return;
+            }
+            let pos_of: std::collections::HashMap<usize, usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).enumerate().map(|(n, (i, _))| (i, n + 1)).collect();
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("bm_grid").num_columns(4).striped(true).show(ui, |ui| {
+                    for (i, note) in &list {
+                        let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(*i) else { continue };
+                        if ui.selectable_label(self.doc.active == *i, format!("{} ({})", pos_of.get(i).copied().unwrap_or(0), time::format_ass(d.start_time))).clicked() { jump = Some(*i); }
+                        let mut n = note.clone();
+                        if ui.add(TextEdit::singleline(&mut n).hint_text("not…").desired_width(150.0)).lost_focus() && n != *note { change = Some((*i, Some(n))); }
+                        ui.add(egui::Label::new(RichText::new(osisub_core::tags::visible_text(&d.text).replace('\n', " ")).weak()).truncate());
+                        if ui.small_button("Kaldır").clicked() { change = Some((*i, None)); }
+                        ui.end_row();
+                    }
+                });
+            });
+        });
+        if let Some(e) = jump { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
+        if let Some((i, n)) = change {
+            let mut s = self.doc.script.clone();
+            osisub_core::bookmarks::set(&mut s, i, n.as_deref());
+            self.doc.apply_new_script("Yer imi", s);
+        }
+        self.bookmarks_open = open;
     }
 
     /// Saygı ekleri (-san/-kun…): ad başına kullanım tablosu ve toplu kaldırma.

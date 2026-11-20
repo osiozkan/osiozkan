@@ -150,6 +150,7 @@
 - [x] Zamanlama: "Video karesinde böl", "Çoğalt ve 1 kare kaydır" (kare kare tipografi)
 - [x] İmleçte böl (düzenleme kutusu sağ tık; süre metne orantılı ya da video karesinde; kısayol atanabilir)
 - [x] Aegisub satır işlemleri (core::lineops): Satırları yeniden birleştir (Recombine Lines: örtüşen "A" / "A\\NB" / "B" → her cümle tek satır), zamanları ardışık yap (bitişi uzat / başlangıcı çek), iki satırı değiş tokuş et; Düzen/Zamanlama menüleri, kısayol atanabilir
+- [x] Yer imleri (Subtitle Edit Bookmarks; core::bookmarks): satır Extradata'sında (`osisub.bookmark`, not ile) — satırla birlikte taşınır, Aegisub korur; Ctrl+F2 koy/kaldır, F2/Shift+F2 gez, Düzen → Yer imleri listesi (not düzenle, git, kaldır); ızgarada `» N` (xdotool ile doğrulandı)
 - [x] Izgarada etiket gösterimi: Göster / Sadeleştir (`{…}`) / Gizle (Görünüm menüsü, kalıcı; Aegisub tag hiding)
 - [x] Satırları seç (Aegisub Select Lines): metin/stil/konuşan/efekt; içerir/tam/regex; ters; diyalog/yorum; yeni/ekle/çıkar/kesişim (Düzen menüsü)
 - [x] Lua makrolarına kısayol atama (Otomasyon sekmesi; settings.json `macro_hotkeys`)
