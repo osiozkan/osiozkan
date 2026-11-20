@@ -1244,7 +1244,7 @@ impl App {
         ] {
             v.push((l.to_string(), Win(w)));
         }
-        for m in self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro) {
+        for m in self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro && m.script != super::CONSOLE_NAME) {
             v.push((format!("Makro: {}", m.info.name), Macro(m.info.id)));
         }
         v

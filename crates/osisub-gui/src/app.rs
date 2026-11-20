@@ -122,6 +122,9 @@ pub struct App {
     bookmarks_open: bool,
     backups_open: bool,
     ready_open: bool,
+    /// Lua konsolu: kod ve yüklendiğinde çalıştırılacak mı
+    console_code: String,
+    console_pending: bool,
     /// yer imi notu düzenleme tamponu: (girdi indeksi, metin)
     bookmark_edit: Option<(usize, String)>,
     /// Dosyayı böl penceresi: (kesme zamanları metni, eşit parça sayısı, zamanı sıfırla)
@@ -617,6 +620,8 @@ impl App {
             bookmarks_open: false,
             backups_open: false,
             ready_open: false,
+            console_code: "-- subs, sel, active kullanılabilir; örnek (Türkçe uyumlu büyük harf):\nlocal osisub = require \"osisub\"\nfor _, i in ipairs(sel) do\n  local l = subs[i]\n  l.text = osisub.text.upper(l.text)\n  subs[i] = l\nend\naegisub.log(#sel .. \" satır\\n\")".into(),
+            console_pending: false,
             bookmark_edit: None,
             split_win: None,
             bookmark_ids: (u64::MAX, Default::default()),
@@ -1031,6 +1036,18 @@ impl App {
 
     // ------------------------------------------------------------ Lua
 
+    /// Lua konsolu: kodu geçici betik olarak sarar, yükler; yüklenince (pump_events) çalıştırılır.
+    pub(super) fn run_console(&mut self) {
+        let Some(dir) = osisub_core::paths::data_dir().map(|d| d.join("console")) else { self.status = "Veri klasörü yok".into(); return };
+        if std::fs::create_dir_all(&dir).is_err() { self.status = "Konsol klasörü oluşturulamadı".into(); return; }
+        let p = dir.join("konsol.lua");
+        let src = format!("script_name = \"{CONSOLE_NAME}\"\naegisub.register_macro(\"Lua konsolu\", \"\", function(subs, sel, active)\n{}\nend)\n", self.console_code);
+        if let Err(e) = std::fs::write(&p, src) { self.status = format!("Konsol yazılamadı: {e}"); return; }
+        self.console_pending = true;
+        self.worker.send(Cmd::Load(p));
+        self.status = "Lua konsolu çalışıyor… (hata satır numaraları 2 fazladır)".into();
+    }
+
     fn run_macro(&mut self, id: usize) {
         if self.running.is_some() {
             return;
@@ -1114,8 +1131,18 @@ impl App {
         while let Ok(ev) = self.worker.events.try_recv() {
             match ev {
                 Event::Loaded(Ok((info, ms))) => {
+                    let console = info.name == CONSOLE_NAME;
+                    if console {
+                        // konsol her çalıştırmada yeniden yüklenir: eski makro kaydı listeden çıkar
+                        self.macros.retain(|m| m.script != CONSOLE_NAME);
+                    }
+                    let first = ms.first().map(|m| m.id);
                     for m in ms {
                         self.macros.push(MacroEntry { info: m, script: info.name.clone() });
+                    }
+                    if console {
+                        if let (true, Some(id)) = (std::mem::take(&mut self.console_pending), first) { self.run_macro(id); }
+                        continue;
                     }
                     self.status = format!("Betik yüklendi: {}", info.name);
                 }
@@ -2055,7 +2082,7 @@ impl App {
             });
             ui.menu_button("Otomasyon", |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new("Yüklü makro yok").weak()); }
-                let list: Vec<(usize, String, String)> = self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro).map(|m| (m.info.id, m.info.name.clone(), m.info.description.clone())).collect();
+                let list: Vec<(usize, String, String)> = self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro && m.script != CONSOLE_NAME).map(|m| (m.info.id, m.info.name.clone(), m.info.description.clone())).collect();
                 // Aegisub gibi: "Grup/Alt/Makro" adları iç içe alt menülere ayrılır.
                 let mut clicked = None;
                 macro_menu(ui, &list, "", self.running.is_none(), &mut clicked);
@@ -2937,6 +2964,9 @@ impl App {
         }
     }
 }
+
+/// Lua konsolunun geçici betik adı (makro menüsünde gizlenir).
+pub(crate) const CONSOLE_NAME: &str = "osisub Lua konsolu";
 
 /// Makro adlarını "/" ile iç içe menülere böler (Aegisub automation menüsü). `prefix` = geçerli düzey.
 fn macro_menu(ui: &mut egui::Ui, list: &[(usize, String, String)], prefix: &str, enabled: bool, clicked: &mut Option<usize>) {

@@ -983,6 +983,14 @@ impl App {
             if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
         }
         if ui.button("Betikleri yeniden yükle").clicked() { self.reload_scripts(); }
+        egui::CollapsingHeader::new("Lua konsolu").id_salt("lua_console").show(ui, |ui| {
+            ui.label(RichText::new("Kod, açık belgede bir makro olarak çalışır: subs, sel (seçili satırlar), active kullanılabilir; Aegisub API'si ve require \"osisub\" dahil. Ctrl+Z geri alır. Çıktı: aegisub.log → Günlük.").small().weak());
+            let r = ui.add(TextEdit::multiline(&mut self.console_code).code_editor().desired_rows(8).desired_width(f32::INFINITY));
+            let ctrl_enter = r.has_focus() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+            if (ui.add_enabled(self.running.is_none(), egui::Button::new("Çalıştır (Ctrl+Enter)")).clicked() || ctrl_enter) && self.running.is_none() {
+                self.run_console();
+            }
+        });
         let aegi = osisub_core::paths::aegisub_automation_dirs();
         if !aegi.is_empty() {
             let dirs = aegi.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ");
@@ -1015,7 +1023,7 @@ impl App {
             if let Some(p) = remove { self.remove_script(&p); }
         });
         if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if ui.small_button("Durdur").on_hover_text("Betik motorunu sıfırlar (takılan betikler için)").clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
-        let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
+        let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().filter(|m| m.script != super::CONSOLE_NAME).map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
         for (id, script, name, desc, kind) in list {
             ui.horizontal(|ui| {
                 let enabled = self.running.is_none() && kind == MacroKind::Macro;
