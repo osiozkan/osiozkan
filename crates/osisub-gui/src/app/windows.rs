@@ -350,6 +350,12 @@ impl App {
                 ui.label(RichText::new(format!("−{} silindi", r)).color(theme::BAD));
                 ui.label(RichText::new(format!("~{} değişti", m)).color(theme::WARN));
                 if ui.small_button("Yenile").on_hover_text("Açık belgedeki son düzenlemelerle yeniden karşılaştır").clicked() { refresh = true; }
+                if ui.small_button("HTML rapor kaydet…").on_hover_text("Sözcük düzeyinde farklarla tek dosyalık rapor (editör değişikliklerini çevirmene göndermek için)").clicked() {
+                    let title = format!("{} → {}", name, self.doc.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "açık belge".into()));
+                    if let Some(p) = rfd::FileDialog::new().set_file_name("farklar.html").add_filter("HTML", &["html"]).save_file() {
+                        self.status = match std::fs::write(&p, osisub_core::compare::report_html(&title, &old, &self.doc.script, &changes)) { Ok(()) => format!("Rapor kaydedildi: {}", p.display()), Err(e) => format!("Hata: {e}") };
+                    }
+                }
             });
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -2523,6 +2529,13 @@ impl App {
                 return;
             }
             let pos_of: std::collections::HashMap<usize, usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).enumerate().map(|(n, (i, _))| (i, n + 1)).collect();
+            if ui.small_button("Listeyi kopyala").on_hover_text("Satır no, zaman, not ve metin — ekibe göndermek için").clicked() {
+                let txt: String = list.iter().filter_map(|(i, note)| match self.doc.script.entries.get(*i) {
+                    Some(Entry::Dialogue(d)) => Some(format!("{} ({}) — {} — {}\n", pos_of.get(i).copied().unwrap_or(0), time::format_ass(d.start_time), if note.is_empty() { "-" } else { note.as_str() }, osisub_core::tags::visible_text(&d.text).replace('\n', " / "))),
+                    _ => None,
+                }).collect();
+                ui.ctx().copy_text(txt);
+            }
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 egui::Grid::new("bm_grid").num_columns(4).striped(true).show(ui, |ui| {
                     for (i, note) in &list {

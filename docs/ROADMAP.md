@@ -159,10 +159,11 @@
 - [x] Eğme video aracı (\fax üst tutamaç, \fay sağ tutamaç; 0.01 adım, Shift 0.05; sağ tık kaldırır; komut `tool_shear`; xdotool ile doğrulandı)
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
-- [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git
+- [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`); sözcük düzeyinde farklı HTML rapor (pencerede *HTML rapor kaydet*, CLI `compare --report`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git
 - [x] Zamanlama: "Video karesinde böl", "Çoğalt ve 1 kare kaydır" (kare kare tipografi)
 - [x] İmleçte böl (düzenleme kutusu sağ tık; süre metne orantılı ya da video karesinde; kısayol atanabilir)
 - [x] Aegisub satır işlemleri (core::lineops): Çakışan satırları seç (select-overlaps), Satırları yeniden birleştir (Recombine Lines: örtüşen "A" / "A\\NB" / "B" → her cümle tek satır), zamanları ardışık yap (bitişi uzat / başlangıcı çek), iki satırı değiş tokuş et; Düzen/Zamanlama menüleri, kısayol atanabilir
+- [x] Yer imleri listesini panoya kopyala (ekibe QC notu)
 - [x] Yer imleri (Subtitle Edit Bookmarks; core::bookmarks): satır Extradata'sında (`osisub.bookmark`, not ile) — satırla birlikte taşınır, Aegisub korur; Ctrl+F2 koy/kaldır, F2/Shift+F2 gez, Düzen → Yer imleri listesi (not düzenle, git, kaldır); ızgarada `» N` (xdotool ile doğrulandı)
 - [x] Izgarada etiket gösterimi: Göster / Sadeleştir (`{…}`) / Gizle (Görünüm menüsü, kalıcı; Aegisub tag hiding)
 - [x] Satırları seç (Aegisub Select Lines): metin/stil/konuşan/efekt; içerir/tam/regex; ters; diyalog/yorum; yeni/ekle/çıkar/kesişim (Düzen menüsü)

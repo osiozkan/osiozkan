@@ -80,9 +80,79 @@ pub fn compare(old: &Script, new: &Script) -> Vec<Change> {
     out.into_iter().map(|(_, c)| c).collect()
 }
 
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace("\\N", " / ")
+}
+
+/// Sözcük düzeyinde fark (LCS): `<del>` silinen, `<ins>` eklenen sözcükler.
+pub fn word_diff_html(a: &str, b: &str) -> String {
+    let (x, y): (Vec<&str>, Vec<&str>) = (a.split_whitespace().collect(), b.split_whitespace().collect());
+    if x.len() * y.len() > 250_000 {
+        return format!("<del>{}</del> <ins>{}</ins>", esc(a), esc(b));
+    }
+    let mut l = vec![vec![0u16; y.len() + 1]; x.len() + 1];
+    for i in (0..x.len()).rev() {
+        for j in (0..y.len()).rev() {
+            l[i][j] = if x[i] == y[j] { l[i + 1][j + 1] + 1 } else { l[i + 1][j].max(l[i][j + 1]) };
+        }
+    }
+    let (mut i, mut j, mut out) = (0, 0, Vec::new());
+    while i < x.len() || j < y.len() {
+        if i < x.len() && j < y.len() && x[i] == y[j] {
+            out.push(esc(x[i]));
+            i += 1;
+            j += 1;
+        } else if j < y.len() && (i == x.len() || l[i][j + 1] >= l[i + 1][j]) {
+            out.push(format!("<ins>{}</ins>", esc(y[j])));
+            j += 1;
+        } else {
+            out.push(format!("<del>{}</del>", esc(x[i])));
+            i += 1;
+        }
+    }
+    out.join(" ")
+}
+
+/// Karşılaştırma raporu (tek dosyalık HTML): editör değişikliklerini çevirmene göndermek için.
+pub fn report_html(title: &str, old: &Script, new: &Script, changes: &[Change]) -> String {
+    let d = |s: &Script, i: usize| match s.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.clone()), _ => None };
+    let t = |d: &Dialogue| format!("{}–{}", crate::time::format_ass(d.start_time), crate::time::format_ass(d.end_time));
+    let mut rows = String::new();
+    let (mut a, mut r, mut m) = (0, 0, 0);
+    for c in changes {
+        match c {
+            Change::Added { new: n } => if let Some(x) = d(new, *n) { a += 1; rows.push_str(&format!("<tr class=a><td>+</td><td>{}</td><td><ins>{}</ins></td></tr>\n", t(&x), esc(&crate::tags::visible_text(&x.text)))); },
+            Change::Removed { old: o } => if let Some(x) = d(old, *o) { r += 1; rows.push_str(&format!("<tr class=r><td>−</td><td>{}</td><td><del>{}</del></td></tr>\n", t(&x), esc(&crate::tags::visible_text(&x.text)))); },
+            Change::Modified { old: o, new: n, text, timing, style, actor } => if let (Some(x), Some(y)) = (d(old, *o), d(new, *n)) {
+                m += 1;
+                let mut what = vec![];
+                if *timing { what.push(format!("zaman {} → {}", t(&x), t(&y))); }
+                if *style { what.push(format!("stil {} → {}", esc(&x.style), esc(&y.style))); }
+                if *actor { what.push(format!("konuşan {} → {}", esc(&x.actor), esc(&y.actor))); }
+                let body = if *text { word_diff_html(&crate::tags::visible_text(&x.text), &crate::tags::visible_text(&y.text)) } else { esc(&crate::tags::visible_text(&y.text)) };
+                let note = if what.is_empty() { String::new() } else { format!("<div class=n>{}</div>", what.join(" · ")) };
+                rows.push_str(&format!("<tr class=m><td>~</td><td>{}</td><td>{body}{note}</td></tr>\n", t(&y)));
+            },
+        }
+    }
+    format!("<!doctype html><html lang=tr><meta charset=utf-8><title>{t0}</title><style>body{{font:14px system-ui;margin:24px;background:#fff;color:#222}}table{{border-collapse:collapse;width:100%}}td{{padding:4px 8px;border-bottom:1px solid #ddd;vertical-align:top}}td:nth-child(2){{white-space:nowrap;font-family:monospace;color:#666}}ins{{background:#d4f7d4;text-decoration:none}}del{{background:#fbd5d5}}.n{{color:#a66;font-size:12px}}@media(prefers-color-scheme:dark){{body{{background:#1b1b1b;color:#ddd}}td{{border-color:#333}}ins{{background:#1f4d27}}del{{background:#5a2323}}}}</style><h1>{t0}</h1><p>+{a} eklendi · −{r} silindi · ~{m} değişti</p><table>{rows}</table></html>", t0 = esc(title))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sozcuk_farki_ve_rapor() {
+        assert_eq!(word_diff_html("Bugün hava çok güzel", "Bugün hava gerçekten çok güzel"), "Bugün hava <ins>gerçekten</ins> çok güzel");
+        assert_eq!(word_diff_html("a <b>", "a c"), "a <ins>c</ins> <del>&lt;b&gt;</del>");
+        let old = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "Merhaba dunya".into(), ..Default::default() }, Dialogue { start_time: 5000, end_time: 6000, text: "Silinen".into(), ..Default::default() }]);
+        let new = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "Merhaba dünya".into(), ..Default::default() }]);
+        let ch = compare(&old, &new);
+        let h = report_html("Bölüm 1", &old, &new, &ch);
+        assert!(h.contains("<del>dunya</del> <ins>dünya</ins>") || h.contains("<ins>dünya</ins> <del>dunya</del>"), "{h}");
+        assert!(h.contains("<del>Silinen</del>") && h.contains("−1 silindi"));
+    }
 
     fn d(s: i64, e: i64, t: &str) -> Dialogue {
         Dialogue { start_time: s, end_time: e, text: t.into(), style: "Default".into(), ..Default::default() }

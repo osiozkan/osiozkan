@@ -12,7 +12,7 @@ KULLANIM:
   osisub convert <girdi> <çıktı>          .ass/.ssa/.srt/.vtt arasında dönüştür
   osisub check <dosya> [--profile netflix|netflix-kids|fansub|tv] [--cps N] [--len N] [--min-ms N] [--max-ms N] [--gap N] [--video v.mkv] [--ref kaynak.srt] [--width] [--collide] [--report rapor.html]
                 (--video: sahne değişimine ≤3 kare yakın başlangıç/bitiş, 1-2 karelik titreme)
-  osisub compare <eski> <yeni>     (eklenen/silinen/değişen satırlar)
+  osisub compare <eski> <yeni> [--report fark.html]     (eklenen/silinen/değişen satırlar)
   osisub to-drawing <girdi> --lines 5,6 [çıktı]   satırları aynı görünümde \\p1 çizimine çevir
   osisub furigana <girdi> [çıktı] [--lines 5,6] [--scale 0.5]   karaoke {\\k}漢字|かんじ okunuşlarını üste yerleştir
   osisub perspective <dörtgen: x,y x,y x,y x,y> --size G,Y [--playres-y N --layoutres-y N]
@@ -337,9 +337,14 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             save(&base, &out)
         }
         "compare" => {
-            if args.len() < 2 { return Err("kullanım: compare <eski> <yeni>".into()); }
+            let report = opt(&mut args, "--report");
+            if args.len() < 2 { return Err("kullanım: compare <eski> <yeni> [--report fark.html]".into()); }
             let (a, b) = (load(&args[0])?, load(&args[1])?);
             let ch = osisub_core::compare::compare(&a, &b);
+            if let Some(r) = report {
+                let title = format!("{} → {}", args[0], args[1]);
+                std::fs::write(&r, osisub_core::compare::report_html(&title, &a, &b, &ch)).map_err(|e| format!("{r}: {e}"))?;
+            }
             let line = |s: &Script, i: usize| match &s.entries[i] { Entry::Dialogue(d) => format!("[{}] {}", osisub_core::time::format_ass(d.start_time), d.text), _ => String::new() };
             for c in &ch {
                 match c {
