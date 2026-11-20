@@ -2402,6 +2402,45 @@ impl App {
         if !open { self.split_win = None; }
     }
 
+    /// Kayıt yedekleri (core::backup): karşılaştır / yeni belge olarak aç.
+    pub(super) fn backups_window(&mut self, ctx: &egui::Context) {
+        if !self.backups_open { return; }
+        let mut open = true;
+        let mut act: Option<(PathBuf, bool)> = None; // (yol, karşılaştır mı)
+        let list = match (&self.doc.path, Self::backup_dir()) {
+            (Some(p), Some(d)) => osisub_core::backup::list(&d, p),
+            _ => vec![],
+        };
+        egui::Window::new("Yedekler").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(RichText::new("Her kayıttan önce dosyanın önceki hali saklanır (dosya başına son 20, UTC zamanı).").weak());
+            if list.is_empty() { ui.label("Bu dosya için yedek yok (ilk kayıttan sonra oluşur)."); }
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                egui::Grid::new("bk_grid").num_columns(3).striped(true).show(ui, |ui| {
+                    for (p, st) in &list {
+                        let pretty = if st.len() >= 15 { format!("{}-{}-{} {}:{}:{}", &st[0..4], &st[4..6], &st[6..8], &st[9..11], &st[11..13], &st[13..15]) } else { st.clone() };
+                        let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                        ui.label(format!("{pretty}  ({} KB)", size.div_ceil(1024)));
+                        if ui.small_button("Karşılaştır").on_hover_text("Açık belgeyle farklar").clicked() { act = Some((p.clone(), true)); }
+                        if ui.small_button("Aç").on_hover_text("Yeni (kaydedilmemiş) belge olarak açar; asıl dosyanın üzerine yazmak için Farklı kaydet").clicked() { act = Some((p.clone(), false)); }
+                        ui.end_row();
+                    }
+                });
+            });
+        });
+        if let Some((p, cmp)) = act {
+            match osisub_core::io::load(&p) {
+                Ok(old) if cmp => {
+                    let ch = osisub_core::compare::compare(&old, &self.doc.script);
+                    self.status = format!("{} fark", ch.len());
+                    self.compare = Some((p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), old, ch));
+                }
+                Ok(old) => { self.request(Guarded::OpenScript(old, "Yedek açıldı — asıl dosyaya dönmek için Farklı kaydet".into())); open = false; }
+                Err(e) => self.status = format!("Hata: {e}"),
+            }
+        }
+        self.backups_open = open;
+    }
+
     /// Yer imleri listesi: tıkla = satıra git, not düzenle, kaldır.
     pub(super) fn bookmarks_window(&mut self, ctx: &egui::Context) {
         if !self.bookmarks_open { return; }

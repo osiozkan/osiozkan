@@ -177,6 +177,7 @@
 - [x] Üzerine yapıştır (Aegisub Paste Over, Ctrl+Shift+V / Düzen menüsü): panodaki satırların seçilen alanları (zaman, stil, konuşan, kenar, efekt, metin) seçili satırlara; sistem panosundan okunur
 - [x] Lua `clipboard.get/set` GUI'de gerçek sistem panosuna bağlı (arboard; eskiden yalnızca betik içi bellekti)
 - [x] Geri al/yinele, otomatik kayıt, kalıcı ayarlar, son açılanlar, sürükle-bırak, sağ tık menüsü, kopyala/kes/yapıştır
+- [x] Kayıt yedekleri (core::backup; Aegisub autoback): her kayıttan önce önceki hal `<veri>/autoback`'e zaman damgalı (dosya başına son 20, yol özetiyle ayrılır); Dosya → Yedekler: karşılaştır / yeni belge olarak aç (xdotool ile doğrulandı)
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [x] Geçmiş penceresi (Düzen → Geçmiş…): geri alma listesi, tıklayınca o duruma git (geri al/yinele)
 - [x] Uygulama içi kullanım kılavuzu (F1 / Yardım menüsü; KULLANIM.md ikiliye gömülü, aranabilir)

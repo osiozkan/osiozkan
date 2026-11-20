@@ -120,6 +120,7 @@ pub struct App {
     honor_open: bool,
     /// Yer imleri penceresi; (rev, yer imi Extradata kimlikleri) ızgara önbelleği
     bookmarks_open: bool,
+    backups_open: bool,
     /// yer imi notu düzenleme tamponu: (girdi indeksi, metin)
     bookmark_edit: Option<(usize, String)>,
     /// Dosyayı böl penceresi: (kesme zamanları metni, eşit parça sayısı, zamanı sıfırla)
@@ -610,6 +611,7 @@ impl App {
             stats_open: false,
             honor_open: false,
             bookmarks_open: false,
+            backups_open: false,
             bookmark_edit: None,
             split_win: None,
             bookmark_ids: (u64::MAX, Default::default()),
@@ -695,6 +697,7 @@ impl App {
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("textimport") => app.text_import = Some(windows::TextImportWin { text: "Sakura: Birinci çeviri satırı.\nKenji: İkinci satır.\n# atlanır\nÜçüncü satır".into(), speakers: true, ..Default::default() }),
+            Some("backups") => app.backups_open = true,
             Some("export") => app.export_open = true,
             Some("hardsub") => app.hardsub = Some(windows::HardsubWin::new(app.media.path.clone())),
             Some("split") => app.split_win = Some(("0:00:09.00".into(), 2, false)),
@@ -1007,6 +1010,10 @@ impl App {
                 let mut bak = p.clone().into_os_string();
                 bak.push(".bak");
                 let _ = std::fs::copy(&p, PathBuf::from(bak));
+            }
+            // her kayıtta önceki hali zaman damgalı yedeğe (dosya başına son 20; Dosya → Yedekler)
+            if let Some(dir) = Self::backup_dir() {
+                if let Err(e) = osisub_core::backup::make(&dir, &p, 20, std::time::SystemTime::now()) { self.log.push_str(&format!("Yedek alınamadı: {e}\n")); }
             }
             self.write_project_garbage(&p);
             match self.doc.save_as(p.clone()) {
@@ -1682,6 +1689,7 @@ impl App {
                 }
                 if ui.button("Düz metin içe aktar…").on_hover_text("Çevirmenin düz metnini zamanlanmış satırlara sırayla yerleştir ya da yeni satırlar oluştur; \"Ad: replik\" konuşana alınır (Subtitle Edit: Import plain text)").clicked() { ui.close(); self.text_import = Some(windows::TextImportWin { speakers: true, ..Default::default() }); }
                 if ui.button("Dosyayı böl…").on_hover_text("Kesme zamanlarında (ör. OP sonu) ya da eşit satır sayısıyla ayrı dosyalara böl; başlık/stiller/ekler her parçaya kopyalanır (Subtitle Edit: Split)").clicked() { ui.close(); self.split_win = Some((String::new(), 2, false)); }
+                if ui.add_enabled(self.doc.path.is_some(), egui::Button::new("Yedekler…")).on_hover_text("Bu dosyanın her kayıttan önceki halleri (son 20): karşılaştır ya da geri aç").clicked() { ui.close(); self.backups_open = true; }
                 if ui.button("Başka sürümle karşılaştır…").on_hover_text("Açık belgeyi eski/başka bir sürümle karşılaştır (eklenen, silinen, değişen satırlar)").clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
@@ -2113,6 +2121,10 @@ impl App {
         }
     }
 
+    pub(super) fn backup_dir() -> Option<PathBuf> {
+        osisub_core::paths::data_dir().map(|d| d.join("autoback"))
+    }
+
     fn autosave_dir() -> Option<PathBuf> {
         osisub_core::paths::data_dir().map(|d| d.join("autosave"))
     }
@@ -2320,6 +2332,7 @@ impl App {
         self.stats_window(&ctx);
         self.honorifics_window(&ctx);
         self.bookmarks_window(&ctx);
+        self.backups_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
