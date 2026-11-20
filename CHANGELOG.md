@@ -3,6 +3,7 @@
 ## 0.7.0 — geliştiriliyor (yedinci gece, 2026-11-20)
 
 **Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`). Okunuşu elle yazmanız gerekmez: Kanji zamanlayıcıda *Furigana okunuşu ekle* romaji hecelerinden hiragana okunuşu üretir (ki+mi → 君|きみ).
+**Arayüz:** boş ekranda *Hızlı başla*: ham videodan çeviriye başla (videoda altyazı izi varsa referans seçimi, yoksa hardsub OCR), çeviri metnini yerleştir, Whisper, PGS/VobSub OCR.
 **Lua:** `require "osisub"` — betikler osisub çekirdeğini kullanabilir: gereksiz etiket temizliği, etiket denetimi, Türkçe harf dönüşümü, satır dengeleme, Türkçe yazım düzeltme, furigana, romaji→kana, zaman biçimleri (bkz. LUA_UYUMLULUK.md).
 **Gömülü (hardsub) altyazıyı metne çevir:** videoya yakılmış altyazıyı satır zamanlarıyla birlikte okur (Tesseract) — ham yayındaki İngilizce/Çince yakılı altyazıyı çeviri kaynağı (referans) yapmak için; bölge (alt/üst), örnekleme hızı ve metin parlaklığı ayarlanabilir, ilerleme + iptal (Dosya → Video ile, CLI `hardsub`).
 **Düz metin içe aktar:** çevirmenin metin belgesini zamanlanmış satırlara sırayla yerleştirir (tabela/karaoke atlanır) ya da yeni satırlar oluşturur; "Ad: replik" Konuşan alanına (Dosya menüsü, CLI `import-text`); ters yönü *Belgeden metni al* / CLI `export-text` — çevirmene gönder, geri yerleştir.

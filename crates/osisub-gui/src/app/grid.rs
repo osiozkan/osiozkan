@@ -56,6 +56,24 @@ impl App {
                     if ui.button("Kullanım kılavuzu").on_hover_text("F1").clicked() { self.guide = Some(String::new()); }
                     if ui.button("Kısayollar").clicked() { self.help_open = true; }
                 });
+                ui.add_space(12.0);
+                ui.label(RichText::new("Hızlı başla").strong());
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space((ui.available_width() - 640.0).max(0.0) / 2.0);
+                    if ui.button("Ham videodan çeviriye başla…").on_hover_text("Video açılır; videoda altyazı izi varsa onu referans (çeviri kaynağı) yapmanız için izler penceresi, yoksa yakılı (hardsub) altyazıyı okuma penceresi açılır").clicked() {
+                        if let Some(v) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file() {
+                            self.media.open(v.clone(), ui.ctx());
+                            self.show_media = true;
+                            match osisub_media::mux::subtitle_tracks(&v) {
+                                Ok(t) if !t.is_empty() => self.tracks_win = Some((v, t)),
+                                _ => self.hardsub = Some(super::windows::HardsubWin::new(Some(v))),
+                            }
+                        }
+                    }
+                    if ui.button("Çeviri metnini yerleştir…").on_hover_text("Düz metin çeviriyi zamanlanmış satırlara sırayla yerleştir").clicked() { self.text_import = Some(super::windows::TextImportWin { speakers: true, ..Default::default() }); }
+                    if ui.button("Sesten altyazı (Whisper)…").clicked() { self.whisper = Some(super::windows::WhisperWin::default()); }
+                    if ui.button("PGS / VobSub OCR…").clicked() { self.ocr = Some(super::windows::OcrWin::default()); }
+                });
                 let recent: Vec<String> = self.settings.recent.iter().filter(|r| std::path::Path::new(r).is_file()).take(8).cloned().collect();
                 if !recent.is_empty() {
                     ui.add_space(16.0);

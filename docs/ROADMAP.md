@@ -178,6 +178,7 @@
 - [x] Çökme sonrası otomatik kayıttan kurtarma, çökme günlüğü, kaydedilmemiş değişiklik onayı
 - [x] Geçmiş penceresi (Düzen → Geçmiş…): geri alma listesi, tıklayınca o duruma git (geri al/yinele)
 - [x] Uygulama içi kullanım kılavuzu (F1 / Yardım menüsü; KULLANIM.md ikiliye gömülü, aranabilir)
+- [x] Başlangıç ekranında *Hızlı başla* iş akışları (ham videodan çeviri → iz/hardsub, metin yerleştir, Whisper, OCR)
 - [x] Komut paleti (Ctrl+Shift+P; komutlar, pencereler, sekmeler, Lua makroları; Türkçe duyarsız bulanık arama)
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
