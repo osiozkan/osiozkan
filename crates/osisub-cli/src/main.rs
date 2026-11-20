@@ -383,6 +383,7 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             for m in &head { println!("başlık: {m}"); }
             let mut issues = qc::check(&s, &r);
             issues.extend(osisub_core::untranslated::check(&s, reference.as_ref()));
+            issues.extend(osisub_core::consistency::check(&s, reference.as_ref()));
             if width {
                 // gerçek yazı tipiyle ekran genişliği
                 let mut db = osisub_lua::fonts::FontDb::default();

@@ -1254,6 +1254,7 @@ impl App {
                 let mut issues = qc::check(&self.doc.script, &self.rules);
                 issues.extend(qc::beyond_end(&self.doc.script, vdur));
                 issues.extend(osisub_core::untranslated::check(&self.doc.script, self.reference.as_ref()));
+                issues.extend(osisub_core::consistency::check(&self.doc.script, self.reference.as_ref()));
                 if let Some((fr, kf)) = &frame_ctx {
                     issues.extend(qc::frame_issues(&self.doc.script, fr, kf, 3));
                 }
@@ -1274,6 +1275,7 @@ impl App {
                     let mut issues = qc::check(&script, &rules);
                     issues.extend(qc::beyond_end(&script, vdur));
                     issues.extend(osisub_core::untranslated::check(&script, reference.as_ref()));
+                    issues.extend(osisub_core::consistency::check(&script, reference.as_ref()));
                     if let Some((fr, kf)) = &frame_ctx {
                         issues.extend(qc::frame_issues(&script, fr, kf, 3));
                     }
