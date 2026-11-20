@@ -24,6 +24,7 @@ KULLANIM:
   osisub export-text <girdi.ass> <metin.txt> [--speakers]   diyalogları çevirmen için düz metne (tabela/karaoke hariç)
   osisub import-text <metin.txt> <zamanlama.ass> <çıktı> [--blocks] [--speakers]   çeviri metnini zamanlanmış satırlara sırayla yerleştir
   osisub ocr-fix <girdi> <çıktı> --aff <sözlük.aff> --dic <sözlük.dic>   OCR karışıklıklarını (rn/m, l/I, 0/O…) sözlükle düzelt
+  osisub replace-rules <girdi> <kurallar.tsv> [çıktı]   çoklu değiştir kurallarını uygula (GUI'den dışa aktarılan TSV)
   osisub split <girdi> (<zaman,zaman…> | --parts N) [--rebase]   dosyayı parçalara böl (girdi_1.ass, girdi_2.ass…)
   osisub merge <ana.ass> <ek.ass>... -o <çıktı> [--offset ms] [--sort] [--no-comments]
                           diyalog + tabela + OP/ED birleştir (stil çakışması, çözünürlük, yazı tipleri)
@@ -299,6 +300,16 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             }
             eprintln!("{total} sözcük düzeltildi");
             save(&s, out)
+        }
+        "replace-rules" => {
+            if args.len() < 2 { return Err("kullanım: replace-rules <girdi> <kurallar.tsv> [çıktı]".into()); }
+            let rules = osisub_core::multireplace::from_tsv(&std::fs::read_to_string(&args[1]).map_err(|e| format!("{}: {e}", args[1]))?);
+            let out = args.get(2).cloned().unwrap_or_else(|| args[0].clone());
+            let mut s = load(&args[0])?;
+            for (k, r) in osisub_core::multireplace::apply(&mut s, &rules, None).into_iter().enumerate() {
+                match r { Ok(n) => eprintln!("kural {}: {n} satır", k + 1), Err(e) => eprintln!("kural {}: HATA {e}", k + 1) }
+            }
+            save(&s, &out)
         }
         "split" => {
             let parts_n = opt(&mut args, "--parts").map(|v| v.parse::<usize>().map_err(|_| "--parts sayı olmalı")).transpose()?;

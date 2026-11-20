@@ -3,6 +3,7 @@
 ## 0.7.0 — 2026-11-20 (yedinci gece)
 
 **Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`). Okunuşu elle yazmanız gerekmez: Kanji zamanlayıcıda *Furigana okunuşu ekle* romaji hecelerinden hiragana okunuşu üretir (ki+mi → 君|きみ).
+**Çoklu değiştir:** kaydedilebilir bul → değiştir kuralları (regex dahil), kural başına eşleşme sayısıyla tek tıkla uygula; ekip kural listesini TSV ile paylaşabilir (Araçlar menüsü, CLI `replace-rules`).
 **Ekip:** sürüm karşılaştırmasını sözcük düzeyinde farklı HTML rapor olarak kaydet (editör → çevirmen; CLI `compare --report`); yer imleri listesini notlarıyla panoya kopyala.
 **Yedekler:** her kayıttan önce dosyanın önceki hali saklanır (dosya başına son 20); *Dosya → Yedekler…* ile karşılaştırın ya da geri açın (Aegisub autoback gibi).
 **Dışa aktar:** yerleşik süzgeçler (Aegisub'daki gibi) — yorumları ve kullanılmayan stilleri sil, Script Info'yu temizle (video yolu vb. proje bilgisi yayına gitmez), tanımsız stilleri Default yap, notları ve gereksiz etiketleri sil; belge değişmez (CLI `export`).

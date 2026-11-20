@@ -1245,7 +1245,7 @@ impl App {
             ("todraw", "Metni çizime dönüştür"), ("tracks", "Videodaki altyazı izleri"), ("mux", "MKV'ye göm (softsub)"), ("burn", "Videoya yak (hardsub)"),
             ("merge", "Başka dosyayı birleştir"), ("mt", "Makine çevirisi"), ("resync", "Sesle yeniden zamanla (TV → BD)"), ("history", "Geçmiş (geri alma listesi)"), ("open", "Aç"), ("save", "Kaydet"), ("lua", "Lua betiği yükle"), ("reload", "Betikleri yeniden yükle"),
             ("ocr", "Resim altyazısını metne çevir (PGS / VobSub OCR)"), ("whisper", "Sesten altyazı (Whisper)"), ("collide", "Ekran çakışmasını denetle"), ("song", "OP/ED yerleştir (önceki bölümden)"), ("honor", "Saygı ekleri (-san/-kun)"),
-            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("text_import", "Düz metin içe aktar"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
+            ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("text_import", "Düz metin içe aktar"), ("multi_replace", "Çoklu değiştir"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
             v.push((l.to_string(), Win(w)));
@@ -1285,6 +1285,7 @@ impl App {
                 "todraw" => self.text_to_drawing(false),
                 "furigana" => self.furigana_layout(),
                 "bookmarks" => self.bookmarks_open = true,
+                "multi_replace" => self.open_mrep(),
                 "text_import" => self.text_import = Some(super::windows::TextImportWin { speakers: true, ..Default::default() }),
                 "hardsub" => self.hardsub = Some(super::windows::HardsubWin::new(self.media.path.clone())),
                 "split_file" => self.split_win = Some((String::new(), 2, false)),
@@ -2426,6 +2427,83 @@ impl App {
             }
         }
         if !open { self.split_win = None; }
+    }
+
+    fn mrep_path() -> Option<PathBuf> {
+        osisub_core::paths::data_dir().map(|d| d.join("multireplace.tsv"))
+    }
+
+    pub(super) fn open_mrep(&mut self) {
+        let rules = Self::mrep_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::multireplace::from_tsv(&t)).filter(|r| !r.is_empty()).unwrap_or_else(osisub_core::multireplace::examples);
+        self.mrep = Some((rules, vec![], false));
+    }
+
+    /// Çoklu değiştir penceresi.
+    pub(super) fn mrep_window(&mut self, ctx: &egui::Context) {
+        use osisub_core::multireplace as mr;
+        let Some((mut rules, mut pv, mut only_sel)) = self.mrep.take() else { return };
+        let mut open = true;
+        let mut apply = false;
+        let mut changed = false;
+        egui::Window::new("Çoklu değiştir").open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
+            ui.label(RichText::new("Kurallar yukarıdan aşağı sırayla uygulanır; etiketler ({…}) ve yorum satırları korunur. Liste otomatik kaydedilir.").weak());
+            let mut del: Option<usize> = None;
+            let mut up: Option<usize> = None;
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                egui::Grid::new("mrep_grid").num_columns(8).striped(true).show(ui, |ui| {
+                    ui.label(""); ui.label("Bul"); ui.label("Değiştir"); ui.label("Regex"); ui.label("Aa"); ui.label("Sözcük"); ui.label("Eşleşme"); ui.label(""); ui.end_row();
+                    for (k, r) in rules.iter_mut().enumerate() {
+                        changed |= ui.checkbox(&mut r.on, "").changed();
+                        changed |= ui.add_sized([180.0, 20.0], TextEdit::singleline(&mut r.find).font(egui::TextStyle::Monospace)).changed();
+                        changed |= ui.add_sized([180.0, 20.0], TextEdit::singleline(&mut r.replace).font(egui::TextStyle::Monospace)).changed();
+                        changed |= ui.checkbox(&mut r.regex, "").changed();
+                        changed |= ui.checkbox(&mut r.match_case, "").on_hover_text("Büyük/küçük harf duyarlı").changed();
+                        changed |= ui.checkbox(&mut r.whole_word, "").changed();
+                        match pv.get(k) {
+                            Some(Ok(n)) => { ui.label(if *n > 0 { RichText::new(format!("{n} satır")).color(theme::ACCENT) } else { RichText::new("0").weak() }); }
+                            Some(Err(e)) => { ui.label(RichText::new("hata").color(theme::BAD)).on_hover_text(e); }
+                            None => { ui.label(""); }
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Yukarı").clicked() && k > 0 { up = Some(k); }
+                            if ui.small_button("Sil").clicked() { del = Some(k); }
+                        });
+                        ui.end_row();
+                    }
+                });
+            });
+            if let Some(k) = del { rules.remove(k); changed = true; }
+            if let Some(k) = up { rules.swap(k, k - 1); changed = true; }
+            ui.horizontal(|ui| {
+                if ui.button("+ Kural").clicked() { rules.push(mr::Rule::default()); changed = true; }
+                if ui.button("İçe aktar…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv", "txt"]).pick_file() {
+                        if let Ok(t) = std::fs::read_to_string(p) { rules.extend(mr::from_tsv(&t)); changed = true; }
+                    }
+                }
+                if ui.button("Dışa aktar…").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().set_file_name("kurallar.tsv").save_file() { let _ = std::fs::write(p, mr::to_tsv(&rules)); }
+                }
+                ui.separator();
+                ui.checkbox(&mut only_sel, "yalnızca seçili satırlar");
+                if ui.button("Uygula").clicked() { apply = true; }
+            });
+        });
+        let only: Option<Vec<usize>> = if only_sel { Some(self.doc.target_lines()) } else { None };
+        if changed || pv.len() != rules.len() {
+            pv = mr::preview(&self.doc.script, &rules, only.as_deref());
+            if changed { if let Some(p) = Self::mrep_path() { if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); } let _ = std::fs::write(p, mr::to_tsv(&rules)); } }
+        }
+        if apply {
+            let mut s = self.doc.script.clone();
+            let r = mr::apply(&mut s, &rules, only.as_deref());
+            let total: usize = r.iter().filter_map(|x| x.as_ref().ok()).sum();
+            let errs = r.iter().filter(|x| x.is_err()).count();
+            self.doc.apply_new_script("Çoklu değiştir", s);
+            self.status = format!("Çoklu değiştir: {total} değişiklik{}", if errs > 0 { format!(", {errs} kural hatalı (atlandı)") } else { String::new() });
+            pv = mr::preview(&self.doc.script, &rules, only.as_deref());
+        }
+        if open { self.mrep = Some((rules, pv, only_sel)); }
     }
 
     /// Yayın öncesi kontrol listesi: mevcut denetimlerin özeti; satıra tıklayınca ilgili yere.

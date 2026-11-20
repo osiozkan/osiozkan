@@ -158,6 +158,7 @@
 - [x] Çizim aracı her hizalama, ölçek, \fax/\fay eğme ve \frx/\fry/\frz (\org) ile çalışır (core::drawxf; libass çıktısıyla 7 durumda ≤ 2 px doğrulandı: hizalama yalnızca sınır kutusu boyutunu kullanır, eğme çizimin başlangıcına göre)
 - [x] Eğme video aracı (\fax üst tutamaç, \fay sağ tutamaç; 0.01 adım, Shift 0.05; sağ tık kaldırır; komut `tool_shear`; xdotool ile doğrulandı)
 - [x] Makro menüsü, Lua diyalog penceresi (otomasyon sekmesi)
+- [x] Çoklu değiştir (core::multireplace; Araçlar menüsü, komut paleti, CLI `replace-rules`; Subtitle Edit Multiple replace): sıralı kurallar (regex/harf/sözcük, aç/kapa), kural başına canlı eşleşme sayısı, etiket ve yorum korunur, `<veri>/multireplace.tsv` kalıcı, TSV içe/dışa aktarma
 - [x] Bul/Değiştir (regex, Türkçe i/İ, alan/kapsam seçimi), çözünürlük yeniden örnekleme
 - [x] Sürüm karşılaştırma (Dosya → Başka sürümle karşılaştır; CLI `compare`); sözcük düzeyinde farklı HTML rapor (pencerede *HTML rapor kaydet*, CLI `compare --report`): zaman örtüşmesiyle eşleme, eklenen/silinen/metin-zaman-stil değişimi, tıklayınca satıra git
 - [x] Zamanlama: "Video karesinde böl", "Çoğalt ve 1 kare kaydır" (kare kare tipografi)

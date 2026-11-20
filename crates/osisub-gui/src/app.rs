@@ -122,6 +122,8 @@ pub struct App {
     bookmarks_open: bool,
     backups_open: bool,
     ready_open: bool,
+    /// Çoklu değiştir: kurallar ve önizleme sonuçları (açıksa Some)
+    mrep: Option<(Vec<osisub_core::multireplace::Rule>, Vec<Result<usize, String>>, bool)>,
     /// Lua konsolu: kod ve yüklendiğinde çalıştırılacak mı
     console_code: String,
     console_pending: bool,
@@ -330,6 +332,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
     ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
+    ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
     ("ocr_fix", "OCR hatalarını düzelt (yazım sözlüğüyle)"),
     ("bookmark_toggle", "Yer imi koy / kaldır"),
@@ -620,6 +623,7 @@ impl App {
             bookmarks_open: false,
             backups_open: false,
             ready_open: false,
+            mrep: None,
             console_code: "-- subs, sel, active kullanılabilir; örnek (Türkçe uyumlu büyük harf):\nlocal osisub = require \"osisub\"\nfor _, i in ipairs(sel) do\n  local l = subs[i]\n  l.text = osisub.text.upper(l.text)\n  subs[i] = l\nend\naegisub.log(#sel .. \" satır\\n\")".into(),
             console_pending: false,
             bookmark_edit: None,
@@ -707,6 +711,7 @@ impl App {
             Some("refoverlay") => { app.settings.ref_overlay = true; app.sync_ref_overlay(); }
             Some("guide") => app.guide = Some(String::new()),
             Some("textimport") => app.text_import = Some(windows::TextImportWin { text: "Sakura: Birinci çeviri satırı.\nKenji: İkinci satır.\n# atlanır\nÜçüncü satır".into(), speakers: true, ..Default::default() }),
+            Some("mrep") => app.open_mrep(),
             Some("ready") => app.ready_open = true,
             Some("backups") => app.backups_open = true,
             Some("export") => app.export_open = true,
@@ -1449,6 +1454,7 @@ impl App {
                 }
             }
             "ready_check" => self.ready_open = true,
+            "multi_replace" => self.open_mrep(),
             "select_overlaps" => {
                 let v = osisub_core::lineops::overlapping(&self.doc.script, true);
                 if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
@@ -2153,6 +2159,7 @@ impl App {
                 if ui.button("Ekler (gömülü yazı tipleri)…").on_hover_text("[Fonts]/[Graphics]: dosyaları ASS'e göm, çıkar, sil").clicked() { self.attach_open = true; ui.close(); }
                 if ui.button("İstatistikler…").clicked() { self.stats_open = true; ui.close(); }
                 if ui.button("Saygı ekleri (-san/-kun)…").clicked() { self.honor_open = true; ui.close(); }
+                if ui.button("Çoklu değiştir…").on_hover_text("Kaydedilen bul → değiştir kurallarını tek tıkla uygula (Subtitle Edit: Multiple replace)").clicked() { ui.close(); self.open_mrep(); }
                 if ui.button("OCR hatalarını düzelt").on_hover_text("OCR/hardsub sonrası: sözlükte olmayan sözcüklerde rn↔m, l↔I, 0↔O, vv→w gibi karışıklıkları dener, sözlükte bulunan biçimi yazar. Yazım sekmesinde yüklü sözlüğü kullanır; birden çok satır seçiliyse yalnızca onlara").clicked() { self.run_command("ocr_fix", ui.ctx()); ui.close(); }
                 if ui.button("Sık hataları düzelt…").clicked() { self.fixes_open = true; ui.close(); }
                 if ui.button("Yazı tipi denetimi…").clicked() { self.fonts_open = true; self.start_font_scan(); ui.close(); }
@@ -2423,6 +2430,7 @@ impl App {
         self.bookmarks_window(&ctx);
         self.backups_window(&ctx);
         self.ready_window(&ctx);
+        self.mrep_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
         self.guard_window(&ctx);
