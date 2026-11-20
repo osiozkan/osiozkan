@@ -859,13 +859,15 @@ impl App {
             });
             let counts = kt::parse_src_counts(&w.src_str);
             let groups: Vec<String> = w.dst_str.split('|').map(String::from).collect();
-            let res = kt::build(&src_syls, &counts, &groups);
+            let builder = if w.furigana { kt::build_with_furigana } else { kt::build };
+            let res = builder(&src_syls, &counts, &groups);
             match &res {
                 Ok(t) => { ui.label(RichText::new(format!("Sonuç: {t}")).monospace().color(theme::ACCENT)); }
                 Err(e) => { ui.label(RichText::new(e).color(theme::BAD)); }
             }
             ui.horizontal(|ui| {
                 if ui.button("Otomatik").clicked() { w.loaded = None; }
+                ui.checkbox(&mut w.furigana, "Furigana okunuşu ekle").on_hover_text("Kanji gruplarına okunuşu romaji hecelerinden hiragana olarak ekler (君|きみ); sonra Araçlar → Furigana düzeni ile üste yerleştirin");
                 if ui.add_enabled(res.is_ok() && pair.is_some(), egui::Button::new("Uygula ve sonraki")).clicked() { act = 1; }
                 if ui.button("Atla").clicked() { act = 2; }
                 if ui.button("Önceki").clicked() { act = -1; }
@@ -875,7 +877,8 @@ impl App {
             if let Some((_, di)) = pair {
                 let counts = kt::parse_src_counts(&w.src_str);
                 let groups: Vec<String> = w.dst_str.split('|').map(String::from).collect();
-                if let Ok(t) = kt::build(&src_syls, &counts, &groups) {
+                let builder = if w.furigana { kt::build_with_furigana } else { kt::build };
+                if let Ok(t) = builder(&src_syls, &counts, &groups) {
                     // hedefin baştaki (karaoke dışı) etiketleri korunur
                     let lead: String = match osisub_core::overrides::parse(&dst_text).first() {
                         Some(osisub_core::overrides::Seg::Block(b)) => {

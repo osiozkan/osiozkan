@@ -2403,6 +2403,8 @@ pub(crate) struct KanjiWin {
     pub src_str: String,
     pub dst_str: String,
     pub loaded: Option<(usize, usize)>,
+    /// kanji gruplarına romajiden furigana okunuşu ekle (`君|きみ`)
+    pub furigana: bool,
 }
 
 /// Etiket uygulama penceresi (HYDRA + Recalculator).

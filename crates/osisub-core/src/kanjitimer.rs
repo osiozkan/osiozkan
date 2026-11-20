@@ -201,12 +201,132 @@ pub fn build(src: &[Syl], counts: &[usize], dest_groups: &[String]) -> Result<St
     Ok(karaoke::build(&out))
 }
 
+/// Romaji (Hepburn ya da Kunrei) → hiragana: furigana okunuşu üretmek için. Çift ünsüz → っ,
+/// heceden önce gelmeyen `n` (ya da `n'`) → ん, uzatma işaretli ünlüler (ō) iki ünlü olur
+/// (ō → おう, ā/ē/ī/ū → ああ/えい/いい/うう). Tanınmayan harfler olduğu gibi kalır.
+pub fn romaji_to_hiragana(r: &str) -> String {
+    const T: &[(&str, &str)] = &[
+        ("kya", "きゃ"), ("kyu", "きゅ"), ("kyo", "きょ"), ("gya", "ぎゃ"), ("gyu", "ぎゅ"), ("gyo", "ぎょ"),
+        ("sha", "しゃ"), ("shu", "しゅ"), ("sho", "しょ"), ("she", "しぇ"), ("sya", "しゃ"), ("syu", "しゅ"), ("syo", "しょ"),
+        ("cha", "ちゃ"), ("chu", "ちゅ"), ("cho", "ちょ"), ("che", "ちぇ"), ("tya", "ちゃ"), ("tyu", "ちゅ"), ("tyo", "ちょ"),
+        ("jya", "じゃ"), ("jyu", "じゅ"), ("jyo", "じょ"), ("zya", "じゃ"), ("zyu", "じゅ"), ("zyo", "じょ"),
+        ("nya", "にゃ"), ("nyu", "にゅ"), ("nyo", "にょ"), ("hya", "ひゃ"), ("hyu", "ひゅ"), ("hyo", "ひょ"),
+        ("bya", "びゃ"), ("byu", "びゅ"), ("byo", "びょ"), ("pya", "ぴゃ"), ("pyu", "ぴゅ"), ("pyo", "ぴょ"),
+        ("mya", "みゃ"), ("myu", "みゅ"), ("myo", "みょ"), ("rya", "りゃ"), ("ryu", "りゅ"), ("ryo", "りょ"),
+        ("shi", "し"), ("chi", "ち"), ("tsu", "つ"),
+        ("ja", "じゃ"), ("ju", "じゅ"), ("jo", "じょ"), ("je", "じぇ"), ("ji", "じ"),
+        ("fa", "ふぁ"), ("fi", "ふぃ"), ("fe", "ふぇ"), ("fo", "ふぉ"), ("fu", "ふ"),
+        ("ka", "か"), ("ki", "き"), ("ku", "く"), ("ke", "け"), ("ko", "こ"),
+        ("ga", "が"), ("gi", "ぎ"), ("gu", "ぐ"), ("ge", "げ"), ("go", "ご"),
+        ("sa", "さ"), ("si", "し"), ("su", "す"), ("se", "せ"), ("so", "そ"),
+        ("za", "ざ"), ("zi", "じ"), ("zu", "ず"), ("ze", "ぜ"), ("zo", "ぞ"),
+        ("ta", "た"), ("ti", "ち"), ("tu", "つ"), ("te", "て"), ("to", "と"),
+        ("da", "だ"), ("di", "ぢ"), ("du", "づ"), ("de", "で"), ("do", "ど"),
+        ("na", "な"), ("ni", "に"), ("nu", "ぬ"), ("ne", "ね"), ("no", "の"),
+        ("ha", "は"), ("hi", "ひ"), ("hu", "ふ"), ("he", "へ"), ("ho", "ほ"),
+        ("ba", "ば"), ("bi", "び"), ("bu", "ぶ"), ("be", "べ"), ("bo", "ぼ"),
+        ("pa", "ぱ"), ("pi", "ぴ"), ("pu", "ぷ"), ("pe", "ぺ"), ("po", "ぽ"),
+        ("ma", "ま"), ("mi", "み"), ("mu", "む"), ("me", "め"), ("mo", "も"),
+        ("ya", "や"), ("yu", "ゆ"), ("yo", "よ"),
+        ("ra", "ら"), ("ri", "り"), ("ru", "る"), ("re", "れ"), ("ro", "ろ"),
+        ("wa", "わ"), ("wo", "を"), ("vu", "ゔ"),
+        ("a", "あ"), ("i", "い"), ("u", "う"), ("e", "え"), ("o", "お"),
+    ];
+    let s: String = r.chars().flat_map(|c| c.to_lowercase()).flat_map(|c| match c {
+        'ā' | 'â' => "aa".chars().collect::<Vec<_>>(),
+        'ē' | 'ê' => "ei".chars().collect(),
+        'ī' | 'î' => "ii".chars().collect(),
+        'ō' | 'ô' => "ou".chars().collect(),
+        'ū' | 'û' => "uu".chars().collect(),
+        // tire / boşluk hece ayırıcıdır (ren-ai → れんあい): kesme işareti gibi davranır
+        '-' => vec!['\''],
+        c => vec![c],
+    }).filter(|c| !c.is_whitespace()).collect();
+    let b: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    let vowel = |c: char| "aeiou".contains(c);
+    while i < b.len() {
+        let c = b[i];
+        // ん: n + (ünsüz | ' | son); "n'" kesme işareti atılır
+        if c == 'n' && (i + 1 == b.len() || (!vowel(b[i + 1]) && b[i + 1] != 'y')) {
+            out.push('ん');
+            i += if b.get(i + 1) == Some(&'\'') { 2 } else { 1 };
+            continue;
+        }
+        // çift ünsüz → っ (tch → っち)
+        if c.is_ascii_alphabetic() && !vowel(c) && c != 'n' && (b.get(i + 1) == Some(&c) || (c == 't' && b.get(i + 1) == Some(&'c'))) {
+            out.push('っ');
+            i += 1;
+            continue;
+        }
+        let mut hit = false;
+        for len in (1..=3).rev() {
+            if i + len > b.len() { continue; }
+            let k: String = b[i..i + len].iter().collect();
+            if let Some((_, v)) = T.iter().find(|(r, _)| *r == k) {
+                out.push_str(v);
+                i += len;
+                hit = true;
+                break;
+            }
+        }
+        if !hit {
+            if c != '\'' { out.push(c); }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Bir metinde kanji (CJK ideogram) var mı?
+pub fn has_kanji(s: &str) -> bool {
+    s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3400}'..='\u{4dbf}').contains(&c) || c == '々')
+}
+
+/// `build` gibi, ama kanji içeren her grubun okunuşu (kaynak romaji hecelerinden hiragana)
+/// `漢字|かんじ` furigana sözdizimiyle eklenir (bkz. `furigana`).
+pub fn build_with_furigana(src: &[Syl], counts: &[usize], dest_groups: &[String]) -> Result<String, String> {
+    build(src, counts, dest_groups)?;
+    let mut groups = dest_groups.to_vec();
+    let mut j = 0;
+    for (n, g) in counts.iter().zip(groups.iter_mut()) {
+        if has_kanji(g) && !g.contains(['|', '｜']) {
+            let rom: String = src[j..j + n].iter().map(|s| s.visible()).collect();
+            let r = romaji_to_hiragana(&rom);
+            if !r.is_empty() {
+                *g = format!("{}|{}", g.trim_end(), r);
+            }
+        }
+        j += n;
+    }
+    build(src, counts, &groups)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn syls(s: &str) -> Vec<Syl> {
         s.split('|').map(|t| Syl { dur: 10, kind: "k".into(), text: t.into() }).collect()
+    }
+
+    #[test]
+    fn romajiden_hiragana() {
+        for (r, h) in [("kimi", "きみ"), ("namae", "なまえ"), ("kyou", "きょう"), ("kitto", "きっと"), ("konnichiwa", "こんにちわ"), ("shinjitsu", "しんじつ"), ("sinzitu", "しんじつ"), ("kan'i", "かんい"), ("tōkyō", "とうきょう"), ("matcha", "まっちゃ"), ("Hoshi", "ほし"), ("ren-ai", "れんあい"), ("minna", "みんな")] {
+            assert_eq!(romaji_to_hiragana(r), h, "{r}");
+        }
+        assert!(has_kanji("名前") && has_kanji("人々") && !has_kanji("きみ"));
+    }
+
+    #[test]
+    fn furigana_ile_kur() {
+        let src = syls("ki|mi |no |na|ma|e");
+        let (c, d) = auto_align(&src, "君の名前");
+        assert_eq!(build_with_furigana(&src, &c, &d).unwrap(), "{\\k20}君|きみ{\\k10}の{\\k30}名前|なまえ");
+        let fur = build_with_furigana(&src, &c, &d).unwrap();
+        assert!(crate::furigana::has_furigana(&fur));
+        assert_eq!(crate::furigana::strip(&fur), build(&src, &c, &d).unwrap());
     }
 
     #[test]

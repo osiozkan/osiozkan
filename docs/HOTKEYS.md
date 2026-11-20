@@ -10,6 +10,8 @@
 | Ctrl+M | Seçili ardışık satırları birleştir |
 | Del | Seçili satırları sil (metin kutusunda değilken) |
 | Ctrl+A | Tümünü seç (ızgara) |
+| Ctrl+F2 | Yer imi koy / kaldır |
+| F2 / Shift+F2 | Sonraki / önceki yer imi |
 | Ctrl+F / Ctrl+H | Bul / Değiştir |
 | ↑ ↓ PageUp PageDown | Satır gezinme (metin kutusunda değilken) |
 | Alt+↑ / Alt+↓ | Önceki / sonraki satır (her zaman) |
@@ -49,5 +51,3 @@
 ## Aegisub kısayollarını almak
 Yardım → Kısayolları düzenle → **Aegisub hotkey.json içe aktar…**: Aegisub'daki kısayollarınızdan osisub'da karşılığı olan komutlar (kare/satır gezinme, başlangıç/bitişi videoya al, video araçları, satırları seç, imleçte böl…) ve `automation/lua/…` makro kısayolları alınır. Sabit kısayollarla (F5, Ctrl+S…) çakışanlar atlanır; atlananlar günlüğe yazılır.
 
-| Ctrl+F2 | Yer imi koy / kaldır |
-| F2 / Shift+F2 | Sonraki / önceki yer imi |
