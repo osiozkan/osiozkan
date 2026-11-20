@@ -26,6 +26,7 @@
 - [x] Sık hataları düzelt (core::fixes): bozuk Türkçe karakter onarımı, boşluk/noktalama, diyalog çizgisi, cümle başı büyük harf (i/İ), işitme engelli notları, süre/boşluk
 - [x] Ekran genişliği denetimi (gerçek yazı tipiyle; osisub_lua::fonts::width_issues): PlayResX − kenar boşluklarını aşan satırlar (oynatıcı fazladan satıra kırar / WrapStyle 2'de taşar); GUI'de belge durunca arka planda otomatik (<5000 satır), CLI `check --width`
 - [x] Türkçe yaygın yazım hataları (core::trfix; Sık hataları düzelt, CLI `fixes --tr`, Kalite sekmesinde not): herşey/birşey/hiçbirşey, yada, şuan, malesef, herkez, yanlız, yalnış, orjinal, deyil… ve bitişik kişi ekli soru eki (gelecekmisin → gelecek misin); konuşma dili biçimlerine ve ek olabilecek -mi'ye dokunmaz
+- [x] Ad tutarlılığı denetimi (core::names; Kalite sekmesinde not, CLI `check`): sık geçen özel adın tek tük bir harf farklı yazımları (Hinata ×40 ↔ Hinta ×1); Türkçe ek (Hinata'ya) ve saygı eki (Hinata-kun) ayrılır; küçük harfle de geçen sıradan sözcükler ve eş sıklıktaki farklı adlar uyarılmaz
 - [x] Çevrilmemiş satır denetimi (core::untranslated; Kalite sekmesi, CLI `check --ref`): referansla aynı metin, Japonca kalmış, Türkçe belgede İngilizce kalmış satır (tipografi/karaoke hariç)
 - [x] Gereksiz etiketleri sil (core::tagclean; Kalite sekmesi, CLI `fixes --redundant`; Aegisub Clean Tags): blok içinde ezilen ve önceki değeri tekrarlayan etiketler; \\t/\\r/ilk-geçerli etiketler/karaoke/notlar korunur
 - [x] Etiket onarımı ve "Notları sil" (Kalite sekmesi, CLI `fixes --tags --notes`)
@@ -178,7 +179,7 @@
 - [ ] Türkçe + İngilizce arayüz, açık/koyu tema
 
 ## Performans
-- [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12)
+- [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn → 2026-11-20'de etiket/yazım/ad denetimleriyle 0.71 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12)
 - [x] Geri alma belleği: satır sayısını değiştiren işlemler artık yalnızca değişen aralığı saklar (ortak önek/sonek); toplu ekleme/silme splice ile O(n); >5000 girdilik adımlar en fazla 8 tane tutulur
 - [x] Açılış süresi (release, yazılım GL): ilk kare 144 ms, 50k satırlık dosyayla 189 ms
 - [x] Boşta CPU: arayüz artık boştayken çizmiyor (eskiden her karede pencere başlığı gönderildiği için ~100 kare/sn sürekli çizim vardı); Lua işçisi olayları, arka plan işleri ve otomatik kayıt zamanlayıcısı arayüzü kendisi uyandırır

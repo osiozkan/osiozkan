@@ -291,6 +291,7 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
             }
         }
     }
+    issues.extend(crate::names::check(script));
     issues.sort_by_key(|x| x.entry);
     issues
 }
