@@ -494,6 +494,28 @@ impl Script {
                 cur = Some(sec);
             }
         }
+        // Aegisub gibi: Script Info her zaman ilk, stiller olaylardan önce (ör. betik başa stil
+        // eklediyse ya da olaylar stillerden önce geldiyse)
+        let mut order: Vec<&str> = {
+            let mut v: Vec<(&str, usize)> = rank.iter().map(|(k, v)| (*k, *v)).collect();
+            v.sort_by_key(|x| x.1);
+            v.into_iter().map(|x| x.0).collect()
+        };
+        let before = order.clone();
+        if let Some(i) = order.iter().position(|s| *s == SEC_INFO) {
+            let x = order.remove(i);
+            order.insert(0, x);
+        }
+        if let (Some(st), Some(ev)) = (order.iter().position(|s| *s == SEC_STYLES), order.iter().position(|s| *s == SEC_EVENTS)) {
+            if ev < st {
+                let x = order.remove(st);
+                order.insert(ev, x);
+            }
+        }
+        if order != before {
+            split = true;
+            rank = order.iter().enumerate().map(|(i, s)| (*s, i)).collect();
+        }
         split.then_some(rank)
     }
 
@@ -961,5 +983,15 @@ mod roundtrip_tests {
         let be: Vec<u8> = txt.encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
         assert_eq!(decode_bytes(&le), txt);
         assert_eq!(decode_bytes(&be), txt);
+    }
+
+    #[test]
+    fn bolum_sirasi_aegisub_gibi() {
+        let mut sc = Script::parse("[Script Info]\nTitle: a\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n");
+        let st = sc.entries[1].clone();
+        sc.entries.insert(0, st); // betik stili en başa koydu
+        let out = sc.to_ass_string();
+        assert!(out.starts_with("[Script Info]"), "{out}");
+        assert_eq!(out.matches("[V4+ Styles]").count(), 1);
     }
 }
