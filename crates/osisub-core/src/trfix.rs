@@ -77,6 +77,23 @@ fn cap_like(orig: &str, repl: &str) -> String {
     }
 }
 
+/// Soru eki ayrılabilecek kök mü? "adamıyım" (adam-ı-yım), "hanımıyım", "kalemiydi", "resmiymiş"
+/// gibi iyelik + ek-fiil biçimleri de "-mıyım/-miydi" ile biter; kökü sözlüksüz ayırt etmek için
+/// yalnızca fiil çekimi (-ecek/-acak, -iyor, -miş, geniş zaman -ır/-er…) ya da sık sıfat
+/// köklerinde ayrılır. Emin olunamayan biçime dokunulmaz.
+fn verbal_root(root: &str) -> bool {
+    const ENDS: &[&str] = &[
+        "ecek", "acak", "iyor", "ıyor", "uyor", "üyor", "yor", "miş", "mış", "muş", "müş", "meli", "malı", "abilir", "ebilir",
+        "ır", "ir", "ur", "ür", "ar", "er", "dı", "di", "du", "dü", "tı", "ti", "tu", "tü",
+    ];
+    const ADJ: &[&str] = &[
+        "iyi", "emin", "hazır", "mutlu", "deli", "ciddi", "hasta", "yalnız", "aç", "tok", "uygun", "rahat", "memnun", "sağ", "kötü", "güzel",
+        "doğru", "yanlış", "burada", "orada", "şurada", "evde", "gerçek", "kızgın", "üzgün", "korkak", "aptal", "sarhoş", "yorgun", "meşgul",
+    ];
+    // geniş zaman ekleri kısa: kök en az 4 harf olsun ("ser-mi" gibi kısa kökler sözcüğün parçası olabilir)
+    ADJ.contains(&root) || ENDS.iter().any(|e| root.ends_with(e) && root.chars().count() >= e.chars().count() + 2)
+}
+
 /// Tek sözcüğün düzeltmesi (noktalama hariç), yoksa None.
 fn fix_word(w: &str) -> Option<String> {
     let l = lower(w);
@@ -86,7 +103,7 @@ fn fix_word(w: &str) -> Option<String> {
     for p in PARTICLES {
         if let Some(root) = l.strip_suffix(p) {
             // kök en az 3 harf; "kimsiniz" gibi kökler yine de 3+ olur ama "mi" ile bitmez → dokunulmaz
-            if root.chars().count() >= 3 && root.chars().all(|c| c.is_alphabetic()) {
+            if root.chars().count() >= 3 && root.chars().all(|c| c.is_alphabetic()) && verbal_root(root) {
                 let n = root.chars().count();
                 let orig_root: String = w.chars().take(n).collect();
                 let orig_p: String = w.chars().skip(n).collect();
@@ -175,5 +192,15 @@ mod tests {
         }
         assert_eq!(fix_text("herşey, birşey").1, 2);
         assert_eq!(findings("Şuan gelecekmisin?"), vec![("Şuan".to_string(), "Şu an".to_string()), ("gelecekmisin".to_string(), "gelecek misin".to_string())]);
+    }
+
+    #[test]
+    fn inceleme_yanlis_ayirma_yok() {
+        for w in ["adamıyım", "adamısın", "adamıydı", "hanımıyım", "kalemiydi", "resmiymiş", "tamamıydı", "sistemiydi", "Kimi", "Emi", "Hepimiz"] {
+            assert_eq!(fix_text(w).0, w, "{w} bozulmamalı");
+        }
+        for (w, want) in [("gelecekmisin", "gelecek misin"), ("hazırmıyız", "hazır mıyız"), ("geliyormusun", "geliyor musun"), ("iyimisin", "iyi misin"), ("yapabilirmiyim", "yapabilir miyim"), ("gelmişmiydi", "gelmiş miydi")] {
+            assert_eq!(fix_text(w).0, want);
+        }
     }
 }

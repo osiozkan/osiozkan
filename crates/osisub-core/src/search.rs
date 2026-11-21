@@ -28,7 +28,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { pattern: String::new(), replacement: String::new(), regex: false, match_case: false, whole_word: false, fields: vec![Field::Text], skip_comments: false, only: None, ignore_tags: false }
+        Options { pattern: String::new(), replacement: String::new(), regex: false, match_case: false, whole_word: false, fields: vec![Field::Text], skip_comments: false, only: None, ignore_tags: true }
     }
 }
 
@@ -47,11 +47,65 @@ fn tr_class(c: char) -> Option<&'static str> {
     }
 }
 
+/// Düzenli ifadede karakter sınıfı, kaçış ve `(?…)` grup başlıkları dışındaki i/İ/ı/I harflerini
+/// Türkçe sınıflara çevirir (harf duyarsız kipte "ilk" "İlk"i bulur, "Ilk"i bulmaz).
+fn tr_regex(p: &str) -> String {
+    let c: Vec<char> = p.chars().collect();
+    let mut out = String::with_capacity(p.len() + 16);
+    let (mut i, mut in_class) = (0, false);
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '\\' {
+            out.push(ch);
+            if let Some(&n) = c.get(i + 1) {
+                out.push(n);
+                i += 2;
+                // \p{Lu}, \x{41}, \u{…}: süslü parantezin içi olduğu gibi
+                if "pPxu".contains(n) && c.get(i) == Some(&'{') {
+                    while i < c.len() {
+                        out.push(c[i]);
+                        i += 1;
+                        if c[i - 1] == '}' { break; }
+                    }
+                }
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if in_class {
+            if ch == ']' { in_class = false; }
+            out.push(ch);
+        } else if ch == '[' {
+            in_class = true;
+            out.push(ch);
+            // "[]…]" ve "[^]…]": ilk ] sınıfın parçası
+            if c.get(i + 1) == Some(&'^') { out.push('^'); i += 1; }
+            if c.get(i + 1) == Some(&']') { out.push(']'); i += 1; }
+        } else if ch == '(' && c.get(i + 1) == Some(&'?') {
+            // (?i) (?:…) (?<ad>…) (?P<ad>…): başlık olduğu gibi
+            while i < c.len() {
+                out.push(c[i]);
+                if i > 0 && matches!(c[i], ')' | ':' | '>' | '=' | '!') && c[i] != '(' { break; }
+                i += 1;
+            }
+        } else if let Some(cls) = tr_class(ch) {
+            out.push_str(cls);
+        } else {
+            out.push(ch);
+        }
+        i += 1;
+    }
+    out
+}
+
 pub fn build(o: &Options) -> Result<Regex, String> {
     if o.pattern.is_empty() {
         return Err("Boş arama".into());
     }
-    let mut pat = if o.regex {
+    let mut pat = if o.regex && !o.match_case {
+        tr_regex(&o.pattern)
+    } else if o.regex {
         o.pattern.clone()
     } else if o.match_case {
         fancy_regex::escape(&o.pattern).into_owned()
@@ -256,5 +310,16 @@ mod tests {
         assert_eq!(find_all(&s, &o).unwrap().len(), 1);
         let o = Options { pattern: "x".into(), skip_comments: true, ..Default::default() };
         assert_eq!(find_all(&s, &o).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn inceleme_regex_turkce_ve_etiketler() {
+        let o = Options { pattern: "ilk".into(), regex: true, ..Default::default() };
+        let re = build(&o).unwrap();
+        assert!(re.is_match("İlk").unwrap());
+        assert!(!re.is_match("Ilk").unwrap());
+        let o = Options { pattern: r"(?<a>i)\p{Lu}[i]".into(), regex: true, ..Default::default() };
+        assert!(build(&o).unwrap().is_match("İAi").unwrap());
+        assert!(Options::default().ignore_tags, "varsayılan: etiketlerin içi değiştirilmez");
     }
 }
