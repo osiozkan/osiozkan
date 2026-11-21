@@ -1588,8 +1588,8 @@ impl App {
                 ui.label(tr("Lead-out (ms)")); ui.add(egui::DragValue::new(&mut self.post.lead_out_ms).speed(5)); ui.end_row();
                 ui.label(tr("Bitişik satır eşiği (ms)")); ui.add(egui::DragValue::new(&mut self.post.adjacent_gap_ms).speed(5)); ui.end_row();
                 ui.label(tr("Boşluk eğilimi (0–1)")); ui.add(egui::DragValue::new(&mut self.post.adjacent_bias).speed(0.05).range(0.0..=1.0)); ui.end_row();
-                ui.label(tr("Anahtar kare: başl. önce/sonra")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_start_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_start_after).speed(5)); }); ui.end_row();
-                ui.label(tr("Anahtar kare: bitiş önce/sonra")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_end_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_end_after).speed(5)); }); ui.end_row();
+                ui.label(tr("Anahtar kare: başl. önce/sonra")).on_hover_text(tr("Satır, sahne kesmesinden en çok 'önce' ms erken başlıyorsa ya da en çok 'sonra' ms geç başlıyorsa başlangıç kesmeye çekilir (Aegisub: Starts before / Starts after)")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_start_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_start_after).speed(5)); }); ui.end_row();
+                ui.label(tr("Anahtar kare: bitiş önce/sonra")).on_hover_text(tr("Satır, sahne kesmesinden en çok 'önce' ms erken bitiyorsa ya da kesmeyi en çok 'sonra' ms aşıyorsa bitiş kesmeye çekilir (Aegisub: Ends before / Ends after)")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_end_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_end_after).speed(5)); }); ui.end_row();
             });
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.post_selection_only, tr("Yalnızca seçim"));

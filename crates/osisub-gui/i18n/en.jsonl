@@ -1157,3 +1157,5 @@
 ["Betik dosyası değişti: betikler yeniden yüklendi", "Script file changed: scripts reloaded"]
 ["Betik dosyası değişince otomatik yeniden yükle", "Reload scripts automatically when files change"]
 ["Yüklü betikler ya da include/autoload klasörlerindeki .lua/.moon dosyaları kaydedilince motor yeniden yüklenir (betik geliştirirken)", "Reloads the engine when a loaded script or any .lua/.moon file in the include/autoload folders is saved (handy while developing scripts)"]
+["Satır, sahne kesmesinden en çok 'önce' ms erken başlıyorsa ya da en çok 'sonra' ms geç başlıyorsa başlangıç kesmeye çekilir (Aegisub: Starts before / Starts after)", "If a line starts at most 'before' ms ahead of a scene cut, or at most 'after' ms past it, its start is snapped to the cut (Aegisub: Starts before / Starts after)"]
+["Satır, sahne kesmesinden en çok 'önce' ms erken bitiyorsa ya da kesmeyi en çok 'sonra' ms aşıyorsa bitiş kesmeye çekilir (Aegisub: Ends before / Ends after)", "If a line ends at most 'before' ms ahead of a scene cut, or runs at most 'after' ms past it, its end is snapped to the cut (Aegisub: Ends before / Ends after)"]
