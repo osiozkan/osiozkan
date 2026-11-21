@@ -1,4 +1,5 @@
 //! Video önizleme + ses dalga formu paneli.
+use crate::i18n::trf;
 use crate::i18n::tr;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, TextureHandle};
 use osisub_core::ass::Entry;
@@ -444,9 +445,9 @@ impl Media {
                 match child {
                     Ok(c) => {
                         self.player = Some(c);
-                        self.status = format!("Uygulama içi ses yok ({}); ffplay kullanılıyor", why);
+                        self.status = trf!("Uygulama içi ses yok ({}); ffplay kullanılıyor", why);
                     }
-                    Err(_) => self.status = format!("Ses çalınamadı: {}; ffplay da bulunamadı", why),
+                    Err(_) => self.status = trf!("Ses çalınamadı: {}; ffplay da bulunamadı", why),
                 }
             }
         }
@@ -530,23 +531,23 @@ impl Media {
         while let Ok(m) = self.rx.try_recv() {
             match m {
                 Msg::Info(Ok(i)) => {
-                    self.status = format!("{}×{} @ {:.3} fps, {}", i.width, i.height, i.fps, time::format_ass(i.duration_ms));
+                    self.status = trf!("{}×{} @ {:.3} fps, {}", i.width, i.height, i.fps, time::format_ass(i.duration_ms));
                     self.info = Some(i);
                     // Kare hızı artık belli: etkin satırın ilk görünen karesine yeniden konumlan
                     self.last_active = usize::MAX;
                 }
-                Msg::Info(Err(e)) => self.status = format!("Ortam açılamadı: {}", e),
+                Msg::Info(Err(e)) => self.status = trf!("Ortam açılamadı: {}", e),
                 Msg::Dummy(key, Ok(p)) => {
                     self.open(p, ctx);
                     self.dummy = Some(key);
                 }
-                Msg::Dummy(_, Err(e)) => self.status = format!("Sahte video: {}", e),
+                Msg::Dummy(_, Err(e)) => self.status = trf!("Sahte video: {}", e),
                 Msg::Picked(Ok(c)) => {
-                    self.status = format!("Pipet: {}", osisub_core::color::Color { r: c[0], g: c[1], b: c[2], a: 0 }.to_tag_string());
+                    self.status = trf!("Pipet: {}", osisub_core::color::Color { r: c[0], g: c[1], b: c[2], a: 0 }.to_tag_string());
                     crate::color_ui::deliver(ctx, c);
                 }
                 Msg::Picked(Err(e)) => {
-                    self.status = format!("Pipet: {}", e);
+                    self.status = trf!("Pipet: {}", e);
                     crate::color_ui::cancel(ctx);
                 }
                 Msg::Wave(Ok(w)) => self.wave = Some(Arc::new(w)),
@@ -555,12 +556,12 @@ impl Media {
                     self.last_active = usize::MAX;
                     // Kullanıcının elle yüklediği timecode varsa ona dokunma
                     if self.timecodes.is_none() || self.timecodes_auto {
-                        self.status = format!("Değişken kare hızı (VFR) algılandı: ortalama {:.3} fps — kare hesapları videonun zaman damgalarını kullanıyor", fr.fps());
+                        self.status = trf!("Değişken kare hızı (VFR) algılandı: ortalama {:.3} fps — kare hesapları videonun zaman damgalarını kullanıyor", fr.fps());
                         self.timecodes = Some(Arc::new(fr));
                         self.timecodes_auto = true;
                     }
                 }
-                Msg::Wave(Err(e)) => self.status = format!("Ses okunamadı: {}", e),
+                Msg::Wave(Err(e)) => self.status = trf!("Ses okunamadı: {}", e),
                 Msg::Frame { time, rev, first, res } => {
                     self.frame_busy = false;
                     match res {

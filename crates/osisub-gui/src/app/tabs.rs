@@ -1,4 +1,5 @@
 use crate::i18n::tr;
+use crate::i18n::trf;
 use super::*;
 
 impl App {
@@ -27,7 +28,7 @@ impl App {
             self.tr_progress = (self.doc.rev, done, total, self.ref_lines.len());
         }
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("Satır {} / {}", pos, self.rows.len())).strong());
+            ui.label(RichText::new(trf!("Satır {} / {}", pos, self.rows.len())).strong());
             ui.label(RichText::new(format!("{} → {}", time::format_ass(d.start_time), time::format_ass(d.end_time))).monospace().weak());
             let (_, done, total, _) = self.tr_progress;
             if total > 0 {
@@ -82,7 +83,7 @@ impl App {
                 ui.horizontal(|ui| {
                     let col = if s.score == 100 { theme::ACCENT } else { Color32::GRAY };
                     ui.label(RichText::new(format!("TM {}%", s.score)).monospace().small().color(col));
-                    if ui.small_button(tr("Kullan")).on_hover_text(format!("Kaynak: {}", s.source)).clicked() { use_tm = Some(s.target.clone()); }
+                    if ui.small_button(tr("Kullan")).on_hover_text(trf!("Kaynak: {}", s.source)).clicked() { use_tm = Some(s.target.clone()); }
                     ui.label(RichText::new(&s.target).italics());
                 });
             }
@@ -117,8 +118,8 @@ impl App {
         }
         let cps = qc::cps(&nd);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());
-            ui.label(RichText::new(format!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
+            ui.label(RichText::new(trf!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());
+            ui.label(RichText::new(trf!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
         });
         if nd.text != d.text {
             let key = format!("text:{}", at);
@@ -165,14 +166,14 @@ impl App {
             ui.horizontal(|ui| {
                 if ui.button(tr("Tüm terimleri denetle")).clicked() {
                     self.gloss_findings = osisub_core::glossary::check(&self.doc.script, &self.ref_lines, &self.glossary);
-                    self.status = format!("{} eksik terim", self.gloss_findings.len());
+                    self.status = trf!("{} eksik terim", self.gloss_findings.len());
                 }
-                ui.label(RichText::new(format!("{} terim, {} bulgu", self.glossary.len(), self.gloss_findings.len())).weak());
+                ui.label(RichText::new(trf!("{} terim, {} bulgu", self.glossary.len(), self.gloss_findings.len())).weak());
             });
             let mut jump = None;
             egui::ScrollArea::vertical().id_salt("gloss").max_height(160.0).show(ui, |ui| {
                 for f in &self.gloss_findings {
-                    if ui.selectable_label(false, format!("{} → {}  (satır {})", f.term.source, f.term.target, self.rows.iter().position(|&r| r == f.entry).map(|p| p + 1).unwrap_or(0))).clicked() { jump = Some(f.entry); }
+                    if ui.selectable_label(false, trf!("{} → {}  (satır {})", f.term.source, f.term.target, self.rows.iter().position(|&r| r == f.entry).map(|p| p + 1).unwrap_or(0))).clicked() { jump = Some(f.entry); }
                 }
             });
             if let Some(e) = jump { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
@@ -296,7 +297,7 @@ impl App {
         ui.horizontal(|ui| {
             if ui.add_enabled(self.spell.is_some() && self.miss_rx.is_none(), egui::Button::new(tr("Denetle"))).clicked() { self.start_spellcheck(); }
             if self.miss_rx.is_some() { ui.spinner(); }
-            ui.label(RichText::new(format!("{} hata", self.misses.len())).strong());
+            ui.label(RichText::new(trf!("{} hata", self.misses.len())).strong());
         });
         ui.separator();
         let misses = self.misses.clone();
@@ -420,7 +421,7 @@ impl App {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
                     match osisub_core::io::load(&p) {
                         Ok(sc) => self.import_styles = Some(sc.styles().cloned().map(|s| (s, true)).collect()),
-                        Err(e) => self.status = format!("Hata: {}", e),
+                        Err(e) => self.status = trf!("Hata: {}", e),
                     }
                 }
             }
@@ -550,7 +551,7 @@ impl App {
         let text = k::build(&syls);
         let at = t.line;
         self.doc.edit("Tuşla karaoke zamanlama", |tx| tx.dialogue_mut(at, |dd| dd.text = text));
-        self.status = format!("{} hece zamanlandı{}", n, note);
+        self.status = trf!("{} hece zamanlandı{}", n, note);
     }
 
     /// Etkin satırın etiket denetçisi: her blok ve etiket ayrı satırda düzenlenebilir; `\t`
@@ -707,7 +708,7 @@ impl App {
                     if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Tuşla zamanla (Boşluk)"))).on_hover_text(tr("Satırı oynatır; her hecenin başında Boşluk'a basın")).clicked() { self.start_tap(ui.ctx()); }
                 }
                 Some(t) => {
-                    ui.label(RichText::new(format!("Kayıt: {} / {}", t.taps.len(), syls.len())).color(theme::ACCENT));
+                    ui.label(RichText::new(trf!("Kayıt: {} / {}", t.taps.len(), syls.len())).color(theme::ACCENT));
                     if ui.button(tr("Bitir")).clicked() { self.finish_tap(); }
                     if ui.button(tr("İptal")).clicked() { self.tap = None; }
                 }
@@ -743,7 +744,7 @@ impl App {
         } else {
             let tot = k::total(&syls);
             ui.horizontal(|ui| {
-                ui.label(format!("{} hece • toplam {} cs / satır {} cs", syls.len(), tot, line_cs));
+                ui.label(trf!("{} hece • toplam {} cs / satır {} cs", syls.len(), tot, line_cs));
                 if tot != line_cs { ui.label(RichText::new(tr("(süre uyuşmuyor)")).color(theme::WARN)); }
             });
             ui.horizontal(|ui| {
@@ -777,7 +778,7 @@ impl App {
                                 });
                             }
                         });
-                        self.status = format!("{n} karaoke satırı sese oturtuldu");
+                        self.status = trf!("{n} karaoke satırı sese oturtuldu");
                     }
                 }
                 if ui.button(tr("Etiketleri kaldır")).clicked() { self.doc.edit("Karaoke etiketlerini kaldır", |tx| tx.dialogue_mut(at, |dd| { let v = k::parse(&dd.text); dd.text = v.iter().map(|s| s.text.clone()).collect(); })); }
@@ -887,7 +888,7 @@ impl App {
                 self.start_collide_check(ui.ctx());
             }
             if self.collide_issues.0 == self.doc.rev {
-                ui.label(RichText::new(format!("{} çakışma", self.collide_issues.1.len())).weak());
+                ui.label(RichText::new(trf!("{} çakışma", self.collide_issues.1.len())).weak());
             }
         });
         if ui.button(tr("Raporu kaydet (HTML)…")).on_hover_text(tr("Başlık ve satır sorunlarını ekip QC'si için tek dosyalık HTML rapor olarak kaydeder")).clicked() {
@@ -964,13 +965,13 @@ impl App {
                     let mut s = self.doc.script.clone();
                     let n = qc::snap_to_keyframes(&mut s, &fr, &kf, 3);
                     self.doc.apply_new_script("Sahne değişimlerine yapıştır", s);
-                    self.status = format!("{} satır sahne değişimine yapıştırıldı", n);
+                    self.status = trf!("{} satır sahne değişimine yapıştırıldı", n);
                 }
             }
         });
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("{} sorun", self.issues.len())).strong());
+            ui.label(RichText::new(trf!("{} sorun", self.issues.len())).strong());
             for (cat, label) in [("", "Tümü"), ("zaman", "Zamanlama"), ("metin", "Metin"), ("etiket", "Etiket"), ("not", "Notlar")] {
                 let n = if cat.is_empty() { self.issues.len() } else { self.issues.iter().filter(|i| i.kind.category() == cat).count() };
                 if (n > 0 || cat.is_empty()) && ui.selectable_label(self.qc_filter == cat, format!("{} {n}", tr(label))).clicked() { self.qc_filter = cat; }
@@ -983,7 +984,7 @@ impl App {
             for i in range {
                 let is = &issues[i];
                 if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(is.entry) {
-                    let txt = format!("{}  {}  {}", time::format_ass(d.start_time), is.message, "");
+                    let txt = format!("{}  {}  {}", time::format_ass(d.start_time), crate::i18n::tr_msg(&is.message), "");
                     if ui.selectable_label(self.doc.active == is.entry, txt).clicked() { jump = Some(is.entry); }
                 }
             }
@@ -1035,7 +1036,7 @@ impl App {
             }
             if let Some(p) = remove { self.remove_script(&p); }
         });
-        if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(format!("Çalışıyor: {}", r)); if ui.small_button(tr("Durdur")).on_hover_text(tr("Betik motorunu sıfırlar (takılan betikler için)")).clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
+        if let Some(r) = self.running.clone() { ui.horizontal(|ui| { ui.spinner(); ui.label(trf!("Çalışıyor: {}", r)); if ui.small_button(tr("Durdur")).on_hover_text(tr("Betik motorunu sıfırlar (takılan betikler için)")).clicked() { self.reload_scripts(); } if self.progress > 0.0 { ui.add(egui::ProgressBar::new(self.progress).desired_width(100.0)); } }); }
         let list: Vec<(usize, String, String, String, MacroKind)> = self.macros.iter().filter(|m| m.script != super::CONSOLE_NAME).map(|m| (m.info.id, m.script.clone(), m.info.name.clone(), m.info.description.clone(), m.info.kind.clone())).collect();
         for (id, script, name, desc, kind) in list {
             ui.horizontal(|ui| {

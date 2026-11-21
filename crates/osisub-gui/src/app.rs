@@ -1,4 +1,5 @@
 use crate::i18n::tr;
+use crate::i18n::trf;
 use crate::dialog_ui::{self, DialogState};
 use crate::media_ui::Media;
 use crate::settings::Settings;
@@ -855,9 +856,9 @@ impl App {
                             d.mark_dirty();
                             self.doc = d;
                             if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
-                            self.status = format!("Açıldı ({}): {} — kaydedince UTF-8 olur", label, p.display());
+                            self.status = trf!("Açıldı ({}): {} — kaydedince UTF-8 olur", label, p.display());
                         }
-                        Err(e) => self.status = format!("Hata: {}", e),
+                        Err(e) => self.status = trf!("Hata: {}", e),
                     }
                 }
             }
@@ -882,7 +883,7 @@ impl App {
         self.help_open = open;
         let mut open = self.about_open;
         egui::Window::new(tr("Hakkında")).open(&mut open).collapsible(false).show(ctx, |ui| {
-            ui.heading(format!("osisub {}", env!("CARGO_PKG_VERSION")));
+            ui.heading(trf!("osisub {}", env!("CARGO_PKG_VERSION")));
             ui.label(tr("Anime altyazı stüdyosu — Aegisub Lua uyumlu, Subtitle Edit'in iyi özellikleriyle."));
             ui.label(RichText::new(tr("Belgeler: docs/KULLANIM.md · docs/LUA_UYUMLULUK.md · docs/ROADMAP.md")).weak());
         });
@@ -894,9 +895,9 @@ impl App {
             Ok(b) => {
                 self.glossary = osisub_core::glossary::parse(&osisub_core::ass::decode_bytes(&b));
                 self.settings.glossary_path = p.to_string_lossy().to_string();
-                self.status = format!("Terim sözlüğü: {} terim", self.glossary.len());
+                self.status = trf!("Terim sözlüğü: {} terim", self.glossary.len());
             }
-            Err(e) => self.status = format!("Terim sözlüğü okunamadı: {}", e),
+            Err(e) => self.status = trf!("Terim sözlüğü okunamadı: {}", e),
         }
     }
 
@@ -932,12 +933,12 @@ impl App {
                 if let Some(f) = self.first_row() {
                     self.doc.select(vec![f], f);
                 }
-                self.status = format!("Açıldı: {}", p.display());
+                self.status = trf!("Açıldı: {}", p.display());
                 self.settings.push_recent(&p.to_string_lossy());
                 self.save_settings();
                 self.pending_auto_media = true;
             }
-            Err(e) => self.status = format!("Hata: {}", e),
+            Err(e) => self.status = trf!("Hata: {}", e),
         }
     }
 
@@ -975,7 +976,7 @@ impl App {
             }
         }
         if let Some(m) = video.or(audio) {
-            self.status = format!("Ortam otomatik açıldı: {}", m.display());
+            self.status = trf!("Ortam otomatik açıldı: {}", m.display());
             self.media.open(m, ctx);
             self.show_media = true;
         }
@@ -1037,8 +1038,8 @@ impl App {
             }
             self.write_project_garbage(&p);
             match self.doc.save_as(p.clone()) {
-                Ok(()) => { self.status = format!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); self.save_tm(); }
-                Err(e) => self.status = format!("Hata: {}", e),
+                Ok(()) => { self.status = trf!("Kaydedildi: {}", p.display()); self.settings.push_recent(&p.to_string_lossy()); self.clear_autosave(); self.save_tm(); }
+                Err(e) => self.status = trf!("Hata: {}", e),
             }
         }
     }
@@ -1052,8 +1053,8 @@ impl App {
             if b(ui, "Aç", "Ctrl+O") { self.request(Guarded::OpenDialog); }
             if b(ui, "Kaydet", "Ctrl+S") { self.save(false); }
             ui.separator();
-            if b(ui, "Geri al", "Ctrl+Z") { if let Some(d) = self.doc.undo() { self.status = format!("Geri alındı: {d}"); } }
-            if b(ui, "Yinele", "Ctrl+Y") { if let Some(d) = self.doc.redo() { self.status = format!("Yinelendi: {d}"); } }
+            if b(ui, "Geri al", "Ctrl+Z") { if let Some(d) = self.doc.undo() { self.status = trf!("Geri alındı: {d}"); } }
+            if b(ui, "Yinele", "Ctrl+Y") { if let Some(d) = self.doc.redo() { self.status = trf!("Yinelendi: {d}"); } }
             if b(ui, "Bul", "Ctrl+F") { self.find_open = true; self.find_focus = true; }
             ui.separator();
             if b(ui, "Satırı oynat", "F5") { self.run_command("play_line", ui.ctx()); }
@@ -1072,7 +1073,7 @@ impl App {
         if std::fs::create_dir_all(&dir).is_err() { self.status = tr("Konsol klasörü oluşturulamadı").into(); return; }
         let p = dir.join("konsol.lua");
         let src = format!("script_name = \"{CONSOLE_NAME}\"\naegisub.register_macro(\"Lua konsolu\", \"\", function(subs, sel, active)\n{}\nend)\n", self.console_code);
-        if let Err(e) = std::fs::write(&p, src) { self.status = format!("Konsol yazılamadı: {e}"); return; }
+        if let Err(e) = std::fs::write(&p, src) { self.status = trf!("Konsol yazılamadı: {e}"); return; }
         self.console_pending = true;
         self.worker.send(Cmd::Load(p));
         self.status = tr("Lua konsolu çalışıyor… (hata satır numaraları 2 fazladır)").into();
@@ -1128,7 +1129,7 @@ impl App {
         self.settings.save();
         self.loaded_scripts.retain(|x| x != p);
         self.reload_scripts();
-        self.status = format!("Betik kaldırıldı: {}", p.display());
+        self.status = trf!("Betik kaldırıldı: {}", p.display());
     }
 
     fn reload_scripts(&mut self) {
@@ -1176,7 +1177,7 @@ impl App {
                         }
                         continue;
                     }
-                    self.status = format!("Betik yüklendi: {}", info.name);
+                    self.status = trf!("Betik yüklendi: {}", info.name);
                 }
                 Event::Loaded(Err(e)) => {
                     self.log.push_str(&format!("Betik yüklenemedi: {}\n", e));
@@ -1197,15 +1198,15 @@ impl App {
                         Ok(done) if self.export_job.is_some() => {
                             if done.cancelled {
                                 self.export_job = None;
-                                self.status = format!("{}: iptal edildi; dışa aktarma durdu", name);
+                                self.status = trf!("{}: iptal edildi; dışa aktarma durdu", name);
                             } else {
                                 let mut job = self.export_job.take().unwrap();
                                 job.script = done.script;
                                 if job.queue.is_empty() {
                                     osisub_core::exportfilters::apply(&mut job.script, &self.export_builtins);
                                     match osisub_core::io::save(&job.script, &job.path) {
-                                        Ok(()) => self.status = format!("Dışa aktarıldı: {}", job.path.display()),
-                                        Err(e) => self.status = format!("Hata: {}", e),
+                                        Ok(()) => self.status = trf!("Dışa aktarıldı: {}", job.path.display()),
+                                        Err(e) => self.status = trf!("Hata: {}", e),
                                     }
                                 } else {
                                     let next = job.queue.remove(0);
@@ -1223,7 +1224,7 @@ impl App {
                             self.export_job = None;
                             self.log.push_str(&log);
                             self.log.push_str(&format!("HATA ({}): {}\n", name, msg));
-                            self.status = format!("{}: hata (günlüğe bakın)", name);
+                            self.status = trf!("{}: hata (günlüğe bakın)", name);
                             self.tab = Tab::Automation;
                             self.lua_error = Some((name.clone(), msg));
                         }
@@ -1292,7 +1293,7 @@ impl App {
                             self.issues_key = u64::MAX;
                         }
                     }
-                    Err(e) => self.status = format!("Ekran çakışması denetlenemedi: {e}"),
+                    Err(e) => self.status = trf!("Ekran çakışması denetlenemedi: {e}"),
                 }
             }
         }
@@ -1375,7 +1376,7 @@ impl App {
             self.media.framerate().map_or(ms, |fr| fr.snap(ms))
         };
         if self.doc.split(at, pos, t) {
-            self.status = format!("Bölündü: {}", time::format_ass(t));
+            self.status = trf!("Bölündü: {}", time::format_ass(t));
             self.editor_cursor = None;
         } else {
             self.status = tr("Bu konumda bölünemez (etiket içi, satır başı/sonu ya da süre dışı)").into();
@@ -1455,7 +1456,7 @@ impl App {
                             }
                         }
                         self.doc.apply_new_script("OCR hatalarını düzelt", s);
-                        self.status = format!("OCR: {total} sözcük düzeltildi (rn→m, l→I, 0→o…; Ctrl+Z geri alır)");
+                        self.status = trf!("OCR: {total} sözcük düzeltildi (rn→m, l→I, 0→o…; Ctrl+Z geri alır)");
                     }
                 }
             }
@@ -1464,7 +1465,7 @@ impl App {
             "select_overlaps" => {
                 let v = osisub_core::lineops::overlapping(&self.doc.script, true);
                 if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
-                self.status = format!("{} çakışan satır seçildi (aynı stil ve katman)", v.len());
+                self.status = trf!("{} çakışan satır seçildi (aynı stil ve katman)", v.len());
             }
             "bookmark_toggle" => {
                 let i = self.doc.active;
@@ -1488,7 +1489,7 @@ impl App {
                 if r.is_empty() { self.status = tr("Yeniden birleştirmek için en az iki satır seçin").into(); } else {
                     self.doc.apply_new_script("Satırları yeniden birleştir", s);
                     self.doc.active = r[0];
-                    self.status = format!("{} satır oluştu", r.len());
+                    self.status = trf!("{} satır oluştu", r.len());
                     self.doc.selection = r;
                 }
             }
@@ -1505,7 +1506,7 @@ impl App {
                 let mut s = self.doc.script.clone();
                 let n = osisub_core::lineops::make_continuous(&mut s, &self.doc.target_lines(), id == "continuous_start");
                 self.doc.apply_new_script("Zamanları ardışık yap", s);
-                self.status = format!("{n} boşluk/örtüşme kapatıldı");
+                self.status = trf!("{n} boşluk/örtüşme kapatıldı");
             }
             "split_cursor" => self.split_at_cursor(false),
             "balance_lines" => self.rebreak_selected(true),
@@ -1524,7 +1525,7 @@ impl App {
                     let mut s = self.doc.script.clone();
                     let n = qc::snap_to_keyframes(&mut s, &fr, &kf, 3);
                     self.doc.apply_new_script("Sahne değişimlerine yapıştır", s);
-                    self.status = format!("{} satır sahne değişimine yapıştırıldı", n);
+                    self.status = trf!("{} satır sahne değişimine yapıştırıldı", n);
                 }
             }
             "tool_none" => self.media.tool = T::None,
@@ -1538,7 +1539,7 @@ impl App {
             "tool_draw" => self.media.tool = T::Drawing,
             "tool_scale" => self.media.tool = T::Scale,
             "tool_shear" => self.media.tool = T::Shear,
-            _ => self.status = format!("Bilinmeyen komut: {}", id),
+            _ => self.status = trf!("Bilinmeyen komut: {}", id),
         }
     }
 
@@ -1591,7 +1592,7 @@ impl App {
                 if key == Key::Escape {
                     self.status = tr("Kısayol atama iptal edildi").into();
                 } else if key == Key::Backspace {
-                    self.status = format!("Kısayol kaldırıldı: {}", name);
+                    self.status = trf!("Kısayol kaldırıldı: {}", name);
                 } else {
                     let sc = KeyboardShortcut::new(mods, key);
                     let keys = crate::hotkeys::format(&sc);
@@ -1641,7 +1642,7 @@ impl App {
                     let id = self.macros.iter().find(|m| m.info.kind == MacroKind::Macro && m.info.name == name && (m.script == script || script.is_empty())).map(|m| m.info.id);
                     match id {
                         Some(id) => self.run_macro(id),
-                        None => self.status = format!("Kısayol {}: makro yüklü değil ({})", crate::hotkeys::format(&sc), name),
+                        None => self.status = trf!("Kısayol {}: makro yüklü değil ({})", crate::hotkeys::format(&sc), name),
                     }
                 }
             }
@@ -1663,7 +1664,7 @@ impl App {
                 match ev {
                     egui::Event::Copy => { let t = self.doc.copy_lines(); if !t.is_empty() { self.last_copy = t.clone(); ctx.copy_text(t); } }
                     egui::Event::Cut => { let t = self.doc.cut_lines(); if !t.is_empty() { self.last_copy = t.clone(); ctx.copy_text(t); } }
-                    egui::Event::Paste(t) => { let n = self.doc.paste_lines(&t); if n > 0 { self.status = format!("{} satır yapıştırıldı", n); self.scroll_to = Some(self.doc.active); } }
+                    egui::Event::Paste(t) => { let n = self.doc.paste_lines(&t); if n > 0 { self.status = trf!("{} satır yapıştırıldı", n); self.scroll_to = Some(self.doc.active); } }
                     _ => {}
                 }
             }
@@ -1790,10 +1791,10 @@ impl App {
                         match osisub_core::io::load(&p) {
                             Ok(old) => {
                                 let ch = osisub_core::compare::compare(&old, &self.doc.script);
-                                self.status = format!("{} fark", ch.len());
+                                self.status = trf!("{} fark", ch.len());
                                 self.compare = Some((p.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(), old, ch));
                             }
-                            Err(e) => self.status = format!("Hata: {}", e),
+                            Err(e) => self.status = trf!("Hata: {}", e),
                         }
                     }
                 }
@@ -1801,8 +1802,8 @@ impl App {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() {
                         match osisub_core::io::load(&p) {
-                            Ok(s) => { self.set_reference(s); self.status = format!("Referans: {}", p.display()); }
-                            Err(e) => self.status = format!("Hata: {}", e),
+                            Ok(s) => { self.set_reference(s); self.status = trf!("Referans: {}", p.display()); }
+                            Err(e) => self.status = trf!("Hata: {}", e),
                         }
                     }
                 }
@@ -1822,7 +1823,7 @@ impl App {
                     }
                     ui.menu_button(tr("Bölümler (chapters)"), |ui| {
                         let n = osisub_core::chapters::from_script(&self.doc.script).len();
-                        ui.label(RichText::new(format!("Belgede {n} bölüm (Efekt: chapter); MKV'ye gömerken eklenir")).weak());
+                        ui.label(RichText::new(trf!("Belgede {n} bölüm (Efekt: chapter); MKV'ye gömerken eklenir")).weak());
                         if ui.button(tr("Video konumunda bölüm ekle")).on_hover_text(tr("Oynatma konumuna Efekt'i \"chapter\" olan bir yorum satırı ekler; metni bölüm adıdır")).clicked() {
                             ui.close();
                             let t = self.media.playhead.max(0);
@@ -1833,7 +1834,7 @@ impl App {
                                 let mut s = self.doc.script.clone();
                                 osisub_core::chapters::apply_to_script(&mut s, &ch);
                                 self.doc.apply_new_script("Bölüm ekle", s);
-                                self.status = format!("Bölüm eklendi: {}", osisub_core::time::format_ass(t));
+                                self.status = trf!("Bölüm eklendi: {}", osisub_core::time::format_ass(t));
                             }
                         }
                         if ui.add_enabled(n > 0, egui::Button::new(tr("Dışa aktar (Matroska XML / OGM)…"))).clicked() {
@@ -1856,7 +1857,7 @@ impl App {
                                         let mut s = self.doc.script.clone();
                                         osisub_core::chapters::apply_to_script(&mut s, &ch);
                                         self.doc.apply_new_script("Bölümleri içe aktar", s);
-                                        self.status = format!("{} bölüm içe aktarıldı", ch.len());
+                                        self.status = trf!("{} bölüm içe aktarıldı", ch.len());
                                     }
                                     Ok(_) => self.status = tr("Bölüm bulunamadı").into(),
                                     Err(e) => self.status = e,
@@ -2049,9 +2050,9 @@ impl App {
                         match std::fs::read_to_string(&p) {
                             Ok(t) => {
                                 self.media.keyframes = osisub_media::parse_keyframe_file(&t, self.media.fps().unwrap_or(23.976));
-                                self.status = format!("{} anahtar kare yüklendi", self.media.keyframes.len());
+                                self.status = trf!("{} anahtar kare yüklendi", self.media.keyframes.len());
                             }
-                            Err(e) => self.status = format!("Hata: {}", e),
+                            Err(e) => self.status = trf!("Hata: {}", e),
                         }
                     }
                 }
@@ -2059,7 +2060,7 @@ impl App {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Anahtar kare", &["txt"]).save_file() {
                         let t = osisub_media::write_keyframe_file(&self.media.keyframes, self.media.fps().unwrap_or(23.976));
-                        match std::fs::write(&p, t) { Ok(()) => self.status = tr("Anahtar kareler kaydedildi").into(), Err(e) => self.status = format!("Hata: {}", e) }
+                        match std::fs::write(&p, t) { Ok(()) => self.status = tr("Anahtar kareler kaydedildi").into(), Err(e) => self.status = trf!("Hata: {}", e) }
                     }
                 }
                 ui.separator();
@@ -2068,11 +2069,11 @@ impl App {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Timecode", &["txt", "tc"]).pick_file() {
                         match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| osisub_core::vfr::Framerate::parse_timecodes(&t)) {
                             Ok(fr) => {
-                                self.status = format!("Timecode yüklendi: ortalama {:.3} fps", fr.fps());
+                                self.status = trf!("Timecode yüklendi: ortalama {:.3} fps", fr.fps());
                                 self.media.timecodes = Some(std::sync::Arc::new(fr));
                                 self.media.timecodes_auto = false;
                             }
-                            Err(e) => self.status = format!("Timecode hatası: {}", e),
+                            Err(e) => self.status = trf!("Timecode hatası: {}", e),
                         }
                     }
                 }
@@ -2082,7 +2083,7 @@ impl App {
                         // Kare sayısı: videonun süresi ya da son altyazı bitişi
                         let end = self.media.info.as_ref().map(|i| i.duration_ms).filter(|d| *d > 0).unwrap_or_else(|| self.doc.script.dialogues().map(|d| d.end_time).max().unwrap_or(0));
                         let frames = (fr.frame_at(end) + 1).max(1) as usize;
-                        match std::fs::write(&p, fr.to_v2(frames)) { Ok(()) => self.status = format!("{} kare için timecode kaydedildi", frames), Err(e) => self.status = format!("Hata: {}", e) }
+                        match std::fs::write(&p, fr.to_v2(frames)) { Ok(()) => self.status = trf!("{} kare için timecode kaydedildi", frames), Err(e) => self.status = trf!("Hata: {}", e) }
                     }
                 }
                 if ui.add_enabled(self.media.timecodes.is_some(), egui::Button::new(tr("Timecode'u kapat"))).clicked() {
@@ -2149,7 +2150,7 @@ impl App {
                         ui.close();
                         let n = self.tm_learn_document();
                         self.save_tm();
-                        self.status = format!("Çeviri belleğine {} çift eklendi/güncellendi (toplam {})", n, self.tm.len());
+                        self.status = trf!("Çeviri belleğine {} çift eklendi/güncellendi (toplam {})", n, self.tm.len());
                     }
                     if ui.button(tr("İçe aktar (TSV)…")).clicked() {
                         ui.close();
@@ -2159,16 +2160,16 @@ impl App {
                                     let before = self.tm.len();
                                     self.tm.merge(osisub_core::tm::Memory::parse(&t));
                                     self.tm_rev += 1; self.tm_dirty = true; self.save_tm();
-                                    self.status = format!("Çeviri belleği: {} → {} çift", before, self.tm.len());
+                                    self.status = trf!("Çeviri belleği: {} → {} çift", before, self.tm.len());
                                 }
-                                Err(e) => self.status = format!("Hata: {}", e),
+                                Err(e) => self.status = trf!("Hata: {}", e),
                             }
                         }
                     }
                     if ui.add_enabled(!self.tm.is_empty(), egui::Button::new(tr("Dışa aktar (TSV)…"))).clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv"]).save_file() {
-                            match std::fs::write(&p, self.tm.to_tsv()) { Ok(()) => self.status = tr("Çeviri belleği dışa aktarıldı").into(), Err(e) => self.status = format!("Hata: {}", e) }
+                            match std::fs::write(&p, self.tm.to_tsv()) { Ok(()) => self.status = tr("Çeviri belleği dışa aktarıldı").into(), Err(e) => self.status = trf!("Hata: {}", e) }
                         }
                     }
                 });
@@ -2287,7 +2288,7 @@ impl App {
             ui.label(tr("Önceki oturum düzgün kapanmamış olabilir. Kurtarılabilir otomatik kayıtlar:"));
             for (i, r) in self.recovery.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{} — {} dk önce", r.original.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| r.file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), r.age_min));
+                    ui.label(trf!("{} — {} dk önce", r.original.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| r.file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()), r.age_min));
                     if ui.button(tr("Kurtar")).clicked() { act = Some((i, true)); }
                     if ui.button(tr("Sil")).clicked() { act = Some((i, false)); }
                 });
@@ -2306,7 +2307,7 @@ impl App {
                         if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
                         self.status = tr("Otomatik kayıttan kurtarıldı — kaydetmeyi unutmayın").into();
                     }
-                    Err(e) => self.status = format!("Kurtarılamadı: {}", e),
+                    Err(e) => self.status = trf!("Kurtarılamadı: {}", e),
                 }
             } else {
                 let _ = std::fs::remove_file(&r.file);
@@ -2414,7 +2415,7 @@ impl App {
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     let (w, h) = self.doc.script.res();
-                    ui.label(RichText::new(format!("{}×{}  |  seçili {}  |  {} sorun", w, h, self.doc.selection.len(), self.issues.len())).weak());
+                    ui.label(RichText::new(trf!("{}×{}  |  seçili {}  |  {} sorun", w, h, self.doc.selection.len(), self.issues.len())).weak());
                 });
             });
         });
@@ -2781,12 +2782,12 @@ impl App {
                 let weak = groups.iter().filter(|g| g.fallback).count();
                 let mut offs: Vec<i64> = groups.iter().map(|g| g.offset_ms).collect();
                 offs.dedup();
-                self.status = format!("Yeniden zamanlandı: {} grup, {} farklı kayma{}", groups.len(), offs.len(), if weak > 0 { format!(", {weak} grup GÜVENSİZ (günlüğe bakın)") } else { String::new() });
+                self.status = trf!("Yeniden zamanlandı: {} grup, {} farklı kayma{}", groups.len(), offs.len(), if weak > 0 { format!(", {weak} grup GÜVENSİZ (günlüğe bakın)") } else { String::new() });
                 for g in groups.iter().filter(|g| g.fallback) {
                     self.log.push_str(&format!("Yeniden zamanlama güvensiz: {} – {} (ilinti {:.2}), önceki kayma {:+} ms kullanıldı\n", time::format_ass(g.start_ms), time::format_ass(g.end_ms), g.score, g.offset_ms));
                 }
             }
-            Err(e) => self.status = format!("Yeniden zamanlama başarısız: {e}"),
+            Err(e) => self.status = trf!("Yeniden zamanlama başarısız: {e}"),
         }
     }
 
@@ -2857,7 +2858,7 @@ impl App {
         let n = changes.len();
         let desc = if balance { "Satırları dengele" } else { "Satır sonlarını kaldır" };
         if n > 0 { self.doc.edit(desc, |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
-        self.status = format!("{desc}: {n} satır");
+        self.status = trf!("{desc}: {n} satır");
     }
 
     /// Seçili satırlara harf dönüşümü (Türkçe i/İ duyarlı; etiketler korunur), tek geri-al adımı.
@@ -2868,7 +2869,7 @@ impl App {
         }).collect();
         let n = changes.len();
         if n > 0 { self.doc.edit("Harf dönüştür", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
-        self.status = format!("Harf dönüştürüldü: {n} satır");
+        self.status = trf!("Harf dönüştürüldü: {n} satır");
     }
 
     /// Perspektif video aracı için etkin satırın kutusunu (yazı tipiyle ölçülür, metin değişince
@@ -2958,7 +2959,7 @@ impl App {
         let idx = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(x) if *x == d)).unwrap_or(at);
         if let Some(Entry::Dialogue(x)) = s.entries.get_mut(idx) { x.text = text; }
         self.doc.apply_new_script("Perspektife oturt", s);
-        self.status = format!("Perspektif: köşe hatası {:.2} px, frx {:.1}° fry {:.1}°", err, p.frx, p.fry);
+        self.status = trf!("Perspektif: köşe hatası {:.2} px, frx {:.1}° fry {:.1}°", err, p.frx, p.fry);
     }
 
     /// Seçili satırlara furigana düzeni (osisub_lua::fonts::apply_furigana); eklenen satırlar seçilir.
@@ -2972,7 +2973,7 @@ impl App {
                 self.doc.apply_new_script("Furigana düzeni", s);
                 if let Some(&a) = added.first() { self.doc.active = a; }
                 self.doc.selection = added;
-                self.status = format!("Furigana: {n} satır düzenlendi (kaynaklar yorum olarak korundu)");
+                self.status = trf!("Furigana: {n} satır düzenlendi (kaynaklar yorum olarak korundu)");
                 if let Some(e) = skipped.first() { self.status.push_str(&format!("; {} satır atlandı: {e}", skipped.len())); }
             }
             Err(e) => self.status = e,
@@ -3009,7 +3010,7 @@ impl App {
         }
         if n > 0 {
             self.doc.apply_new_script("Metin → çizim", s);
-            self.status = format!("{n} satır çizime dönüştürüldü");
+            self.status = trf!("{n} satır çizime dönüştürüldü");
         }
     }
 }

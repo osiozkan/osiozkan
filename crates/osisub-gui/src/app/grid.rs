@@ -1,4 +1,5 @@
 use crate::i18n::tr;
+use crate::i18n::trf;
 use super::*;
 
 impl App {
@@ -25,7 +26,7 @@ impl App {
             ui.label(tr("Ara:"));
             ui.add(TextEdit::singleline(&mut self.filter).hint_text(tr("Süz (metin, stil, konuşan)…")).desired_width(260.0));
             if !self.filter.is_empty() && ui.small_button(tr("x")).clicked() { self.filter.clear(); }
-            ui.label(RichText::new(format!("{} / {} satır", self.rows.len(), self.doc.script.dialogues().count())).weak());
+            ui.label(RichText::new(trf!("{} / {} satır", self.rows.len(), self.doc.script.dialogues().count())).weak());
         });
         if self.doc.script.dialogues().next().is_none() {
             ui.add_space(24.0);
@@ -338,7 +339,7 @@ impl App {
                     if name == "i" { t = t.italics(); }
                     if name == "u" { t = t.underline(); }
                     if name == "s" { t = t.strikethrough(); }
-                    if ui.small_button(t).on_hover_text(format!("{tip} — seçimi sarar, seçim yoksa imleçte açar/kapatır")).clicked() {
+                    if ui.small_button(t).on_hover_text(trf!("{tip} — seçimi sarar, seçim yoksa imleçte açar/kapatır")).clicked() {
                         nd.text = osisub_core::overrides::toggle_bool_tag(&nd.text, a, b, name, on);
                         tag_used = true;
                     }
@@ -391,10 +392,10 @@ impl App {
         let vis = osisub_core::tags::visible_text(&nd.text);
         let longest = osisub_core::tags::max_line_len(&nd.text);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());
-            ui.label(RichText::new(format!("{} satır", vis.lines().count().max(1))).weak());
-            ui.label(RichText::new(format!("en uzun satır {}", longest)).color(if longest > self.rules.max_line_len { theme::BAD } else { Color32::GRAY }));
-            ui.label(RichText::new(format!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
+            ui.label(RichText::new(trf!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());
+            ui.label(RichText::new(trf!("{} satır", vis.lines().count().max(1))).weak());
+            ui.label(RichText::new(trf!("en uzun satır {}", longest)).color(if longest > self.rules.max_line_len { theme::BAD } else { Color32::GRAY }));
+            ui.label(RichText::new(trf!("{} kar/sn", if cps.is_finite() { format!("{:.1}", cps) } else { "∞".into() })).color(if cps > self.rules.max_cps { theme::BAD } else { Color32::GRAY }));
         });
         if let Some(r) = &self.reference {
             let (a, b) = (d.start_time, d.end_time);

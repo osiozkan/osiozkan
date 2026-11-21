@@ -1,4 +1,5 @@
 //! Stil düzenleyici paneli.
+use crate::i18n::trf;
 use crate::i18n::tr;
 use eframe::egui::{self, Color32, DragValue};
 use osisub_core::ass::Style;
@@ -51,7 +52,7 @@ pub fn font_picker(ui: &mut egui::Ui, name: &mut String, fonts: Option<&[String]
             a.extend(fonts.iter().filter(|f| { let l = f.to_lowercase(); !l.starts_with(&q) && l.contains(&q) }));
             a
         };
-        ui.label(egui::RichText::new(format!("{} / {} yazı tipi (yazı tipi alanına yazarak süzün)", hits.len(), fonts.len())).weak());
+        ui.label(egui::RichText::new(trf!("{} / {} yazı tipi (yazı tipi alanına yazarak süzün)", hits.len(), fonts.len())).weak());
         let row_h = ui.text_style_height(&egui::TextStyle::Button) + 4.0;
         egui::ScrollArea::vertical().max_height(320.0).min_scrolled_width(260.0).show_rows(ui, row_h, hits.len(), |ui, range| {
             for f in &hits[range] {
