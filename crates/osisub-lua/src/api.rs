@@ -507,11 +507,12 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                         "?script" => get("script_dir", "."),
                         "?video" => PathBuf::from(get("video_file", "")).parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
                         "?audio" => PathBuf::from(get("audio_file", "")).parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default(),
-                        "?data" => get("data_dir", "."),
+                        // Aegisub ?data: uygulama verisi (automation/ klasörünü içerir) → osisub ayar klasörü
+                        "?data" => get("data_dir", &user_dir),
                         "?user" => get("user_dir", &user_dir),
                         "?local" => get("user_dir", &user_dir),
                         "?temp" => std::env::temp_dir().to_string_lossy().to_string(),
-                        "?dictionary" => get("data_dir", "."),
+                        "?dictionary" => format!("{}/dictionaries", get("data_dir", &user_dir)),
                         _ => return None,
                     })
                 };
