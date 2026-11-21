@@ -3,6 +3,7 @@
 //! Pipet: "Pipet" düğmesi bekleme kipini açar; videoda tıklanan noktanın rengi (altyazısız kare,
 //! 3×3 ortalama) medya katmanınca `deliver` ile geri verilir ve bekleyen düğme bir sonraki karede
 //! değeri alır. Esc iptal eder.
+use crate::i18n::tr;
 use eframe::egui::{self, Color32, Id, RichText};
 use osisub_core::color::Color;
 
@@ -78,8 +79,8 @@ pub fn button(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, r
     }
     let waiting = with(&ctx, |s| s.waiting == Some(id));
     let pick = ui
-        .add(egui::Button::new(RichText::new(if waiting { "Videoya tıkla" } else { "Pipet" }).small()).selected(waiting))
-        .on_hover_text("Videodan renk seç (altyazısız kare). Esc: iptal\nRenk kutusuna sağ tık: #RRGGBB / ASS girişi, son renkler");
+        .add(egui::Button::new(RichText::new(if waiting { tr("Videoya tıkla") } else { tr("Pipet") }).small()).selected(waiting))
+        .on_hover_text(tr("Videodan renk seç (altyazısız kare). Esc: iptal\nRenk kutusuna sağ tık: #RRGGBB / ASS girişi, son renkler"));
     if pick.clicked() {
         with(&ctx, |s| s.waiting = if waiting { None } else { Some(id) });
     }
@@ -88,10 +89,10 @@ pub fn button(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, r
         let buf_id = id.with("hexbuf");
         let mut buf: String = ui.data_mut(|d| d.get_temp(buf_id)).unwrap_or_else(|| c.to_html());
         ui.horizontal(|ui| {
-            ui.label("Renk");
+            ui.label(tr("Renk"));
             let te = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(140.0).font(egui::TextStyle::Monospace));
             let enter = te.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button("Uygula").clicked() || enter {
+            if ui.button(tr("Uygula")).clicked() || enter {
                 match Color::parse_any(&buf) {
                     Some(n) => {
                         *rgb = [n.r, n.g, n.b];
@@ -99,7 +100,7 @@ pub fn button(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, r
                         push_recent(&ctx, id, *rgb);
                     }
                     None => {
-                        ui.label(RichText::new("geçersiz").color(Color32::from_rgb(230, 90, 90)));
+                        ui.label(RichText::new(tr("geçersiz")).color(Color32::from_rgb(230, 90, 90)));
                     }
                 }
             }
@@ -107,11 +108,11 @@ pub fn button(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, r
         ui.data_mut(|d| d.insert_temp(buf_id, buf));
         ui.label(RichText::new(format!("ASS {}   HTML {}", c.to_tag_string(), c.to_html())).monospace().weak());
         ui.horizontal(|ui| {
-            if ui.button("ASS kopyala").clicked() {
+            if ui.button(tr("ASS kopyala")).clicked() {
                 ui.ctx().copy_text(c.to_tag_string());
                 ui.close();
             }
-            if ui.button("HTML kopyala").clicked() {
+            if ui.button(tr("HTML kopyala")).clicked() {
                 ui.ctx().copy_text(c.to_html());
                 ui.close();
             }
@@ -119,7 +120,7 @@ pub fn button(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, r
         let recent = with(&ctx, |s| s.recent.clone());
         if !recent.is_empty() {
             ui.separator();
-            ui.label("Son renkler");
+            ui.label(tr("Son renkler"));
             ui.horizontal_wrapped(|ui| {
                 for c in recent {
                     let b = egui::Button::new("").fill(Color32::from_rgb(c[0], c[1], c[2])).min_size(egui::vec2(20.0, 16.0));

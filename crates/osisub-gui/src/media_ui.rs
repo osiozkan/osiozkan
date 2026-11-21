@@ -1,4 +1,5 @@
 //! Video önizleme + ses dalga formu paneli.
+use crate::i18n::tr;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, TextureHandle};
 use osisub_core::ass::Entry;
 use osisub_core::time;
@@ -287,7 +288,7 @@ impl Media {
     /// Aegisub sahte videosunu (`?dummy:…`) üretip açar (önbellekte varsa hemen).
     pub fn open_dummy(&mut self, d: &osisub_core::dummy::DummyVideo, ctx: &egui::Context) {
         let Some(dir) = osisub_core::paths::data_dir().map(|p| p.join("dummy")) else {
-            self.status = "Sahte video: veri klasörü bulunamadı".into();
+            self.status = tr("Sahte video: veri klasörü bulunamadı").into();
             return;
         };
         let out = dir.join(d.cache_name());
@@ -314,7 +315,7 @@ impl Media {
         self.frame_cache.clear();
         self.frame_shown = (-1, u64::MAX);
         self.view_start = 0.0;
-        self.status = "Ortam çözümleniyor…".into();
+        self.status = tr("Ortam çözümleniyor…").into();
         self.path = Some(p.clone());
         let tx = self.tx.clone();
         let ctx2 = ctx.clone();
@@ -804,7 +805,7 @@ impl Media {
     fn pick_color(&mut self, ctx: &egui::Context, u: f32, v: f32) {
         let (Some(path), Some(info)) = (self.path.clone(), self.info.clone()) else { return };
         let (t, tx, ctx2) = (self.playhead, self.tx.clone(), ctx.clone());
-        self.status = "Pipet: renk okunuyor…".into();
+        self.status = tr("Pipet: renk okunuyor…").into();
         std::thread::spawn(move || {
             let r = osisub_media::render_frame(&path, None, t, info.width.max(16), &info).map(|f| {
                 let (w, h) = (f.width as usize, f.height as usize);

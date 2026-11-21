@@ -1,4 +1,5 @@
 //! Stil düzenleyici paneli.
+use crate::i18n::tr;
 use eframe::egui::{self, Color32, DragValue};
 use osisub_core::ass::Style;
 use osisub_core::color::Color;
@@ -25,7 +26,7 @@ fn color_row(ui: &mut egui::Ui, label: &str, v: &mut String) -> bool {
         }
         // Saydamlık (ASS alfa: 0 = opak, 255 = görünmez)
         let mut alpha = 255 - c.a();
-        if ui.add(DragValue::new(&mut alpha).range(0..=255).prefix("α ")).on_hover_text("Saydamlık (0 opak, 255 görünmez)").changed() {
+        if ui.add(DragValue::new(&mut alpha).range(0..=255).prefix("α ")).on_hover_text(tr("Saydamlık (0 opak, 255 görünmez)")).changed() {
             c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 255 - alpha);
             *v = from32(c);
             changed = true;
@@ -39,10 +40,10 @@ fn color_row(ui: &mut egui::Ui, label: &str, v: &mut String) -> bool {
 pub fn font_picker(ui: &mut egui::Ui, name: &mut String, fonts: Option<&[String]>) -> bool {
     let mut ch = false;
     let Some(fonts) = fonts else {
-        ui.add_enabled(false, egui::Button::new("Liste…").small()).on_disabled_hover_text("Yazı tipleri taranıyor…");
+        ui.add_enabled(false, egui::Button::new(tr("Liste…")).small()).on_disabled_hover_text(tr("Yazı tipleri taranıyor…"));
         return false;
     };
-    ui.menu_button("Liste…", |ui| {
+    ui.menu_button(tr("Liste…"), |ui| {
         let q = name.trim().to_lowercase();
         let hits: Vec<&String> = if q.is_empty() { fonts.iter().collect() } else {
             // önce baştan eşleşenler, sonra içerenler
@@ -65,7 +66,7 @@ pub fn font_picker(ui: &mut egui::Ui, name: &mut String, fonts: Option<&[String]
     // Kurulu değilse uyar (ekli yazı tipleri ayrıca denetlenir: Araçlar → Yazı tipi denetimi)
     let n = name.trim_start_matches('@');
     if !n.is_empty() && !fonts.iter().any(|f| f.eq_ignore_ascii_case(n)) {
-        ui.label(egui::RichText::new("kurulu değil").color(crate::theme::BAD)).on_hover_text("Bu sistemde bulunamadı; betiğe ekli (Fonts) değilse izleyicide başka yazı tipiyle görünür");
+        ui.label(egui::RichText::new(tr("kurulu değil")).color(crate::theme::BAD)).on_hover_text(tr("Bu sistemde bulunamadı; betiğe ekli (Fonts) değilse izleyicide başka yazı tipiyle görünür"));
     }
     ch
 }
@@ -74,48 +75,48 @@ pub fn font_picker(ui: &mut egui::Ui, name: &mut String, fonts: Option<&[String]
 pub fn edit(ui: &mut egui::Ui, s: &mut Style, fonts: Option<&[String]>) -> bool {
     let mut ch = false;
     ui.horizontal(|ui| {
-        ui.label("Ad");
+        ui.label(tr("Ad"));
         ch |= ui.text_edit_singleline(&mut s.name).changed();
     });
     ui.horizontal(|ui| {
-        ui.label("Yazı tipi");
+        ui.label(tr("Yazı tipi"));
         ch |= ui.add(egui::TextEdit::singleline(&mut s.fontname).desired_width(190.0)).changed();
         ch |= font_picker(ui, &mut s.fontname, fonts);
-        ui.label("Boyut");
+        ui.label(tr("Boyut"));
         ch |= ui.add(DragValue::new(&mut s.fontsize).range(1.0..=500.0)).changed();
     });
     ui.horizontal(|ui| {
-        ch |= ui.checkbox(&mut s.bold, "Kalın").changed();
-        ch |= ui.checkbox(&mut s.italic, "İtalik").changed();
-        ch |= ui.checkbox(&mut s.underline, "Altı çizili").changed();
-        ch |= ui.checkbox(&mut s.strikeout, "Üstü çizili").changed();
+        ch |= ui.checkbox(&mut s.bold, tr("Kalın")).changed();
+        ch |= ui.checkbox(&mut s.italic, tr("İtalik")).changed();
+        ch |= ui.checkbox(&mut s.underline, tr("Altı çizili")).changed();
+        ch |= ui.checkbox(&mut s.strikeout, tr("Üstü çizili")).changed();
     });
     ch |= color_row(ui, "Birincil  ", &mut s.color1);
     ch |= color_row(ui, "İkincil   ", &mut s.color2);
     ch |= color_row(ui, "Kenar     ", &mut s.color3);
     ch |= color_row(ui, "Gölge     ", &mut s.color4);
     ui.horizontal(|ui| {
-        ui.label("Kenar");
+        ui.label(tr("Kenar"));
         ch |= ui.add(DragValue::new(&mut s.outline).speed(0.1).range(0.0..=50.0)).changed();
-        ui.label("Gölge");
+        ui.label(tr("Gölge"));
         ch |= ui.add(DragValue::new(&mut s.shadow).speed(0.1).range(0.0..=50.0)).changed();
         let mut opaque = s.borderstyle == 3;
-        if ui.checkbox(&mut opaque, "Opak kutu").changed() {
+        if ui.checkbox(&mut opaque, tr("Opak kutu")).changed() {
             s.borderstyle = if opaque { 3 } else { 1 };
             ch = true;
         }
     });
     ui.horizontal(|ui| {
-        ui.label("Ölçek X/Y");
+        ui.label(tr("Ölçek X/Y"));
         ch |= ui.add(DragValue::new(&mut s.scale_x).range(1.0..=1000.0)).changed();
         ch |= ui.add(DragValue::new(&mut s.scale_y).range(1.0..=1000.0)).changed();
-        ui.label("Aralık");
+        ui.label(tr("Aralık"));
         ch |= ui.add(DragValue::new(&mut s.spacing).speed(0.1)).changed();
-        ui.label("Açı");
+        ui.label(tr("Açı"));
         ch |= ui.add(DragValue::new(&mut s.angle).speed(0.5)).changed();
     });
     ui.horizontal(|ui| {
-        ui.label("Hizalama");
+        ui.label(tr("Hizalama"));
         egui::Grid::new("align_grid").spacing([2.0, 2.0]).show(ui, |ui| {
             for row in [[7, 8, 9], [4, 5, 6], [1, 2, 3]] {
                 for a in row {
@@ -129,7 +130,7 @@ pub fn edit(ui: &mut egui::Ui, s: &mut Style, fonts: Option<&[String]>) -> bool 
         });
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                ui.label("Kenar boşluğu S/R/V");
+                ui.label(tr("Kenar boşluğu S/R/V"));
                 ch |= ui.add(DragValue::new(&mut s.margin_l)).changed();
                 ch |= ui.add(DragValue::new(&mut s.margin_r)).changed();
                 let before = s.margin_t;

@@ -1,6 +1,6 @@
 # osisub — Claude için proje notları
 
-Bu depo kökündeki `README.md` kullanıcının **GitHub profil sayfasıdır; dokunma.** Proje: **osisub**, Rust ile yazılmış anime altyazı stüdyosu (Aegisub + Subtitle Edit'in iyi yönleri, Aegisub Lua betiklerini çalıştırır). Kullanıcı Türk; arayüz ve belgeler **Türkçe**. Çalışma dalı: o gecenin zamanlanmış görevinin verdiği dal (`tools/ship.sh` geçerli dala push eder; önceki geceler `claude/vibrant-clarke-2e8jtn`, `-6oujog`, `-dsxf2y`, `-xt32gt` (2026-11-12, v0.5.0), `-u7myjw` (2026-11-13), `-g5biih` (2026-11-15, v0.6.0), `-er83om` (2026-11-20, v0.7.0); yeni gece en son dalı main'e değil o dala göre ileri sarmalı) (başka dala push etme, PR yalnızca istenirse).
+Bu depo kökündeki `README.md` kullanıcının **GitHub profil sayfasıdır; dokunma.** Proje: **osisub**, Rust ile yazılmış anime altyazı stüdyosu (Aegisub + Subtitle Edit'in iyi yönleri, Aegisub Lua betiklerini çalıştırır). Kullanıcı Türk; arayüz ve belgeler **Türkçe**. Çalışma dalı: o gecenin zamanlanmış görevinin verdiği dal (`tools/ship.sh` geçerli dala push eder; önceki geceler `claude/vibrant-clarke-2e8jtn`, `-6oujog`, `-dsxf2y`, `-xt32gt` (2026-11-12, v0.5.0), `-u7myjw` (2026-11-13), `-g5biih` (2026-11-15, v0.6.0), `-er83om` (2026-11-20, v0.7.0), `-e4mle3` (2026-11-21); yeni gece en son dalı main'e değil o dala göre ileri sarmalı) (başka dala push etme, PR yalnızca istenirse).
 
 ## Gece rutini (zamanlanmış çalışma)
 1. Önce `docs/DEVLOG.md` ve `docs/ROADMAP.md` oku; kaldığın yerden devam et. `CHANGELOG.md`'de sürüm notu tut.
@@ -51,6 +51,7 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - ffmpeg dönme meta verisine göre kareyi otomatik döndürür: ffprobe boyutlarıyla crop/scale yapan yerlerde `-noautorotate`.
 - egui: her karede yeniden kurulan `TextEdit` tamponu yazılanı kaybeder; düzenleme tamponunu uygulama durumunda tut (yer imi notu hatası).
 - Japonca yazı tipi testleri: `apt-get install fonts-ipafont-gothic`; Tesseract: `tesseract-ocr` (eng); en_US Hunspell: `hunspell-en-us` (/usr/share/hunspell).
+- **Arayüz dili (i18n.rs):** arayüz metinleri `tr("Türkçe metin")` ile sarılır, anahtar Türkçe metnin kendisi; İngilizcesi `crates/osisub-gui/i18n/en.jsonl` (`["tr","en"]` satırları). `kaynaktaki_metinlerin_cevirisi_var` testi çevirisiz `tr("…")` metninde düşer — yeni düğme/etiket eklerken çevirisini de ekle. Kalıp: `format!` içeren metinler henüz çevrilmiyor; çekirdekten (QC iletileri) gelen metinler Türkçe. Ekran görüntüsü: `OSISUB_LANG=en`.
 - Doğrulanmamış: gerçek ses aygıtı (cpal), macOS'ta GUI'yi elle kullanma, gerçek Windows makinesi (wine dışında), release iş akışı.
 
 ## Stil

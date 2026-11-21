@@ -4,6 +4,7 @@ mod color_ui;
 mod dialog_ui;
 mod guide_ui;
 mod hotkeys;
+mod i18n;
 mod media_ui;
 mod settings;
 mod style_ui;

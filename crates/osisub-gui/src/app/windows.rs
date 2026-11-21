@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use super::*;
 
 /// OP/ED yerleştirme penceresi: önceki bölüme göre zamanlanmış şarkı dosyasını yeni bölüme
@@ -162,11 +163,11 @@ impl App {
     pub(super) fn import_window(&mut self, ctx: &egui::Context) {
         let Some(list) = self.import_styles.as_mut() else { return };
         let mut done: Option<bool> = None;
-        egui::Window::new("Stilleri içe aktar").collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Stilleri içe aktar")).collapsible(false).show(ctx, |ui| {
             for (st, on) in list.iter_mut() { ui.checkbox(on, &st.name); }
             ui.horizontal(|ui| {
-                if ui.button("İçe aktar").clicked() { done = Some(true); }
-                if ui.button("İptal").clicked() { done = Some(false); }
+                if ui.button(tr("İçe aktar")).clicked() { done = Some(true); }
+                if ui.button(tr("İptal")).clicked() { done = Some(false); }
             });
         });
         if let Some(go) = done {
@@ -197,12 +198,12 @@ impl App {
                     });
                 }
             }
-            egui::CollapsingHeader::new("Ayrıntı (yığın izi)").show(ui, |ui| {
+            egui::CollapsingHeader::new(tr("Ayrıntı (yığın izi)")).show(ui, |ui| {
                 egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| { ui.label(RichText::new(&msg).monospace().small()); });
             });
             ui.horizontal(|ui| {
-                if ui.button("Kopyala").clicked() { ui.ctx().copy_text(msg.clone()); }
-                if ui.button("Kapat").clicked() { close = true; }
+                if ui.button(tr("Kopyala")).clicked() { ui.ctx().copy_text(msg.clone()); }
+                if ui.button(tr("Kapat")).clicked() { close = true; }
             });
         });
         if !open || close { self.lua_error = None; }
@@ -215,34 +216,34 @@ impl App {
         if !self.select_open { return; }
         let mut open = true;
         let mut apply = false;
-        egui::Window::new("Satırları seç").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Satırları seç")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             let c = &mut self.select_crit;
-            let r = ui.add(TextEdit::singleline(&mut c.pattern).hint_text("desen (boş + Tam = alanı boş olanlar)").desired_width(320.0));
+            let r = ui.add(TextEdit::singleline(&mut c.pattern).hint_text(tr("desen (boş + Tam = alanı boş olanlar)")).desired_width(320.0));
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) { apply = true; }
             ui.horizontal(|ui| {
-                ui.label("Alan:");
+                ui.label(tr("Alan:"));
                 for (f, l) in [(Field::Text, "Metin"), (Field::Style, "Stil"), (Field::Actor, "Konuşan"), (Field::Effect, "Efekt")] { ui.radio_value(&mut c.field, f, l); }
             });
             ui.horizontal(|ui| {
-                ui.label("Eşleşme:");
+                ui.label(tr("Eşleşme:"));
                 for (m, l) in [(Mode::Contains, "İçerir"), (Mode::Exact, "Tam"), (Mode::Regex, "Düzenli ifade")] { ui.radio_value(&mut c.mode, m, l); }
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut c.match_case, "Büyük/küçük harf duyarlı");
-                ui.checkbox(&mut c.invert, "Eşleşmeyenleri seç");
+                ui.checkbox(&mut c.match_case, tr("Büyük/küçük harf duyarlı"));
+                ui.checkbox(&mut c.invert, tr("Eşleşmeyenleri seç"));
             });
             ui.horizontal(|ui| {
-                ui.label("Satırlar:");
-                ui.checkbox(&mut c.dialogues, "Diyalog");
-                ui.checkbox(&mut c.comments, "Yorum");
+                ui.label(tr("Satırlar:"));
+                ui.checkbox(&mut c.dialogues, tr("Diyalog"));
+                ui.checkbox(&mut c.comments, tr("Yorum"));
             });
             ui.horizontal(|ui| {
-                ui.label("Seçim:");
+                ui.label(tr("Seçim:"));
                 for (a, l) in [(Action::Set, "Yeni seçim"), (Action::Add, "Ekle"), (Action::Subtract, "Çıkar"), (Action::Intersect, "Kesişim")] { ui.radio_value(&mut c.action, a, l); }
             });
             ui.horizontal(|ui| {
-                if ui.button("Seç").clicked() { apply = true; }
-                if ui.button("Kapat").clicked() { self.select_open = false; }
+                if ui.button(tr("Seç")).clicked() { apply = true; }
+                if ui.button(tr("Kapat")).clicked() { self.select_open = false; }
             });
         });
         if apply {
@@ -270,26 +271,26 @@ impl App {
         let mut save: Option<String> = None;
         let mut add_files = false;
         let mut embed_used = false;
-        egui::Window::new("Ekler").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            if list.is_empty() { ui.label(RichText::new("Bu betikte gömülü dosya yok.").weak()); }
+        egui::Window::new(tr("Ekler")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            if list.is_empty() { ui.label(RichText::new(tr("Bu betikte gömülü dosya yok.")).weak()); }
             egui::Grid::new("attach_grid").num_columns(4).striped(true).show(ui, |ui| {
                 for a in &list {
                     ui.label(RichText::new(&a.name).monospace());
                     ui.label(RichText::new(&a.section).weak());
                     ui.label(format!("{:.1} KB", a.size as f64 / 1024.0));
                     ui.horizontal(|ui| {
-                        if ui.small_button("Kaydet…").clicked() { save = Some(a.name.clone()); }
-                        if ui.small_button("Sil").clicked() { remove = Some(a.name.clone()); }
+                        if ui.small_button(tr("Kaydet…")).clicked() { save = Some(a.name.clone()); }
+                        if ui.small_button(tr("Sil")).clicked() { remove = Some(a.name.clone()); }
                     });
                     ui.end_row();
                 }
             });
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Dosya ekle…").clicked() { add_files = true; }
-                if ui.button("Kullanılan yazı tiplerini göm").on_hover_text("Betikte kullanılan ve sistemde bulunan yazı tipi dosyalarını [Fonts] bölümüne ekler").clicked() { embed_used = true; }
+                if ui.button(tr("Dosya ekle…")).clicked() { add_files = true; }
+                if ui.button(tr("Kullanılan yazı tiplerini göm")).on_hover_text(tr("Betikte kullanılan ve sistemde bulunan yazı tipi dosyalarını [Fonts] bölümüne ekler")).clicked() { embed_used = true; }
             });
-            ui.label(RichText::new("Gömülü yazı tipleri libass/VSFilter tarafından okunur; dosya boyutu ~%33 büyür.").weak().small());
+            ui.label(RichText::new(tr("Gömülü yazı tipleri libass/VSFilter tarafından okunur; dosya boyutu ~%33 büyür.")).weak().small());
         });
         if let Some(n) = remove {
             let mut s = self.doc.script.clone();
@@ -349,8 +350,8 @@ impl App {
                 ui.label(RichText::new(format!("+{} eklendi", a)).color(theme::ACCENT));
                 ui.label(RichText::new(format!("−{} silindi", r)).color(theme::BAD));
                 ui.label(RichText::new(format!("~{} değişti", m)).color(theme::WARN));
-                if ui.small_button("Yenile").on_hover_text("Açık belgedeki son düzenlemelerle yeniden karşılaştır").clicked() { refresh = true; }
-                if ui.small_button("HTML rapor kaydet…").on_hover_text("Sözcük düzeyinde farklarla tek dosyalık rapor (editör değişikliklerini çevirmene göndermek için)").clicked() {
+                if ui.small_button(tr("Yenile")).on_hover_text(tr("Açık belgedeki son düzenlemelerle yeniden karşılaştır")).clicked() { refresh = true; }
+                if ui.small_button(tr("HTML rapor kaydet…")).on_hover_text(tr("Sözcük düzeyinde farklarla tek dosyalık rapor (editör değişikliklerini çevirmene göndermek için)")).clicked() {
                     let title = format!("{} → {}", name, self.doc.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "açık belge".into()));
                     if let Some(p) = rfd::FileDialog::new().set_file_name("farklar.html").add_filter("HTML", &["html"]).save_file() {
                         self.status = match std::fs::write(&p, osisub_core::compare::report_html(&title, &old, &self.doc.script, &changes)) { Ok(()) => format!("Rapor kaydedildi: {}", p.display()), Err(e) => format!("Hata: {e}") };
@@ -400,9 +401,9 @@ impl App {
     pub(super) fn hotkeys_window(&mut self, ctx: &egui::Context) {
         if !self.hotkeys_open { return; }
         let mut open = true;
-        egui::Window::new("Kısayolları düzenle").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            ui.label(RichText::new("Düğmeye tıklayıp tuş birleşimine basın (Esc = iptal, Backspace = kaldır). Lua makroları için: Otomasyon sekmesi.").weak().small());
-            if ui.button("Aegisub hotkey.json içe aktar…").on_hover_text("Aegisub'daki kısayollarınızı (karşılığı olan komutlar ve Lua makroları) alır").clicked() {
+        egui::Window::new(tr("Kısayolları düzenle")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Düğmeye tıklayıp tuş birleşimine basın (Esc = iptal, Backspace = kaldır). Lua makroları için: Otomasyon sekmesi.")).weak().small());
+            if ui.button(tr("Aegisub hotkey.json içe aktar…")).on_hover_text(tr("Aegisub'daki kısayollarınızı (karşılığı olan komutlar ve Lua makroları) alır")).clicked() {
                 let mut dlg = rfd::FileDialog::new().add_filter("hotkey.json", &["json"]);
                 if let Some(d) = osisub_core::paths::aegisub_automation_dirs().first().and_then(|d| d.parent().map(|p| p.to_path_buf())) { dlg = dlg.set_directory(d); }
                 if let Some(p) = dlg.pick_file() { self.import_aegisub_hotkeys(&p); }
@@ -411,7 +412,7 @@ impl App {
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                 egui::Grid::new("hk_grid").num_columns(2).striped(true).show(ui, |ui| {
                     for (id, label) in super::COMMANDS {
-                        ui.label(*label);
+                        ui.label(tr(label));
                         let cur = self.settings.macro_hotkeys.iter().find(|h| h.script == super::COMMAND_SCRIPT && h.name == *id).map(|h| h.keys.clone());
                         let capturing = self.hotkey_capture.as_ref().map_or(false, |(s, n)| s == super::COMMAND_SCRIPT && n == id);
                         let text = if capturing { "tuşa basın…".to_string() } else { cur.unwrap_or_else(|| "—".into()) };
@@ -451,17 +452,17 @@ impl App {
         let Some((path, mut opts, mut offset)) = self.merge_win.take() else { return };
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Dosya birleştir").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Dosya birleştir")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.label(RichText::new(path.display().to_string()).monospace().small());
             ui.horizontal(|ui| {
-                ui.label("Zaman kaydırma");
+                ui.label(tr("Zaman kaydırma"));
                 ui.add(egui::TextEdit::singleline(&mut offset).desired_width(110.0).font(egui::TextStyle::Monospace))
-                    .on_hover_text("Eklenen satırlara eklenir (ör. OP'yi 0:01:30.00'a yerleştirmek için). Negatif için başına '-'");
+                    .on_hover_text(tr("Eklenen satırlara eklenir (ör. OP'yi 0:01:30.00'a yerleştirmek için). Negatif için başına '-'"));
             });
-            ui.checkbox(&mut opts.sort, "Satırları zamana göre sırala");
-            ui.checkbox(&mut opts.skip_comments, "Yorum satırlarını alma");
-            ui.label(RichText::new("Aynı adlı farklı stiller \"Ad (2)\" olarak eklenir; farklı çözünürlük bu belgeninkine örneklenir.").small().weak());
-            if ui.button("Birleştir").clicked() { go = true; }
+            ui.checkbox(&mut opts.sort, tr("Satırları zamana göre sırala"));
+            ui.checkbox(&mut opts.skip_comments, tr("Yorum satırlarını alma"));
+            ui.label(RichText::new(tr("Aynı adlı farklı stiller \"Ad (2)\" olarak eklenir; farklı çözünürlük bu belgeninkine örneklenir.")).small().weak());
+            if ui.button(tr("Birleştir")).clicked() { go = true; }
         });
         if go {
             let (neg, t) = match offset.trim().strip_prefix('-') { Some(r) => (true, r), None => (false, offset.trim()) };
@@ -510,18 +511,18 @@ impl App {
         let parsed = osisub_core::motion::parse_ae(&m.text);
         // Transform verisi değilse köşe pini (CC Power Pin / Corner Pin) dene
         let pin = if parsed.is_err() { osisub_core::motion::parse_corner_pin(&m.text).ok() } else { None };
-        egui::Window::new("Hareket izleme verisi").open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
-            ui.label(RichText::new("Mocha: Export Tracking Data → \"After Effects Transform Data\" (konum/ölçek/dönüş) ya da \"After Effects CC Power Pin\" / \"Corner Pin\" (perspektif) → panoya kopyala, aşağıdaki kutuya Ctrl+V.").small().weak());
+        egui::Window::new(tr("Hareket izleme verisi")).open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Mocha: Export Tracking Data → \"After Effects Transform Data\" (konum/ölçek/dönüş) ya da \"After Effects CC Power Pin\" / \"Corner Pin\" (perspektif) → panoya kopyala, aşağıdaki kutuya Ctrl+V.")).small().weak());
             ui.horizontal(|ui| {
-                if ui.button("Dosyadan yükle…").clicked() {
+                if ui.button(tr("Dosyadan yükle…")).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Keyframe verisi", &["txt", "*"]).pick_file() {
                         if let Ok(t) = std::fs::read_to_string(&p) { m.text = t; }
                     }
                 }
-                if ui.button("Temizle").clicked() { m.text.clear(); }
+                if ui.button(tr("Temizle")).clicked() { m.text.clear(); }
             });
             egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut m.text).font(egui::TextStyle::Monospace).desired_rows(8).desired_width(f32::INFINITY).hint_text("Adobe After Effects 6.0 Keyframe Data …"));
+                ui.add(egui::TextEdit::multiline(&mut m.text).font(egui::TextStyle::Monospace).desired_rows(8).desired_width(f32::INFINITY).hint_text(tr("Adobe After Effects 6.0 Keyframe Data …")));
             });
             match (&parsed, &pin) {
                 (Ok(d), _) => { ui.label(RichText::new(format!("{} kare · kaynak {}×{} · {} fps", d.frames.len(), d.width, d.height, d.fps)).color(theme::ACCENT)); }
@@ -530,17 +531,17 @@ impl App {
                 _ => {}
             }
             if pin.is_none() { ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut m.opts.position, "Konum");
-                ui.checkbox(&mut m.opts.scale, "Ölçek");
+                ui.checkbox(&mut m.opts.position, tr("Konum"));
+                ui.checkbox(&mut m.opts.scale, tr("Ölçek"));
                 ui.add_enabled(m.opts.scale, egui::Checkbox::new(&mut m.opts.scale_border, "Kenar/gölge/bulanıklık da"));
-                ui.checkbox(&mut m.opts.rotation, "Döndürme");
-                ui.checkbox(&mut m.opts.clip, "Kırpma (\\clip)");
-                ui.checkbox(&mut m.opts.linear, "Doğrusal (\\move + \\t, tek satır)").on_hover_text("Satırı kare kare bölmek yerine ilk ve son karenin değerleri arasında doğrusal geçiş; yavaş/düz hareketler için hafif çıktı");
+                ui.checkbox(&mut m.opts.rotation, tr("Döndürme"));
+                ui.checkbox(&mut m.opts.clip, tr("Kırpma (\\clip)"));
+                ui.checkbox(&mut m.opts.linear, tr("Doğrusal (\\move + \\t, tek satır)")).on_hover_text(tr("Satırı kare kare bölmek yerine ilk ve son karenin değerleri arasında doğrusal geçiş; yavaş/düz hareketler için hafif çıktı"));
             }); }
             ui.horizontal(|ui| {
-                ui.label("İzin ilk karesi = video karesi");
+                ui.label(tr("İzin ilk karesi = video karesi"));
                 ui.add(egui::DragValue::new(&mut m.opts.start_frame).range(0..=10_000_000));
-                if ui.small_button("seçimin ilk karesi").clicked() {
+                if ui.small_button(tr("seçimin ilk karesi")).clicked() {
                     let fr = self.motion_framerate(parsed.as_ref().ok().map(|d| d.fps));
                     if let Some(t) = self.doc.target_lines().iter().filter_map(|&i| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None }).min() {
                         m.opts.start_frame = fr.frame_at_start(t);
@@ -609,36 +610,36 @@ impl App {
         let sel = self.doc.selection.clone();
         let scope: Option<Vec<usize>> = (sel.len() > 1).then_some(sel);
         let mut action: Option<u8> = None;
-        egui::Window::new("Toplu satır işlemleri").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Toplu satır işlemleri")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.label(RichText::new(match &scope { Some(s) => format!("Kapsam: seçili {} satır", s.len()), None => "Kapsam: tüm belge (birden çok satır seçerek daraltın)".into() }).small().weak());
-            ui.label(RichText::new("Yorum, tipografi, karaoke ve fx satırlarına dokunulmaz.").small().weak());
+            ui.label(RichText::new(tr("Yorum, tipografi, karaoke ve fx satırlarına dokunulmaz.")).small().weak());
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Aynı metinli ardışık satırları birleştir; en çok boşluk");
+                ui.label(tr("Aynı metinli ardışık satırları birleştir; en çok boşluk"));
                 ui.add(egui::DragValue::new(&mut b.same_gap).range(0..=5000).suffix(" ms"));
-                if ui.button("Uygula").clicked() { action = Some(1); }
+                if ui.button(tr("Uygula")).clicked() { action = Some(1); }
             });
             ui.horizontal(|ui| {
-                ui.label("Kısa satırları birleştir; toplam ≤");
+                ui.label(tr("Kısa satırları birleştir; toplam ≤"));
                 ui.add(egui::DragValue::new(&mut b.short_chars).range(4..=120).suffix(" kar"));
-                ui.label("boşluk ≤");
+                ui.label(tr("boşluk ≤"));
                 ui.add(egui::DragValue::new(&mut b.short_gap).range(0..=5000).suffix(" ms"));
-                if ui.button("Uygula").clicked() { action = Some(2); }
+                if ui.button(tr("Uygula")).clicked() { action = Some(2); }
             });
             ui.separator();
-            ui.label("Süreleri okuma hızına göre yeniden hesapla");
+            ui.label(tr("Süreleri okuma hızına göre yeniden hesapla"));
             ui.horizontal(|ui| {
                 ui.add(egui::DragValue::new(&mut b.cps).range(5.0..=40.0).speed(0.5).suffix(" kar/sn"));
-                ui.label("en az");
+                ui.label(tr("en az"));
                 ui.add(egui::DragValue::new(&mut b.min_ms).range(100..=10000).suffix(" ms"));
-                ui.label("en çok");
+                ui.label(tr("en çok"));
                 ui.add(egui::DragValue::new(&mut b.max_ms).range(500..=30000).suffix(" ms"));
             });
             ui.horizontal(|ui| {
-                ui.label("sonraki satıra boşluk");
+                ui.label(tr("sonraki satıra boşluk"));
                 ui.add(egui::DragValue::new(&mut b.gap_ms).range(0..=2000).suffix(" ms"));
-                ui.checkbox(&mut b.extend_only, "yalnızca uzat");
-                if ui.button("Uygula").clicked() { action = Some(3); }
+                ui.checkbox(&mut b.extend_only, tr("yalnızca uzat"));
+                if ui.button(tr("Uygula")).clicked() { action = Some(3); }
             });
         });
         if let Some(a) = action {
@@ -667,10 +668,10 @@ impl App {
         let styles: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
         let fl = filter.to_lowercase();
         let matches: Vec<&String> = styles.iter().filter(|s| fl.is_empty() || s.to_lowercase().contains(&fl)).collect();
-        egui::Window::new("Stil yardımcısı").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+        egui::Window::new(tr("Stil yardımcısı")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
             ui.label(RichText::new(osisub_core::tags::visible_text(&text).replace('\n', " / ")).size(16.0));
             ui.label(RichText::new(format!("Şu anki stil: {cur_style}")).weak());
-            let r = ui.add(egui::TextEdit::singleline(&mut filter).hint_text("stil süz… (Enter = ilk eşleşeni uygula, sonraki satır)").desired_width(f32::INFINITY));
+            let r = ui.add(egui::TextEdit::singleline(&mut filter).hint_text(tr("stil süz… (Enter = ilk eşleşeni uygula, sonraki satır)")).desired_width(f32::INFINITY));
             // lost_focus() bellekten okunur: odak geri istenmeden ÖNCE denetlenmeli
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 if let Some(s) = matches.first() { chosen = Some((*s).clone()); }
@@ -682,9 +683,9 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button("< Önceki satır").clicked() { skip = -1; }
-                if ui.button("Atla >").clicked() { skip = 1; }
-                ui.label(RichText::new("Ayrıca: PgUp/PgDn ile satırlar arasında gezin").small().weak());
+                if ui.button(tr("< Önceki satır")).clicked() { skip = -1; }
+                if ui.button(tr("Atla >")).clicked() { skip = 1; }
+                ui.label(RichText::new(tr("Ayrıca: PgUp/PgDn ile satırlar arasında gezin")).small().weak());
             });
             if ui.input(|i| i.key_pressed(egui::Key::PageDown)) { skip = 1; }
             if ui.input(|i| i.key_pressed(egui::Key::PageUp)) { skip = -1; }
@@ -722,12 +723,12 @@ impl App {
         }
         let running = w.rx.is_some();
         let mut start = false;
-        egui::Window::new("Toplu dosya işlemleri").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+        egui::Window::new(tr("Toplu dosya işlemleri")).open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Dosya ekle…").clicked() {
+                if ui.button(tr("Dosya ekle…")).clicked() {
                     if let Some(v) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_files() { for p in v { if !w.files.contains(&p) { w.files.push(p); } } }
                 }
-                if ui.button("Klasör ekle…").clicked() {
+                if ui.button(tr("Klasör ekle…")).clicked() {
                     if let Some(d) = rfd::FileDialog::new().pick_folder() {
                         if let Ok(rd) = std::fs::read_dir(&d) {
                             let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file() && osisub_core::io::OPEN_EXTS.contains(&osisub_core::io::ext_of(p).as_str()) && osisub_core::io::ext_of(p) != "txt").collect();
@@ -736,14 +737,14 @@ impl App {
                         }
                     }
                 }
-                if ui.button("Temizle").clicked() { w.files.clear(); }
+                if ui.button(tr("Temizle")).clicked() { w.files.clear(); }
                 ui.label(format!("{} dosya", w.files.len()));
             });
             egui::ScrollArea::vertical().id_salt("fb_files").max_height(120.0).show(ui, |ui| {
                 let mut rm = None;
                 for (i, f) in w.files.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("x").clicked() { rm = Some(i); }
+                        if ui.small_button(tr("x")).clicked() { rm = Some(i); }
                         ui.label(RichText::new(f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).monospace().small());
                     });
                 }
@@ -751,35 +752,35 @@ impl App {
             });
             ui.separator();
             egui::Grid::new("fb_opts").num_columns(2).show(ui, |ui| {
-                ui.label("Çıktı biçimi");
+                ui.label(tr("Çıktı biçimi"));
                 egui::ComboBox::from_id_salt("fb_ext").selected_text(if w.job.out_ext.is_empty() { "aynı".to_string() } else { w.job.out_ext.clone() }).show_ui(ui, |ui| {
                     for e in ["", "ass", "srt", "vtt", "ttml", "itt", "stl", "sbv", "smi", "lrc", "txt"] { ui.selectable_value(&mut w.job.out_ext, e.to_string(), if e.is_empty() { "aynı" } else { e }); }
                 });
                 ui.end_row();
-                ui.label("Çıktı klasörü");
+                ui.label(tr("Çıktı klasörü"));
                 ui.horizontal(|ui| {
                     ui.label(w.job.out_dir.as_ref().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|| "girdinin klasörü".into()));
-                    if ui.small_button("Seç…").clicked() { w.job.out_dir = rfd::FileDialog::new().pick_folder(); }
-                    if w.job.out_dir.is_some() && ui.small_button("sıfırla").clicked() { w.job.out_dir = None; }
+                    if ui.small_button(tr("Seç…")).clicked() { w.job.out_dir = rfd::FileDialog::new().pick_folder(); }
+                    if w.job.out_dir.is_some() && ui.small_button(tr("sıfırla")).clicked() { w.job.out_dir = None; }
                 });
                 ui.end_row();
-                ui.label("Ada son ek");
-                ui.add(egui::TextEdit::singleline(&mut w.job.suffix).desired_width(120.0).hint_text("_tr"));
+                ui.label(tr("Ada son ek"));
+                ui.add(egui::TextEdit::singleline(&mut w.job.suffix).desired_width(120.0).hint_text(tr("_tr")));
                 ui.end_row();
-                ui.label("Zaman kaydır");
+                ui.label(tr("Zaman kaydır"));
                 ui.add(egui::DragValue::new(&mut w.job.shift_ms).speed(10).suffix(" ms"));
                 ui.end_row();
                 ui.label("");
                 ui.vertical(|ui| {
-                    ui.checkbox(&mut w.fixes, "Sık hataları düzelt (varsayılan kurallar)");
-                    ui.checkbox(&mut w.job.remove_comments, "Yorum satırlarını sil");
+                    ui.checkbox(&mut w.fixes, tr("Sık hataları düzelt (varsayılan kurallar)"));
+                    ui.checkbox(&mut w.job.remove_comments, tr("Yorum satırlarını sil"));
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut w.resample, "Yeniden örnekle");
+                        ui.checkbox(&mut w.resample, tr("Yeniden örnekle"));
                         ui.add_enabled(w.resample, egui::DragValue::new(&mut w.res.0).range(16..=8192));
                         ui.label("×");
                         ui.add_enabled(w.resample, egui::DragValue::new(&mut w.res.1).range(16..=8192));
                     });
-                    ui.checkbox(&mut w.job.overwrite, "Girdinin üzerine yazmaya izin ver");
+                    ui.checkbox(&mut w.job.overwrite, tr("Girdinin üzerine yazmaya izin ver"));
                 });
                 ui.end_row();
             });
@@ -787,8 +788,8 @@ impl App {
                 ui.label(RichText::new(format!("Örnek çıktı: {}", osisub_core::filebatch::out_path(f, &w.job).display())).small().weak());
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new("Başlat")).clicked() { start = true; }
-                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new("Kalite raporu (HTML)…")).on_hover_text("Tüm dosyaları denetler (zamanlama, okuma hızı, etiket hataları, çevrilmemiş satırlar, betik başlığı) ve özet tablolu tek bir HTML rapor kaydeder; dosyalar değişmez").clicked() {
+                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new(tr("Başlat"))).clicked() { start = true; }
+                if ui.add_enabled(!running && !w.files.is_empty(), egui::Button::new(tr("Kalite raporu (HTML)…"))).on_hover_text(tr("Tüm dosyaları denetler (zamanlama, okuma hızı, etiket hataları, çevrilmemiş satırlar, betik başlığı) ve özet tablolu tek bir HTML rapor kaydeder; dosyalar değişmez")).clicked() {
                     if let Some(out) = rfd::FileDialog::new().add_filter("HTML", &["html"]).set_file_name("toplu-qc.html").save_file() {
                         let files = w.files.clone();
                         let (tx, rx) = std::sync::mpsc::channel();
@@ -876,24 +877,24 @@ impl App {
         }
         let mut open = true;
         let mut act: i8 = 0; // 1 uygula+sonraki, 2 atla, -1 önceki
-        egui::Window::new("Kanji zamanlayıcı").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
-            ui.label(RichText::new("Kaynak (romaji, \\k'li) satırın hece süreleri, aynı zamandaki hedef satırın (kanji/kana) gruplarına aktarılır. Gruplar | ile, bir gruptaki kaynak heceler + ile ayrılır.").small().weak());
+        egui::Window::new(tr("Kanji zamanlayıcı")).open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Kaynak (romaji, \\k'li) satırın hece süreleri, aynı zamandaki hedef satırın (kanji/kana) gruplarına aktarılır. Gruplar | ile, bir gruptaki kaynak heceler + ile ayrılır.")).small().weak());
             ui.horizontal(|ui| {
-                ui.label("Kaynak stil");
+                ui.label(tr("Kaynak stil"));
                 egui::ComboBox::from_id_salt("kt_src").selected_text(&w.src_style).show_ui(ui, |ui| { for s in &styles { ui.selectable_value(&mut w.src_style, s.clone(), s); } });
-                ui.label("Hedef stil");
+                ui.label(tr("Hedef stil"));
                 egui::ComboBox::from_id_salt("kt_dst").selected_text(&w.dst_style).show_ui(ui, |ui| { for s in &styles { ui.selectable_value(&mut w.dst_style, s.clone(), s); } });
             });
             let pos = w.cur.and_then(|c| srcs.iter().position(|&i| i == c)).map(|p| p + 1).unwrap_or(0);
             ui.label(format!("Kaynak satır {pos} / {}", srcs.len()));
-            if srcs.is_empty() { ui.label(RichText::new("Kaynak stilde \\k'li satır yok").color(theme::BAD)); return; }
-            if pair.is_none() { ui.label(RichText::new("Bu satırla aynı zamanda hedef stilde satır yok (±200 ms)").color(theme::BAD)); }
+            if srcs.is_empty() { ui.label(RichText::new(tr("Kaynak stilde \\k'li satır yok")).color(theme::BAD)); return; }
+            if pair.is_none() { ui.label(RichText::new(tr("Bu satırla aynı zamanda hedef stilde satır yok (±200 ms)")).color(theme::BAD)); }
             ui.label(RichText::new(src_syls.iter().map(|s| format!("{}({})", s.visible().trim(), s.dur)).collect::<Vec<_>>().join(" ")).monospace().small());
             egui::Grid::new("kt_g").num_columns(2).show(ui, |ui| {
-                ui.label("Kaynak gruplar");
+                ui.label(tr("Kaynak gruplar"));
                 ui.add(egui::TextEdit::singleline(&mut w.src_str).font(egui::TextStyle::Monospace).desired_width(420.0));
                 ui.end_row();
-                ui.label("Hedef gruplar");
+                ui.label(tr("Hedef gruplar"));
                 ui.add(egui::TextEdit::singleline(&mut w.dst_str).font(egui::TextStyle::Monospace).desired_width(420.0));
                 ui.end_row();
             });
@@ -906,11 +907,11 @@ impl App {
                 Err(e) => { ui.label(RichText::new(e).color(theme::BAD)); }
             }
             ui.horizontal(|ui| {
-                if ui.button("Otomatik").clicked() { w.loaded = None; }
-                ui.checkbox(&mut w.furigana, "Furigana okunuşu ekle").on_hover_text("Kanji gruplarına okunuşu romaji hecelerinden hiragana olarak ekler (君|きみ); sonra Araçlar → Furigana düzeni ile üste yerleştirin");
-                if ui.add_enabled(res.is_ok() && pair.is_some(), egui::Button::new("Uygula ve sonraki")).clicked() { act = 1; }
-                if ui.button("Atla").clicked() { act = 2; }
-                if ui.button("Önceki").clicked() { act = -1; }
+                if ui.button(tr("Otomatik")).clicked() { w.loaded = None; }
+                ui.checkbox(&mut w.furigana, tr("Furigana okunuşu ekle")).on_hover_text(tr("Kanji gruplarına okunuşu romaji hecelerinden hiragana olarak ekler (君|きみ); sonra Araçlar → Furigana düzeni ile üste yerleştirin"));
+                if ui.add_enabled(res.is_ok() && pair.is_some(), egui::Button::new(tr("Uygula ve sonraki"))).clicked() { act = 1; }
+                if ui.button(tr("Atla")).clicked() { act = 2; }
+                if ui.button(tr("Önceki")).clicked() { act = -1; }
             });
         });
         if act == 1 {
@@ -952,25 +953,25 @@ impl App {
         let Some((mut text, mut f)) = self.paste_over.take() else { return };
         let mut open = true;
         let mut apply = false;
-        egui::Window::new("Üzerine yapıştır").open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
-            ui.label(RichText::new("Panodaki satırların işaretli alanları seçili satırlara sırayla yazılır (Aegisub: Paste Over). Kutuya Ctrl+V ile yapıştırabilirsiniz.").small().weak());
+        egui::Window::new(tr("Üzerine yapıştır")).open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Panodaki satırların işaretli alanları seçili satırlara sırayla yazılır (Aegisub: Paste Over). Kutuya Ctrl+V ile yapıştırabilirsiniz.")).small().weak());
             let names = ["Katman", "Başlangıç", "Bitiş", "Stil", "Konuşan", "Sol kenar", "Sağ kenar", "Dikey kenar", "Efekt", "Metin"];
             ui.horizontal_wrapped(|ui| {
                 for (i, n) in names.iter().enumerate() { ui.checkbox(&mut f[i], *n); }
             });
             ui.horizontal(|ui| {
-                if ui.small_button("Hepsi").clicked() { f = [true; 10]; }
-                if ui.small_button("Hiçbiri").clicked() { f = [false; 10]; }
-                if ui.small_button("Zamanlar").clicked() { f = [false, true, true, false, false, false, false, false, false, false]; }
-                if ui.small_button("Metin").clicked() { f = [false; 10]; f[9] = true; }
+                if ui.small_button(tr("Hepsi")).clicked() { f = [true; 10]; }
+                if ui.small_button(tr("Hiçbiri")).clicked() { f = [false; 10]; }
+                if ui.small_button(tr("Zamanlar")).clicked() { f = [false, true, true, false, false, false, false, false, false, false]; }
+                if ui.small_button(tr("Metin")).clicked() { f = [false; 10]; f[9] = true; }
             });
             egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                ui.add(egui::TextEdit::multiline(&mut text).font(egui::TextStyle::Monospace).desired_rows(6).desired_width(f32::INFINITY).hint_text("Dialogue: 0,0:00:01.00,…"));
+                ui.add(egui::TextEdit::multiline(&mut text).font(egui::TextStyle::Monospace).desired_rows(6).desired_width(f32::INFINITY).hint_text(tr("Dialogue: 0,0:00:01.00,…")));
             });
             let src = text.lines().filter(|l| l.trim_start().starts_with("Dialogue:") || l.trim_start().starts_with("Comment:")).count();
             let n = self.doc.target_lines().len();
             ui.label(format!("Panoda {src} satır · seçili {n} satır{}", if src != n && src > 0 { " (sayılar farklı: kısa olana kadar uygulanır)" } else { "" }));
-            if ui.add_enabled(src > 0 && f.iter().any(|x| *x), egui::Button::new("Uygula")).clicked() { apply = true; }
+            if ui.add_enabled(src > 0 && f.iter().any(|x| *x), egui::Button::new(tr("Uygula"))).clicked() { apply = true; }
         });
         if apply {
             let n = self.doc.paste_over(&text, &f);
@@ -987,27 +988,27 @@ impl App {
         let mut open = true;
         let mut action: Option<u8> = None;
         let grad = w.mode >= 3;
-        egui::Window::new("Etiket uygula / yeniden hesapla").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+        egui::Window::new(tr("Etiket uygula / yeniden hesapla")).open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.radio_value(&mut w.mode, 0, "Başlangıç bloğu");
-                ui.radio_value(&mut w.mode, 1, "Tüm bloklar");
-                ui.radio_value(&mut w.mode, 2, "\\t dönüşümü");
-                ui.radio_value(&mut w.mode, 3, "Harf degradesi");
-                ui.radio_value(&mut w.mode, 4, "Satır degradesi");
+                ui.radio_value(&mut w.mode, 0, tr("Başlangıç bloğu"));
+                ui.radio_value(&mut w.mode, 1, tr("Tüm bloklar"));
+                ui.radio_value(&mut w.mode, 2, tr("\\t dönüşümü"));
+                ui.radio_value(&mut w.mode, 3, tr("Harf degradesi"));
+                ui.radio_value(&mut w.mode, 4, tr("Satır degradesi"));
             });
             if w.mode == 2 {
                 ui.horizontal(|ui| {
-                    ui.label("t1");
+                    ui.label(tr("t1"));
                     ui.add(egui::DragValue::new(&mut w.t1).speed(10).suffix(" ms"));
-                    ui.label("t2");
+                    ui.label(tr("t2"));
                     ui.add(egui::DragValue::new(&mut w.t2).speed(10).suffix(" ms"));
-                    ui.label("ivme");
+                    ui.label(tr("ivme"));
                     ui.add(egui::DragValue::new(&mut w.accel).range(0.01..=20.0).speed(0.05));
-                    if ui.small_button("tüm satır").on_hover_text("t1 = t2 = 0: satır boyunca").clicked() { w.t1 = 0; w.t2 = 0; }
+                    if ui.small_button(tr("tüm satır")).on_hover_text(tr("t1 = t2 = 0: satır boyunca")).clicked() { w.t1 = 0; w.t2 = 0; }
                 });
             } else if grad {
                 ui.horizontal(|ui| {
-                    ui.label("ivme");
+                    ui.label(tr("ivme"));
                     ui.add(egui::DragValue::new(&mut w.accel).range(0.01..=20.0).speed(0.05));
                     ui.label(RichText::new(if w.mode == 3 { "ilk harf = başlangıç, son harf = bitiş (boşluk ve \\N sayılmaz)" } else { "ilk seçili satır = başlangıç, son = bitiş (kare kare tipografi)" }).small().weak());
                 });
@@ -1036,8 +1037,8 @@ impl App {
                 });
             });
             ui.horizontal(|ui| {
-                ui.label("Ek etiketler");
-                ui.add(egui::TextEdit::singleline(&mut w.extra).font(egui::TextStyle::Monospace).desired_width(200.0).hint_text("\\xbord2\\clip(…)"));
+                ui.label(tr("Ek etiketler"));
+                ui.add(egui::TextEdit::singleline(&mut w.extra).font(egui::TextStyle::Monospace).desired_width(200.0).hint_text(tr("\\xbord2\\clip(…)")));
                 if grad {
                     ui.label("→");
                     ui.add(egui::TextEdit::singleline(&mut w.extra_to).font(egui::TextStyle::Monospace).desired_width(160.0));
@@ -1047,12 +1048,12 @@ impl App {
             ui.label(RichText::new(if a.is_empty() { "Etiket seçilmedi".to_string() } else { a }).monospace().small().color(theme::ACCENT));
             ui.horizontal(|ui| {
                 if ui.button(format!("{} satıra uygula", self.doc.target_lines().len())).clicked() { action = Some(1); }
-                if ui.button("Sıfırla").clicked() { for r in w.rows.iter_mut() { r.1 = false; } w.extra.clear(); w.extra_to.clear(); }
+                if ui.button(tr("Sıfırla")).clicked() { for r in w.rows.iter_mut() { r.1 = false; } w.extra.clear(); w.extra_to.clear(); }
             });
             ui.separator();
-            ui.heading("Yeniden hesapla (Recalculator)");
+            ui.heading(tr("Yeniden hesapla (Recalculator)"));
             ui.horizontal(|ui| {
-                ui.label("etiket \\");
+                ui.label(tr("etiket \\"));
                 ui.add(egui::TextEdit::singleline(&mut w.rc_tag).desired_width(60.0));
                 ui.radio_value(&mut w.rc_mul, true, "×");
                 ui.radio_value(&mut w.rc_mul, false, "+");
@@ -1060,13 +1061,13 @@ impl App {
                 ui.label(if xy { "x" } else { "değer" });
                 ui.add(egui::DragValue::new(&mut w.rc_x).speed(0.05));
                 if xy {
-                    ui.label("y");
+                    ui.label(tr("y"));
                     ui.add(egui::DragValue::new(&mut w.rc_y).speed(0.05));
                 }
-                ui.checkbox(&mut w.rc_style, "yoksa stilden").on_hover_text("Satırda etiket yoksa stilin değerinden hesaplayıp başlangıca yaz");
-                if ui.button("Uygula").clicked() { action = Some(2); }
+                ui.checkbox(&mut w.rc_style, tr("yoksa stilden")).on_hover_text(tr("Satırda etiket yoksa stilin değerinden hesaplayıp başlangıca yaz"));
+                if ui.button(tr("Uygula")).clicked() { action = Some(2); }
             });
-            ui.label(RichText::new("Başlangıç ve satır içi bloklar ile \\t içleri değişir; \\pos/\\move/\\org için x ve y ayrı.").small().weak());
+            ui.label(RichText::new(tr("Başlangıç ve satır içi bloklar ile \\t içleri değişir; \\pos/\\move/\\org için x ve y ayrı.")).small().weak());
         });
         if let Some(a) = action {
             let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
@@ -1103,38 +1104,38 @@ impl App {
         let Some(mut w) = self.tsw.take() else { return };
         let mut open = true;
         let mut action: Option<u8> = None;
-        egui::Window::new("Degrade / parıltı").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
-            ui.label(RichText::new("Seçili satırlara uygulanır. Degrade için satırda dikdörtgen \\clip olmalı (Video aracı: Kırpma).").small().weak());
-            ui.heading("Degrade");
+        egui::Window::new(tr("Degrade / parıltı")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Seçili satırlara uygulanır. Degrade için satırda dikdörtgen \\clip olmalı (Video aracı: Kırpma).")).small().weak());
+            ui.heading(tr("Degrade"));
             ui.horizontal(|ui| {
-                ui.radio_value(&mut w.vertical, false, "Soldan sağa");
-                ui.radio_value(&mut w.vertical, true, "Yukarıdan aşağıya");
-                ui.label("şerit");
+                ui.radio_value(&mut w.vertical, false, tr("Soldan sağa"));
+                ui.radio_value(&mut w.vertical, true, tr("Yukarıdan aşağıya"));
+                ui.label(tr("şerit"));
                 ui.add(egui::DragValue::new(&mut w.strip).range(1.0..=200.0).suffix(" px"));
-                ui.label("ivme");
+                ui.label(tr("ivme"));
                 ui.add(egui::DragValue::new(&mut w.accel).range(0.1..=10.0).speed(0.05));
             });
             egui::Grid::new("grad").num_columns(2).show(ui, |ui| {
-                ui.label("Başlangıç");
+                ui.label(tr("Başlangıç"));
                 ui.add(egui::TextEdit::singleline(&mut w.from).font(egui::TextStyle::Monospace).desired_width(320.0));
                 ui.end_row();
-                ui.label("Bitiş");
+                ui.label(tr("Bitiş"));
                 ui.add(egui::TextEdit::singleline(&mut w.to).font(egui::TextStyle::Monospace).desired_width(320.0));
                 ui.end_row();
             });
-            ui.label(RichText::new("Ortak etiketler enterpole edilir: \\c \\1c-4c, \\alpha \\1a-4a, \\bord \\shad \\blur \\fscx \\frz …").small().weak());
-            if ui.button("Degrade uygula").clicked() { action = Some(1); }
+            ui.label(RichText::new(tr("Ortak etiketler enterpole edilir: \\c \\1c-4c, \\alpha \\1a-4a, \\bord \\shad \\blur \\fscx \\frz …")).small().weak());
+            if ui.button(tr("Degrade uygula")).clicked() { action = Some(1); }
             ui.separator();
-            ui.heading("Parıltı (glow)");
+            ui.heading(tr("Parıltı (glow)"));
             ui.horizontal(|ui| {
-                ui.label("bulanıklık");
+                ui.label(tr("bulanıklık"));
                 ui.add(egui::DragValue::new(&mut w.glow_blur).range(0.0..=50.0).speed(0.2));
-                ui.label("kenar rengi");
+                ui.label(tr("kenar rengi"));
                 ui.add(egui::TextEdit::singleline(&mut w.glow_color).font(egui::TextStyle::Monospace).desired_width(100.0));
-                ui.label("saydamlık");
+                ui.label(tr("saydamlık"));
                 ui.add(egui::DragValue::new(&mut w.glow_alpha).range(0..=255).hexadecimal(2, false, true));
             });
-            if ui.button("Parıltı katmanı ekle").on_hover_text("Her satırın altına bulanık bir kopya ekler (asıl satır bir üst katmana geçer)").clicked() { action = Some(2); }
+            if ui.button(tr("Parıltı katmanı ekle")).on_hover_text(tr("Her satırın altına bulanık bir kopya ekler (asıl satır bir üst katmana geçer)")).clicked() { action = Some(2); }
         });
         if let Some(a) = action {
             let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
@@ -1174,25 +1175,25 @@ impl App {
         // (iz, işlem): 0 = aç, 1 = kaydet, 2 = referans yap, 3 = OCR
         let mut action: Option<(usize, u8)> = None;
         let mut fonts = false;
-        egui::Window::new("Videodaki altyazı izleri").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Videodaki altyazı izleri")).open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.label(RichText::new(video.display().to_string()).small().weak());
-            if tracks.is_empty() { ui.label("Altyazı izi yok."); }
+            if tracks.is_empty() { ui.label(tr("Altyazı izi yok.")); }
             for (k, t) in tracks.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(t.label());
                     if t.text_ext().is_some() {
-                        if ui.button("Aç").clicked() { action = Some((k, 0)); }
-                        if ui.button("Referans yap").on_hover_text("İzi çıkarıp referans altyazı olarak yükler (açık belge değişmez)").clicked() { action = Some((k, 2)); }
-                        if ui.button("Kaydet…").clicked() { action = Some((k, 1)); }
+                        if ui.button(tr("Aç")).clicked() { action = Some((k, 0)); }
+                        if ui.button(tr("Referans yap")).on_hover_text(tr("İzi çıkarıp referans altyazı olarak yükler (açık belge değişmez)")).clicked() { action = Some((k, 2)); }
+                        if ui.button(tr("Kaydet…")).clicked() { action = Some((k, 1)); }
                     } else if osisub_media::mux::is_bitmap_sub(&t.codec) {
-                        if ui.button("OCR…").on_hover_text("Resim altyazısını (Blu-ray PGS / DVD VobSub) Tesseract ile metne çevir").clicked() { action = Some((k, 3)); }
+                        if ui.button(tr("OCR…")).on_hover_text(tr("Resim altyazısını (Blu-ray PGS / DVD VobSub) Tesseract ile metne çevir")).clicked() { action = Some((k, 3)); }
                     } else {
-                        ui.label(RichText::new("resim tabanlı (desteklenmiyor)").weak());
+                        ui.label(RichText::new(tr("resim tabanlı (desteklenmiyor)")).weak());
                     }
                 });
             }
             ui.separator();
-            if ui.button("Ekli yazı tiplerini klasöre çıkar…").clicked() { fonts = true; }
+            if ui.button(tr("Ekli yazı tiplerini klasöre çıkar…")).clicked() { fonts = true; }
         });
         if fonts {
             if let Some(d) = rfd::FileDialog::new().pick_folder() {
@@ -1237,7 +1238,7 @@ impl App {
 
     fn palette_items(&self) -> Vec<(String, super::PalAct)> {
         use super::PalAct::*;
-        let mut v: Vec<(String, super::PalAct)> = super::COMMANDS.iter().map(|(id, l)| (l.to_string(), Cmd(id))).collect();
+        let mut v: Vec<(String, super::PalAct)> = super::COMMANDS.iter().map(|(id, l)| (tr(l).to_string(), Cmd(id))).collect();
         for (w, l) in [
             ("find", "Bul / Değiştir"), ("goto", "Zamana git"), ("timing", "Kaydır / kareye oturt"), ("post", "Son-işleyici"), ("resample", "Çözünürlüğü yeniden örnekle"), ("dummy", "Sahte video aç"),
             ("fixes", "Sık hataları düzelt"), ("stats", "İstatistikler"), ("vad", "Sesten satır oluştur / konuşmaya yapıştır"), ("export", "Dışa aktar (filtreler)"), ("fonts", "Yazı tipi denetimi"),
@@ -1248,7 +1249,7 @@ impl App {
             ("paste_over", "Üzerine yapıştır"), ("style_assist", "Stil yardımcısı"), ("kanji_timer", "Kanji zamanlayıcı"), ("furigana", "Furigana düzeni"), ("split_file", "Dosyayı böl"), ("hardsub", "Gömülü (hardsub) altyazıyı metne çevir"), ("text_import", "Düz metin içe aktar"), ("multi_replace", "Çoklu değiştir"), ("bookmarks", "Yer imleri"), ("file_batch", "Toplu dosya işlemleri"),
             ("quality", "Kalite sekmesi"), ("styles", "Stiller sekmesi"), ("karaoke", "Karaoke sekmesi"), ("tagstab", "Etiketler sekmesi"), ("translate", "Çeviri sekmesi"), ("spell", "Yazım sekmesi"),
         ] {
-            v.push((l.to_string(), Win(w)));
+            v.push((tr(l).to_string(), Win(w)));
         }
         for m in self.macros.iter().filter(|m| m.info.kind == MacroKind::Macro && m.script != super::CONSOLE_NAME) {
             v.push((format!("Makro: {}", m.info.name), Macro(m.info.id)));
@@ -1331,8 +1332,8 @@ impl App {
         if down { sel = (sel + 1).min(items.len().saturating_sub(1)); }
         if up { sel = sel.saturating_sub(1); }
         let mut chosen: Option<super::PalAct> = None;
-        egui::Window::new("Komut paleti").title_bar(false).collapsible(false).resizable(false).fixed_size([480.0, 360.0]).anchor(egui::Align2::CENTER_TOP, [0.0, 60.0]).show(ctx, |ui| {
-            let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Komut, pencere ya da makro ara… (↑↓, Enter, Esc)").desired_width(f32::INFINITY));
+        egui::Window::new(tr("Komut paleti")).title_bar(false).collapsible(false).resizable(false).fixed_size([480.0, 360.0]).anchor(egui::Align2::CENTER_TOP, [0.0, 60.0]).show(ctx, |ui| {
+            let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(tr("Komut, pencere ya da makro ara… (↑↓, Enter, Esc)")).desired_width(f32::INFINITY));
             r.request_focus();
             if r.changed() { sel = 0; }
             ui.separator();
@@ -1342,7 +1343,7 @@ impl App {
                     if k == sel && (up || down) { resp.scroll_to_me(None); }
                     if resp.clicked() { chosen = Some(a.clone()); }
                 }
-                if items.is_empty() { ui.label(RichText::new("Eşleşme yok").weak()); }
+                if items.is_empty() { ui.label(RichText::new(tr("Eşleşme yok")).weak()); }
             });
         });
         if enter { chosen = items.get(sel).map(|x| x.2.clone()); }
@@ -1361,7 +1362,7 @@ impl App {
             let (u, r) = self.doc.history();
             (u.iter().map(|x| x.to_string()).collect(), r.iter().map(|x| x.to_string()).collect())
         };
-        egui::Window::new("Geçmiş").open(&mut open).default_width(300.0).show(ctx, |ui| {
+        egui::Window::new(tr("Geçmiş")).open(&mut open).default_width(300.0).show(ctx, |ui| {
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                 if ui.selectable_label(undo.is_empty(), "• Açılış durumu").clicked() { jump = Some(0); }
                 for (k, d) in undo.iter().enumerate() {
@@ -1371,7 +1372,7 @@ impl App {
                     if r.clicked() { jump = Some(k + 1); }
                 }
                 for (k, d) in redo.iter().enumerate() {
-                    if ui.selectable_label(false, RichText::new(format!("{}. {}", undo.len() + k + 1, d)).weak().italics()).on_hover_text("Geri alındı — tıklayınca yinelenir").clicked() { jump = Some(undo.len() + k + 1); }
+                    if ui.selectable_label(false, RichText::new(format!("{}. {}", undo.len() + k + 1, d)).weak().italics()).on_hover_text(tr("Geri alındı — tıklayınca yinelenir")).clicked() { jump = Some(undo.len() + k + 1); }
                 }
             });
         });
@@ -1412,7 +1413,7 @@ impl App {
             idx.push(i);
             texts.push(src);
         }
-        if texts.is_empty() { self.status = "Çevrilecek metin yok (satır seçin; referans kullanıyorsanız eşleşen referans satırı olmalı)".into(); return; }
+        if texts.is_empty() { self.status = tr("Çevrilecek metin yok (satır seçin; referans kullanıyorsanız eşleşen referans satırı olmalı)").into(); return; }
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut out = vec![];
@@ -1425,7 +1426,7 @@ impl App {
             let _ = tx.send((idx, Ok(out)));
         });
         self.mt_rx = Some(rx);
-        self.status = "Makine çevirisi çalışıyor…".into();
+        self.status = tr("Makine çevirisi çalışıyor…").into();
     }
 
     pub(super) fn poll_mt(&mut self, ctx: &egui::Context) {
@@ -1434,13 +1435,13 @@ impl App {
         let Ok((idx, r)) = rx.try_recv() else { return };
         self.mt_rx = None;
         match r {
-            Ok(tr) => {
+            Ok(out) => {
                 let mut s = self.doc.script.clone();
-                for (&i, t) in idx.iter().zip(tr.iter()) {
+                for (&i, t) in idx.iter().zip(out.iter()) {
                     if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) { d.text = t.clone(); }
                 }
                 self.doc.apply_new_script("Makine çevirisi", s);
-                self.status = format!("{} satır çevrildi (gözden geçirin!)", tr.len());
+                self.status = format!("{} satır çevrildi (gözden geçirin!)", out.len());
             }
             Err(e) => self.status = format!("Makine çevirisi: {e}"),
         }
@@ -1451,36 +1452,36 @@ impl App {
         let mut open = true;
         let mut go = false;
         let mut changed = false;
-        egui::Window::new("Makine çevirisi").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Makine çevirisi")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             let st = &mut self.settings;
             egui::Grid::new("mt_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Sağlayıcı");
+                ui.label(tr("Sağlayıcı"));
                 egui::ComboBox::from_id_salt("mt_prov").selected_text(osisub_media::mt::Provider::ALL.iter().find(|p| p.0 == st.mt_provider).map(|p| p.1).unwrap_or("—")).show_ui(ui, |ui| {
                     for (id, l) in osisub_media::mt::Provider::ALL { changed |= ui.selectable_value(&mut st.mt_provider, id.to_string(), *l).changed(); }
                 });
                 ui.end_row();
-                ui.label("API anahtarı");
+                ui.label(tr("API anahtarı"));
                 changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_key).password(true).desired_width(260.0)).changed();
                 ui.end_row();
                 if st.mt_provider == "libre" {
-                    ui.label("Sunucu");
+                    ui.label(tr("Sunucu"));
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_url).desired_width(260.0)).changed();
                     ui.end_row();
                 }
-                ui.label("Kaynak / hedef dil");
+                ui.label(tr("Kaynak / hedef dil"));
                 ui.horizontal(|ui| {
-                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_source).hint_text("otomatik").desired_width(70.0)).changed();
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_source).hint_text(tr("otomatik")).desired_width(70.0)).changed();
                     ui.label("→");
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_target).desired_width(70.0)).changed();
                 });
                 ui.end_row();
                 if st.mt_provider == "claude" {
-                    ui.label("Bağlam / sözlük");
-                    changed |= ui.add(egui::TextEdit::multiline(&mut st.mt_context).desired_rows(3).desired_width(260.0).hint_text("Dizi adı, karakterler, terimler (senpai = senpai)…")).changed();
+                    ui.label(tr("Bağlam / sözlük"));
+                    changed |= ui.add(egui::TextEdit::multiline(&mut st.mt_context).desired_rows(3).desired_width(260.0).hint_text(tr("Dizi adı, karakterler, terimler (senpai = senpai)…"))).changed();
                     ui.end_row();
                 }
             });
-            ui.label(RichText::new("Anahtar settings.json'da düz metin saklanır. Kaynak: referans altyazı yüklüyse eşleşen referans satırı, değilse satırın metni. Etiketler korunur. Sonucu mutlaka gözden geçirin.").small().weak());
+            ui.label(RichText::new(tr("Anahtar settings.json'da düz metin saklanır. Kaynak: referans altyazı yüklüyse eşleşen referans satırı, değilse satırın metni. Etiketler korunur. Sonucu mutlaka gözden geçirin.")).small().weak());
             let n = self.doc.target_lines().len();
             if ui.add_enabled(self.mt_rx.is_none(), egui::Button::new(format!("Seçili {n} satırı çevir"))).clicked() { go = true; }
         });
@@ -1491,10 +1492,10 @@ impl App {
 
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
         let mut open = self.export_open;
-        egui::Window::new("Dışa aktar — filtreler").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Dışa aktar — filtreler")).open(&mut open).collapsible(false).show(ctx, |ui| {
             let mut filters: Vec<(usize, String, String, i64)> = self.macros.iter().filter(|m| m.info.kind == MacroKind::Filter).map(|m| (m.info.id, m.info.name.clone(), m.info.description.clone(), m.info.priority)).collect();
             filters.sort_by_key(|f| -f.3);
-            if filters.is_empty() { ui.label(RichText::new("Yüklü filtre yok (Lua: aegisub.register_filter)").weak()); }
+            if filters.is_empty() { ui.label(RichText::new(tr("Yüklü filtre yok (Lua: aegisub.register_filter)")).weak()); }
             for (id, name, desc, prio) in &filters {
                 let mut on = self.export_sel.contains(id);
                 if ui.checkbox(&mut on, format!("{}  (öncelik {})", name, prio)).on_hover_text(desc).changed() {
@@ -1502,15 +1503,15 @@ impl App {
                 }
             }
             ui.separator();
-            ui.label(RichText::new("Yerleşik").strong());
+            ui.label(RichText::new(tr("Yerleşik")).strong());
             let b = &mut self.export_builtins;
-            ui.checkbox(&mut b.strip_comments, "Yorumları ve kullanılmayan stilleri sil").on_hover_text("Şablon/not yorumları ve hiçbir satırın (\\r dahil) kullanmadığı stiller çıkar (Aegisub: Strip comments and unused styles)");
-            ui.checkbox(&mut b.clean_info, "Script Info'yu temizle").on_hover_text("Yalnızca oynatıcının ihtiyaç duyduğu anahtarlar (PlayRes, LayoutRes, WrapStyle, ScaledBorderAndShadow, YCbCr Matrix…) kalır; proje çöpü (video yolu vb.) silinir (Aegisub: Clean Script Info)");
-            ui.checkbox(&mut b.fix_styles, "Tanımsız stilleri Default yap").on_hover_text("Aegisub: Fix styles");
-            ui.checkbox(&mut b.strip_notes, "Metindeki {notları} sil");
-            ui.checkbox(&mut b.clean_tags, "Gereksiz etiketleri sil");
-            ui.label(RichText::new("Seçili Lua filtreleri öncelik sırasıyla (büyükten küçüğe), ardından yerleşikler çalışır; belge değişmez, sonuç dosyaya yazılır.").weak().small());
-            if ui.add_enabled(self.running.is_none(), egui::Button::new("Dışa aktar…")).clicked() {
+            ui.checkbox(&mut b.strip_comments, tr("Yorumları ve kullanılmayan stilleri sil")).on_hover_text(tr("Şablon/not yorumları ve hiçbir satırın (\\r dahil) kullanmadığı stiller çıkar (Aegisub: Strip comments and unused styles)"));
+            ui.checkbox(&mut b.clean_info, tr("Script Info'yu temizle")).on_hover_text(tr("Yalnızca oynatıcının ihtiyaç duyduğu anahtarlar (PlayRes, LayoutRes, WrapStyle, ScaledBorderAndShadow, YCbCr Matrix…) kalır; proje çöpü (video yolu vb.) silinir (Aegisub: Clean Script Info)"));
+            ui.checkbox(&mut b.fix_styles, tr("Tanımsız stilleri Default yap")).on_hover_text(tr("Aegisub: Fix styles"));
+            ui.checkbox(&mut b.strip_notes, tr("Metindeki {notları} sil"));
+            ui.checkbox(&mut b.clean_tags, tr("Gereksiz etiketleri sil"));
+            ui.label(RichText::new(tr("Seçili Lua filtreleri öncelik sırasıyla (büyükten küçüğe), ardından yerleşikler çalışır; belge değişmez, sonuç dosyaya yazılır.")).weak().small());
+            if ui.add_enabled(self.running.is_none(), egui::Button::new(tr("Dışa aktar…"))).clicked() {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("Düz metin", &["txt"]).save_file() {
                     let mut queue: Vec<usize> = filters.iter().filter(|f| self.export_sel.contains(&f.0)).map(|f| f.0).collect();
                     if queue.is_empty() {
@@ -1538,22 +1539,22 @@ impl App {
 
     pub(super) fn timing_window(&mut self, ctx: &egui::Context) {
         let mut open = self.timing_open;
-        egui::Window::new("Zamanlama").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Zamanlama")).open(&mut open).collapsible(false).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.shift_use_frames, "kare");
+                ui.checkbox(&mut self.shift_use_frames, tr("kare"));
                 if self.shift_use_frames {
-                    ui.label("Kaydır (kare)");
+                    ui.label(tr("Kaydır (kare)"));
                     ui.add(egui::DragValue::new(&mut self.shift_frames));
                     let fps = self.media.fps().unwrap_or(self.fps);
                     self.shift_ms = (self.shift_frames as f64 * 1000.0 / fps).round() as i64;
                     ui.label(RichText::new(format!("= {} ms", self.shift_ms)).weak());
                 } else {
-                    ui.label("Kaydır (ms)");
+                    ui.label(tr("Kaydır (ms)"));
                     ui.add(egui::DragValue::new(&mut self.shift_ms).speed(10));
                 }
-                ui.checkbox(&mut self.shift_all, "tüm satırlar");
-                ui.add_enabled(!self.shift_all, egui::Checkbox::new(&mut self.shift_after, "seçimden sonrakiler de")).on_hover_text("Seçili ilk satırın başlangıcından sonra başlayan tüm satırlar (ör. sahne kesildiğinde)");
-                if ui.button("Uygula").clicked() {
+                ui.checkbox(&mut self.shift_all, tr("tüm satırlar"));
+                ui.add_enabled(!self.shift_all, egui::Checkbox::new(&mut self.shift_after, "seçimden sonrakiler de")).on_hover_text(tr("Seçili ilk satırın başlangıcından sonra başlayan tüm satırlar (ör. sahne kesildiğinde)"));
+                if ui.button(tr("Uygula")).clicked() {
                     let only: Option<Vec<usize>> = if self.shift_all {
                         None
                     } else {
@@ -1580,19 +1581,19 @@ impl App {
                 }
             });
             ui.separator();
-            ui.strong("Son-işleyici");
+            ui.strong(tr("Son-işleyici"));
             egui::Grid::new("post_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Lead-in (ms)"); ui.add(egui::DragValue::new(&mut self.post.lead_in_ms).speed(5)); ui.end_row();
-                ui.label("Lead-out (ms)"); ui.add(egui::DragValue::new(&mut self.post.lead_out_ms).speed(5)); ui.end_row();
-                ui.label("Bitişik satır eşiği (ms)"); ui.add(egui::DragValue::new(&mut self.post.adjacent_gap_ms).speed(5)); ui.end_row();
-                ui.label("Boşluk eğilimi (0–1)"); ui.add(egui::DragValue::new(&mut self.post.adjacent_bias).speed(0.05).range(0.0..=1.0)); ui.end_row();
-                ui.label("Anahtar kare: başl. önce/sonra"); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_start_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_start_after).speed(5)); }); ui.end_row();
-                ui.label("Anahtar kare: bitiş önce/sonra"); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_end_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_end_after).speed(5)); }); ui.end_row();
+                ui.label(tr("Lead-in (ms)")); ui.add(egui::DragValue::new(&mut self.post.lead_in_ms).speed(5)); ui.end_row();
+                ui.label(tr("Lead-out (ms)")); ui.add(egui::DragValue::new(&mut self.post.lead_out_ms).speed(5)); ui.end_row();
+                ui.label(tr("Bitişik satır eşiği (ms)")); ui.add(egui::DragValue::new(&mut self.post.adjacent_gap_ms).speed(5)); ui.end_row();
+                ui.label(tr("Boşluk eğilimi (0–1)")); ui.add(egui::DragValue::new(&mut self.post.adjacent_bias).speed(0.05).range(0.0..=1.0)); ui.end_row();
+                ui.label(tr("Anahtar kare: başl. önce/sonra")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_start_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_start_after).speed(5)); }); ui.end_row();
+                ui.label(tr("Anahtar kare: bitiş önce/sonra")); ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut self.post.kf_end_before).speed(5)); ui.add(egui::DragValue::new(&mut self.post.kf_end_after).speed(5)); }); ui.end_row();
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.post_selection_only, "Yalnızca seçim");
+                ui.checkbox(&mut self.post_selection_only, tr("Yalnızca seçim"));
                 ui.label(RichText::new(format!("{} anahtar kare", self.media.keyframes.len())).weak());
-                if ui.button("Uygula").clicked() {
+                if ui.button(tr("Uygula")).clicked() {
                     let mut o = self.post.clone();
                     o.keyframes = match self.media.framerate() { Some(fr) => fr.keyframe_boundaries(&self.media.keyframes), None => self.media.keyframes.clone() };
                     o.only = if self.post_selection_only { Some(self.doc.selection.clone()) } else { None };
@@ -1602,12 +1603,12 @@ impl App {
                 }
             });
             ui.separator();
-            ui.strong("Noktadan senkron (iki nokta, doğrusal)");
-            ui.label(RichText::new("Etkin satırı A/B noktası yapın, oynatma imlecini (playhead) hedef zaman olarak alın; uygulayınca tüm zamanlar kayar ve ölçeklenir.").weak().small());
+            ui.strong(tr("Noktadan senkron (iki nokta, doğrusal)"));
+            ui.label(RichText::new(tr("Etkin satırı A/B noktası yapın, oynatma imlecini (playhead) hedef zaman olarak alın; uygulayınca tüm zamanlar kayar ve ölçeklenir.")).weak().small());
             for (name, slot_is_a) in [("A", true), ("B", false)] {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} noktası:", name));
-                    if ui.button("Etkin satır").clicked() {
+                    if ui.button(tr("Etkin satır")).clicked() {
                         if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active) {
                             let v = Some((self.doc.active, d.start_time));
                             if slot_is_a { self.sync_a = v.map(|(i, t)| (i, t)); } else { self.sync_b = v.map(|(i, t)| (i, t)); }
@@ -1619,45 +1620,45 @@ impl App {
                             let src = match self.doc.script.entries.get(*i) { Some(Entry::Dialogue(d)) => d.start_time, _ => 0 };
                             ui.label(RichText::new(format!("{} →", time::format_ass(src))).monospace());
                             let mut t = *target;
-                            if ui.button("Playhead").clicked() { t = self.media.playhead; }
+                            if ui.button(tr("Playhead")).clicked() { t = self.media.playhead; }
                             ui.add(egui::DragValue::new(&mut t).speed(10).suffix(" ms"));
                             *target = t;
                             ui.label(RichText::new(time::format_ass(t)).monospace());
                         }
-                        None => { ui.label(RichText::new("seçilmedi").weak()); }
+                        None => { ui.label(RichText::new(tr("seçilmedi")).weak()); }
                     }
                 });
             }
-            if ui.add_enabled(self.sync_a.is_some() && self.sync_b.is_some(), egui::Button::new("Senkronu uygula")).clicked() {
+            if ui.add_enabled(self.sync_a.is_some() && self.sync_b.is_some(), egui::Button::new(tr("Senkronu uygula"))).clicked() {
                 if let (Some((ia, ta)), Some((ib, tb))) = (self.sync_a, self.sync_b) {
                     let src = |i: usize| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None };
                     if let (Some(sa), Some(sb)) = (src(ia), src(ib)) {
-                        if sa == sb { self.status = "A ve B farklı zamanlarda olmalı".into(); } else {
+                        if sa == sb { self.status = tr("A ve B farklı zamanlarda olmalı").into(); } else {
                             let mut sc = self.doc.script.clone();
                             qc::linear_retime(&mut sc, (sa, ta), (sb, tb));
                             self.doc.apply_new_script("Noktadan senkron", sc);
                             self.sync_a = None; self.sync_b = None;
-                            self.status = "Senkron uygulandı".into();
+                            self.status = tr("Senkron uygulandı").into();
                         }
                     }
                 }
             }
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("FPS dönüştür");
+                ui.label(tr("FPS dönüştür"));
                 ui.add(egui::DragValue::new(&mut self.fps_from).speed(0.001).range(1.0..=240.0));
                 ui.label("→");
                 ui.add(egui::DragValue::new(&mut self.fps_to).speed(0.001).range(1.0..=240.0));
-                if ui.button("Uygula").on_hover_text("Zamanları from/to oranıyla ölçekler (ör. 25 → 23.976)").clicked() {
+                if ui.button(tr("Uygula")).on_hover_text(tr("Zamanları from/to oranıyla ölçekler (ör. 25 → 23.976)")).clicked() {
                     let mut sc = self.doc.script.clone();
                     qc::fps_convert(&mut sc, self.fps_from, self.fps_to);
                     self.doc.apply_new_script("FPS dönüştür", sc);
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("FPS");
+                ui.label(tr("FPS"));
                 ui.add(egui::DragValue::new(&mut self.fps).speed(0.001).range(1.0..=240.0));
-                if ui.button("Kareye oturt").clicked() {
+                if ui.button(tr("Kareye oturt")).clicked() {
                     let mut s = self.doc.script.clone();
                     match &self.media.timecodes {
                         Some(tc) => qc::snap_to_framerate(&mut s, tc),
@@ -1666,7 +1667,7 @@ impl App {
                     self.doc.apply_new_script("Kareye oturt", s);
                 }
                 if self.media.timecodes.is_some() {
-                    ui.label(RichText::new("(VFR timecode kullanılıyor)").weak());
+                    ui.label(RichText::new(tr("(VFR timecode kullanılıyor)")).weak());
                 }
             });
         });
@@ -1675,27 +1676,27 @@ impl App {
 
     pub(super) fn find_window(&mut self, ctx: &egui::Context) {
         let mut open = self.find_open;
-        egui::Window::new("Bul / Değiştir").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Bul / Değiştir")).open(&mut open).collapsible(false).show(ctx, |ui| {
             egui::Grid::new("find_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Bul");
+                ui.label(tr("Bul"));
                 let r = ui.add(TextEdit::singleline(&mut self.find.pattern).desired_width(280.0));
                 if self.find_focus { r.request_focus(); self.find_focus = false; }
                 if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) { self.find_next(); }
                 ui.end_row();
-                ui.label("Değiştir");
+                ui.label(tr("Değiştir"));
                 ui.add(TextEdit::singleline(&mut self.find.replacement).desired_width(280.0));
                 ui.end_row();
             });
             ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut self.find.regex, "Düzenli ifade");
-                ui.checkbox(&mut self.find.match_case, "Büyük/küçük harf");
-                ui.checkbox(&mut self.find.whole_word, "Tam sözcük");
-                ui.checkbox(&mut self.find.ignore_tags, "Etiketleri yok say");
-                ui.checkbox(&mut self.find.skip_comments, "Yorumları atla");
-                ui.checkbox(&mut self.find_selection_only, "Yalnızca seçim");
+                ui.checkbox(&mut self.find.regex, tr("Düzenli ifade"));
+                ui.checkbox(&mut self.find.match_case, tr("Büyük/küçük harf"));
+                ui.checkbox(&mut self.find.whole_word, tr("Tam sözcük"));
+                ui.checkbox(&mut self.find.ignore_tags, tr("Etiketleri yok say"));
+                ui.checkbox(&mut self.find.skip_comments, tr("Yorumları atla"));
+                ui.checkbox(&mut self.find_selection_only, tr("Yalnızca seçim"));
             });
             ui.horizontal(|ui| {
-                ui.label("Alanlar:");
+                ui.label(tr("Alanlar:"));
                 for (f, l) in [(Field::Text, "Metin"), (Field::Actor, "Konuşan"), (Field::Effect, "Efekt"), (Field::Style, "Stil")] {
                     let mut on = self.find.fields.contains(&f);
                     if ui.checkbox(&mut on, l).changed() {
@@ -1704,9 +1705,9 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button("Sonrakini bul").clicked() { self.find_next(); }
-                if ui.button("Tümünü seç").clicked() { self.find_select_all(); }
-                if ui.button("Tümünü değiştir").clicked() { self.find_replace_all(); }
+                if ui.button(tr("Sonrakini bul")).clicked() { self.find_next(); }
+                if ui.button(tr("Tümünü seç")).clicked() { self.find_select_all(); }
+                if ui.button(tr("Tümünü değiştir")).clicked() { self.find_replace_all(); }
             });
         });
         self.find_open = open;
@@ -1728,7 +1729,7 @@ impl App {
                 self.scroll_to = Some(h);
                 self.status = format!("{} eşleşme", hits.len());
             }
-            Ok(_) => self.status = "Eşleşme yok".into(),
+            Ok(_) => self.status = tr("Eşleşme yok").into(),
             Err(e) => self.status = format!("Arama hatası: {}", e),
         }
     }
@@ -1762,11 +1763,11 @@ impl App {
 
     pub(super) fn resample_window(&mut self, ctx: &egui::Context) {
         let mut open = self.resample_open;
-        egui::Window::new("Çözünürlüğü yeniden örnekle").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Çözünürlüğü yeniden örnekle")).open(&mut open).collapsible(false).show(ctx, |ui| {
             let (ox, oy) = self.doc.script.res();
             ui.label(format!("Mevcut: {}×{}", ox, oy));
             ui.horizontal(|ui| {
-                ui.label("Yeni");
+                ui.label(tr("Yeni"));
                 ui.add(egui::DragValue::new(&mut self.res_x).range(16..=16384));
                 ui.label("×");
                 ui.add(egui::DragValue::new(&mut self.res_y).range(16..=16384));
@@ -1774,8 +1775,8 @@ impl App {
                     if ui.small_button(l).clicked() { self.res_x = x; self.res_y = y; }
                 }
             });
-            ui.label(RichText::new("Stiller, kenar boşlukları, \\pos/\\move/\\org/\\clip/\\fs/\\bord/... ve çizimler ölçeklenir.").weak().small());
-            if ui.button("Uygula").clicked() {
+            ui.label(RichText::new(tr("Stiller, kenar boşlukları, \\pos/\\move/\\org/\\clip/\\fs/\\bord/... ve çizimler ölçeklenir.")).weak().small());
+            if ui.button(tr("Uygula")).clicked() {
                 let mut s = self.doc.script.clone();
                 timing::resample(&mut s, self.res_x, self.res_y);
                 self.doc.apply_new_script("Çözünürlüğü yeniden örnekle", s);
@@ -1803,26 +1804,26 @@ impl App {
         let mut open = true;
         let mut act = 0; // 1 yeni satırlar, 2 mevcut zamanlamaya
         let items = ti::parse(&w.text, if w.blocks { ti::Split::Blocks } else { ti::Split::Lines }, w.speakers);
-        egui::Window::new("Düz metin içe aktar").open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
-            ui.label(RichText::new("Çeviri metnini yapıştırın ya da .txt dosyasından alın. '#' ya da '//' ile başlayan satırlar atlanır.").weak());
+        egui::Window::new(tr("Düz metin içe aktar")).open(&mut open).collapsible(false).default_width(560.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Çeviri metnini yapıştırın ya da .txt dosyasından alın. '#' ya da '//' ile başlayan satırlar atlanır.")).weak());
             ui.horizontal(|ui| {
-                if ui.button("Dosyadan…").clicked() {
+                if ui.button(tr("Dosyadan…")).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Metin", &["txt", "md"]).pick_file() {
                         if let Ok(b) = std::fs::read(&p) { w.text = osisub_core::ass::decode_bytes(&b); }
                     }
                 }
-                ui.radio_value(&mut w.blocks, false, "Her satır bir altyazı");
-                ui.radio_value(&mut w.blocks, true, "Boş satırla ayrılmış bloklar");
-                ui.checkbox(&mut w.speakers, "\"Ad: replik\" → Konuşan");
+                ui.radio_value(&mut w.blocks, false, tr("Her satır bir altyazı"));
+                ui.radio_value(&mut w.blocks, true, tr("Boş satırla ayrılmış bloklar"));
+                ui.checkbox(&mut w.speakers, tr("\"Ad: replik\" → Konuşan"));
             });
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                ui.add(TextEdit::multiline(&mut w.text).desired_rows(12).desired_width(f32::INFINITY).hint_text("Hinata: Merhaba!\nKageyama: Geç kaldın."));
+                ui.add(TextEdit::multiline(&mut w.text).desired_rows(12).desired_width(f32::INFINITY).hint_text(tr("Hinata: Merhaba!\nKageyama: Geç kaldın.")));
             });
             ui.label(format!("{} altyazı", items.len()));
             ui.horizontal(|ui| {
-                if ui.add_enabled(!items.is_empty(), egui::Button::new("Etkin satırdan itibaren zamanlamaya yerleştir")).on_hover_text("Zamanlanmış satırların metni sırayla bu metinle değiştirilir (yorum, tabela ve karaoke satırları atlanır; baştaki {\\an8} gibi etiketler korunur)").clicked() { act = 2; }
-                if ui.button("Belgeden metni al").on_hover_text("Açık belgenin diyaloglarını (tabela/karaoke hariç) \"Ad: replik\" biçiminde buraya koyar: çevirmene gönderip geri yerleştirmek için").clicked() { w.text = ti::export(&self.doc.script, w.speakers); }
-                if ui.add_enabled(!items.is_empty(), egui::Button::new("Yeni satırlar olarak ekle")).on_hover_text("Etkin satırdan sonra; süreler okuma hızına göre (playhead ya da etkin satırın bitişinden başlar)").clicked() { act = 1; }
+                if ui.add_enabled(!items.is_empty(), egui::Button::new(tr("Etkin satırdan itibaren zamanlamaya yerleştir"))).on_hover_text(tr("Zamanlanmış satırların metni sırayla bu metinle değiştirilir (yorum, tabela ve karaoke satırları atlanır; baştaki {\\an8} gibi etiketler korunur)")).clicked() { act = 2; }
+                if ui.button(tr("Belgeden metni al")).on_hover_text(tr("Açık belgenin diyaloglarını (tabela/karaoke hariç) \"Ad: replik\" biçiminde buraya koyar: çevirmene gönderip geri yerleştirmek için")).clicked() { w.text = ti::export(&self.doc.script, w.speakers); }
+                if ui.add_enabled(!items.is_empty(), egui::Button::new(tr("Yeni satırlar olarak ekle"))).on_hover_text(tr("Etkin satırdan sonra; süreler okuma hızına göre (playhead ya da etkin satırın bitişinden başlar)")).clicked() { act = 1; }
             });
         });
         if act == 2 {
@@ -1877,52 +1878,52 @@ impl App {
         }
         let mut open = true;
         let busy = w.rx.is_some();
-        egui::Window::new("Gömülü altyazıyı metne çevir (hardsub OCR)").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
-            ui.label(RichText::new("Videoya yakılmış altyazıyı okur: kenarlı (outline) açık renkli metnin belirip kaybolduğu anlar satır olur, her satır Tesseract ile okunur. Sonucu mutlaka denetleyin.").weak());
+        egui::Window::new(tr("Gömülü altyazıyı metne çevir (hardsub OCR)")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Videoya yakılmış altyazıyı okur: kenarlı (outline) açık renkli metnin belirip kaybolduğu anlar satır olur, her satır Tesseract ile okunur. Sonucu mutlaka denetleyin.")).weak());
             if !w.tess_ok {
-                ui.label(RichText::new("Tesseract bulunamadı (OSISUB_TESSERACT ile yol verilebilir).").color(theme::BAD));
+                ui.label(RichText::new(tr("Tesseract bulunamadı (OSISUB_TESSERACT ile yol verilebilir).")).color(theme::BAD));
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(!busy, egui::Button::new("Video seç…")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(tr("Video seç…"))).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Video", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts"]).pick_file() { w.path = Some(p); }
                 }
                 match &w.path {
                     Some(p) => { ui.label(p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).on_hover_text(p.display().to_string()); }
-                    None => { ui.label("(video yok)"); }
+                    None => { ui.label(tr("(video yok)")); }
                 }
             });
             egui::Grid::new("hs_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Taranan bölge");
+                ui.label(tr("Taranan bölge"));
                 ui.horizontal(|ui| {
                     let mut t = (w.opts.top * 100.0).round() as i32;
                     let mut b = (w.opts.bottom * 100.0).round() as i32;
-                    ui.label("üst %"); if ui.add(egui::DragValue::new(&mut t).range(0..=95)).changed() { w.opts.top = t as f64 / 100.0; }
-                    ui.label("alt %"); if ui.add(egui::DragValue::new(&mut b).range(5..=100)).changed() { w.opts.bottom = b as f64 / 100.0; }
-                    if ui.small_button("Alt").on_hover_text("Diyalog: alt %30").clicked() { w.opts.top = 0.70; w.opts.bottom = 1.0; }
-                    if ui.small_button("Üst").on_hover_text("Üstteki altyazılar/notlar: üst %30").clicked() { w.opts.top = 0.0; w.opts.bottom = 0.30; }
+                    ui.label(tr("üst %")); if ui.add(egui::DragValue::new(&mut t).range(0..=95)).changed() { w.opts.top = t as f64 / 100.0; }
+                    ui.label(tr("alt %")); if ui.add(egui::DragValue::new(&mut b).range(5..=100)).changed() { w.opts.bottom = b as f64 / 100.0; }
+                    if ui.small_button(tr("Alt")).on_hover_text(tr("Diyalog: alt %30")).clicked() { w.opts.top = 0.70; w.opts.bottom = 1.0; }
+                    if ui.small_button(tr("Üst")).on_hover_text(tr("Üstteki altyazılar/notlar: üst %30")).clicked() { w.opts.top = 0.0; w.opts.bottom = 0.30; }
                 });
                 ui.end_row();
-                ui.label("Örnekleme");
-                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.fps).range(2.0..=24.0).speed(0.5)); ui.label("kare/sn (yüksek = daha hassas zaman, daha yavaş)"); });
+                ui.label(tr("Örnekleme"));
+                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.fps).range(2.0..=24.0).speed(0.5)); ui.label(tr("kare/sn (yüksek = daha hassas zaman, daha yavaş)")); });
                 ui.end_row();
-                ui.label("Metin parlaklığı ≥");
-                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.detect.bright).range(100..=255)); ui.label("(sarı/renkli metinde düşürün)"); });
+                ui.label(tr("Metin parlaklığı ≥"));
+                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut w.opts.detect.bright).range(100..=255)); ui.label(tr("(sarı/renkli metinde düşürün)")); });
                 ui.end_row();
-                ui.label("Dil");
+                ui.label(tr("Dil"));
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt("hs_lang").selected_text(w.opts.lang.clone()).show_ui(ui, |ui| {
                         for l in w.langs.clone() { ui.selectable_value(&mut w.opts.lang, l.clone(), l); }
                     });
-                    ui.add(TextEdit::singleline(&mut w.opts.lang).desired_width(90.0)).on_hover_text("Birden çok dil: eng+jpn; Türkçe için 'tur' dil verisi gerekir");
+                    ui.add(TextEdit::singleline(&mut w.opts.lang).desired_width(90.0)).on_hover_text(tr("Birden çok dil: eng+jpn; Türkçe için 'tur' dil verisi gerekir"));
                 });
                 ui.end_row();
             });
-            ui.checkbox(&mut w.opts.also_top, "Üst bölgeyi de tara (tabela çevirileri / notlar; {\\an8} ile, süre iki katı)");
-            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (çeviri kaynağı; açık belge değişmez)");
-            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin");
+            ui.checkbox(&mut w.opts.also_top, tr("Üst bölgeyi de tara (tabela çevirileri / notlar; {\\an8} ile, süre iki katı)"));
+            ui.checkbox(&mut w.as_reference, tr("Referans olarak yükle (çeviri kaynağı; açık belge değişmez)"));
+            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text(tr("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin"));
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
-                if ui.add_enabled(w.path.is_some() && !busy && w.tess_ok, egui::Button::new("Başlat")).clicked() {
+                if ui.add_enabled(w.path.is_some() && !busy && w.tess_ok, egui::Button::new(tr("Başlat"))).clicked() {
                     let (p, o) = (w.path.clone().unwrap(), w.opts.clone());
                     let (tx, rx) = std::sync::mpsc::channel();
                     let (pr, cancel, c2) = (w.progress.clone(), w.cancel.clone(), ctx.clone());
@@ -1941,7 +1942,7 @@ impl App {
                 if busy {
                     let f = f32::from_bits(w.progress.load(Ordering::Relaxed));
                     ui.add(egui::ProgressBar::new(f).desired_width(180.0).text(format!("%{:.0} · {} sn", f * 100.0, w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0))));
-                    if ui.button("İptal").clicked() { w.cancel.store(true, Ordering::Relaxed); }
+                    if ui.button(tr("İptal")).clicked() { w.cancel.store(true, Ordering::Relaxed); }
                 }
             });
         });
@@ -1975,12 +1976,12 @@ impl App {
         }
         let mut open = true;
         let busy = w.rx.is_some();
-        egui::Window::new("Resim altyazısı OCR (PGS / VobSub)").open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
+        egui::Window::new(tr("Resim altyazısı OCR (PGS / VobSub)")).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
             if !w.tess_ok {
-                ui.label(RichText::new("Tesseract bulunamadı. Kurun (Windows: UB-Mannheim tesseract; Linux: tesseract-ocr paketi) ya da OSISUB_TESSERACT ile yolunu verin. Türkçe için 'tur' dil verisi gerekir.").color(theme::BAD));
+                ui.label(RichText::new(tr("Tesseract bulunamadı. Kurun (Windows: UB-Mannheim tesseract; Linux: tesseract-ocr paketi) ya da OSISUB_TESSERACT ile yolunu verin. Türkçe için 'tur' dil verisi gerekir.")).color(theme::BAD));
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(!busy, egui::Button::new("Dosya seç…")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(tr("Dosya seç…"))).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("PGS / VobSub / video", &["sup", "idx", "sub", "mkv", "m2ts", "mks", "mp4", "vob"]).pick_file() {
                         w.tracks.clear();
                         w.track = None;
@@ -2006,18 +2007,18 @@ impl App {
                 });
             }
             ui.horizontal(|ui| {
-                ui.label("Dil");
+                ui.label(tr("Dil"));
                 egui::ComboBox::from_id_salt("ocr_lang").selected_text(w.lang.clone()).show_ui(ui, |ui| {
                     for l in w.langs.clone() { ui.selectable_value(&mut w.lang, l.clone(), l); }
                 });
-                ui.add(TextEdit::singleline(&mut w.lang).desired_width(90.0)).on_hover_text("Birden çok dil: eng+jpn");
+                ui.add(TextEdit::singleline(&mut w.lang).desired_width(90.0)).on_hover_text(tr("Birden çok dil: eng+jpn"));
             });
-            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (açık belgeyi değiştirmez; ızgarada Referans sütunu)");
-            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin");
+            ui.checkbox(&mut w.as_reference, tr("Referans olarak yükle (açık belgeyi değiştirmez; ızgarada Referans sütunu)"));
+            ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text(tr("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin"));
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
                 let ready = w.path.is_some() && !busy;
-                if ui.add_enabled(ready, egui::Button::new("OCR başlat")).clicked() {
+                if ui.add_enabled(ready, egui::Button::new(tr("OCR başlat"))).clicked() {
                     let (p, t, l) = (w.path.clone().unwrap(), w.track, w.lang.clone());
                     let (tx, rx) = std::sync::mpsc::channel();
                     let c2 = ctx.clone();
@@ -2034,7 +2035,7 @@ impl App {
                     ui.label(format!("çalışıyor… {} sn", w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0)));
                 }
             });
-            ui.label(RichText::new("İpucu: sonuçta büyük I / küçük l karışıklıkları için Bul/Değiştir ve yazım denetimi kullanın.").weak());
+            ui.label(RichText::new(tr("İpucu: sonuçta büyük I / küçük l karışıklıkları için Bul/Değiştir ve yazım denetimi kullanın.")).weak());
         });
         if open || busy {
             self.ocr = Some(w);
@@ -2069,13 +2070,13 @@ impl App {
         }
         let mut open = true;
         let busy = w.rx.is_some();
-        egui::Window::new("Sesten altyazı (Whisper)").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
-            ui.label(RichText::new("Videonun sesini yerel olarak yazıya döker ve zamanlanmış satırlar üretir (Subtitle Edit \"Audio to text\" gibi). Ham Japonca döküm, İngilizce çeviri ya da boş zamanlama iskeleti için.").weak());
+        egui::Window::new(tr("Sesten altyazı (Whisper)")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Videonun sesini yerel olarak yazıya döker ve zamanlanmış satırlar üretir (Subtitle Edit \"Audio to text\" gibi). Ham Japonca döküm, İngilizce çeviri ya da boş zamanlama iskeleti için.")).weak());
             if !w.ok {
-                ui.label(RichText::new("whisper.cpp (whisper-cli) bulunamadı. Kurun ya da OSISUB_WHISPER ile yolunu verin; program klasörüne de koyabilirsiniz.").color(theme::BAD));
+                ui.label(RichText::new(tr("whisper.cpp (whisper-cli) bulunamadı. Kurun ya da OSISUB_WHISPER ile yolunu verin; program klasörüne de koyabilirsiniz.")).color(theme::BAD));
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(!busy, egui::Button::new("Video/ses seç…")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(tr("Video/ses seç…"))).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Video / ses", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts", "wav", "flac", "mka", "mp3", "aac", "opus", "ogg"]).pick_file() {
                         w.path = Some(p);
                     }
@@ -2083,7 +2084,7 @@ impl App {
                 ui.label(w.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(dosya yok)".into()));
             });
             ui.horizontal(|ui| {
-                ui.label("Model");
+                ui.label(tr("Model"));
                 let cur = w.model.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "(yok)".into());
                 egui::ComboBox::from_id_salt("whisper_model").selected_text(cur).show_ui(ui, |ui| {
                     for m in w.models.clone() {
@@ -2091,7 +2092,7 @@ impl App {
                         ui.selectable_value(&mut w.model, Some(m), n);
                     }
                 });
-                if ui.add_enabled(!busy, egui::Button::new("Model dosyası…")).on_hover_text("whisper.cpp ggml modeli (ör. ggml-small.bin, ggml-large-v3-turbo.bin)").clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(tr("Model dosyası…"))).on_hover_text(tr("whisper.cpp ggml modeli (ör. ggml-small.bin, ggml-large-v3-turbo.bin)")).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("ggml model", &["bin"]).pick_file() {
                         if !w.models.contains(&p) { w.models.push(p.clone()); }
                         w.model = Some(p);
@@ -2103,23 +2104,23 @@ impl App {
                 ui.label(RichText::new(format!("Model bulunamadı: ggml-*.bin dosyasını {dir} klasörüne koyun ya da seçin.")).color(theme::WARN));
             }
             ui.horizontal(|ui| {
-                ui.label("Dil");
+                ui.label(tr("Dil"));
                 egui::ComboBox::from_id_salt("whisper_lang").selected_text(w.lang.clone()).show_ui(ui, |ui| {
                     for (c, n) in [("auto", "otomatik"), ("ja", "Japonca"), ("en", "İngilizce"), ("tr", "Türkçe"), ("ko", "Korece"), ("zh", "Çince")] {
                         ui.selectable_value(&mut w.lang, c.to_string(), format!("{c} — {n}"));
                     }
                 });
-                ui.checkbox(&mut w.translate, "İngilizceye çevir");
+                ui.checkbox(&mut w.translate, tr("İngilizceye çevir"));
             });
             ui.horizontal(|ui| {
-                ui.label("Satır başına en çok karakter");
-                ui.add(egui::DragValue::new(&mut w.max_len).range(0..=120)).on_hover_text("0 = whisper varsayılanı (uzun bölümler); sözcük sınırında bölünür");
+                ui.label(tr("Satır başına en çok karakter"));
+                ui.add(egui::DragValue::new(&mut w.max_len).range(0..=120)).on_hover_text(tr("0 = whisper varsayılanı (uzun bölümler); sözcük sınırında bölünür"));
             });
-            ui.checkbox(&mut w.as_reference, "Referans olarak yükle (açık belgeyi değiştirmez)");
+            ui.checkbox(&mut w.as_reference, tr("Referans olarak yükle (açık belgeyi değiştirmez)"));
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
                 let ready = w.path.is_some() && w.model.is_some() && !busy;
-                if ui.add_enabled(ready, egui::Button::new("Başlat")).clicked() {
+                if ui.add_enabled(ready, egui::Button::new(tr("Başlat"))).clicked() {
                     let (p, o) = (w.path.clone().unwrap(), osisub_media::whisper::Options { model: w.model.clone().unwrap(), lang: w.lang.clone(), translate: w.translate, max_len: w.max_len, threads: 0 });
                     let (tx, rx) = std::sync::mpsc::channel();
                     let (c2, prog) = (ctx.clone(), w.progress.clone());
@@ -2142,7 +2143,7 @@ impl App {
                     ui.label(format!("{} sn", w.started.map(|s| s.elapsed().as_secs()).unwrap_or(0)));
                 }
             });
-            ui.label(RichText::new("İpucu: sonucu Çeviri sekmesinde referans olarak kullanın; zamanlamayı Zamanlama → Sahne değişimine yapıştır ile iyileştirin.").weak());
+            ui.label(RichText::new(tr("İpucu: sonucu Çeviri sekmesinde referans olarak kullanın; zamanlamayı Zamanlama → Sahne değişimine yapıştır ile iyileştirin.")).weak());
         });
         if open || busy {
             self.whisper = Some(w);
@@ -2168,32 +2169,32 @@ impl App {
         let busy = w.rx.is_some();
         let mut open = true;
         let mut go = false;
-        egui::Window::new("OP/ED yerleştir").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
-            ui.label(RichText::new("Önceki bir bölüme göre zamanlanmış şarkı altyazısını (OP/ED karaoke + çeviri) bu bölüme yerleştirir.").weak());
+        egui::Window::new(tr("OP/ED yerleştir")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Önceki bir bölüme göre zamanlanmış şarkı altyazısını (OP/ED karaoke + çeviri) bu bölüme yerleştirir.")).weak());
             ui.horizontal(|ui| {
-                if ui.add_enabled(!busy, egui::Button::new("Şarkı dosyası…")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(tr("Şarkı dosyası…"))).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Altyazı", osisub_core::io::OPEN_EXTS).pick_file() { w.song = Some(p); w.error = None; }
                 }
                 ui.label(w.song.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(seçilmedi)".into()));
             });
-            ui.radio_value(&mut w.by_audio, true, "Sesle bul: şarkının zamanlandığı ESKİ bölümü seç (açık video yeni bölüm olmalı)");
-            ui.radio_value(&mut w.by_audio, false, "Playhead'e yerleştir (şarkının ilk satırı playhead'de başlar)");
+            ui.radio_value(&mut w.by_audio, true, tr("Sesle bul: şarkının zamanlandığı ESKİ bölümü seç (açık video yeni bölüm olmalı)"));
+            ui.radio_value(&mut w.by_audio, false, tr("Playhead'e yerleştir (şarkının ilk satırı playhead'de başlar)"));
             if w.by_audio {
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!busy, egui::Button::new("Eski bölüm…")).clicked() {
+                    if ui.add_enabled(!busy, egui::Button::new(tr("Eski bölüm…"))).clicked() {
                         if let Some(p) = rfd::FileDialog::new().add_filter("Video / ses", &["mkv", "mp4", "webm", "avi", "mov", "m2ts", "ts", "mka", "flac", "wav", "aac", "opus", "mp3"]).pick_file() { w.old = Some(p); w.error = None; }
                     }
                     ui.label(w.old.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(seçilmedi)".into()));
                 });
                 if self.media.waveform().is_none() {
-                    ui.label(RichText::new("Önce yeni bölümün videosunu açın (Video → Video / ses aç…); dalga formu yüklenmeli.").color(theme::WARN));
+                    ui.label(RichText::new(tr("Önce yeni bölümün videosunu açın (Video → Video / ses aç…); dalga formu yüklenmeli.")).color(theme::WARN));
                 }
             }
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }
             ui.horizontal(|ui| {
                 let ready = w.song.is_some() && !busy && (!w.by_audio || (w.old.is_some() && self.media.waveform().is_some()));
-                if ui.add_enabled(ready, egui::Button::new("Yerleştir")).clicked() { go = true; }
-                if busy { ui.spinner(); ui.label("ses eşleştiriliyor…"); }
+                if ui.add_enabled(ready, egui::Button::new(tr("Yerleştir"))).clicked() { go = true; }
+                if busy { ui.spinner(); ui.label(tr("ses eşleştiriliyor…")); }
             });
         });
         if go {
@@ -2261,9 +2262,9 @@ impl App {
         let Some((mut d, mut mins)) = self.dummy_win.take() else { return };
         let mut open = true;
         let mut go = false;
-        egui::Window::new("Sahte video").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        egui::Window::new(tr("Sahte video")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             egui::Grid::new("dummy_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Kare hızı");
+                ui.label(tr("Kare hızı"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut d.fps).speed(0.01).range(1.0..=240.0).max_decimals(3));
                     for f in [23.976, 24.0, 25.0, 29.97, 30.0] {
@@ -2271,10 +2272,10 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label("Süre (dakika)");
+                ui.label(tr("Süre (dakika)"));
                 ui.add(egui::DragValue::new(&mut mins).speed(0.5).range(0.1..=600.0));
                 ui.end_row();
-                ui.label("Çözünürlük");
+                ui.label(tr("Çözünürlük"));
                 ui.horizontal(|ui| {
                     ui.add(egui::DragValue::new(&mut d.width).range(16..=8192));
                     ui.label("×");
@@ -2284,16 +2285,16 @@ impl App {
                     }
                 });
                 ui.end_row();
-                ui.label("Renk");
+                ui.label(tr("Renk"));
                 ui.color_edit_button_srgb(&mut d.rgb);
                 ui.end_row();
                 ui.label("");
-                ui.checkbox(&mut d.checkerboard, "Damalı desen");
+                ui.checkbox(&mut d.checkerboard, tr("Damalı desen"));
                 ui.end_row();
             });
             d.frames = ((mins * 60.0 * d.fps).round() as u64).max(1);
             ui.label(RichText::new(format!("{} kare. İlk açılışta üretilir (uzun sürelerde birkaç on saniye), sonra önbellekten anında açılır.", d.frames)).weak());
-            if ui.button("Aç").clicked() { go = true; }
+            if ui.button(tr("Aç")).clicked() { go = true; }
         });
         if go {
             self.media.open_dummy(&d, ctx);
@@ -2305,11 +2306,11 @@ impl App {
 
     pub(super) fn goto_window(&mut self, ctx: &egui::Context) {
         let mut open = self.goto_open;
-        egui::Window::new("Zamana git").open(&mut open).collapsible(false).show(ctx, |ui| {
-            ui.label("Zaman (H:MM:SS.cc, MM:SS ya da saniye):");
+        egui::Window::new(tr("Zamana git")).open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label(tr("Zaman (H:MM:SS.cc, MM:SS ya da saniye):"));
             let r = ui.add(TextEdit::singleline(&mut self.goto_buf).desired_width(160.0));
             if self.goto_focus { r.request_focus(); self.goto_focus = false; }
-            if ui.button("Git").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
+            if ui.button(tr("Git")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
                 let t = time::parse_ass(&self.goto_buf).or_else(|| self.goto_buf.trim().parse::<f64>().ok().map(|s| (s * 1000.0) as i64));
                 match t {
                     Some(t) => {
@@ -2319,7 +2320,7 @@ impl App {
                         self.media.playhead = t;
                         self.goto_open = false;
                     }
-                    None => self.status = "Geçersiz zaman".into(),
+                    None => self.status = tr("Geçersiz zaman").into(),
                 }
             }
         });
@@ -2328,17 +2329,17 @@ impl App {
 
     pub(super) fn vad_window(&mut self, ctx: &egui::Context) {
         let mut open = self.vad_open;
-        egui::Window::new("Sesten satır oluştur").open(&mut open).collapsible(false).show(ctx, |ui| {
-            ui.label("Konuşma bölgelerini bulup boş altyazı satırları oluşturur (zamanlama iskeleti).");
+        egui::Window::new(tr("Sesten satır oluştur")).open(&mut open).collapsible(false).show(ctx, |ui| {
+            ui.label(tr("Konuşma bölgelerini bulup boş altyazı satırları oluşturur (zamanlama iskeleti)."));
             egui::Grid::new("vad_grid").num_columns(2).show(ui, |ui| {
-                ui.label("Eşik payı (dB)"); ui.add(egui::DragValue::new(&mut self.vad.margin_db).speed(0.5).range(3.0..=40.0)); ui.end_row();
-                ui.label("Mutlak taban (dBFS)"); ui.add(egui::DragValue::new(&mut self.vad.floor_db).speed(0.5).range(-90.0..=-10.0)); ui.end_row();
-                ui.label("En kısa konuşma (ms)"); ui.add(egui::DragValue::new(&mut self.vad.min_speech_ms).speed(10)); ui.end_row();
-                ui.label("En kısa sessizlik (ms)"); ui.add(egui::DragValue::new(&mut self.vad.min_silence_ms).speed(10)); ui.end_row();
-                ui.label("Kenar payı (ms)"); ui.add(egui::DragValue::new(&mut self.vad.pad_ms).speed(5)); ui.end_row();
+                ui.label(tr("Eşik payı (dB)")); ui.add(egui::DragValue::new(&mut self.vad.margin_db).speed(0.5).range(3.0..=40.0)); ui.end_row();
+                ui.label(tr("Mutlak taban (dBFS)")); ui.add(egui::DragValue::new(&mut self.vad.floor_db).speed(0.5).range(-90.0..=-10.0)); ui.end_row();
+                ui.label(tr("En kısa konuşma (ms)")); ui.add(egui::DragValue::new(&mut self.vad.min_speech_ms).speed(10)); ui.end_row();
+                ui.label(tr("En kısa sessizlik (ms)")); ui.add(egui::DragValue::new(&mut self.vad.min_silence_ms).speed(10)); ui.end_row();
+                ui.label(tr("Kenar payı (ms)")); ui.add(egui::DragValue::new(&mut self.vad.pad_ms).speed(5)); ui.end_row();
             });
             ui.horizontal(|ui| {
-                if ui.button("Satırları konuşmaya yapıştır").on_hover_text("Seçili (yoksa tüm) satırların başlangıç/bitişini ±250 ms içindeki en yakın konuşma sınırına çeker").clicked() {
+                if ui.button(tr("Satırları konuşmaya yapıştır")).on_hover_text(tr("Seçili (yoksa tüm) satırların başlangıç/bitişini ±250 ms içindeki en yakın konuşma sınırına çeker")).clicked() {
                     if let Some(w) = self.media.waveform() {
                         let segs = osisub_media::detect_speech(&w, &self.vad);
                         let sel = self.doc.selection.clone();
@@ -2348,13 +2349,13 @@ impl App {
                         self.doc.apply_new_script("Konuşmaya yapıştır", s);
                         self.status = format!("{n} satır konuşma sınırına yapıştırıldı");
                     } else {
-                        self.status = "Önce video/ses açın (dalga formu gerekli)".into();
+                        self.status = tr("Önce video/ses açın (dalga formu gerekli)").into();
                     }
                 }
             });
             ui.separator();
-            ui.checkbox(&mut self.vad_skip_existing, "Zaten satır olan bölgeleri atla");
-            if ui.button("Oluştur").clicked() {
+            ui.checkbox(&mut self.vad_skip_existing, tr("Zaten satır olan bölgeleri atla"));
+            if ui.button(tr("Oluştur")).clicked() {
                 if let Some(w) = self.media.waveform() {
                     let segs = osisub_media::detect_speech(&w, &self.vad);
                     let existing: Vec<(i64, i64)> = self.doc.script.dialogues().map(|d| (d.start_time, d.end_time)).collect();
@@ -2383,28 +2384,28 @@ impl App {
         let mut go = false;
         let playhead = self.media.playhead;
         let script = &self.doc.script;
-        egui::Window::new("Dosyayı böl").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            ui.label("Kesme zamanları (virgülle; satırlar başlangıç zamanına göre dağıtılır):");
+        egui::Window::new(tr("Dosyayı böl")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(tr("Kesme zamanları (virgülle; satırlar başlangıç zamanına göre dağıtılır):"));
             ui.add(TextEdit::singleline(cuts).hint_text("0:01:30.00, 0:22:10.00").desired_width(400.0));
             ui.horizontal(|ui| {
-                if ui.button("Playhead'i ekle").clicked() {
+                if ui.button(tr("Playhead'i ekle")).clicked() {
                     if !cuts.trim().is_empty() { cuts.push_str(", "); }
                     cuts.push_str(&time::format_ass(playhead));
                 }
                 ui.separator();
                 ui.add(egui::DragValue::new(n).range(2..=50));
-                if ui.button("parçaya eşit böl").on_hover_text("Satır sayısı eşit olacak kesme zamanlarını hesaplar").clicked() {
+                if ui.button(tr("parçaya eşit böl")).on_hover_text(tr("Satır sayısı eşit olacak kesme zamanlarını hesaplar")).clicked() {
                     *cuts = osisub_core::filesplit::equal_cuts(script, *n).iter().map(|&t| time::format_ass(t)).collect::<Vec<_>>().join(", ");
                 }
             });
-            ui.checkbox(rebase, "Her parçanın zamanını kendi başlangıcından sıfırla").on_hover_text("Ör. bölümden OP'yi ayırıp başka bölüme yerleştirmek için");
+            ui.checkbox(rebase, "Her parçanın zamanını kendi başlangıcından sıfırla").on_hover_text(tr("Ör. bölümden OP'yi ayırıp başka bölüme yerleştirmek için"));
             let parsed: Vec<Option<i64>> = cuts.split(',').filter(|c| !c.trim().is_empty()).map(|c| osisub_core::time::parse_generic(c)).collect();
             if parsed.iter().any(|c| c.is_none()) {
-                ui.label(RichText::new("Geçersiz zaman var").color(theme::BAD));
+                ui.label(RichText::new(tr("Geçersiz zaman var")).color(theme::BAD));
             } else if !parsed.is_empty() {
                 let parts = osisub_core::filesplit::split_times(script, &parsed.iter().flatten().copied().collect::<Vec<_>>(), false);
                 ui.label(format!("{} parça: {}", parts.len(), parts.iter().map(|p| format!("{} satır", p.dialogues().count())).collect::<Vec<_>>().join(", ")));
-                if ui.button("Böl ve kaydet…").clicked() { go = true; }
+                if ui.button(tr("Böl ve kaydet…")).clicked() { go = true; }
             }
         });
         if go {
@@ -2446,28 +2447,28 @@ impl App {
         let mut open = true;
         let mut apply = false;
         let mut changed = false;
-        egui::Window::new("Çoklu değiştir").open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
-            ui.label(RichText::new("Kurallar yukarıdan aşağı sırayla uygulanır; etiketler ({…}) ve yorum satırları korunur. Liste otomatik kaydedilir.").weak());
+        egui::Window::new(tr("Çoklu değiştir")).open(&mut open).collapsible(false).default_width(640.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Kurallar yukarıdan aşağı sırayla uygulanır; etiketler ({…}) ve yorum satırları korunur. Liste otomatik kaydedilir.")).weak());
             let mut del: Option<usize> = None;
             let mut up: Option<usize> = None;
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 egui::Grid::new("mrep_grid").num_columns(8).striped(true).show(ui, |ui| {
-                    ui.label(""); ui.label("Bul"); ui.label("Değiştir"); ui.label("Regex"); ui.label("Aa"); ui.label("Sözcük"); ui.label("Eşleşme"); ui.label(""); ui.end_row();
+                    ui.label(""); ui.label(tr("Bul")); ui.label(tr("Değiştir")); ui.label(tr("Regex")); ui.label(tr("Aa")); ui.label(tr("Sözcük")); ui.label(tr("Eşleşme")); ui.label(""); ui.end_row();
                     for (k, r) in rules.iter_mut().enumerate() {
                         changed |= ui.checkbox(&mut r.on, "").changed();
                         changed |= ui.add_sized([180.0, 20.0], TextEdit::singleline(&mut r.find).font(egui::TextStyle::Monospace)).changed();
                         changed |= ui.add_sized([180.0, 20.0], TextEdit::singleline(&mut r.replace).font(egui::TextStyle::Monospace)).changed();
                         changed |= ui.checkbox(&mut r.regex, "").changed();
-                        changed |= ui.checkbox(&mut r.match_case, "").on_hover_text("Büyük/küçük harf duyarlı").changed();
+                        changed |= ui.checkbox(&mut r.match_case, "").on_hover_text(tr("Büyük/küçük harf duyarlı")).changed();
                         changed |= ui.checkbox(&mut r.whole_word, "").changed();
                         match pv.get(k) {
                             Some(Ok(n)) => { ui.label(if *n > 0 { RichText::new(format!("{n} satır")).color(theme::ACCENT) } else { RichText::new("0").weak() }); }
-                            Some(Err(e)) => { ui.label(RichText::new("hata").color(theme::BAD)).on_hover_text(e); }
+                            Some(Err(e)) => { ui.label(RichText::new(tr("hata")).color(theme::BAD)).on_hover_text(e); }
                             None => { ui.label(""); }
                         }
                         ui.horizontal(|ui| {
-                            if ui.small_button("Yukarı").clicked() && k > 0 { up = Some(k); }
-                            if ui.small_button("Sil").clicked() { del = Some(k); }
+                            if ui.small_button(tr("Yukarı")).clicked() && k > 0 { up = Some(k); }
+                            if ui.small_button(tr("Sil")).clicked() { del = Some(k); }
                         });
                         ui.end_row();
                     }
@@ -2476,18 +2477,18 @@ impl App {
             if let Some(k) = del { rules.remove(k); changed = true; }
             if let Some(k) = up { rules.swap(k, k - 1); changed = true; }
             ui.horizontal(|ui| {
-                if ui.button("+ Kural").clicked() { rules.push(mr::Rule::default()); changed = true; }
-                if ui.button("İçe aktar…").clicked() {
+                if ui.button(tr("+ Kural")).clicked() { rules.push(mr::Rule::default()); changed = true; }
+                if ui.button(tr("İçe aktar…")).clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv", "txt"]).pick_file() {
                         if let Ok(t) = std::fs::read_to_string(p) { rules.extend(mr::from_tsv(&t)); changed = true; }
                     }
                 }
-                if ui.button("Dışa aktar…").clicked() {
+                if ui.button(tr("Dışa aktar…")).clicked() {
                     if let Some(p) = rfd::FileDialog::new().set_file_name("kurallar.tsv").save_file() { let _ = std::fs::write(p, mr::to_tsv(&rules)); }
                 }
                 ui.separator();
-                ui.checkbox(&mut only_sel, "yalnızca seçili satırlar");
-                if ui.button("Uygula").clicked() { apply = true; }
+                ui.checkbox(&mut only_sel, tr("yalnızca seçili satırlar"));
+                if ui.button(tr("Uygula")).clicked() { apply = true; }
             });
         });
         let only: Option<Vec<usize>> = if only_sel { Some(self.doc.target_lines()) } else { None };
@@ -2532,7 +2533,7 @@ impl App {
         ];
         let mut goto: Option<&'static str> = None;
         let mut spell = false;
-        egui::Window::new("Yayına hazır mı?").open(&mut open).collapsible(false).default_width(470.0).show(ctx, |ui| {
+        egui::Window::new(tr("Yayına hazır mı?")).open(&mut open).collapsible(false).default_width(470.0).show(ctx, |ui| {
             egui::Grid::new("ready_grid").num_columns(3).striped(true).show(ui, |ui| {
                 for (label, n, cat, hint) in &rows {
                     let (txt, col) = match *n {
@@ -2544,16 +2545,16 @@ impl App {
                     if !hint.is_empty() { r.on_hover_text(hint); }
                     ui.label(RichText::new(txt).strong().color(col));
                     if *n > 0 && *n != usize::MAX {
-                        if label.starts_with("Yazım") { if ui.small_button("Göster").clicked() { spell = true; } }
-                        else if ui.small_button("Göster").clicked() { goto = Some(cat); }
+                        if label.starts_with("Yazım") { if ui.small_button(tr("Göster")).clicked() { spell = true; } }
+                        else if ui.small_button(tr("Göster")).clicked() { goto = Some(cat); }
                     } else { ui.label(""); }
                     ui.end_row();
                 }
             });
             let fonts_hint = "Yazı tiplerinin kurulu/gömülü olduğunu Araçlar → Yazı tipi denetimi ile; ekran çakışmasını Kalite sekmesindeki düğmeyle denetleyin.";
             ui.label(RichText::new(fonts_hint).small().weak());
-            if self.media.path.is_none() { ui.label(RichText::new("Video açık değil: sahne değişimi, titreme ve video süresi denetimleri yapılmadı.").small().color(theme::WARN)); }
-            if self.reference.is_none() { ui.label(RichText::new("Referans altyazı yok: çevrilmemiş/tutarlılık denetimi yalnızca kısmen yapıldı.").small().weak()); }
+            if self.media.path.is_none() { ui.label(RichText::new(tr("Video açık değil: sahne değişimi, titreme ve video süresi denetimleri yapılmadı.")).small().color(theme::WARN)); }
+            if self.reference.is_none() { ui.label(RichText::new(tr("Referans altyazı yok: çevrilmemiş/tutarlılık denetimi yalnızca kısmen yapıldı.")).small().weak()); }
         });
         if let Some(c) = goto { self.qc_filter = c; self.tab = Tab::Quality; }
         if spell { self.tab = Tab::Spell; }
@@ -2569,17 +2570,17 @@ impl App {
             (Some(p), Some(d)) => osisub_core::backup::list(&d, p),
             _ => vec![],
         };
-        egui::Window::new("Yedekler").open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            ui.label(RichText::new("Her kayıttan önce dosyanın önceki hali saklanır (dosya başına son 20, UTC zamanı).").weak());
-            if list.is_empty() { ui.label("Bu dosya için yedek yok (ilk kayıttan sonra oluşur)."); }
+        egui::Window::new(tr("Yedekler")).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Her kayıttan önce dosyanın önceki hali saklanır (dosya başına son 20, UTC zamanı).")).weak());
+            if list.is_empty() { ui.label(tr("Bu dosya için yedek yok (ilk kayıttan sonra oluşur).")); }
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 egui::Grid::new("bk_grid").num_columns(3).striped(true).show(ui, |ui| {
                     for (p, st) in &list {
                         let pretty = if st.len() >= 15 { format!("{}-{}-{} {}:{}:{}", &st[0..4], &st[4..6], &st[6..8], &st[9..11], &st[11..13], &st[13..15]) } else { st.clone() };
                         let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
                         ui.label(format!("{pretty}  ({} KB)", size.div_ceil(1024)));
-                        if ui.small_button("Karşılaştır").on_hover_text("Açık belgeyle farklar").clicked() { act = Some((p.clone(), true)); }
-                        if ui.small_button("Aç").on_hover_text("Yeni (kaydedilmemiş) belge olarak açar; asıl dosyanın üzerine yazmak için Farklı kaydet").clicked() { act = Some((p.clone(), false)); }
+                        if ui.small_button(tr("Karşılaştır")).on_hover_text(tr("Açık belgeyle farklar")).clicked() { act = Some((p.clone(), true)); }
+                        if ui.small_button(tr("Aç")).on_hover_text(tr("Yeni (kaydedilmemiş) belge olarak açar; asıl dosyanın üzerine yazmak için Farklı kaydet")).clicked() { act = Some((p.clone(), false)); }
                         ui.end_row();
                     }
                 });
@@ -2605,14 +2606,14 @@ impl App {
         let mut open = true;
         let mut jump = None;
         let mut change: Option<(usize, Option<String>)> = None;
-        egui::Window::new("Yer imleri").open(&mut open).collapsible(false).min_width(480.0).show(ctx, |ui| {
+        egui::Window::new(tr("Yer imleri")).open(&mut open).collapsible(false).min_width(480.0).show(ctx, |ui| {
             let list = osisub_core::bookmarks::list(&self.doc.script);
             if list.is_empty() {
-                ui.label("Yer imi yok. Satırda Ctrl+F2 ile koyun; F2 / Shift+F2 ile gezin. Yer imleri dosyada (Extradata) saklanır.");
+                ui.label(tr("Yer imi yok. Satırda Ctrl+F2 ile koyun; F2 / Shift+F2 ile gezin. Yer imleri dosyada (Extradata) saklanır."));
                 return;
             }
             let pos_of: std::collections::HashMap<usize, usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(_))).enumerate().map(|(n, (i, _))| (i, n + 1)).collect();
-            if ui.small_button("Listeyi kopyala").on_hover_text("Satır no, zaman, not ve metin — ekibe göndermek için").clicked() {
+            if ui.small_button(tr("Listeyi kopyala")).on_hover_text(tr("Satır no, zaman, not ve metin — ekibe göndermek için")).clicked() {
                 let txt: String = list.iter().filter_map(|(i, note)| match self.doc.script.entries.get(*i) {
                     Some(Entry::Dialogue(d)) => Some(format!("{} ({}) — {} — {}\n", pos_of.get(i).copied().unwrap_or(0), time::format_ass(d.start_time), if note.is_empty() { "-" } else { note.as_str() }, osisub_core::tags::visible_text(&d.text).replace('\n', " / "))),
                     _ => None,
@@ -2627,14 +2628,14 @@ impl App {
                         // düzenleme tamponu karelerden bağımsız tutulur; odak kaybında / Enter'da kaydedilir
                         let editing = self.bookmark_edit.as_ref().is_some_and(|e| e.0 == *i);
                         let mut n = if editing { self.bookmark_edit.as_ref().unwrap().1.clone() } else { note.clone() };
-                        let r = ui.add(TextEdit::singleline(&mut n).hint_text("not…").desired_width(150.0));
+                        let r = ui.add(TextEdit::singleline(&mut n).hint_text(tr("not…")).desired_width(150.0));
                         if r.changed() || r.has_focus() { self.bookmark_edit = Some((*i, n.clone())); }
                         if r.lost_focus() {
                             if n != *note { change = Some((*i, Some(n))); }
                             self.bookmark_edit = None;
                         }
                         ui.add(egui::Label::new(RichText::new(osisub_core::tags::visible_text(&d.text).replace('\n', " ")).weak()).truncate());
-                        if ui.small_button("Kaldır").clicked() { change = Some((*i, None)); }
+                        if ui.small_button(tr("Kaldır")).clicked() { change = Some((*i, None)); }
                         ui.end_row();
                     }
                 });
@@ -2654,11 +2655,11 @@ impl App {
         if !self.honor_open { return; }
         let mut open = true;
         let mut strip = false;
-        egui::Window::new("Saygı ekleri").open(&mut open).collapsible(false).default_width(380.0).show(ctx, |ui| {
-            ui.label(RichText::new("Çeviride adlara bitişik Japonca saygı ekleri (Hinata-kun, Yachi-san…). Ekip kararına (ekleri koru / kaldır) uyumu ve tutarlılığı denetlemek için.").weak());
+        egui::Window::new(tr("Saygı ekleri")).open(&mut open).collapsible(false).default_width(380.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Çeviride adlara bitişik Japonca saygı ekleri (Hinata-kun, Yachi-san…). Ekip kararına (ekleri koru / kaldır) uyumu ve tutarlılığı denetlemek için.")).weak());
             let u = osisub_core::honorifics::usage(&self.doc.script);
             if u.is_empty() {
-                ui.label("Belgede saygı eki yok.");
+                ui.label(tr("Belgede saygı eki yok."));
             } else {
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     egui::Grid::new("honor_grid").num_columns(2).striped(true).show(ui, |ui| {
@@ -2671,8 +2672,8 @@ impl App {
                         }
                     });
                 });
-                ui.label(RichText::new("Sarı: aynı ad farklı biçimlerde geçiyor (bilinçli olabilir).").small().weak());
-                if ui.button("Tüm ekleri kaldır").on_hover_text("Diyaloglardaki ada bitişik saygı eklerini siler (yorumlar hariç; tek geri-al adımı)").clicked() { strip = true; }
+                ui.label(RichText::new(tr("Sarı: aynı ad farklı biçimlerde geçiyor (bilinçli olabilir).")).small().weak());
+                if ui.button(tr("Tüm ekleri kaldır")).on_hover_text(tr("Diyaloglardaki ada bitişik saygı eklerini siler (yorumlar hariç; tek geri-al adımı)")).clicked() { strip = true; }
             }
         });
         if strip {
@@ -2686,7 +2687,7 @@ impl App {
 
     pub(super) fn stats_window(&mut self, ctx: &egui::Context) {
         let mut open = self.stats_open;
-        egui::Window::new("İstatistikler").open(&mut open).collapsible(false).default_width(360.0).show(ctx, |ui| {
+        egui::Window::new(tr("İstatistikler")).open(&mut open).collapsible(false).default_width(360.0).show(ctx, |ui| {
             let st = osisub_core::stats::compute(&self.doc.script);
             egui::Grid::new("stats_grid").num_columns(2).striped(true).show(ui, |ui| {
                 let row = |ui: &mut egui::Ui, k: &str, v: String| { ui.label(k); ui.label(RichText::new(v).monospace()); ui.end_row(); };
@@ -2701,7 +2702,7 @@ impl App {
                 row(ui, "En yüksek okuma hızı", format!("{:.1} kar/sn", st.max_cps));
             });
             ui.separator();
-            ui.strong("Okuma hızı dağılımı");
+            ui.strong(tr("Okuma hızı dağılımı"));
             let labels = ["0–5", "6–10", "11–15", "16–20", "21–25", "26+"];
             let maxv = *st.cps_histogram.iter().max().unwrap_or(&1).max(&1) as f32;
             for (i, l) in labels.iter().enumerate() {
@@ -2714,11 +2715,11 @@ impl App {
                 });
             }
             ui.separator();
-            ui.strong("Stiller");
+            ui.strong(tr("Stiller"));
             for (k, v) in &st.styles { ui.label(format!("{}: {}", k, v)); }
             if !st.actors.is_empty() {
                 ui.separator();
-                ui.strong("Konuşanlar");
+                ui.strong(tr("Konuşanlar"));
                 for (k, v) in &st.actors { ui.label(format!("{}: {}", k, v)); }
             }
         });
@@ -2727,48 +2728,48 @@ impl App {
 
     pub(super) fn fixes_window(&mut self, ctx: &egui::Context) {
         let mut open = self.fixes_open;
-        egui::Window::new("Sık hataları düzelt").open(&mut open).collapsible(false).show(ctx, |ui| {
+        egui::Window::new(tr("Sık hataları düzelt")).open(&mut open).collapsible(false).show(ctx, |ui| {
             let f = &mut self.fixes;
-            ui.checkbox(&mut f.mojibake, "Bozuk Türkçe karakterleri onar (Ã¼ → ü, Ý → İ, þ → ş …)");
-            ui.checkbox(&mut f.double_spaces, "Çift boşlukları tek yap");
-            ui.checkbox(&mut f.edge_spaces, "Satır başı/sonu boşluklarını sil");
-            ui.checkbox(&mut f.space_before_punct, "Noktalamadan önceki boşluğu sil");
-            ui.checkbox(&mut f.space_after_punct, "Noktalamadan sonra boşluk ekle");
-            ui.checkbox(&mut f.ellipsis, "Üç noktayı … yap");
-            ui.checkbox(&mut f.dialogue_dash, "Diyalog çizgisinden sonra boşluk (-Merhaba → - Merhaba)");
-            ui.checkbox(&mut f.sentence_case, "Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)");
-            ui.checkbox(&mut f.remove_hi, "İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)");
-            ui.checkbox(&mut f.tr_spelling, "Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da, şuan → şu an, gelecekmisin → gelecek misin…)");
+            ui.checkbox(&mut f.mojibake, tr("Bozuk Türkçe karakterleri onar (Ã¼ → ü, Ý → İ, þ → ş …)"));
+            ui.checkbox(&mut f.double_spaces, tr("Çift boşlukları tek yap"));
+            ui.checkbox(&mut f.edge_spaces, tr("Satır başı/sonu boşluklarını sil"));
+            ui.checkbox(&mut f.space_before_punct, tr("Noktalamadan önceki boşluğu sil"));
+            ui.checkbox(&mut f.space_after_punct, tr("Noktalamadan sonra boşluk ekle"));
+            ui.checkbox(&mut f.ellipsis, tr("Üç noktayı … yap"));
+            ui.checkbox(&mut f.dialogue_dash, tr("Diyalog çizgisinden sonra boşluk (-Merhaba → - Merhaba)"));
+            ui.checkbox(&mut f.sentence_case, tr("Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)"));
+            ui.checkbox(&mut f.remove_hi, tr("İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)"));
+            ui.checkbox(&mut f.tr_spelling, tr("Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da, şuan → şu an, gelecekmisin → gelecek misin…)"));
             ui.horizontal(|ui| {
                 let mut on = f.balance_lines.is_some();
-                ui.checkbox(&mut on, "Satırları dengele (satır başına karakter)").on_hover_text("Uzun metni en fazla iki dengeli satıra kırar (noktalamada, bağlaçla bitirmeden); sığan metni tek satır yapar. Tipografi/karaoke satırlarına dokunmaz.");
+                ui.checkbox(&mut on, tr("Satırları dengele (satır başına karakter)")).on_hover_text(tr("Uzun metni en fazla iki dengeli satıra kırar (noktalamada, bağlaçla bitirmeden); sığan metni tek satır yapar. Tipografi/karaoke satırlarına dokunmaz."));
                 let mut v = f.balance_lines.unwrap_or(self.rules.max_line_len.max(20));
                 ui.add_enabled(on, egui::DragValue::new(&mut v).range(20..=120));
                 f.balance_lines = on.then_some(v);
             });
             ui.horizontal(|ui| {
                 let mut on = f.split_long.is_some();
-                ui.checkbox(&mut on, "Uzun satırları böl (karakter)");
+                ui.checkbox(&mut on, tr("Uzun satırları böl (karakter)"));
                 let mut v = f.split_long.unwrap_or(84);
                 ui.add_enabled(on, egui::DragValue::new(&mut v).range(20..=300));
                 f.split_long = on.then_some(v);
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.min_dur_on, "En kısa süre (ms)");
+                ui.checkbox(&mut self.min_dur_on, tr("En kısa süre (ms)"));
                 let mut v = f.min_duration_ms.unwrap_or(833);
                 ui.add_enabled(self.min_dur_on, egui::DragValue::new(&mut v).speed(10));
                 f.min_duration_ms = self.min_dur_on.then_some(v);
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.min_gap_on, "En küçük boşluk (ms)");
+                ui.checkbox(&mut self.min_gap_on, tr("En küçük boşluk (ms)"));
                 let mut v = f.min_gap_ms.unwrap_or(84);
                 ui.add_enabled(self.min_gap_on, egui::DragValue::new(&mut v).speed(5));
                 f.min_gap_ms = self.min_gap_on.then_some(v);
             });
             ui.separator();
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.fixes_selection_only, "Yalnızca seçim");
-                if ui.button("Uygula").clicked() {
+                ui.checkbox(&mut self.fixes_selection_only, tr("Yalnızca seçim"));
+                if ui.button(tr("Uygula")).clicked() {
                     let mut o = self.fixes.clone();
                     o.only = if self.fixes_selection_only { Some(self.doc.selection.clone()) } else { None };
                     let mut s = self.doc.script.clone();
@@ -2800,24 +2801,24 @@ impl App {
         }
         let mut open = self.fonts_open;
         let mut goto: Option<usize> = None;
-        egui::Window::new("Yazı tipi denetimi").open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
-            if ui.button("Yenile").clicked() { self.start_font_scan(); }
+        egui::Window::new(tr("Yazı tipi denetimi")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+            if ui.button(tr("Yenile")).clicked() { self.start_font_scan(); }
             match &self.font_report {
-                None => { ui.horizontal(|ui| { ui.spinner(); ui.label("Sistem yazı tipleri taranıyor…"); }); }
+                None => { ui.horizontal(|ui| { ui.spinner(); ui.label(tr("Sistem yazı tipleri taranıyor…")); }); }
                 Some(rep) => {
                     let missing = rep.iter().filter(|(_, f, _)| f.is_empty()).count();
                     let glyphs = rep.iter().filter(|(_, _, g)| !g.is_empty()).count();
-                    ui.label(if missing == 0 { RichText::new("Tüm yazı tipleri kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a)) } else { RichText::new(format!("{} yazı tipi eksik", missing)).color(theme::BAD) });
+                    ui.label(if missing == 0 { RichText::new(tr("Tüm yazı tipleri kurulu")).color(Color32::from_rgb(0x7a, 0xd9, 0x8a)) } else { RichText::new(format!("{} yazı tipi eksik", missing)).color(theme::BAD) });
                     if glyphs > 0 {
                         ui.label(RichText::new(format!("{glyphs} yazı tipinde kullanılan karakterlerin glifi yok (ör. ğ ş İ ı): oynatıcı başka yazı tipine düşer ya da kutu gösterir. Karaktere tıklayınca ilk geçtiği satıra gidilir.")).color(theme::BAD));
                     }
                     egui::Grid::new("fonts_grid").striped(true).show(ui, |ui| {
-                        ui.strong("Aile"); ui.strong("Stil"); ui.strong("Satır"); ui.strong("Durum"); ui.strong("Eksik glif"); ui.end_row();
+                        ui.strong(tr("Aile")); ui.strong(tr("Stil")); ui.strong(tr("Satır")); ui.strong(tr("Durum")); ui.strong(tr("Eksik glif")); ui.end_row();
                         for (u, files, miss) in rep {
                             ui.label(&u.family);
                             ui.label(format!("{}{}", if u.bold { "kalın " } else { "" }, if u.italic { "italik" } else { "" }));
                             ui.label(u.lines.to_string());
-                            if files.is_empty() { ui.label(RichText::new("EKSİK").color(theme::BAD)); } else { ui.label(RichText::new("kurulu").color(Color32::from_rgb(0x7a, 0xd9, 0x8a))).on_hover_text(files.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join("\n")); }
+                            if files.is_empty() { ui.label(RichText::new(tr("EKSİK")).color(theme::BAD)); } else { ui.label(RichText::new(tr("kurulu")).color(Color32::from_rgb(0x7a, 0xd9, 0x8a))).on_hover_text(files.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join("\n")); }
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 2.0;
                                 for c in miss.iter().take(20) {
@@ -2830,7 +2831,7 @@ impl App {
                             ui.end_row();
                         }
                     });
-                    if ui.button("Kurulu yazı tiplerini klasöre kopyala…").clicked() {
+                    if ui.button(tr("Kurulu yazı tiplerini klasöre kopyala…")).clicked() {
                         if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                             let mut n = 0;
                             for (_, files, _) in rep { for f in files { if let Some(name) = f.file_name() { if std::fs::copy(f, dir.join(name)).is_ok() { n += 1; } } } }

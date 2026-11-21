@@ -1,5 +1,6 @@
 //! Uygulama içi kullanım kılavuzu (docs/KULLANIM.md ikiliye gömülü): basit Markdown görüntüleme
 //! (başlık, kalın, italik, kod) ve paragraf süzme araması.
+use crate::i18n::tr;
 use eframe::egui::{self, text::LayoutJob, Color32, FontId, RichText, TextFormat};
 
 pub const GUIDE: &str = include_str!("../../../docs/KULLANIM.md");
@@ -123,11 +124,11 @@ fn para_job(ui: &egui::Ui, s: &str, width: f32) -> LayoutJob {
 pub fn show(ctx: &egui::Context, query: &mut Option<String>) {
     let Some(q) = query.as_mut() else { return };
     let mut open = true;
-    egui::Window::new("Kullanım kılavuzu").open(&mut open).default_width(720.0).default_height(560.0).show(ctx, |ui| {
+    egui::Window::new(tr("Kullanım kılavuzu")).open(&mut open).default_width(720.0).default_height(560.0).show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Ara:");
-            ui.add(egui::TextEdit::singleline(q).hint_text("ör. pipet, OCR, karaoke").desired_width(260.0));
-            if !q.is_empty() && ui.small_button("Temizle").clicked() {
+            ui.label(tr("Ara:"));
+            ui.add(egui::TextEdit::singleline(q).hint_text(tr("ör. pipet, OCR, karaoke")).desired_width(260.0));
+            if !q.is_empty() && ui.small_button(tr("Temizle")).clicked() {
                 q.clear();
             }
         });
@@ -160,7 +161,7 @@ pub fn show(ctx: &egui::Context, query: &mut Option<String>) {
                 }
             }
             if shown == 0 {
-                ui.label(RichText::new("Eşleşen bölüm yok. Komut paleti (Ctrl+Shift+P) tüm komutları arar.").weak());
+                ui.label(RichText::new(tr("Eşleşen bölüm yok. Komut paleti (Ctrl+Shift+P) tüm komutları arar.")).weak());
             }
         });
     });

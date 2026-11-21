@@ -21,6 +21,8 @@ pub struct Settings {
     pub adjacent_gap_ms: i64,
     pub fps: f64,
     pub light_theme: bool,
+    /// Arayüz dili: "tr" | "en"
+    pub ui_lang: String,
     pub zoom: f32,
     pub glossary_path: String,
     pub dict_aff: String,
@@ -87,6 +89,7 @@ impl Default for Settings {
             adjacent_gap_ms: p.adjacent_gap_ms,
             fps: 23.976,
             light_theme: false,
+            ui_lang: "tr".into(),
             zoom: 1.0,
             glossary_path: String::new(),
             dict_aff: String::new(),
