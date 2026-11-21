@@ -52,6 +52,7 @@ Gerçek tr_TR sözlük testi: `OSISUB_TR_DICT=<klasör> cargo test --release -p 
 - egui: her karede yeniden kurulan `TextEdit` tamponu yazılanı kaybeder; düzenleme tamponunu uygulama durumunda tut (yer imi notu hatası).
 - Japonca yazı tipi testleri: `apt-get install fonts-ipafont-gothic`; Tesseract: `tesseract-ocr` (eng); en_US Hunspell: `hunspell-en-us` (/usr/share/hunspell).
 - **Arayüz dili (i18n.rs):** arayüz metinleri `tr("Türkçe metin")` ile sarılır, anahtar Türkçe metnin kendisi; İngilizcesi `crates/osisub-gui/i18n/en.jsonl` (`["tr","en"]` satırları). `kaynaktaki_metinlerin_cevirisi_var` testi çevirisiz `tr("…")` metninde düşer — yeni düğme/etiket eklerken çevirisini de ekle. Kalıp: `format!` içeren metinler henüz çevrilmiyor; çekirdekten (QC iletileri) gelen metinler Türkçe. Ekran görüntüsü: `OSISUB_LANG=en`.
+- Lua renkleri: Aegisub `ass_color` `%02X` ile KESER (yuvarlamaz); iletişim kutusu renk değeri `#RRGGBB(AA)` döner; stil tablosunda renkler `&HAABBGGRR&`. Yeni Lua davranışını Aegisub kaynağına (auto4_lua*.cpp, automation/include/*.lua) göre doğrula.
 - Doğrulanmamış: gerçek ses aygıtı (cpal), macOS'ta GUI'yi elle kullanma, gerçek Windows makinesi (wine dışında), release iş akışı.
 
 ## Stil
