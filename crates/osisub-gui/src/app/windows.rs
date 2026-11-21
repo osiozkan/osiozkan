@@ -1365,15 +1365,15 @@ impl App {
         };
         egui::Window::new(tr("Geçmiş")).open(&mut open).default_width(300.0).show(ctx, |ui| {
             egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-                if ui.selectable_label(undo.is_empty(), "• Açılış durumu").clicked() { jump = Some(0); }
+                if ui.selectable_label(undo.is_empty(), tr("• Açılış durumu")).clicked() { jump = Some(0); }
                 for (k, d) in undo.iter().enumerate() {
                     let cur = k + 1 == undo.len();
-                    let r = ui.selectable_label(cur, format!("{}. {}", k + 1, d));
+                    let r = ui.selectable_label(cur, format!("{}. {}", k + 1, crate::i18n::tr_msg(d)));
                     if cur { r.scroll_to_me(None); }
                     if r.clicked() { jump = Some(k + 1); }
                 }
                 for (k, d) in redo.iter().enumerate() {
-                    if ui.selectable_label(false, RichText::new(format!("{}. {}", undo.len() + k + 1, d)).weak().italics()).on_hover_text(tr("Geri alındı — tıklayınca yinelenir")).clicked() { jump = Some(undo.len() + k + 1); }
+                    if ui.selectable_label(false, RichText::new(format!("{}. {}", undo.len() + k + 1, crate::i18n::tr_msg(d))).weak().italics()).on_hover_text(tr("Geri alındı — tıklayınca yinelenir")).clicked() { jump = Some(undo.len() + k + 1); }
                 }
             });
         });

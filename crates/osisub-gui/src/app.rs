@@ -1053,8 +1053,8 @@ impl App {
             if b(ui, "Aç", "Ctrl+O") { self.request(Guarded::OpenDialog); }
             if b(ui, "Kaydet", "Ctrl+S") { self.save(false); }
             ui.separator();
-            if b(ui, "Geri al", "Ctrl+Z") { if let Some(d) = self.doc.undo() { self.status = trf!("Geri alındı: {d}"); } }
-            if b(ui, "Yinele", "Ctrl+Y") { if let Some(d) = self.doc.redo() { self.status = trf!("Yinelendi: {d}"); } }
+            if b(ui, "Geri al", "Ctrl+Z") { if let Some(d) = self.doc.undo() { self.status = trf!("Geri alındı: {}", crate::i18n::tr_msg(&d)); } }
+            if b(ui, "Yinele", "Ctrl+Y") { if let Some(d) = self.doc.redo() { self.status = trf!("Yinelendi: {}", crate::i18n::tr_msg(&d)); } }
             if b(ui, "Bul", "Ctrl+F") { self.find_open = true; self.find_focus = true; }
             ui.separator();
             if b(ui, "Satırı oynat", "F5") { self.run_command("play_line", ui.ctx()); }
@@ -1887,7 +1887,7 @@ impl App {
                 if ui.button(tr("Çıkış")).clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
             });
             ui.menu_button(tr("Düzen"), |ui| {
-                if ui.add_enabled(self.doc.can_undo(), egui::Button::new(format!("Geri al{}", self.doc.undo_desc().map(|d| format!(": {}", d)).unwrap_or_default())).shortcut_text("Ctrl+Z")).clicked() { self.doc.undo(); ui.close(); }
+                if ui.add_enabled(self.doc.can_undo(), egui::Button::new(format!("{}{}", tr("Geri al"), self.doc.undo_desc().map(|d| format!(": {}", crate::i18n::tr_msg(&d))).unwrap_or_default())).shortcut_text("Ctrl+Z")).clicked() { self.doc.undo(); ui.close(); }
                 if ui.add_enabled(self.doc.can_redo(), egui::Button::new(tr("Yinele")).shortcut_text("Ctrl+Y")).clicked() { self.doc.redo(); ui.close(); }
                 ui.separator();
                 if ui.button(tr("Geçmiş…")).on_hover_text(tr("Geri alma geçmişi: bir adıma tıklayarak o duruma dönün")).clicked() { ui.close(); self.history_open = true; }

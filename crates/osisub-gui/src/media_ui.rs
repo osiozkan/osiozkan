@@ -866,7 +866,7 @@ impl Media {
             VideoTool::None => {}
             VideoTool::Pos => {
                 if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
-                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "\\move var: konum aracı devre dışı", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("\\move var: konum aracı devre dışı"), egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
                     return;
                 }
                 p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
@@ -896,7 +896,7 @@ impl Media {
                 p.rect_stroke(Rect::from_center_size(b, egui::vec2(14.0, 14.0)), 1.0, Stroke::new(2.0, Color32::from_rgb(0x6b, 0xc5, 0xe5)), egui::StrokeKind::Middle);
                 let times = mv.times.map(|(t1, t2)| format!(" ({}–{} ms)", t1, t2)).unwrap_or_default();
                 p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\move {:.0},{:.0} → {:.0},{:.0}{}", mv.from.0, mv.from.1, mv.to.0, mv.to.1, times), egui::FontId::monospace(11.0), col);
-                p.text(vis.left_top() + egui::vec2(6.0, 22.0), egui::Align2::LEFT_TOP, "daire: başlangıç · kare: bitiş · boş alan: ikisi · sağ tık: \\pos", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 22.0), egui::Align2::LEFT_TOP, crate::i18n::tr("daire: başlangıç · kare: bitiş · boş alan: ikisi · sağ tık: \\pos"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     // drag_started eşik aşıldıktan sonra gelir: isabet testi için basma noktası kullanılır.
                     if let Some(pos) = press.or(ptr) {
@@ -1096,7 +1096,7 @@ impl Media {
                 p.circle_filled(o, 4.0, Color32::WHITE);
                 p.circle_stroke(o, 9.0, Stroke::new(1.5, Color32::WHITE));
                 p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frz {:.1}°", frz), egui::FontId::monospace(11.0), col);
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     // 1 = \org taşı, 0 = açı
                     let on_org = press.or(ptr).map_or(false, |q| q.distance(o) < 10.0);
@@ -1139,7 +1139,7 @@ impl Media {
                 p.line_segment([o - egui::vec2(0.0, 60.0), o + egui::vec2(0.0, 60.0)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x6b, 0xc5, 0xe5, 160)));
                 p.circle_filled(o, 4.0, Color32::WHITE);
                 p.text(o + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("frx {:.1}°  fry {:.1}°", frx, fry), egui::FontId::monospace(11.0), col);
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "yatay sürükle: \\fry · dikey: \\frx · Shift: 15° adım · sağ tık: sıfırla", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("yatay sürükle: \\fry · dikey: \\frx · Shift: 15° adım · sağ tık: sıfırla"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     self.vt_drag = Some((0, (frx, fry)));
                 }
@@ -1228,7 +1228,7 @@ impl Media {
             VideoTool::Perspective => {
                 use osisub_core::{overrides as ov, perspective as pp};
                 let Some((bw, bh)) = self.persp_box.as_ref().filter(|b| b.0 == at && b.1 == d.text).map(|b| b.2) else {
-                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Perspektif: satır kutusu ölçülemedi (yazı tipi bulunamadı ya da boş satır)", egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
+                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("Perspektif: satır kutusu ölçülemedi (yazı tipi bulunamadı ya da boş satır)"), egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
                     return;
                 };
                 let dist = self.persp_dist;
@@ -1262,7 +1262,7 @@ impl Media {
                 for (i, s) in sq.iter().enumerate() {
                     p.rect_filled(Rect::from_center_size(*s, egui::vec2(9.0, 9.0)), 1.0, if i == 0 { Color32::from_rgb(0x6b, 0xc5, 0xe5) } else { col });
                 }
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Perspektif: köşeleri sürükle (mavi = sol üst) · içeriden sürükle: taşı · sağ tık: perspektifi kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("Perspektif: köşeleri sürükle (mavi = sol üst) · içeriden sürükle: taşı · sağ tık: perspektifi kaldır"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let inside = |q: Pos2| (0..4).all(|i| { let (a, b) = (sq[i], sq[(i + 1) % 4]); (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x) >= 0.0 });
                 if r.drag_started() {
                     if let Some(pos) = press.or(ptr) {
@@ -1329,7 +1329,7 @@ impl Media {
                 p.rect_filled(Rect::from_center_size(hy, egui::vec2(10.0, 10.0)), 2.0, col);
                 p.text(hx + egui::vec2(8.0, -14.0), egui::Align2::LEFT_TOP, format!("\\fax {:.2}", fax), egui::FontId::monospace(11.0), col);
                 p.text(hy + egui::vec2(10.0, -6.0), egui::Align2::LEFT_TOP, format!("\\fay {:.2}", fay), egui::FontId::monospace(11.0), col);
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, "Eğme: üst tutamaç \\fax, sağ tutamaç \\fay (Shift = 0.05 adım) · sağ tık: kaldır", egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("Eğme: üst tutamaç \\fax, sağ tutamaç \\fay (Shift = 0.05 adım) · sağ tık: kaldır"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 if r.drag_started() {
                     self.shear_axis = press.or(ptr).map(|q| if q.distance(hx) <= q.distance(hy) { 0 } else { 1 });
                 }
@@ -1448,9 +1448,9 @@ impl Media {
                 p.line_segment([Pos2::new(x, mid - *hi as f32 * amp), Pos2::new(x, mid - *lo as f32 * amp - 1.0)], Stroke::new(1.0, Color32::from_rgb(0x6f, 0xb8, 0xd8)));
             }
         } else if self.is_open() && self.info.as_ref().map_or(true, |i| i.has_audio) {
-            p.text(rect.center(), egui::Align2::CENTER_CENTER, "Ses yükleniyor…", egui::FontId::proportional(13.0), Color32::GRAY);
+            p.text(rect.center(), egui::Align2::CENTER_CENTER, crate::i18n::tr("Ses yükleniyor…"), egui::FontId::proportional(13.0), Color32::GRAY);
         } else {
-            p.text(rect.center(), egui::Align2::CENTER_CENTER, "Ses yok — Video menüsünden ortam açın", egui::FontId::proportional(13.0), Color32::GRAY);
+            p.text(rect.center(), egui::Align2::CENTER_CENTER, crate::i18n::tr("Ses yok — Video menüsünden ortam açın"), egui::FontId::proportional(13.0), Color32::GRAY);
         }
         p.line_segment([Pos2::new(rect.left(), mid), Pos2::new(rect.right(), mid)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
 

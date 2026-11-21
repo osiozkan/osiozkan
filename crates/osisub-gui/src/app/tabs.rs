@@ -986,6 +986,8 @@ impl App {
                 if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(is.entry) {
                     let txt = format!("{}  {}  {}", time::format_ass(d.start_time), crate::i18n::tr_msg(&is.message), "");
                     if ui.selectable_label(self.doc.active == is.entry, txt).clicked() { jump = Some(is.entry); }
+                } else {
+                    ui.label(format!("--:--  {}", crate::i18n::tr_msg(&is.message)));
                 }
             }
         });

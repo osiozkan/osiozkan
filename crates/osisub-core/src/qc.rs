@@ -252,6 +252,16 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
     let mut groups: std::collections::HashMap<(&str, i32), Vec<(i64, i64, usize)>> = std::collections::HashMap::new();
     let mut prev: Option<(usize, &Dialogue)> = None;
     for (i, e) in script.entries.iter().enumerate() {
+        if let Entry::Unknown { section, raw } = e {
+            // ayrıştırılamayan Dialogue/Comment satırı (eksik alan, bozuk zaman): ham korunur ama
+            // oynatıcıda görünmez — kullanıcı bilmeli
+            let l = raw.trim_start();
+            if section == crate::ass::SEC_EVENTS && (l.starts_with("Dialogue:") || l.starts_with("Comment:")) {
+                let short: String = l.chars().take(60).collect();
+                issues.push(Issue { entry: i, kind: Kind::TagError, message: format!("Bozuk satır okunamadı (olduğu gibi korunur): {short}") });
+            }
+            continue;
+        }
         let Entry::Dialogue(d) = e else { continue };
         if d.comment {
             continue;
@@ -820,5 +830,13 @@ mod tests {
         assert!(script_issues(&ok, Some((1440, 1080))).iter().any(|m| m.contains("en-boy")));
         // anamorfik 1440×1080 (görüntü 16:9): 1920×1080 PlayRes kabul
         assert!(!script_issues_dar(&ok, Some((1440, 1080)), Some(16.0 / 9.0)).iter().any(|m| m.contains("en-boy")));
+    }
+
+    #[test]
+    fn bozuk_satir_uyarisi() {
+        let t = "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0\n";
+        let sc = Script::parse(t);
+        let v = check(&sc, &Rules::default());
+        assert!(v.iter().any(|i| i.kind == Kind::TagError && i.message.starts_with("Bozuk satır")), "{v:?}");
     }
 }
