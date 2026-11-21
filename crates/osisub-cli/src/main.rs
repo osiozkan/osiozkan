@@ -31,7 +31,7 @@ KULLANIM:
   osisub fix <girdi> [çıktı] [--overlaps] [--dupes] [--empty] [--clean] [--sort] [--fps N|--timecodes tc.txt --snap]
                           [--merge-same BOŞLUK_MS] [--merge-short KAR] [--recalc KAR/SN]
   osisub shift <girdi> <ms> [çıktı]       tüm satırları kaydır (negatif olabilir)
-  osisub macros <betik.lua>...            betiklerdeki makroları listele
+  osisub macros <betik.lua|klasör>...    betikleri yükle, makroları listele (klasör: tüm .lua/.moon, hata özeti)
   osisub run <girdi> <betik.lua> <makro-no|ad> [çıktı] [--param ad=değer]... [--select 1,2,3] [--fps N] [--timecodes tc.txt]
   osisub info <dosya>                     özet bilgi
   osisub motion <girdi> <iz.txt> --lines 5,6 [çıktı] [--start-frame N] [--fps N|--timecodes tc.txt] [--no-pos] [--no-scale] [--no-rot] [--no-clip] [--linear]  (Transform verisi ya da CC Power Pin/Corner Pin)
@@ -748,15 +748,42 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "macros" => {
-            let mut e = new_engine(HeadlessHost::default())?;
+            // dosya ya da klasör (alt klasörler dahil .lua/.moon): betik koleksiyonunu toplu denetle;
+            // hatalı betik diğerlerini durdurmaz, her betik ayrı motorda yüklenir
+            fn collect(p: &Path, out: &mut Vec<std::path::PathBuf>) {
+                if p.is_dir() {
+                    let mut v: Vec<_> = std::fs::read_dir(p).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+                    v.sort();
+                    for c in v { collect(&c, out) }
+                } else if p.extension().map_or(false, |e| e == "lua" || e == "moon") {
+                    out.push(p.to_path_buf());
+                }
+            }
+            let mut files = Vec::new();
             for p in &args {
-                let info = e.load_script(Path::new(p)).map_err(|e| e.to_string())?;
-                println!("{} — {} ({})", info.name, info.description, info.file);
+                let p = Path::new(p);
+                // açıkça verilen dosya uzantısına bakılmadan denenir
+                if p.is_dir() { collect(p, &mut files) } else { files.push(p.to_path_buf()) }
             }
-            for m in e.macros() {
-                println!("  [{}] {} — {} ({:?})", m.id, m.name, m.description, m.kind);
+            if files.is_empty() { return Err("kullanım: macros <betik.lua | klasör>...".into()); }
+            let mut bad = 0;
+            for f in &files {
+                let mut e = new_engine(HeadlessHost::default())?;
+                match e.load_script(f) {
+                    Ok(info) => {
+                        println!("TAMAM  {} — {} ({})", info.name, info.description, f.display());
+                        for m in e.macros() {
+                            println!("    [{}] {} — {} ({:?})", m.id, m.name, m.description, m.kind);
+                        }
+                    }
+                    Err(err) => {
+                        bad += 1;
+                        println!("HATA   {}: {}", f.display(), err.to_string().lines().next().unwrap_or(""));
+                    }
+                }
             }
-            Ok(())
+            println!("{} betik, {} hatalı", files.len(), bad);
+            if bad > 0 { Err(format!("{bad} betik yüklenemedi")) } else { Ok(()) }
         }
         "run" => {
             let mut params = HashMap::new();
