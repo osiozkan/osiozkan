@@ -20,6 +20,11 @@ pub fn load_str(text: &str, ext: &str) -> Script {
         "smi" | "sami" => Script::from_dialogues(crate::formats::parse_sami(text)),
         "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
         "ttml" | "dfxp" | "xml" | "itt" => Script::from_dialogues(crate::formats::parse_ttml(text)),
+        // ASS bölümü olmayan düz metin: her satır bir altyazı (okuma hızıyla zamanlanır)
+        "txt" if !text.contains("[Events]") && !text.to_ascii_lowercase().contains("[script info]") => {
+            let items = crate::textimport::parse(text, crate::textimport::Split::Lines, true);
+            Script::from_dialogues(crate::textimport::to_dialogues(&items, 0, 15.0, 1000, 7000, 100, "Default"))
+        }
         _ => Script::parse(text),
     }
 }
