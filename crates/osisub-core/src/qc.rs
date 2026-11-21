@@ -177,10 +177,10 @@ pub fn frame_issues(script: &Script, fr: &crate::vfr::Framerate, keyframes_ms: &
         let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time) + 1);
         if !kf.is_empty() {
             if let Some(dl) = near(fs).filter(|dl| *dl != 0 && dl.abs() <= max_frames) {
-                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: format!("Başlangıç sahne değişiminden {} kare {}", dl.abs(), if dl > 0 { "önce" } else { "sonra" }) });
+                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: if dl > 0 { format!("Başlangıç sahne değişiminden {} kare önce", dl) } else { format!("Başlangıç sahne değişiminden {} kare sonra", -dl) } });
             }
             if let Some(dl) = near(fe).filter(|dl| *dl != 0 && dl.abs() <= max_frames) {
-                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: format!("Bitiş sahne değişiminden {} kare {}", dl.abs(), if dl > 0 { "önce" } else { "sonra" }) });
+                out.push(Issue { entry: i, kind: Kind::NearKeyframe, message: if dl > 0 { format!("Bitiş sahne değişiminden {} kare önce", dl) } else { format!("Bitiş sahne değişiminden {} kare sonra", -dl) } });
             }
         }
         if !is_typeset(d) && !is_karaoke(d) {

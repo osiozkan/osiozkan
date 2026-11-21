@@ -1,5 +1,9 @@
 # Değişiklik günlüğü
 
+## 0.8.0 — 2026-11-21 (sekizinci gece, geliştiriliyor)
+
+**İngilizce arayüz:** *Görünüm → Arayüz dili / Language*. Menüler, pencereler, ipuçları, durum çubuğu ve Kalite iletileri İngilizce olabilir (anında değişir). Çevirisi eksik metin Türkçe kalır.
+
 ## 0.7.0 — 2026-11-20 (yedinci gece)
 
 **Karaoke:** **Furigana düzeni** — `{\kf40}君|きみ` hecelerinin okunuşları ana satırın üstüne, hecenin ortasına küçük satırlar olarak yerleşir ve hecesiyle birlikte vurgulanır (şablon gerekmez; Araçlar menüsü, komut paleti, CLI `furigana`). Okunuşu elle yazmanız gerekmez: Kanji zamanlayıcıda *Furigana okunuşu ekle* romaji hecelerinden hiragana okunuşu üretir (ki+mi → 君|きみ).

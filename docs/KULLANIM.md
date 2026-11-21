@@ -57,3 +57,5 @@ Daha hızlısı: **Video aracı → Perspektif**; satırın çevresinde 4 köşe
 - Ayarlar: `~/.config/osisub/settings.json` (Windows: `%APPDATA%\osisub`)
 - Otomatik kayıt (30 sn): `~/.local/share/osisub/autosave/`
 - Kayıtta ilk üzerine yazmada `dosya.ass.bak` yedeği alınır.
+
+**Arayüz dili / Interface language:** *Görünüm → Arayüz dili / Language* ile Türkçe ya da İngilizce (anında değişir, ayarlara kaydedilir; `OSISUB_LANG=en` ortam değişkeni de seçer). Menüler, pencereler, ipuçları, durum çubuğu ve Kalite sekmesi iletileri çevrilir; çevirisi olmayan bir metin Türkçe kalır.
