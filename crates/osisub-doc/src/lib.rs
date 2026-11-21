@@ -49,6 +49,9 @@ pub struct Document {
     pub max_undo: usize,
     /// Her içerik değişikliğinde artar (önbellekleri geçersiz kılmak için).
     pub rev: u64,
+    /// Son geri-al adımının oluşturulduğu `rev`: hemen ardından gelen `select` (ör. silmeden sonra
+    /// imleci geçerli satıra koyma) o adımın "sonraki seçim"i olur — yinelemede doğru satır
+    last_edit_rev: Option<u64>,
 }
 
 /// `edit` içinde kullanılan kayıt tutan düzenleyici.
@@ -100,7 +103,7 @@ static NEXT_REV_BASE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 impl Document {
     pub fn new(script: Script) -> Document {
         let rev = NEXT_REV_BASE.fetch_add(1 << 32, std::sync::atomic::Ordering::Relaxed);
-        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500, rev }
+        Document { script, path: None, selection: vec![], active: 0, undo: vec![], redo: vec![], saved_at: Some(0), max_undo: 500, rev, last_edit_rev: None }
     }
 
     pub fn open(path: impl Into<PathBuf>) -> Result<Document, String> {
@@ -194,7 +197,17 @@ impl Document {
             }
             self.prune_heavy();
         }
+        self.last_edit_rev = Some(self.rev);
         r
+    }
+
+    /// Seçimi belge sınırlarına çeker (geri al/yinele sonrası).
+    fn clamp_selection(&mut self) {
+        let n = self.script.entries.len();
+        self.selection.retain(|&i| i < n);
+        if self.active >= n {
+            self.active = n.saturating_sub(1);
+        }
     }
 
     /// Büyük yapısal değişiklikler (>5000 girdi) bellek yer; en fazla 8 tanesini sakla.
@@ -242,6 +255,7 @@ impl Document {
         }
         self.rev += 1;
         (self.selection, self.active) = t.sel_before.clone();
+        self.clamp_selection();
         let d = t.desc.clone();
         self.redo.push(t);
         Some(d)
@@ -254,6 +268,7 @@ impl Document {
         }
         self.rev += 1;
         (self.selection, self.active) = t.sel_after.clone();
+        self.clamp_selection();
         let d = t.desc.clone();
         self.undo.push(t);
         Some(d)
@@ -265,6 +280,7 @@ impl Document {
         if before == after.entries && self.script.crlf == after.crlf {
             return;
         }
+        self.script.crlf = after.crlf;
         let new_entries = after.entries;
         self.edit(desc, |tx| {
             if before.len() == new_entries.len() {
@@ -327,6 +343,11 @@ impl Document {
         idx.retain(|&i| i < self.script.entries.len());
         self.selection = idx;
         self.active = active;
+        if self.last_edit_rev == Some(self.rev) && self.redo.is_empty() {
+            if let Some(t) = self.undo.last_mut() {
+                t.sel_after = (self.selection.clone(), self.active);
+            }
+        }
     }
 
     /// Seçili diyalog satırlarının entry indeksleri; seçim yoksa etkin satır.
@@ -492,12 +513,16 @@ impl Document {
         if char_pos == 0 || char_pos >= chars.len() || time_ms <= d.start_time || time_ms >= d.end_time {
             return false;
         }
-        // Etiket bloğu içindeyse engelle.
+        // Etiket bloğu içindeyse ya da \N / \h kaçışının ortasındaysa engelle.
         let before: String = chars[..char_pos].iter().collect();
-        if before.matches('{').count() != before.matches('}').count() {
+        if before.matches('{').count() != before.matches('}').count() || chars[char_pos - 1] == '\\' {
             return false;
         }
-        let (a, b): (String, String) = (before.trim_end().to_string(), chars[char_pos..].iter().collect::<String>().trim_start().to_string());
+        let a = before.trim_end();
+        let a = a.strip_suffix("\\N").unwrap_or(a).trim_end().to_string();
+        let b_raw: String = chars[char_pos..].iter().collect();
+        let b = b_raw.trim_start();
+        let b = b.strip_prefix("\\N").unwrap_or(b).trim_start().to_string();
         let d1 = Dialogue { text: a, end_time: time_ms, ..d.clone() };
         let d2 = Dialogue { text: b, start_time: time_ms, ..d };
         self.edit("Böl", |tx| {
@@ -609,31 +634,32 @@ impl Document {
     /// Panodaki metni etkin/seçili son satırdan sonra yapıştırır. `Dialogue:` satırları olduğu gibi,
     /// düz metin satırları ise art arda yeni altyazı satırları olarak eklenir. Eklenen sayıyı döndürür.
     pub fn paste_lines(&mut self, text: &str) -> usize {
-        let parsed: Vec<Entry> = Script::parse(&format!("[Events]\n{}", text.replace("\r\n", "\n")))
-            .entries
-            .into_iter()
-            .filter_map(|e| match e {
-                Entry::Dialogue(d) => Some(Entry::Dialogue(Dialogue { extra: Vec::new(), ..d })),
+        // BOM ve tek başına CR (eski Mac) satır sonları temizlenir
+        let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n").replace('\r', "\n");
+        let lines: Vec<&str> = text.lines().map(|l| l.trim_start_matches('\u{feff}')).filter(|l| !l.trim().is_empty()).collect();
+        let parse_line = |l: &str| -> Option<Dialogue> {
+            let t = l.trim_start();
+            if !(t.starts_with("Dialogue:") || t.starts_with("Comment:")) { return None; }
+            Script::parse(&format!("[Events]\n{t}")).entries.into_iter().find_map(|e| match e {
+                Entry::Dialogue(d) => Some(Dialogue { extra: Vec::new(), ..d }),
                 _ => None,
             })
-            .collect();
-        let items: Vec<Entry> = if !parsed.is_empty() {
-            parsed
-        } else {
-            let mut t = self.script.dialogues().map(|d| d.end_time).max().unwrap_or(0);
-            let style = match self.script.entries.get(self.active) {
-                Some(Entry::Dialogue(d)) => d.style.clone(),
-                _ => "Default".into(),
-            };
-            text.lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| {
-                    let d = Dialogue { start_time: t, end_time: t + 2000, style: style.clone(), text: l.trim().replace('\n', "\\N"), ..Default::default() };
-                    t += 2000;
-                    Entry::Dialogue(d)
-                })
-                .collect()
         };
+        let parsed: Vec<Option<Dialogue>> = lines.iter().map(|l| parse_line(l)).collect();
+        let mut t = self.script.dialogues().map(|d| d.end_time).max().unwrap_or(0);
+        let style = match self.script.entries.get(self.active) {
+            Some(Entry::Dialogue(d)) => d.style.clone(),
+            _ => "Default".into(),
+        };
+        // Aegisub gibi: ayrıştırılamayan satırlar (düz metin) atılmaz, metin satırı olur
+        let items: Vec<Entry> = lines.iter().zip(parsed).map(|(l, p)| match p {
+            Some(d) => Entry::Dialogue(d),
+            None => {
+                let d = Dialogue { start_time: t, end_time: t + 2000, style: style.clone(), text: l.trim().to_string(), ..Default::default() };
+                t += 2000;
+                Entry::Dialogue(d)
+            }
+        }).collect();
         if items.is_empty() {
             return 0;
         }
@@ -1105,5 +1131,35 @@ mod tests {
         assert_eq!((ds[1].style.as_str(), ds[1].start_time, ds[1].layer), ("Tabela", 1000, 0));
         d.undo();
         assert_eq!(d.script.dialogues().nth(1).unwrap().text, "iki");
+    }
+
+    #[test]
+    fn inceleme_yinele_secimi_ve_yapistirma() {
+        let mut d = doc();
+        let last = d.script.entries.len() - 1;
+        d.select(vec![last], last);
+        d.delete_selected();
+        let after = (d.selection.clone(), d.active);
+        d.undo();
+        d.redo();
+        assert_eq!((d.selection.clone(), d.active), after, "yineleme silme sonrası seçimi geri getirir");
+        assert!(d.active < d.script.entries.len());
+        // BOM'lu Aegisub panosu: iki satır da gelir
+        let mut d = doc();
+        let n = d.paste_lines("\u{feff}Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello\r\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,world");
+        assert_eq!(n, 2);
+        assert!(d.script.dialogues().any(|x| x.text == "hello"));
+        // karışık yapıştırma: düz satır atılmaz; tek başına CR satır sonudur
+        let mut d = doc();
+        assert_eq!(d.paste_lines("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,a\nduz satir\nComment: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,c"), 3);
+        let mut d = doc();
+        assert_eq!(d.paste_lines("a\rb"), 2);
+        // \N ortasından bölünmez; \N sonrası bölünce kalıntı kalmaz
+        let mut d = Document::new(Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 2000, text: "ab\\Ncd".into(), ..Default::default() }]));
+        let at = d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        assert!(!d.split(at, 3, 1000));
+        assert!(d.split(at, 4, 1000));
+        let t: Vec<String> = d.script.dialogues().map(|x| x.text.clone()).collect();
+        assert_eq!(t, vec!["ab", "cd"]);
     }
 }
