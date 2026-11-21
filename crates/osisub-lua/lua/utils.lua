@@ -15,7 +15,7 @@ function util.deep_copy(t, seen)
   local r = {}
   seen[t] = r
   for k, v in pairs(t) do r[util.deep_copy(k, seen)] = util.deep_copy(v, seen) end
-  return setmetatable(r, getmetatable(t))
+  return r -- Aegisub gibi metatablo kopyalanmaz
 end
 
 function util.clamp(v, lo, hi)
@@ -26,33 +26,34 @@ end
 local function round(x) return math.floor(x + 0.5) end
 if not math.round then math.round = round end
 
+-- Aegisub `%02X` ile biçimler: ondalık değer KESİLİR (127.5 → 7F), yuvarlanmaz. Aralık dışı
+-- değerler Aegisub'da bozuk etiket üretirdi; burada sınırlanır.
+local function byte(x) return util.clamp(math.floor(x), 0, 255) end
+
 function util.ass_color(r, g, b)
-  return string.format("&H%02X%02X%02X&", util.clamp(round(b), 0, 255), util.clamp(round(g), 0, 255), util.clamp(round(r), 0, 255))
+  return string.format("&H%02X%02X%02X&", byte(b), byte(g), byte(r))
 end
 
 function util.ass_alpha(a)
-  return string.format("&H%02X&", util.clamp(round(a), 0, 255))
+  return string.format("&H%02X&", byte(a))
 end
 
 function util.ass_style_color(r, g, b, a)
-  return string.format("&H%02X%02X%02X%02X", util.clamp(round(a or 0), 0, 255), util.clamp(round(b), 0, 255), util.clamp(round(g), 0, 255), util.clamp(round(r), 0, 255))
+  return string.format("&H%02X%02X%02X%02X", byte(a or 0), byte(b), byte(g), byte(r))
 end
 
--- "&HAABBGGRR", "&HBBGGRR&", "\c&H..&" ve "#RRGGBB" biçimlerini r,g,b,a olarak çözer
+-- Aegisub utils-auto4.lua ile aynı sıra: stil rengi &HAABBGGRR, renk etiketi &HBBGGRR&,
+-- saydamlık &HAA& (yalnızca a), sonra #RRGGBB[AA]; eşleşmezse nil
 function util.extract_color(s)
-  local hex = s:match("#(%x%x%x%x%x%x)")
-  if hex then
-    return tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16), 0
-  end
-  hex = s:match("&?[Hh](%x+)&?")
-  if not hex then return 0, 0, 0, 0 end
-  hex = string.rep("0", math.max(0, 6 - #hex)) .. hex
-  if #hex >= 8 then
-    hex = hex:sub(-8)
-    return tonumber(hex:sub(7, 8), 16), tonumber(hex:sub(5, 6), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(1, 2), 16)
-  end
-  hex = hex:sub(-6)
-  return tonumber(hex:sub(5, 6), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(1, 2), 16), 0
+  local a, b, g, r = s:match("&H(%x%x)(%x%x)(%x%x)(%x%x)")
+  if a then return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), tonumber(a, 16) end
+  b, g, r = s:match("&H(%x%x)(%x%x)(%x%x)&")
+  if b then return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16), 0 end
+  a = s:match("&H(%x%x)&")
+  if a then return 0, 0, 0, tonumber(a, 16) end
+  r, g, b, a = s:match("#(%x%x)(%x?%x?)(%x?%x?)(%x?%x?)")
+  if r then return tonumber(r, 16), tonumber(g, 16) or 0, tonumber(b, 16) or 0, tonumber(a, 16) or 0 end
+  return nil
 end
 
 function util.alpha_from_style(s)
@@ -66,7 +67,8 @@ function util.color_from_style(s)
 end
 
 function util.interpolate(t, a, b)
-  return a + (b - a) * t
+  if t <= 0 then return a elseif t >= 1 then return b end
+  return t * (b - a) + a
 end
 
 function util.interpolate_color(t, c1, c2)

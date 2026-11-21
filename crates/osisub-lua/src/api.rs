@@ -318,6 +318,14 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 let r = inn.borrow_mut().host.dialog(&spec);
                 let res = lua.create_table()?;
                 for (k, v) in &r.values {
+                    // Aegisub renk denetimleri değeri her zaman "#RRGGBB" ("coloralpha": "#RRGGBBAA") döndürür
+                    let class = spec.controls.iter().find(|c| &c.name == k).map(|c| c.class.to_ascii_lowercase());
+                    if let (Some(cl @ ("color" | "coloralpha")), DV::Str(sv)) = (class.as_deref(), v) {
+                        if let Some(c) = osisub_core::color::Color::parse_dialog(sv) {
+                            res.set(k.as_str(), c.to_hex(cl == "coloralpha"))?;
+                            continue;
+                        }
+                    }
                     res.set(k.as_str(), dv_to_lua(lua, v)?)?;
                 }
                 let b = match r.button {
@@ -522,6 +530,7 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
     // ---- re
     let re = lua.create_table()?;
     install_re(lua, &re)?;
+    lua.load(RE_EXTRA).set_name("=re").call::<()>(re.clone())?;
     aegisub.set("__re", re)?;
 
     // ---- unicode
@@ -566,8 +575,31 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
 
 // ------------------------------------------------------------------ re
 
+/// Boost (Aegisub `re`) sözdizimi farkları: `\h`/`\H` boost'ta yatay boşluk, fancy-regex'te
+/// onaltılık rakam — yatay boşluk sınıfına çevrilir.
+fn boost_pattern(pat: &str) -> String {
+    let mut out = String::with_capacity(pat.len());
+    let mut it = pat.chars();
+    while let Some(c) = it.next() {
+        if c == '\\' {
+            match it.next() {
+                Some('h') => out.push_str("[\\t\\p{Zs}]"),
+                Some('H') => out.push_str("[^\\t\\p{Zs}]"),
+                Some(n) => { out.push('\\'); out.push(n); }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn compile(pat: &str, icase: bool) -> Result<Regex> {
-    RegexBuilder::new(pat).case_insensitive(icase).build().map_err(|e| mlua::Error::runtime(format!("re: geçersiz ifade: {}", e)))
+    // harf duyarsızlığı satır içi (?i): fancy-regex'te bakış ifadeli desende yapıcı bayrağı işlemiyor
+    let p = boost_pattern(pat);
+    let p = if icase { format!("(?i){p}") } else { p };
+    RegexBuilder::new(&p).build().map_err(|e| mlua::Error::runtime(format!("re: geçersiz ifade: {}", e)))
 }
 
 fn match_table(lua: &Lua, s: &str, start: usize, end: usize) -> Result<Table> {
@@ -589,8 +621,7 @@ fn find_all(lua: &Lua, re: &Regex, s: &str) -> Result<Value> {
     Ok(if n == 0 { Value::Nil } else { Value::Table(out) })
 }
 
-fn match_first(lua: &Lua, re: &Regex, s: &str) -> Result<Value> {
-    let Some(c) = re.captures(s).map_err(mlua::Error::external)? else { return Ok(Value::Nil) };
+fn captures_table(lua: &Lua, s: &str, c: &fancy_regex::Captures) -> Result<Table> {
     let out = lua.create_table()?;
     for i in 0..c.len() {
         match c.get(i) {
@@ -598,7 +629,31 @@ fn match_first(lua: &Lua, re: &Regex, s: &str) -> Result<Value> {
             None => out.set(i + 1, lua.create_table_from([("str", ""), ])?)?,
         }
     }
-    Ok(Value::Table(out))
+    Ok(out)
+}
+
+fn match_first(lua: &Lua, re: &Regex, s: &str) -> Result<Value> {
+    let Some(c) = re.captures(s).map_err(mlua::Error::external)? else { return Ok(Value::Nil) };
+    Ok(Value::Table(captures_table(lua, s, &c)?))
+}
+
+/// Aegisub `gmatch`: `start` (1 tabanlı bayt) konumundan itibaren her eşleşmenin `match` tablosu.
+fn match_all(lua: &Lua, re: &Regex, s: &str, start: usize) -> Result<Table> {
+    let out = lua.create_table()?;
+    let mut pos = start.saturating_sub(1).min(s.len());
+    while !s.is_char_boundary(pos) { pos += 1; }
+    let mut n = 0;
+    while pos <= s.len() {
+        let Some(c) = re.captures_from_pos(s, pos).map_err(mlua::Error::external)? else { break };
+        let m = c.get(0).expect("0. grup");
+        n += 1;
+        out.set(n, captures_table(lua, s, &c)?)?;
+        pos = if m.end() > m.start() { m.end() } else {
+            // boş eşleşmede bir karakter ilerle
+            match s[m.end()..].chars().next() { Some(ch) => m.end() + ch.len_utf8(), None => break }
+        };
+    }
+    Ok(out)
 }
 
 fn convert_repl(r: &str) -> String {
@@ -650,6 +705,46 @@ fn sub_impl(re: &Regex, s: &str, repl: Value, count: Option<i64>) -> Result<Stri
     }
 }
 
+/// Aegisub re.lua'nın yineleyici/bölme yöntemleri (derlenmiş nesneye ve modüle).
+const RE_EXTRA: &str = r#"
+local re = ...
+local function add(o)
+  function o.gfind(self, s)
+    local all, i = self:find(s) or {}, 0
+    return function() i = i + 1; local m = all[i]; if m then return m.str, m.first, m.last end end
+  end
+  function o.gmatch(self, s, start)
+    local all, i = self:_match_all(s, start), 0
+    return function() i = i + 1; return all[i] end
+  end
+  function o.split(self, s, skip_empty, max_split)
+    local out, pos, n = {}, 1, 0
+    for _, m in ipairs(self:find(s) or {}) do
+      if max_split and max_split > 0 and n >= max_split then break end
+      if m.last >= m.first then
+        local piece = s:sub(pos, m.first - 1)
+        if not (skip_empty and piece == "") then out[#out + 1] = piece end
+        pos, n = m.last + 1, n + 1
+      end
+    end
+    local piece = s:sub(pos)
+    if not (skip_empty and piece == "") then out[#out + 1] = piece end
+    return out
+  end
+  function o.gsplit(self, s, skip_empty, max_split)
+    local parts, i = self:split(s, skip_empty, max_split), 0
+    return function() i = i + 1; return parts[i] end
+  end
+  return o
+end
+local raw = re.compile
+re.compile = function(p, ...) return add(raw(p, ...)) end
+re.split = function(s, p, skip_empty, max_split, ...) return re.compile(p, ...):split(s, skip_empty, max_split) end
+re.gsplit = function(s, p, skip_empty, max_split, ...) return re.compile(p, ...):gsplit(s, skip_empty, max_split) end
+re.gmatch = function(s, p, ...) return re.compile(p, ...):gmatch(s) end
+re.gfind = function(s, p, ...) return re.compile(p, ...):gfind(s) end
+"#;
+
 fn install_re(lua: &Lua, re: &Table) -> Result<()> {
     re.set("ICASE", 1)?;
     re.set("NOSUB", 2)?;
@@ -682,6 +777,8 @@ fn install_re(lua: &Lua, re: &Table) -> Result<()> {
             let sub = lua.create_function(move |_, (_s, s, rep, count): (Value, String, Value, Option<i64>)| sub_impl(&r, &s, rep, count))?;
             t.set("sub", sub.clone())?;
             t.set("gsub", sub)?;
+            let r = rx.clone();
+            t.set("_match_all", lua.create_function(move |lua, (_s, s, start): (Value, String, Option<usize>)| match_all(lua, &r, &s, start.unwrap_or(1)))?)?;
             Ok(t)
         })?,
     )?;
@@ -696,6 +793,10 @@ fn install_unicode(lua: &Lua, u: &Table) -> Result<()> {
     u.set("to_upper", lua.create_function(|_, s: String| Ok(s.to_uppercase()))?)?;
     u.set("to_lower", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
     u.set("to_fold", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
+    // Aegisub unicode.lua adları
+    u.set("to_upper_case", lua.create_function(|_, s: String| Ok(s.to_uppercase()))?)?;
+    u.set("to_lower_case", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
+    u.set("to_fold_case", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
     u.set("tr_upper", lua.create_function(|_, s: String| Ok(osisub_core::qc::tr_upper(&s)))?)?;
     u.set("tr_lower", lua.create_function(|_, s: String| Ok(osisub_core::qc::tr_lower(&s)))?)?;
     u.set(

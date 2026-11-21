@@ -34,6 +34,24 @@ impl Color {
         format!("&H{:02X}{:02X}{:02X}{:02X}", self.a, self.b, self.g, self.r)
     }
 
+    /// Aegisub Lua iletişim kutusu rengi: `#RRGGBB` / `#RRGGBBAA` ya da ASS biçimi.
+    pub fn parse_dialog(s: &str) -> Option<Color> {
+        let t = s.trim();
+        if let Some(h) = t.strip_prefix('#') {
+            if (h.len() == 6 || h.len() == 8) && h.chars().all(|c| c.is_ascii_hexdigit()) {
+                let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+                return Some(Color { r: byte(0)?, g: byte(2)?, b: byte(4)?, a: if h.len() == 8 { byte(6)? } else { 0 } });
+            }
+            return None;
+        }
+        Color::parse(t)
+    }
+
+    /// Aegisub `GetHexFormatted`: `#RRGGBB`, `alpha` ise `#RRGGBBAA`.
+    pub fn to_hex(self, alpha: bool) -> String {
+        if alpha { format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a) } else { format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b) }
+    }
+
     /// Kullanıcı girişi: `#RRGGBB` (HTML), `rgb(r, g, b)` / `r,g,b` (onluk) ya da ASS (`&HBBGGRR&`).
     pub fn parse_any(s: &str) -> Option<Color> {
         let t = s.trim();

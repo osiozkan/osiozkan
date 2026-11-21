@@ -102,10 +102,10 @@ fn entry_to_table_in(lua: &Lua, e: &Entry, script: Option<(&ass::Script, &ExtraC
             t.set("name", s.name.as_str())?;
             t.set("fontname", s.fontname.as_str())?;
             t.set("fontsize", s.fontsize)?;
-            t.set("color1", s.color1.as_str())?;
-            t.set("color2", s.color2.as_str())?;
-            t.set("color3", s.color3.as_str())?;
-            t.set("color4", s.color4.as_str())?;
+            t.set("color1", format!("{}&", s.color1))?; // Aegisub: GetAssStyleFormatted() + "&"
+            t.set("color2", format!("{}&", s.color2))?; // Aegisub: GetAssStyleFormatted() + "&"
+            t.set("color3", format!("{}&", s.color3))?; // Aegisub: GetAssStyleFormatted() + "&"
+            t.set("color4", format!("{}&", s.color4))?; // Aegisub: GetAssStyleFormatted() + "&"
             t.set("bold", s.bold)?;
             t.set("italic", s.italic)?;
             t.set("underline", s.underline)?;
@@ -283,10 +283,15 @@ impl UserData for Subs {
                             Ok(())
                         })?,
                         "script_resolution" => lua.create_function(move |_, ()| Ok(sh.borrow().script_resolution()))?,
-                        "delete" => lua.create_function(move |_, items: Variadic<i64>| {
+                        "delete" => lua.create_function(move |_, items: Variadic<Value>| {
                             *ca.borrow_mut() = None;
                             let mut sc = sh.borrow_mut();
-                            let mut v: Vec<i64> = items.into_iter().collect();
+                            // Aegisub: tek tablo bağımsız değişkeni → içindeki indekslerin hepsi
+                            let num = |x: &Value| match x { Value::Integer(i) => Some(*i), Value::Number(n) => Some(*n as i64), _ => None };
+                            let mut v: Vec<i64> = match items.first() {
+                                Some(Value::Table(tb)) if items.len() == 1 => tb.clone().sequence_values::<Value>().filter_map(|x| x.ok()).filter_map(|x| num(&x)).collect(),
+                                _ => items.iter().map(|x| num(x).ok_or_else(|| mlua::Error::runtime("subs.delete: indeks sayı olmalı"))).collect::<mlua::Result<_>>()?,
+                            };
                             v.sort_unstable();
                             v.dedup();
                             for i in v.into_iter().rev() {

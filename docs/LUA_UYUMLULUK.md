@@ -39,6 +39,14 @@ Aegisub'da olmayan, osisub çekirdeğini betiklerden kullanmak için (betiğiniz
 | `osisub.time.format(ms)`, `osisub.time.parse(metin)` | `0:00:00.00` ↔ ms |
 | `osisub.render.bounds(satırlar, anlar)` | libass ile satır sınırları (SubInspector karşılığı) |
 
+## 2026-11-21 bağımsız uyumluluk incelemesi (düzeltildi)
+- `subs.delete(tablo)` (ör. `subs.delete(sel)`) artık tablodaki tüm indeksleri siler (eskiden hata).
+- `re.split / gsplit / gmatch / gfind` (modül ve derlenmiş nesne); boost'taki `\h` (yatay boşluk); `re.ICASE` bakış ifadeli desende de çalışır.
+- `extract_color` Aegisub sırasıyla (`&HAA&` saydamlık, eşleşmezse `nil`); `ass_color`/`interpolate_color` `%02X` gibi keser (0.5 arası siyah-beyaz → `&H7F7F7F&`); `interpolate` 0–1 dışında sınırlı; `deep_copy` metatablo kopyalamaz.
+- İletişim kutusu `color`/`coloralpha` değerleri `#RRGGBB` / `#RRGGBBAA` döner (Aegisub `GetHexFormatted`); `#RRGGBB` başlangıç değeri doğru gösterilir.
+- `unicode.to_upper_case / to_lower_case / to_fold_case`.
+- Stil satırı renkleri `&HAABBGGRR&` (sonda `&`, Aegisub gibi).
+
 ## Bilinen farklar / eksikler
 
 - `text_extents` yazı tipi sistemde yoksa kaba tahmine düşer (Yazı tipi denetimi penceresi eksikleri gösterir).

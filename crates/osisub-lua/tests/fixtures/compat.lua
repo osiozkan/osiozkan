@@ -24,7 +24,36 @@ function all_checks(subs, sel, active)
   check(util.ass_style_color(1, 2, 3, 4) == "&H04030201", "ass_style_color")
   local r, g, b, a = util.extract_color("&H80FF8040")
   check(r == 0x40 and g == 0x80 and b == 0xFF and a == 0x80, "extract_color")
-  check(util.interpolate_color(0.5, "&H000000&", "&HFFFFFF&") == "&H808080&", "interpolate_color")
+  check(util.interpolate_color(0.5, "&H000000&", "&HFFFFFF&") == "&H7F7F7F&", "interpolate_color (Aegisub %02X keser)")
+  check(util.interpolate(1.5, 0, 10) == 10 and util.interpolate(-1, 0, 10) == 0, "interpolate sınırlı")
+  local r2, g2, b2, a2 = util.extract_color("&H80&")
+  check(r2 == 0 and g2 == 0 and b2 == 0 and a2 == 128, "extract_color alfa")
+  check(util.extract_color("zz") == nil, "extract_color eşleşmezse nil")
+  local r3, g3, b3 = util.extract_color("#102030")
+  check(r3 == 0x10 and g3 == 0x20 and b3 == 0x30, "extract_color #RRGGBB")
+  local mt = setmetatable({ 1 }, { __index = function() return 5 end })
+  check(getmetatable(util.deep_copy(mt)) == nil, "deep_copy metatablo kopyalamaz")
+  check(unicode.to_upper_case("iğ") == "IĞ" and unicode.to_lower_case("AB") == "ab", "unicode.to_upper_case")
+  -- re: split / gsplit / gmatch / gfind, boost \h
+  local parts = re.split("a,b,,c", ",")
+  check(#parts == 4 and parts[1] == "a" and parts[3] == "" and parts[4] == "c", "re.split")
+  parts = re.split("a,b,,c", ",", true)
+  check(#parts == 3, "re.split skip_empty")
+  parts = re.split("a,b,c", ",", false, 1)
+  check(#parts == 2 and parts[2] == "b,c", "re.split max_split")
+  local acc = {}
+  for p in re.gsplit("x y", " ") do acc[#acc + 1] = p end
+  check(#acc == 2 and acc[2] == "y", "re.gsplit")
+  acc = {}
+  for m in re.gmatch("a1b22", "(\\d+)") do acc[#acc + 1] = m[2].str end
+  check(#acc == 2 and acc[1] == "1" and acc[2] == "22", "re.gmatch")
+  acc = {}
+  for str, first, last in re.gfind("a1b22", "\\d+") do acc[#acc + 1] = str .. first .. last end
+  check(acc[1] == "122" and acc[2] == "2245", "re.gfind")
+  local rc = re.compile(",")
+  check(#rc:split("1,2") == 2, "compiled:split")
+  check(re.sub("a b\tc", "\\h", "_") == "a_b_c", "re \\h yatay boşluk")
+  check(re.match("ABC", "b", re.ICASE) ~= nil, "re ICASE")
   check(util.interpolate(0.25, 0, 100) == 25, "interpolate")
   local h, s, v = util.RGB_to_HSV(255, 0, 0)
   check(h == 0 and s == 1 and v == 1, "RGB_to_HSV")
@@ -93,7 +122,7 @@ function all_checks(subs, sel, active)
   aegisub.log(2, "düzey %d\n", 2)
   aegisub.log("100%% güvenli\n")
   local ok, res = aegisub.dialog.display({ { class = "label", label = "Merhaba", x = 0, y = 0 }, { class = "dropdown", name = "dd", items = { "a", "b" }, value = "b", x = 0, y = 1 }, { class = "color", name = "col", value = "&HFF0000&" } }, { "Tamam", "Vazgeç" }, { ok = "Tamam", cancel = "Vazgeç" })
-  check(ok == "Tamam" and res.dd == "b" and res.col == "&HFF0000&", "dialog.display")
+  check(ok == "Tamam" and res.dd == "b" and res.col == "#0000FF", "dialog.display (renk #RRGGBB) " .. tostring(res.col))
   -- osisub'a özgü API
   local os_ = require "osisub"
   check(os_.tags.clean("{\\fs20\\fs30}a{\\i1}b{\\i1}c") == "{\\fs30}a{\\i1}bc", "osisub.tags.clean")
@@ -108,6 +137,19 @@ function all_checks(subs, sel, active)
   local lint = os_.tags.lint("{\\blurr2}a", 1000)
   check(#lint >= 1 and lint[1].kind == "error", "osisub.tags.lint")
   check(os_.text.balance("Bu çok uzun bir satır ve ikiye bölünmesi gerekiyor sanırım", 30):find("\\N") ~= nil, "osisub.text.balance")
+  -- stil renkleri sonunda & ile; subs.delete(tablo)
+  for i = 1, #subs do
+    if subs[i].class == "style" then
+      check(subs[i].color1:match("^&H%x%x%x%x%x%x%x%x&$") ~= nil, "stil rengi &HAABBGGRR& " .. subs[i].color1)
+      local st = subs[i]; subs[i] = st
+      break
+    end
+  end
+  local n0 = #subs
+  local l = subs[n0]
+  subs.append(l, l)
+  subs.delete({ n0 + 1, n0 + 2 })
+  check(#subs == n0, "subs.delete(tablo)")
   aegisub.set_undo_point("uyumluluk")
   return { first }
 end

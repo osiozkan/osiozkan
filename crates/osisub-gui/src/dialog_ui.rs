@@ -75,11 +75,11 @@ pub fn show(ctx: &egui::Context, title: &str, st: &mut DialogState) -> Option<Di
                         }
                         "color" | "coloralpha" => {
                             if let Some(DV::Str(s)) = st.values.get_mut(&name) {
-                                let col = osisub_core::color::Color::parse(s).unwrap_or(osisub_core::color::Color::BLACK);
+                                let col = osisub_core::color::Color::parse_dialog(s).unwrap_or(osisub_core::color::Color::BLACK);
                                 let mut c32 = egui::Color32::from_rgba_unmultiplied(col.r, col.g, col.b, 255 - col.a);
                                 if ui.color_edit_button_srgba(&mut c32).changed() {
                                     let nc = osisub_core::color::Color { r: c32.r(), g: c32.g(), b: c32.b(), a: 255 - c32.a() };
-                                    *s = if c.class == "color" { nc.to_tag_string() } else { nc.to_style_string() };
+                                    *s = nc.to_hex(c.class != "color");
                                 }
                                 ui.monospace(s.as_str());
                             }
