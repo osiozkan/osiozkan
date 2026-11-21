@@ -77,7 +77,9 @@ pub fn visible_len(text: &str) -> usize {
 
 /// Satır başına en uzun görünür satır uzunluğu.
 pub fn max_line_len(text: &str) -> usize {
-    visible_text(text).lines().map(|l| l.trim().chars().count()).max().unwrap_or(0)
+    // `\n` yumuşak kırılmadır: yalnızca \q2 (WrapStyle 2) kipinde satır böler, yoksa boşluk gibidir
+    let soft = if text.contains("\\q2") { "\n" } else { " " };
+    strip_tags(text).replace("\\N", "\n").replace("\\n", soft).replace("\\h", " ").lines().map(|l| l.trim().chars().count()).max().unwrap_or(0)
 }
 
 /// Bloklardaki `\k`, `\kf`, `\ko`, `\K` süreleri (santisaniye) ve ardından gelen hece metni.

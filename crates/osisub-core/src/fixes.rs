@@ -235,10 +235,22 @@ fn fix_punct_spacing(t: &str, before: bool, after: bool) -> String {
 fn fix_dialogue_dash(text: &str) -> String {
     text.split("\\N")
         .map(|l| {
-            let v = l.trim_start();
-            if let Some(rest) = v.strip_prefix('-') {
-                if !rest.starts_with(' ') && !rest.starts_with('-') && !rest.is_empty() && !rest.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-                    return format!("- {}", rest);
+            // baştaki etiket blokları ({\an8}) atlanır; -, – ve — çizgileri
+            let mut head_len = 0;
+            let mut v = l;
+            loop {
+                let t = v.trim_start();
+                head_len += v.len() - t.len();
+                v = t;
+                if v.starts_with('{') {
+                    if let Some(e) = v.find('}') { head_len += e + 1; v = &v[e + 1..]; continue; }
+                }
+                break;
+            }
+            if let Some(d) = v.chars().next().filter(|c| matches!(c, '-' | '–' | '—')) {
+                let rest = &v[d.len_utf8()..];
+                if !rest.starts_with(' ') && !rest.starts_with(d) && !rest.is_empty() && !rest.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    return format!("{}{} {}", &l[..head_len], d, rest);
                 }
             }
             l.to_string()
@@ -559,5 +571,6 @@ mod tests {
         assert_eq!(remove_hi("(gülüyor) Tamam\\NALİ: Evet"), "Tamam\\NEvet");
         assert_eq!(fix_punct_spacing("Tamam :3 Hayır :O dedi : evet", true, true), "Tamam :3 Hayır :O dedi: evet");
         assert_eq!(fix_punct_spacing("www.site.com/?q=ara", true, true), "www.site.com/?q=ara");
+        assert_eq!(fix_dialogue_dash("{\\an8}-Ne?\\N–Hiç."), "{\\an8}- Ne?\\N– Hiç.");
     }
 }

@@ -42,11 +42,56 @@ fn scan(text: &str) -> Vec<(String, String, std::ops::Range<usize>)> {
     out
 }
 
-/// Eki kaldırılmış metin ("Hinata-kun geldi" → "Hinata geldi").
+/// Saygı eki kalkınca adın ardındaki Türkçe hal ekini ada göre yeniden uydurur: ek, eki değil
+/// "-san" sesini izliyordu ("Saki-san'ı" → "Saki'yi", "Rei-kun'la" → "Rei'yle"). Tanınmayan ek
+/// olduğu gibi kalır.
+fn reharmonize(name: &str, suffix: &str) -> Option<String> {
+    let l = crate::qc::tr_lower(name);
+    let last_v = l.chars().rev().find(|c| "aeıioöuü".contains(*c))?;
+    let ends_vowel = l.chars().last().map_or(false, |c| "aeıioöuü".contains(c));
+    let hard = l.chars().last().map_or(false, |c| "fsthşçkp".contains(c));
+    let v4 = match last_v { 'a' | 'ı' => 'ı', 'e' | 'i' => 'i', 'o' | 'u' => 'u', _ => 'ü' };
+    let v2 = if "aıou".contains(last_v) { 'a' } else { 'e' };
+    let d = if hard { 't' } else { 'd' };
+    let sl = crate::qc::tr_lower(suffix);
+    let base = |x: &str| x.trim_start_matches(['y', 'n']).to_string();
+    let kind = match sl.as_str() {
+        x if ["ı", "i", "u", "ü"].contains(&base(x).as_str()) && x.len() <= 3 => "acc",
+        x if ["ın", "in", "un", "ün"].contains(&base(x).as_str()) => "gen",
+        x if ["a", "e"].contains(&base(x).as_str()) && x.len() <= 2 => "dat",
+        "da" | "de" | "ta" | "te" => "loc",
+        "dan" | "den" | "tan" | "ten" => "abl",
+        "la" | "le" | "yla" | "yle" => "ins",
+        _ => return None,
+    };
+    let out = match kind {
+        "acc" => if ends_vowel { format!("y{v4}") } else { v4.to_string() },
+        "gen" => if ends_vowel { format!("n{v4}n") } else { format!("{v4}n") },
+        "dat" => if ends_vowel { format!("y{v2}") } else { v2.to_string() },
+        "loc" => format!("{d}{v2}"),
+        "abl" => format!("{d}{v2}n"),
+        _ => if ends_vowel { format!("yl{v2}") } else { format!("l{v2}") },
+    };
+    // büyük harfli yazılmışsa (SAKİ-SAN'I) büyük kalsın
+    Some(if suffix.chars().all(|c| c.is_uppercase()) { crate::qc::tr_upper(&out) } else { out })
+}
+
+/// Eki kaldırılmış metin ("Hinata-kun geldi" → "Hinata geldi", "Saki-san'ı" → "Saki'yi").
 pub fn strip(text: &str) -> String {
     let mut out = text.to_string();
-    for (_, _, r) in scan(text).into_iter().rev() {
-        out.replace_range(r, "");
+    for (name, _, r) in scan(text).into_iter().rev() {
+        // ardından kesme işaretli ek geliyorsa uydur
+        let tail = &text[r.end..];
+        let mut fixed_end = r.end;
+        let mut repl = String::new();
+        if let Some(ap) = tail.chars().next().filter(|c| *c == '\'' || *c == '’') {
+            let suf: String = tail[ap.len_utf8()..].chars().take_while(|c| c.is_alphabetic()).collect();
+            if let Some(ns) = reharmonize(&name, &suf) {
+                repl = format!("{ap}{ns}");
+                fixed_end = r.end + ap.len_utf8() + suf.len();
+            }
+        }
+        out.replace_range(r.start..fixed_end, &repl);
     }
     out
 }
@@ -102,7 +147,7 @@ mod tests {
     #[test]
     fn strips_only_name_suffixes() {
         assert_eq!(strip("Hinata-kun, bekle! Sensei geldi. Kageyama-SAMA {\\i1}Yachi-chan{\\i0}"), "Hinata, bekle! Sensei geldi. Kageyama {\\i1}Yachi{\\i0}");
-        assert_eq!(strip("iki-üç kişi, Tanaka-senpai'nin"), "iki-üç kişi, Tanaka'nin");
+        assert_eq!(strip("iki-üç kişi, Tanaka-senpai'nin"), "iki-üç kişi, Tanaka'nın");
         assert_eq!(strip("{\\fn-san}yok"), "{\\fn-san}yok");
         assert_eq!(strip("o-nee bir şey"), "o-nee bir şey");
     }
@@ -118,5 +163,15 @@ mod tests {
         assert_eq!(k, &vec![(String::new(), 1), ("kun".to_string(), 1)]);
         assert_eq!(strip_all(&mut s), 4);
         assert!(usage(&s).is_empty());
+    }
+
+    #[test]
+    fn inceleme_ek_uyumu() {
+        assert_eq!(strip("Saki-san'ı gördün mü?"), "Saki'yi gördün mü?");
+        assert_eq!(strip("Rei-kun'la gel."), "Rei'yle gel.");
+        assert_eq!(strip("Ami-chan'ın çantası"), "Ami'nin çantası");
+        assert_eq!(strip("Hinata-sama'ya söyle"), "Hinata'ya söyle");
+        assert_eq!(strip("Ken-san'da kaldı"), "Ken'de kaldı");
+        assert_eq!(strip("Hinata-kun geldi"), "Hinata geldi");
     }
 }

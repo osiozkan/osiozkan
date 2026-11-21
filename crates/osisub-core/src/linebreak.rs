@@ -102,9 +102,20 @@ pub fn balance(text: &str, max: usize) -> String {
     if text.contains("\\q2") || text.contains("\\p1") {
         return text.to_string();
     }
+    let starts_dash = |s: &str| {
+        let v = tags::strip_tags(s);
+        let v = v.trim_start();
+        v.starts_with('-') || v.starts_with('–') || v.starts_with('—')
+    };
+    // iki konuşmacılı diyalog ("- Ne?\N- Hiç."): satırlar birleştirilmez, olduğu gibi kalır
+    let segs: Vec<&str> = text.split("\\N").collect();
+    if segs.len() >= 2 && segs.iter().skip(1).any(|s| starts_dash(s)) {
+        return text.to_string();
+    }
     let flat = unbreak(text);
     let lay = layout(&flat);
-    let has_dash = !lay.dash.is_empty();
+    // " - " yalnızca satır diyalog çizgisiyle başlıyorsa ikinci konuşmacıdır ("Ben - yani - bilmiyorum" değil)
+    let has_dash = starts_dash(&flat) && !lay.dash.is_empty();
     if lay.visible <= max && !has_dash {
         return flat;
     }
@@ -181,5 +192,13 @@ mod tests {
         assert_eq!(balance("- Geliyor musun? - Hayır.", 42), "- Geliyor musun?\\N- Hayır.");
         assert_eq!(balance("{\\p1}m 0 0 l 100 100 l 0 100{\\p0}", 10), "{\\p1}m 0 0 l 100 100 l 0 100{\\p0}");
         assert_eq!(balance("Tekkelimelikçokuzunbirsözcük", 10), "Tekkelimelikçokuzunbirsözcük");
+    }
+
+    #[test]
+    fn inceleme_cizgiler() {
+        assert_eq!(balance("Ben - yani - bilmiyorum.", 42), "Ben - yani - bilmiyorum.");
+        assert_eq!(balance("Bu iş 5 - 3 bitti.", 42), "Bu iş 5 - 3 bitti.");
+        assert_eq!(balance("–Ne?\\N–Hiç.", 42), "–Ne?\\N–Hiç.");
+        assert_eq!(balance("- Ne oldu? - Hiç.", 42), "- Ne oldu?\\N- Hiç.");
     }
 }
