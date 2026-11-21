@@ -467,7 +467,10 @@ impl App {
         use std::hash::{Hash, Hasher};
         let (w, h) = (((ui.available_width() - 24.0).min(420.0) as u32).max(160), 90u32);
         // Büyük yazı tipleri sığsın: PlayRes'i büyüterek tekdüze küçült (kenar/gölge oranı korunur)
-        let k = (st.fontsize as f64 / (h as f64 * 0.45)).max(1.0);
+        // genişlik: kabaca tahmin (Latin ~0.6 em, CJK 1 em) — uzun örnek metin kutudan taşmasın
+        let em: f64 = self.style_pv_text.chars().map(|c| if c.is_ascii() { 0.6 } else if (c as u32) >= 0x2E80 { 1.0 } else { 0.62 }).sum();
+        let est_w = em * st.fontsize as f64 * st.scale_x as f64 / 100.0 + st.spacing as f64 * self.style_pv_text.chars().count() as f64 + 2.0 * (st.outline as f64 + st.shadow as f64);
+        let k = (st.fontsize as f64 / (h as f64 * 0.45)).max(est_w / (w as f64 * 0.94)).max(1.0);
         let (rx, ry) = ((w as f64 * k).round() as u32, (h as f64 * k).round() as u32);
         let line = osisub_core::ass::style_line(st);
         let mut hs = std::collections::hash_map::DefaultHasher::new();
