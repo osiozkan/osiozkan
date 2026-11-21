@@ -1108,6 +1108,18 @@ impl App {
         self.worker.send(Cmd::Run { id, script: self.doc.script.clone(), selection, active: self.doc.active, props });
     }
 
+    /// Klasördeki .lua/.moon betiklerinin hepsini yükler (sıralı; hatalılar günlükte görünür).
+    fn load_lua_dir(&mut self, d: &std::path::Path) {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(d).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        v.retain(|p| p.is_file() && p.extension().map_or(false, |e| e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("moon")));
+        v.sort();
+        let n = v.len();
+        for p in v {
+            if !self.loaded_scripts.contains(&p) { self.load_lua(p); }
+        }
+        self.status = trf!("{} betik yükleniyor: {}", n, d.display());
+    }
+
     fn load_lua(&mut self, p: PathBuf) {
         // Kalıcı liste: otomatik yükleme klasöründekiler zaten her açılışta gelir
         let in_autoload = autoload_dir().map_or(false, |d| p.parent() == Some(d.as_path()));
@@ -2158,6 +2170,10 @@ impl App {
                 if ui.button(tr("Lua betiği yükle…")).clicked() {
                     ui.close();
                     if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
+                }
+                if ui.button(tr("Klasördeki betikleri yükle…")).on_hover_text(tr("Seçilen klasördeki tüm .lua/.moon betiklerini yükler (alt klasörler hariç; kalıcı listeye eklenir)")).clicked() {
+                    ui.close();
+                    if let Some(d) = rfd::FileDialog::new().pick_folder() { self.load_lua_dir(&d); }
                 }
                 if ui.button(tr("Betikleri yeniden yükle")).clicked() { ui.close(); self.reload_scripts(); }
                 if ui.checkbox(&mut self.settings.lua_autoreload, tr("Betik dosyası değişince otomatik yeniden yükle")).on_hover_text(tr("Yüklü betikler ya da include/autoload klasörlerindeki .lua/.moon dosyaları kaydedilince motor yeniden yüklenir (betik geliştirirken)")).changed() { self.settings.save(); }
