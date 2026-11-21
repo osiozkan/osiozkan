@@ -10,13 +10,20 @@ pub fn ext_of(p: &Path) -> String {
 /// Açılabilen altyazı uzantıları (GUI dosya süzgeçleri, sürükle-bırak, toplu dönüştürme).
 pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "itt", "stl", "smi", "sami", "txt"];
 
+/// Başlıksız SubViewer: ilk dolu satır "00:00:01.00,00:00:02.00" biçiminde.
+fn looks_subviewer(text: &str) -> bool {
+    text.lines().map(str::trim).find(|l| !l.is_empty()).map_or(false, |l| {
+        l.split_once(',').map_or(false, |(a, b)| a.contains(':') && b.contains(':') && crate::time::parse_generic(a).is_some() && crate::time::parse_generic(b).is_some())
+    })
+}
+
 pub fn load_str(text: &str, ext: &str) -> Script {
     match ext {
         "srt" => srt::to_script(text),
         "vtt" => Script::from_dialogues(vtt::parse(text)),
         "lrc" => Script::from_dialogues(crate::formats::parse_lrc(text)),
         "sub" if text.trim_start().starts_with('{') => Script::from_dialogues(crate::formats::parse_microdvd(text, 23.976)),
-        "sub" if text.contains("[INFORMATION]") || text.contains("[SUBTITLE]") => Script::from_dialogues(crate::formats::parse_subviewer(text)),
+        "sub" if text.contains("[INFORMATION]") || text.contains("[SUBTITLE]") || looks_subviewer(text) => Script::from_dialogues(crate::formats::parse_subviewer(text)),
         "smi" | "sami" => Script::from_dialogues(crate::formats::parse_sami(text)),
         "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
         "ttml" | "dfxp" | "xml" | "itt" => Script::from_dialogues(crate::formats::parse_ttml(text)),
@@ -97,7 +104,13 @@ pub fn to_bytes(s: &Script, ext: &str) -> Vec<u8> {
 
 /// Önce geçici dosyaya yazıp yeniden adlandırır; yarım kalan yazma asıl dosyayı bozmaz.
 pub fn save(s: &Script, path: &Path) -> Result<(), String> {
-    let out = to_bytes(s, &ext_of(path));
+    let ext = ext_of(path);
+    // .sub iki biçim olabilir: diskteki dosya SubViewer ise SubViewer olarak yaz (sessizce MicroDVD'ye çevirme)
+    let out = if ext == "sub" && std::fs::read(path).map_or(false, |b| { let t = decode_bytes(&b); t.contains("[INFORMATION]") || t.contains("[SUBTITLE]") || looks_subviewer(&t) }) {
+        crate::formats::write_subviewer(s).into_bytes()
+    } else {
+        to_bytes(s, &ext)
+    };
     let tmp = path.with_extension(format!("{}.tmp", ext_of(path)));
     std::fs::write(&tmp, out).map_err(|e| format!("{}: {}", tmp.display(), e))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("{}: {}", path.display(), e))
@@ -126,5 +139,20 @@ mod tests {
         save(&s, &p).unwrap();
         assert_eq!(load(&p).unwrap().entries, s.entries);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn subviewer_kaydi_bicimini_korur() {
+        let d = std::env::temp_dir().join(format!("osisub-sv-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("a.sub");
+        std::fs::write(&p, "00:00:01.00,00:00:02.00\nMerhaba\n\n").unwrap();
+        let sc = load(&p).unwrap();
+        assert_eq!(sc.dialogues().count(), 1);
+        save(&sc, &p).unwrap();
+        let t = std::fs::read_to_string(&p).unwrap();
+        assert!(!t.trim_start().starts_with('{'), "MicroDVD'ye çevrilmemeli: {t}");
+        assert_eq!(load(&p).unwrap().dialogues().next().unwrap().text, "Merhaba");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
