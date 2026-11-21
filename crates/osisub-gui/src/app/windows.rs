@@ -1920,6 +1920,7 @@ impl App {
                 ui.end_row();
             });
             ui.checkbox(&mut w.opts.also_top, tr("Üst bölgeyi de tara (tabela çevirileri / notlar; {\\an8} ile, süre iki katı)"));
+            ui.checkbox(&mut w.opts.exact, tr("Kare-doğru zamanlar")).on_hover_text(tr("Satır sınırlarını videonun kendi karelerinde bulur (Aegisub kare anlambilimi); kapalıyken örnekleme aralığı kadar sapabilir, biraz daha hızlıdır"));
             ui.checkbox(&mut w.as_reference, tr("Referans olarak yükle (çeviri kaynağı; açık belge değişmez)"));
             ui.add_enabled(self.spell.is_some(), egui::Checkbox::new(&mut w.fix, "OCR hatalarını sözlükle düzelt (rn→m, l→I, 0→o…; sözlük OCR diliyle aynı olmalı)")).on_disabled_hover_text(tr("Yazım sekmesinden OCR dilinin sözlüğünü yükleyin"));
             if let Some(e) = &w.error { ui.label(RichText::new(e).color(theme::BAD)); }

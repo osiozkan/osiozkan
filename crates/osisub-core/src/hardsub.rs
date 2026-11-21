@@ -142,12 +142,14 @@ pub struct Segmenter {
     h: usize,
     cur: Option<(i64, Vec<bool>, Vec<u8>, Vec<bool>, usize)>, // (başlangıç, imza, temsilci kare, maske, örnek sayısı)
     last_t: i64,
+    /// Son örnekten bu yana gelen ara kareler (kare-doğru sınır için; yalnızca olay olunca maskelenir)
+    between: Vec<(i64, Vec<u8>)>,
     pub found: Vec<Found>,
 }
 
 impl Segmenter {
     pub fn new(w: usize, h: usize, o: Options) -> Self {
-        Segmenter { o, w, h, cur: None, last_t: 0, found: vec![] }
+        Segmenter { o, w, h, cur: None, last_t: 0, between: vec![], found: vec![] }
     }
 
     fn close(&mut self, end: i64) {
@@ -158,23 +160,71 @@ impl Segmenter {
         }
     }
 
+    /// Örnekler arasındaki kare (ör. 5 örnek/sn ile 24 fps videoda aradaki 3-4 kare): yalnızca
+    /// saklanır; sonraki `push` bir satır sınırı bulursa sınır bu karelerde kareye inceltilir.
+    pub fn push_between(&mut self, t: i64, gray: &[u8]) {
+        if self.between.len() < 64 {
+            self.between.push((t, gray.to_vec()));
+        }
+    }
+
+    /// Ara karelerin imzaları (yalnızca sınır inceltilirken bir kez hesaplanır).
+    fn between_sigs(&self) -> Vec<(i64, Vec<bool>, usize)> {
+        self.between.iter().map(|(t, g)| {
+            let m = text_mask(g, self.w, self.h, &self.o);
+            let sig = signature(&m, self.w, self.h, self.o.cell);
+            let a = sig.iter().filter(|x| **x).count();
+            (*t, sig, a)
+        }).collect()
+    }
+
+    /// `sig` imzalı satırın göründüğü ilk ara kare (yoksa `t`).
+    fn first_showing(&self, bs: &[(i64, Vec<bool>, usize)], sig: &[bool], t: i64) -> i64 {
+        // sondan geriye: satır bu örnekte görünüyor; kesintisiz göründüğü en erken ara kare
+        let mut first = t;
+        for (bt, bsig, a) in bs.iter().rev() {
+            if *a >= self.o.min_cells && diff(sig, bsig) <= self.o.change { first = *bt } else { break }
+        }
+        first
+    }
+
+    /// `sig` imzalı (önceki örnekte görünen) satırın artık görünmediği ilk ara kare (yoksa `t`).
+    fn first_gone(&self, bs: &[(i64, Vec<bool>, usize)], sig: &[bool], t: i64) -> i64 {
+        bs.iter().find(|(_, bsig, a)| *a < self.o.min_cells || diff(sig, bsig) > self.o.change).map_or(t, |b| b.0)
+    }
+
     /// `t`: karenin zamanı (ms), `gray`: w×h gri piksel.
     pub fn push(&mut self, t: i64, gray: &[u8]) {
         let mask = text_mask(gray, self.w, self.h, &self.o);
         let sig = signature(&mask, self.w, self.h, self.o.cell);
         let active = sig.iter().filter(|x| **x).count();
         self.last_t = t;
-        if active < self.o.min_cells {
-            self.close(t);
+        let showing = active >= self.o.min_cells;
+        let changed = match &self.cur {
+            Some((_, s, ..)) => !showing || diff(s, &sig) > self.o.change,
+            None => showing,
+        };
+        if !changed {
+            self.between.clear();
+        }
+        if !showing {
+            if changed {
+                let bs = self.between_sigs();
+                let end = self.cur.as_ref().map_or(t, |c| self.first_gone(&bs, &c.1, t));
+                self.close(end);
+            }
+            self.between.clear();
             return;
         }
-        let changed = match &self.cur {
-            Some((_, s, ..)) => diff(s, &sig) > self.o.change,
-            None => true,
-        };
         if changed {
-            self.close(t);
-            self.cur = Some((t, sig, gray.to_vec(), mask, 1));
+            let bs = if self.between.is_empty() { vec![] } else { self.between_sigs() };
+            let end = self.cur.as_ref().map(|c| self.first_gone(&bs, &c.1, t));
+            // yeni satır eskisi kaybolmadan başlayamaz (çapraz geçişte eski satırın bitişi)
+            let start = self.first_showing(&bs, &sig, t).max(end.unwrap_or(i64::MIN));
+            let end = end.unwrap_or(t);
+            self.close(end);
+            self.between.clear();
+            self.cur = Some((start, sig, gray.to_vec(), mask, 1));
         } else if let Some(c) = self.cur.as_mut() {
             c.4 += 1;
             // ikinci örnek temsilci olur (ilk kare belirme/geçiş anında yakalanmış olabilir)
@@ -342,6 +392,30 @@ mod tests {
         // son "a" tek örnek (200 ms) < 300 ms: atılır
         assert_eq!(t, vec![(200, 1000), (1000, 1600)]);
         assert!(v[0].pgm.starts_with(b"P5"));
+    }
+
+    #[test]
+    fn ara_karelerle_kare_dogru_sinir() {
+        let (w, h) = (160, 48);
+        let o = Options { min_cells: 3, min_ms: 0, ..Default::default() };
+        let glyphs = |x0: usize, n: usize| (0..n).map(|k| (x0 + k * 12, 14, 7, 12)).collect::<Vec<_>>();
+        let a = frame(w, h, &glyphs(10, 5), 90);
+        let b = frame(w, h, &glyphs(85, 6), 90);
+        let blank = vec![90u8; w * h];
+        // 25 kare: boş 0-6, a 7-14, b 15-19, boş 20-24; her 5. kare örnek (40 ms/kare)
+        let at = |k: usize| if k < 7 { &blank } else if k < 15 { &a } else if k < 20 { &b } else { &blank };
+        let mut s = Segmenter::new(w, h, o.clone());
+        for k in 0..25 {
+            let t = k as i64 * 40;
+            if k % 5 == 0 { s.push(t, at(k)) } else { s.push_between(t, at(k)) }
+        }
+        let v: Vec<(i64, i64)> = s.finish(1000).iter().map(|f| (f.start, f.end)).collect();
+        assert_eq!(v, vec![(7 * 40, 15 * 40), (15 * 40, 20 * 40)]);
+        // ara kare verilmezse eski davranış (örnek zamanları)
+        let mut s = Segmenter::new(w, h, o);
+        for k in (0..25).step_by(5) { s.push(k as i64 * 40, at(k)) }
+        let v: Vec<(i64, i64)> = s.finish(1000).iter().map(|f| (f.start, f.end)).collect();
+        assert_eq!(v, vec![(400, 600), (600, 800)]);
     }
 
     #[test]

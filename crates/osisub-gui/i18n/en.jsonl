@@ -1084,3 +1084,5 @@
 ["Başlangıç sahne değişiminden {} kare sonra", "Starts {} frames after a scene change"]
 ["Bitiş sahne değişiminden {} kare önce", "Ends {} frames before a scene change"]
 ["Bitiş sahne değişiminden {} kare sonra", "Ends {} frames after a scene change"]
+["Kare-doğru zamanlar", "Frame-accurate timing"]
+["Satır sınırlarını videonun kendi karelerinde bulur (Aegisub kare anlambilimi); kapalıyken örnekleme aralığı kadar sapabilir, biraz daha hızlıdır", "Finds line boundaries on the video's own frames (Aegisub frame semantics); when off, times may be off by up to one sampling interval but it is slightly faster"]

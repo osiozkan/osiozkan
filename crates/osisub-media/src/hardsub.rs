@@ -1,5 +1,5 @@
-//! Gömülü (hardsub) altyazıyı metne çevir: ffmpeg videonun alt bölgesini saniyede birkaç kare,
-//! gri ve küçültülmüş olarak boruya akıtır; `osisub_core::hardsub::Segmenter` satır sınırlarını
+//! Gömülü (hardsub) altyazıyı metne çevir: ffmpeg videonun alt bölgesini gri ve küçültülmüş olarak
+//! boruya akıtır (saniyede birkaç örnek; kare-doğru kipte aradaki kareler de, yalnızca sınırda incelenir); `osisub_core::hardsub::Segmenter` satır sınırlarını
 //! bulur, satır başına bir görüntü Tesseract ile okunur (`ocr::ocr_pgms`).
 use osisub_core::hardsub::{merge_texts, Options, Segmenter};
 use std::io::Read;
@@ -21,11 +21,14 @@ pub struct HardsubOptions {
     pub detect: Options,
     /// Ayrıca üst %30'u da tara; oradan gelen satırlar `{\an8}` alır (tabela çevirileri/notlar)
     pub also_top: bool,
+    /// Kare-doğru sınırlar: video kendi kare hızında çözülür, örnekler arasındaki kareler yalnızca
+    /// satır değiştiğinde incelenir; zamanlar Aegisub START/END anlambilimiyle kareye oturur
+    pub exact: bool,
 }
 
 impl Default for HardsubOptions {
     fn default() -> Self {
-        HardsubOptions { top: 0.70, bottom: 1.0, fps: 5.0, width: 1280, lang: "eng".into(), detect: Options::default(), also_top: false }
+        HardsubOptions { top: 0.70, bottom: 1.0, fps: 5.0, width: 1280, lang: "eng".into(), detect: Options::default(), also_top: false, exact: true }
     }
 }
 
@@ -68,7 +71,15 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
     let cy = ((vh * top).round() as u32).min(info.height - ch);
     let ow = even((o.width as f64).min(vw));
     let oh = even(ch as f64 * ow as f64 / vw);
-    let vf = format!("fps={},crop={}:{}:0:{},scale={}:{}:flags=area,format=gray", o.fps, info.width, ch, cy, ow, oh);
+    // kare-doğru kip: tüm kareler (CFR'ye zorlanmış rawvideo), her n'inci kare örnek
+    let native = info.fps;
+    let n = if o.exact && native.is_finite() && native > o.fps * 1.5 { (native / o.fps).round().max(1.0) as i64 } else { 1 };
+    let vf = if n > 1 {
+        format!("crop={}:{}:0:{},scale={}:{}:flags=area,format=gray", info.width, ch, cy, ow, oh)
+    } else {
+        format!("fps={},crop={}:{}:0:{},scale={}:{}:flags=area,format=gray", o.fps, info.width, ch, cy, ow, oh)
+    };
+    let fr = osisub_core::vfr::Framerate::cfr(if n > 1 { native } else { o.fps });
     // -noautorotate: crop/scale boyutları ffprobe'un saklanan boyutuyla aynı kalsın (dönmüş videoda
     // ffmpeg aksi halde kareyi döndürür ve kırpma "too big" hatasıyla sessizce boş sonuç verir).
     // stderr geçici dosyaya: hata iletisi raporlanır, boru tıkanması olmaz.
@@ -88,6 +99,7 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
     let mut buf = vec![0u8; w * h];
     let mut k: i64 = 0;
     let step = 1000.0 / o.fps;
+    let mut samples: i64 = 0;
     loop {
         if cancel.load(Ordering::Relaxed) {
             let _ = child.kill();
@@ -98,10 +110,15 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
             Ok(()) => {}
             Err(_) => break,
         }
-        let t = (k as f64 * step).round() as i64;
-        seg.push(t, &buf);
+        let t = fr.time_at(k);
+        if k % n == 0 {
+            seg.push(t, &buf);
+            samples += 1;
+        } else {
+            seg.push_between(t, &buf);
+        }
         k += 1;
-        if k % 25 == 0 && info.duration_ms > 0 {
+        if k % n == 0 && samples % 25 == 0 && info.duration_ms > 0 {
             progress((t as f32 / info.duration_ms as f32).min(1.0) * 0.8);
         }
     }
@@ -112,8 +129,15 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
     if k == 0 {
         return Err(format!("ffmpeg kare üretmedi: {}", err_text.lines().last().unwrap_or("bilinmeyen hata")));
     }
-    let end = if info.duration_ms > 0 { info.duration_ms } else { (k as f64 * step) as i64 };
-    let found = seg.finish(end);
+    let end = if info.duration_ms > 0 { info.duration_ms } else { fr.time_at(k) };
+    let mut found = seg.finish(end);
+    if n > 1 {
+        // ilk görünen kare a, ilk kaybolan kare b → Aegisub START(a) / END(b-1) = START(b)
+        for f in &mut found {
+            f.start = fr.time_at_start(fr.frame_at(f.start));
+            if f.end < end { f.end = fr.time_at_start(fr.frame_at(f.end)); }
+        }
+    }
     progress(0.85);
     let pgms: Vec<Vec<u8>> = found.iter().map(|f| f.pgm.clone()).collect();
     // teşhis: OSISUB_HARDSUB_DEBUG=<klasör> OCR görüntülerini yazar
@@ -161,7 +185,9 @@ mod tests {
         assert_eq!(d.len(), 3, "{d:?}");
         let want = [(1000, 3000, "Where are you going tonight?"), (3000, 5500, "I will find the hidden door."), (7000, 9000, "Thank you very much")];
         for ((s, e, t), (ws, we, wt)) in d.iter().zip(want) {
-            assert!((s - ws).abs() <= 250 && (e - we).abs() <= 250, "{s}-{e} ≠ {ws}-{we}");
+            // kare-doğru kip: Aegisub START anlambilimi (24 fps'de tam kare zamanından ~21 ms önce),
+            // en çok bir kare sapma
+            assert!((s - (ws - 21)).abs() <= 42 && (e - (we - 21)).abs() <= 42, "{s}-{e} ≠ {ws}-{we}");
             let norm = |x: &str| x.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
             // karakter benzerliği (OCR kusursuz değil; zor zeminde tek harf kayabilir)
             let (a, b): (Vec<char>, Vec<char>) = (norm(t).chars().collect(), norm(wt).chars().collect());
