@@ -62,7 +62,8 @@ pub fn apply(text: &str, case: Case, turkish: bool) -> String {
                         Case::Upper => out.push_str(&up(&p, turkish)),
                         Case::Lower => out.push_str(&low(&p, turkish)),
                         Case::Title | Case::Sentence => {
-                            for c in p.chars() {
+                            let pc: Vec<char> = p.chars().collect();
+                            for (ci, &c) in pc.iter().enumerate() {
                                 let cs = c.to_string();
                                 if c.is_alphabetic() {
                                     let make_up = if case == Case::Title { word_start } else { sentence_start };
@@ -71,10 +72,17 @@ pub fn apply(text: &str, case: Case, turkish: bool) -> String {
                                     sentence_start = false;
                                 } else {
                                     out.push(c);
-                                    if c.is_whitespace() || matches!(c, '-' | '"' | '(' | '«' | '“') {
+                                    // "Saki-san": saygı eki küçük kalır
+                                    let honor = c == '-' && {
+                                        let rest: String = pc[ci + 1..].iter().take_while(|x| x.is_alphabetic()).collect::<String>().to_lowercase();
+                                        matches!(rest.as_str(), "san" | "kun" | "chan" | "sama" | "senpai" | "sensei" | "dono" | "tan" | "nii" | "nee")
+                                    };
+                                    if !honor && (c.is_whitespace() || matches!(c, '-' | '"' | '(' | '«' | '“')) {
                                         word_start = true;
                                     }
-                                    if matches!(c, '.' | '!' | '?' | '…') {
+                                    // "3.5" ondalık nokta cümle sonu değil
+                                    let decimal = c == '.' && ci > 0 && pc[ci - 1].is_ascii_digit() && pc.get(ci + 1).map_or(false, |x| x.is_ascii_digit());
+                                    if matches!(c, '.' | '!' | '?' | '…') && !decimal {
                                         sentence_start = true;
                                     }
                                 }
@@ -108,5 +116,7 @@ mod tests {
         assert_eq!(apply("{\\p1}m 0 0 l 10 10{\\p0}abc", Case::Upper, true), "{\\p1}m 0 0 l 10 10{\\p0}ABC");
         // etiket içindeki \fn adı değişmez
         assert_eq!(apply("{\\fnArial}abc", Case::Upper, true), "{\\fnArial}ABC");
+        assert_eq!(apply("saki-san ve rei-kun", Case::Title, true), "Saki-san Ve Rei-kun");
+        assert_eq!(apply("FİYAT 3.5 LİRA.", Case::Sentence, true), "Fiyat 3.5 lira.");
     }
 }

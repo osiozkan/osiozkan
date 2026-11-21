@@ -134,22 +134,7 @@ fn upper_first_letter(s: &str) -> String {
 
 /// Seslendirme/işitme engelli notlarını ([ağlıyor], (müzik), ♪ satırları, "ALİ:") siler.
 pub fn remove_hi(text: &str) -> String {
-    let t = map_text(text, |t| {
-        let mut out = String::new();
-        let mut depth_sq = 0;
-        let mut depth_rd = 0;
-        for c in t.chars() {
-            match c {
-                '[' => depth_sq += 1,
-                ']' if depth_sq > 0 => depth_sq -= 1,
-                '(' => depth_rd += 1,
-                ')' if depth_rd > 0 => depth_rd -= 1,
-                c if depth_sq == 0 && depth_rd == 0 => out.push(c),
-                _ => {}
-            }
-        }
-        out
-    });
+    let t = remove_bracket_groups(text);
     // "KONUŞMACI:" (büyük harfli ön ek) temizle.
     let lines: Vec<String> = t
         .split("\\N")
@@ -157,7 +142,10 @@ pub fn remove_hi(text: &str) -> String {
             let v = tags::strip_tags(l);
             if let Some(p) = v.find(':') {
                 let head = &v[..p];
-                if head.chars().count() <= 20 && head.chars().any(|c| c.is_alphabetic()) && head.chars().filter(|c| c.is_alphabetic()).all(|c| c.is_uppercase()) {
+                // konuşmacı etiketi: satır başında 1-3 sözcük, yalnızca harf/rakam/boşluk ("NE?! HAYIR: DUR!" değil)
+                let words = head.split_whitespace().count();
+                let clean = head.chars().all(|c| c.is_alphanumeric() || c == ' ' || c == '.' || c == '\'' || c == '-');
+                if (1..=3).contains(&words) && clean && head.chars().count() <= 20 && head.chars().any(|c| c.is_alphabetic()) && head.chars().filter(|c| c.is_alphabetic()).all(|c| c.is_uppercase()) {
                     return l.replacen(&format!("{}:", head), "", 1).trim_start().to_string();
                 }
             }
@@ -166,6 +154,47 @@ pub fn remove_hi(text: &str) -> String {
         .filter(|l| !tags::strip_tags(l).trim().is_empty() && !tags::strip_tags(l).trim().chars().all(|c| c == '♪' || c == '#' || c.is_whitespace()))
         .collect();
     lines.join("\\N").trim().to_string()
+}
+
+/// Kapanan [..] / (..) gruplarını siler (etiket blokları grubun içinde de olabilir). Kapanmayan
+/// parantez (":(" gülen yüz) metindir.
+fn remove_bracket_groups(text: &str) -> String {
+    let c: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '{' {
+            // etiket bloğunu olduğu gibi kopyala
+            let mut j = i;
+            while j < c.len() && c[j] != '}' { j += 1; }
+            let end = j.min(c.len() - 1);
+            out.extend(&c[i..=end]);
+            i = end + 1;
+            continue;
+        }
+        if ch == '[' || ch == '(' {
+            let close = if ch == '[' { ']' } else { ')' };
+            // eşleşen kapanış (aynı \N satırı içinde, iç içe sayılarak, etiket blokları atlanarak)
+            let (mut j, mut depth, mut in_tag, mut found) = (i + 1, 1, false, None);
+            while j < c.len() {
+                let x = c[j];
+                if in_tag { if x == '}' { in_tag = false; } }
+                else if x == '{' { in_tag = true; }
+                else if x == '\\' && c.get(j + 1) == Some(&'N') { break; }
+                else if x == ch { depth += 1; }
+                else if x == close { depth -= 1; if depth == 0 { found = Some(j); break; } }
+                j += 1;
+            }
+            if let Some(j) = found {
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(ch);
+        i += 1;
+    }
+    out
 }
 
 fn fix_punct_spacing(t: &str, before: bool, after: bool) -> String {
@@ -177,7 +206,9 @@ fn fix_punct_spacing(t: &str, before: bool, after: bool) -> String {
         if before && ch == ' ' && i + 1 < c.len() && matches!(c[i + 1], '.' | ',' | '!' | '?' | ';' | ':') {
             // " ..." (üç nokta) ve " :)" gibi durumlar bozulmasın; yalnızca tek noktalama + sonrası boşluk/son.
             let next_next = c.get(i + 2).copied();
-            if !matches!(next_next, Some('.') | Some(')') | Some('(') | Some('D') | Some('P')) {
+            // ":3", ":O", ":/", ";)" gibi ifadeler: iki nokta/noktalı virgülden sonra boşluk ya da son gelmiyorsa dokunma
+            let emoticon = matches!(c[i + 1], ':' | ';') && next_next.map_or(false, |n| !n.is_whitespace());
+            if !emoticon && !matches!(next_next, Some('.') | Some(')') | Some('(') | Some('D') | Some('P')) {
                 i += 1;
                 continue;
             }
@@ -185,7 +216,10 @@ fn fix_punct_spacing(t: &str, before: bool, after: bool) -> String {
         out.push(ch);
         if after && matches!(ch, ',' | ';' | '!' | '?') && i + 1 < c.len() {
             let n = c[i + 1];
-            if n.is_alphabetic() && !c[..i].last().map_or(false, |p| p.is_ascii_digit()) {
+            // adres içindeki "?" / "," (www.site.com/?q=ara) bölünmez
+            let word: String = c[..i].iter().rev().take_while(|c| !c.is_whitespace()).collect::<Vec<_>>().into_iter().rev().collect();
+            let url = word.contains("://") || word.contains("www.") || word.ends_with('/');
+            if !url && n.is_alphabetic() && !c[..i].last().map_or(false, |p| p.is_ascii_digit()) {
                 out.push(' ');
             }
         }
@@ -368,7 +402,8 @@ fn capitalize_after_sentence_ends(t: &str) -> String {
                     cap_next = false;
                 }
             }
-            if matches!(c, '.' | '!' | '?') && i + 1 < chars.len() && chars[i + 1] == ' ' && !(c == '.' && i > 0 && chars[i - 1].is_ascii_digit()) {
+            // "Ben... gidiyorum": üç nokta cümle içinde de kullanılır, sonrası büyütülmez
+            if matches!(c, '.' | '!' | '?') && i + 1 < chars.len() && chars[i + 1] == ' ' && !(c == '.' && i > 0 && (chars[i - 1].is_ascii_digit() || chars[i - 1] == '.')) {
                 cap_next = true;
             }
             i += 1;
@@ -514,5 +549,15 @@ mod tests {
         let v: Vec<(i64, i64)> = sc.dialogues().map(|d| (d.start_time, d.end_time)).collect();
         assert_eq!(v, vec![(0, 800), (1000, 1940), (2020, 3000)]);
         assert_eq!(r.timing_changes, 2);
+    }
+
+    #[test]
+    fn inceleme_metin_bozulmaz() {
+        assert_eq!(remove_hi("Üzgünüm :( ama gitmeliyim."), "Üzgünüm :( ama gitmeliyim.");
+        assert_eq!(remove_hi("NE?! HAYIR: DUR!"), "NE?! HAYIR: DUR!");
+        assert_eq!(remove_hi("[{\\i1}kapı çalar{\\i0}] Gel"), "Gel");
+        assert_eq!(remove_hi("(gülüyor) Tamam\\NALİ: Evet"), "Tamam\\NEvet");
+        assert_eq!(fix_punct_spacing("Tamam :3 Hayır :O dedi : evet", true, true), "Tamam :3 Hayır :O dedi: evet");
+        assert_eq!(fix_punct_spacing("www.site.com/?q=ara", true, true), "www.site.com/?q=ara");
     }
 }
