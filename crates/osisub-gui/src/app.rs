@@ -41,6 +41,11 @@ pub struct App {
     worker: Worker,
     macros: Vec<MacroEntry>,
     running: Option<String>,
+    /// Makro başlarken belgenin `rev`'i: sonuç geldiğinde belge değişmişse (başka dosya açıldı,
+    /// satır düzenlendi) sonuç uygulanmaz — yoksa eski kopya yeni belgenin üzerine yazılırdı
+    run_rev: u64,
+    /// Makine çevirisi başlarken belgenin `rev`'i
+    pub(crate) mt_rev: u64,
     progress: f32,
     dialog: Option<(String, DialogState)>,
     log: String,
@@ -517,6 +522,8 @@ impl App {
             worker,
             macros: vec![],
             running: None,
+            run_rev: 0,
+            mt_rev: 0,
             progress: 0.0,
             dialog: None,
             log: String::new(),
@@ -845,6 +852,7 @@ impl App {
             }
             Guarded::OpenScript(sc, desc) => {
                 self.doc = Document::new(sc);
+                self.misses.clear();
                 self.tap = None;
                 self.status = desc;
             }
@@ -859,6 +867,7 @@ impl App {
                             // Kaydederken UTF-8 yazılır; içerik değiştiği için kaydedilmemiş say.
                             d.mark_dirty();
                             self.doc = d;
+                        self.misses.clear(); // yazım sonuçları eski belgeye aitti
                             if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
                             self.status = trf!("Açıldı ({}): {} — kaydedince UTF-8 olur", label, p.display());
                         }
@@ -934,6 +943,7 @@ impl App {
         match Document::open(&p) {
             Ok(d) => {
                 self.doc = d;
+                        self.misses.clear(); // yazım sonuçları eski belgeye aitti
                 if let Some(f) = self.first_row() {
                     self.doc.select(vec![f], f);
                 }
@@ -991,6 +1001,9 @@ impl App {
         // Garbage satırları olay satırlarından önce eklenir: sonradan dizinleri (etkin satır, seçim) kaydırmak için.
         let before = self.doc.script.entries.len();
         let header_end = self.doc.script.entries.iter().position(|e| !matches!(e.section(), osisub_core::ass::SEC_INFO | osisub_core::ass::SEC_GARBAGE)).unwrap_or(before);
+        // etkin satırın diyalog sırası, ekleme öncesi hesaplanır
+        let active_pos = matches!(self.doc.script.entries.get(self.doc.active), Some(Entry::Dialogue(_)))
+            .then(|| self.doc.script.entries[..self.doc.active].iter().filter(|e| matches!(e, Entry::Dialogue(_))).count());
         if !self.doc_scripts.is_empty() || self.doc.script.garbage("Automation Scripts").is_some() {
             let v = osisub_core::paths::encode_automation_scripts(&self.doc_scripts, script_path.parent());
             self.doc.script.set_garbage("Automation Scripts", &v);
@@ -1007,7 +1020,8 @@ impl App {
                 if has_video { self.doc.script.set_garbage("Video File", &rel(&m)); }
                 self.doc.script.set_garbage("Audio File", &rel(&m));
             }
-            if let Some(pos) = self.rows.iter().position(|&r| r == self.doc.active) {
+            // Aegisub: etkin satırın diyaloglar arasındaki sırası (ızgara süzgecinden bağımsız)
+            if let Some(pos) = active_pos {
                 self.doc.script.set_garbage("Active Line", &(pos + 1).to_string());
             }
             if let Some(f) = self.media.framerate() {
@@ -1016,10 +1030,9 @@ impl App {
         }
         let added = self.doc.script.entries.len() - before;
         if added > 0 {
-            let shift = |i: &mut usize| if *i >= header_end { *i += added };
-            shift(&mut self.doc.active);
-            self.doc.selection.iter_mut().for_each(shift);
-            self.doc.rev += 1; // ızgara önbelleği yenilensin
+            // geri alma geçmişindeki konumlar da kaydırılır (yoksa Ctrl+Z yanlış satıra yazar)
+            self.doc.note_external_insert(header_end, added);
+            if let Some(t) = self.tap.as_mut() { if t.line >= header_end { t.line += added; } }
         }
     }
 
@@ -1089,6 +1102,7 @@ impl App {
         }
         let Some(m) = self.macros.iter().find(|m| m.info.id == id) else { return };
         self.running = Some(m.info.name.clone());
+        self.run_rev = self.doc.rev;
         let mut props = vec![];
         if let Some(p) = &self.doc.path {
             props.push(("script_file".to_string(), p.to_string_lossy().to_string()));
@@ -1248,6 +1262,11 @@ impl App {
                                     self.run_export_step(next);
                                 }
                             }
+                        }
+                        Ok(done) if self.doc.rev != self.run_rev => {
+                            let _ = done;
+                            self.log.push_str(&format!("{name}: belge makro çalışırken değişti; sonuç uygulanmadı\n"));
+                            self.status = trf!("{}: belge makro çalışırken değişti, sonuç uygulanmadı — makroyu yeniden çalıştırın", name);
                         }
                         Ok(done) => {
                             let cancelled = done.cancelled;
@@ -1707,7 +1726,11 @@ impl App {
         for p in dropped {
             let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
             match ext.as_str() {
-                e if e != "txt" && osisub_core::io::OPEN_EXTS.contains(&e) => { self.request(Guarded::OpenPath(p)); }
+                // .txt: anahtar kare / zaman kodu dosyası ("# keyframe format", "# timecode format") değilse düz metin altyazı
+                "txt" if std::fs::read(&p).map_or(false, |b| String::from_utf8_lossy(&b[..b.len().min(64)]).trim_start().starts_with('#')) => {
+                    self.status = tr("Anahtar kare/zaman kodu dosyası: Video menüsünden yükleyin").into();
+                }
+                e if osisub_core::io::OPEN_EXTS.contains(&e) => { self.request(Guarded::OpenPath(p)); }
                 "lua" | "moon" => self.load_lua(p),
                 _ => { self.media.open(p, ctx); self.show_media = true; }
             }
@@ -2279,7 +2302,17 @@ impl App {
     }
 
     fn autosave_name(&self) -> String {
-        self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into())
+        // farklı klasörlerdeki aynı adlı dosyalar (ep01/sub.ass, ep02/sub.ass) çakışmasın: tam yol özeti
+        match &self.doc.path {
+            Some(p) => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                p.hash(&mut h);
+                let stem = p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "adsiz".into());
+                format!("{stem}-{:08x}", h.finish() as u32)
+            }
+            None => "adsiz".into(),
+        }
     }
 
     fn autosave(&mut self) {
@@ -2334,7 +2367,10 @@ impl App {
             }
             if ui.button(tr("Hepsini yoksay")).clicked() { self.recovery.clear(); }
         });
-        if let Some((i, recover)) = act {
+        if let (Some((_, true)), true) = (act, self.doc.is_dirty()) {
+            // açık belgede kaydedilmemiş değişiklik var: kurtarma onu sessizce silmesin
+            self.status = tr("Önce açık belgedeki değişiklikleri kaydedin (kurtarma onları silerdi)").into();
+        } else if let Some((i, recover)) = act {
             let r = self.recovery.remove(i);
             if recover {
                 match osisub_core::io::load(&r.file) {
@@ -2343,6 +2379,7 @@ impl App {
                         d.path = r.original.clone();
                         d.mark_dirty();
                         self.doc = d;
+                        self.misses.clear(); // yazım sonuçları eski belgeye aitti
                         if let Some(f) = self.first_row() { self.doc.select(vec![f], f); self.scroll_to = Some(f); }
                         self.status = tr("Otomatik kayıttan kurtarıldı — kaydetmeyi unutmayın").into();
                     }

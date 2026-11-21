@@ -1427,6 +1427,7 @@ impl App {
             let _ = tx.send((idx, Ok(out)));
         });
         self.mt_rx = Some(rx);
+        self.mt_rev = self.doc.rev;
         self.status = tr("Makine çevirisi çalışıyor…").into();
     }
 
@@ -1435,6 +1436,10 @@ impl App {
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
         let Ok((idx, r)) = rx.try_recv() else { return };
         self.mt_rx = None;
+        if self.doc.rev != self.mt_rev {
+            self.status = tr("Makine çevirisi: belge bu arada değişti, sonuç uygulanmadı").into();
+            return;
+        }
         match r {
             Ok(out) => {
                 let mut s = self.doc.script.clone();

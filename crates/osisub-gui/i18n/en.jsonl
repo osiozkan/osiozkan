@@ -1162,3 +1162,7 @@
 ["Klasördeki betikleri yükle…", "Load scripts from folder…"]
 ["Seçilen klasördeki tüm .lua/.moon betiklerini yükler (alt klasörler hariç; kalıcı listeye eklenir)", "Loads every .lua/.moon script in the chosen folder (not subfolders; added to the persistent list)"]
 ["{} betik yükleniyor: {}", "Loading {} scripts: {}"]
+["{}: belge makro çalışırken değişti, sonuç uygulanmadı — makroyu yeniden çalıştırın", "{}: the document changed while the macro was running; result not applied — run the macro again"]
+["Makine çevirisi: belge bu arada değişti, sonuç uygulanmadı", "Machine translation: the document changed meanwhile; result not applied"]
+["Önce açık belgedeki değişiklikleri kaydedin (kurtarma onları silerdi)", "Save the changes in the open document first (recovering would discard them)"]
+["Anahtar kare/zaman kodu dosyası: Video menüsünden yükleyin", "Keyframe/timecode file: load it from the Video menu"]

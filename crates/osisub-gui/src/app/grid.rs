@@ -266,7 +266,9 @@ impl App {
         if let Some(pos) = clicked {
             let ei = rows[pos];
             if mods.shift {
-                let (a, b) = (self.anchor.min(pos), self.anchor.max(pos));
+                // çapa, süzgeç/silme sonrası satır listesinin dışında kalmış olabilir
+                let anchor = self.anchor.min(rows.len().saturating_sub(1));
+                let (a, b) = (anchor.min(pos), anchor.max(pos));
                 self.doc.select(rows[a..=b].to_vec(), ei);
             } else if mods.command {
                 let mut s = self.doc.selection.clone();

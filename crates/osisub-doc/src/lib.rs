@@ -201,6 +201,28 @@ impl Document {
         r
     }
 
+    /// Geri alma sistemi dışında `at` konumuna `n` girdi eklendiğinde (ör. kayıtta medya bilgisi için
+    /// `[Aegisub Project Garbage]` satırları) geçmişteki tüm konumları, seçimi ve etkin satırı kaydırır.
+    /// Aksi halde sonraki geri al/yinele yanlış satırlara yazar.
+    pub fn note_external_insert(&mut self, at: usize, n: usize) {
+        if n == 0 { return; }
+        let sh = |i: &mut usize| if *i >= at { *i += n };
+        for t in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            for c in t.changes.iter_mut() {
+                match c {
+                    Change::Replace { at: x, .. } | Change::Insert { at: x, .. } | Change::Remove { at: x, .. } => sh(x),
+                }
+            }
+            for (sel, act) in [&mut t.sel_before, &mut t.sel_after] {
+                sel.iter_mut().for_each(sh);
+                sh(act);
+            }
+        }
+        sh(&mut self.active);
+        self.selection.iter_mut().for_each(sh);
+        self.rev += 1;
+    }
+
     /// Seçimi belge sınırlarına çeker (geri al/yinele sonrası).
     fn clamp_selection(&mut self) {
         let n = self.script.entries.len();
@@ -1161,5 +1183,19 @@ mod tests {
         assert!(d.split(at, 4, 1000));
         let t: Vec<String> = d.script.dialogues().map(|x| x.text.clone()).collect();
         assert_eq!(t, vec!["ab", "cd"]);
+    }
+
+    #[test]
+    fn dis_ekleme_gecmisi_kaydirir() {
+        let mut d = doc();
+        let at = d.script.entries.iter().rposition(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        d.edit("x", |tx| tx.dialogue_mut(at, |dd| dd.text = "değişti".into()));
+        // kayıt: olaylardan önce 2 proje satırı eklenir
+        let first_ev = d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        for k in 0..2 { d.script.entries.insert(first_ev, Entry::Unknown { section: "Aegisub Project Garbage".into(), raw: format!("K{k}: v") }); }
+        d.note_external_insert(first_ev, 2);
+        d.undo();
+        let t: Vec<String> = d.script.dialogues().map(|x| x.text.clone()).collect();
+        assert_eq!(t, vec!["bir", "iki", "üç"], "geri alma doğru satıra yazmalı");
     }
 }
