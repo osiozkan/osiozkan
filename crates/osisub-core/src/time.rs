@@ -28,6 +28,10 @@ pub fn format_vtt(ms: i64) -> String {
 /// `HH:MM:SS,mmm` / `HH:MM:SS.mmm` / `MM:SS.mmm` / `H:MM:SS.cc` biçimlerini kabul eder.
 pub fn parse_generic(s: &str) -> Option<i64> {
     let s = s.trim();
+    // negatif zaman 0'a sabitlenir (Aegisub); "-0:00:01" eskiden +1 sn okunuyordu
+    if let Some(r) = s.strip_prefix('-') {
+        return parse_generic(r).map(|_| 0);
+    }
     let (hms, frac) = match s.find(|c| c == '.' || c == ',') {
         Some(i) => (&s[..i], &s[i + 1..]),
         None => (s, ""),

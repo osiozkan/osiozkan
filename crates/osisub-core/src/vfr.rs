@@ -66,12 +66,18 @@ impl Framerate {
                 n
             }
             Framerate::Vfr { ts, tail_fps } => {
+                // dış bölgelerde time_at yuvarladığı için tahmini time_at ile düzelt (frame_at(time_at(n)) == n)
+                let fix = |mut n: i64| {
+                    while self.time_at(n + 1) <= ms { n += 1; }
+                    while self.time_at(n) > ms { n -= 1; }
+                    n
+                };
                 if ms < ts[0] {
-                    return ((ms - ts[0]) as f64 * tail_fps / 1000.0).floor() as i64;
+                    return fix(((ms - ts[0]) as f64 * tail_fps / 1000.0).floor() as i64);
                 }
                 let last = ts[ts.len() - 1];
                 if ms >= last {
-                    return ts.len() as i64 - 1 + ((ms - last) as f64 * tail_fps / 1000.0).floor() as i64;
+                    return fix(ts.len() as i64 - 1 + ((ms - last) as f64 * tail_fps / 1000.0).floor() as i64);
                 }
                 // ts[i] <= ms olan en büyük i
                 (ts.partition_point(|&t| t <= ms) as i64) - 1

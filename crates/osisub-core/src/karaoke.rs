@@ -31,22 +31,23 @@ pub fn parse(text: &str) -> Vec<Syl> {
     for seg in overrides::parse(text) {
         match seg {
             Seg::Block(tags) => {
-                let ki = tags.iter().position(|t| is_k(&t.name));
-                match ki {
-                    Some(i) => {
-                        if let Some(c) = cur.take() {
-                            out.push(c);
+                match tags.iter().any(|t| is_k(&t.name)) {
+                    true => {
+                        // Bir blokta birden çok \k (ör. {\k10\kf20}): her biri ayrı hece (Aegisub;
+                        // libass öncekileri bekleme süresi sayar) — boş heceler de korunur
+                        for k in tags.iter().filter(|t| is_k(&t.name)) {
+                            if let Some(c) = cur.take() {
+                                out.push(c);
+                            }
+                            let kind = if k.name == "K" { "kf".to_string() } else { k.name.clone() };
+                            cur = Some(Syl { dur: k.number().unwrap_or(0.0).round() as i64, kind, text: String::new() });
                         }
-                        let k = &tags[i];
-                        let kind = if k.name == "K" { "kf".to_string() } else { k.name.clone() };
-                        let rest: Vec<Tag> = tags.iter().enumerate().filter(|(j, t)| *j != i && !is_k(&t.name)).map(|(_, t)| t.clone()).collect();
-                        let mut s = Syl { dur: k.number().unwrap_or(0.0).round() as i64, kind, text: String::new() };
-                        if !rest.is_empty() {
+                        let rest: Vec<Tag> = tags.iter().filter(|t| !is_k(&t.name)).cloned().collect();
+                        if let (false, Some(s)) = (rest.is_empty(), cur.as_mut()) {
                             s.text = format!("{{{}}}", overrides::block_to_string(&rest));
                         }
-                        cur = Some(s);
                     }
-                    None => {
+                    false => {
                         let c = cur.get_or_insert(Syl { dur: 0, kind: "k".into(), text: String::new() });
                         c.text.push_str(&format!("{{{}}}", overrides::block_to_string(&tags)));
                     }
@@ -610,5 +611,26 @@ mod tap_offset_tests {
         assert_eq!(super::tap_offset_ms(&taps, &on), Some(120));
         assert_eq!(super::tap_offset_ms(&taps[..2], &on), None);
         assert_eq!(super::tap_offset_ms(&taps, &[]), None);
+    }
+
+    #[test]
+    fn inceleme_coklu_k_ve_ondalik() {
+        let v = crate::karaoke::parse("{\\k10\\kf20}a{\\k30}b");
+        let t: Vec<(i64, &str, &str)> = v.iter().map(|s| (s.dur, s.kind.as_str(), s.text.as_str())).collect();
+        assert_eq!(t, vec![(10, "k", ""), (20, "kf", "a"), (30, "k", "b")]);
+        assert_eq!(v.iter().map(|s| s.dur).sum::<i64>(), 60, "süre kaybolmaz");
+        // bölme: a, ilk boş heceden sonra başlar
+        let d = crate::ass::Dialogue { start_time: 1000, end_time: 2000, text: "{\\k10\\kf20}a{\\k30}b".into(), ..Default::default() };
+        let parts: Vec<(i64, i64)> = crate::splitlines::split_karaoke(&d).iter().filter(|x| !crate::tags::visible_text(&x.text).is_empty()).map(|x| (x.start_time, x.end_time)).collect();
+        assert_eq!(parts, vec![(1100, 1300), (1300, 1600)]);
+        let d = crate::ass::Dialogue { start_time: 1000, end_time: 2000, text: "{\\k12.5}a{\\k20}b".into(), ..Default::default() };
+        let parts: Vec<(i64, i64)> = crate::splitlines::split_karaoke(&d).iter().map(|x| (x.start_time, x.end_time)).collect();
+        assert_eq!(parts[0].1 - parts[0].0, 130, "{parts:?}");
+        // VFR: zaman kodu dosyasının sonrası
+        let fr = crate::vfr::Framerate::parse_timecodes("# timecode format v1\nAssume 23.976\n0,10,29.97\n").unwrap();
+        for n in 0..2000 { assert_eq!(fr.frame_at(fr.time_at(n)), n, "kare {n}"); }
+        // negatif zaman
+        assert_eq!(crate::time::parse_generic("-0:00:01.00"), Some(0));
+        assert_eq!(crate::time::parse_generic("-00:00:01,500"), Some(0));
     }
 }

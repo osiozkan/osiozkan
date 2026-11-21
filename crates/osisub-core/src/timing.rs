@@ -7,7 +7,8 @@ pub struct PostOptions {
     pub lead_in_ms: i64,
     pub lead_out_ms: i64,
     pub keyframes: Vec<i64>,
-    /// Başlangıç için anahtar kareye yapışma pencereleri (anahtar karenin öncesi/sonrası, ms).
+    /// Anahtar kareye yapışma pencereleri (ms; Aegisub gibi): `*_before` satır zamanı anahtar
+    /// kareden ÖNCEYKEN (kare ileride), `*_after` satır zamanı anahtar kareden SONRAYKEN.
     pub kf_start_before: i64,
     pub kf_start_after: i64,
     pub kf_end_before: i64,
@@ -26,7 +27,8 @@ impl Default for PostOptions {
 }
 
 fn nearest_kf(kfs: &[i64], t: i64, before: i64, after: i64) -> Option<i64> {
-    kfs.iter().copied().filter(|&k| k >= t - before && k <= t + after).min_by_key(|&k| (k - t).abs())
+    // Aegisub: (kare > t && kare - t <= before) || (kare < t && t - kare <= after)
+    kfs.iter().copied().filter(|&k| k >= t - after && k <= t + before).min_by_key(|&k| (k - t).abs())
 }
 
 /// Seçili (veya tüm) satırlara lead-in/out, bitişik satır ve anahtar kare işlemlerini uygular.
@@ -40,38 +42,34 @@ pub fn post_process(script: &mut Script, o: &PostOptions) {
         .filter(|(i, e)| matches!(e, Entry::Dialogue(d) if !d.comment && match &o.only { Some(v) => v.contains(i), None => !special(d) }))
         .map(|(i, _)| i)
         .collect();
-    // 1. lead in/out
-    for &i in &idxs {
+    // Aegisub sırası: lead-in/out → bitişik satırlar → anahtar kareler
+    let mut order = idxs.clone();
+    order.sort_by_key(|&i| if let Entry::Dialogue(d) = &script.entries[i] { (d.start_time, d.end_time) } else { (0, 0) });
+    let times = |sc: &Script, i: usize| match &sc.entries[i] { Entry::Dialogue(d) => (d.start_time, d.end_time), _ => (0, 0) };
+    // 1. lead in/out: komşu satıra taşmaz (zaten çakışan satırlarda o yön değişmez)
+    for (k, &i) in order.iter().enumerate() {
+        let prev_end = (k > 0).then(|| times(script, order[k - 1]).1);
+        let next_start = order.get(k + 1).map(|&j| times(script, j).0);
         if let Entry::Dialogue(d) = &mut script.entries[i] {
-            d.start_time = (d.start_time - o.lead_in_ms).max(0);
-            d.end_time += o.lead_out_ms;
-        }
-    }
-    // 2. anahtar kare yapışması
-    if !o.keyframes.is_empty() {
-        for &i in &idxs {
-            if let Entry::Dialogue(d) = &mut script.entries[i] {
-                if let Some(k) = nearest_kf(&o.keyframes, d.start_time, o.kf_start_before, o.kf_start_after) {
-                    d.start_time = k;
-                }
-                if let Some(k) = nearest_kf(&o.keyframes, d.end_time, o.kf_end_before, o.kf_end_after) {
-                    d.end_time = k.max(d.start_time + 1);
-                }
+            if o.lead_in_ms > 0 {
+                let mut s = (d.start_time - o.lead_in_ms).max(0);
+                if let Some(pe) = prev_end { s = s.max(pe.min(d.start_time)); }
+                d.start_time = s;
+            }
+            if o.lead_out_ms > 0 {
+                let mut e = d.end_time + o.lead_out_ms;
+                if let Some(ns) = next_start { e = e.min(ns.max(d.end_time)); }
+                d.end_time = e;
             }
         }
     }
-    // 3. bitişik satırlar (başlangıca göre sıralı çiftler)
-    let mut order = idxs.clone();
-    order.sort_by_key(|&i| if let Entry::Dialogue(d) = &script.entries[i] { d.start_time } else { 0 });
+    // 2. bitişik satırlar (başlangıca göre sıralı çiftler): eşik içindeki boşluk ya da küçük çakışma
+    // kapatılır; büyük çakışma (aynı anda konuşan iki kişi) olduğu gibi kalır
     for w in order.windows(2) {
         let (a, b) = (w[0], w[1]);
-        let (a_end, b_start) = match (&script.entries[a], &script.entries[b]) {
-            (Entry::Dialogue(x), Entry::Dialogue(y)) => (x.end_time, y.start_time),
-            _ => continue,
-        };
+        let (a_end, b_start) = (times(script, a).1, times(script, b).0);
         let gap = b_start - a_end;
-        // Çakışma da (gap < 0) bu eşik içinde düzeltilir.
-        if gap <= o.adjacent_gap_ms {
+        if gap != 0 && gap.abs() <= o.adjacent_gap_ms {
             let boundary = a_end + (gap as f64 * o.adjacent_bias).round() as i64;
             if let Entry::Dialogue(x) = &mut script.entries[a] {
                 if boundary > x.start_time {
@@ -81,6 +79,19 @@ pub fn post_process(script: &mut Script, o: &PostOptions) {
             if let Entry::Dialogue(y) = &mut script.entries[b] {
                 if boundary < y.end_time {
                     y.start_time = boundary;
+                }
+            }
+        }
+    }
+    // 3. anahtar kare yapışması
+    if !o.keyframes.is_empty() {
+        for &i in &idxs {
+            if let Entry::Dialogue(d) = &mut script.entries[i] {
+                if let Some(k) = nearest_kf(&o.keyframes, d.start_time, o.kf_start_before, o.kf_start_after) {
+                    if k < d.end_time { d.start_time = k; }
+                }
+                if let Some(k) = nearest_kf(&o.keyframes, d.end_time, o.kf_end_before, o.kf_end_after) {
+                    d.end_time = k.max(d.start_time + 1);
                 }
             }
         }
@@ -266,6 +277,30 @@ mod tests {
 
     fn d(s: i64, e: i64) -> Dialogue {
         Dialogue { start_time: s, end_time: e, text: "x".into(), ..Default::default() }
+    }
+
+    #[test]
+    fn inceleme_son_isleyici_aegisub_gibi() {
+        let run = |v: Vec<(i64, i64)>, o: PostOptions| {
+            let mut s = Script::from_dialogues(v.into_iter().map(|(a, b)| d(a, b)).collect());
+            post_process(&mut s, &o);
+            s.dialogues().map(|d| (d.start_time, d.end_time)).collect::<Vec<_>>()
+        };
+        let kf = |k: i64| PostOptions { lead_in_ms: 0, lead_out_ms: 0, keyframes: vec![k], ..Default::default() };
+        // satır sahne kesmesinden 300 ms önce başlıyor → kesmeye çekilir (Aegisub "starts before")
+        assert_eq!(run(vec![(1000, 4000)], kf(1300)), vec![(1300, 4000)]);
+        assert_eq!(run(vec![(1000, 4000)], kf(750)), vec![(1000, 4000)]);
+        // bitiş kesmeden 300 ms taşıyor → kesmeye çekilir; 350 ms sonraki kare için uzatılmaz
+        assert_eq!(run(vec![(1000, 4000)], kf(3700)), vec![(1000, 3700)]);
+        assert_eq!(run(vec![(1000, 4000)], kf(4350)), vec![(1000, 4000)]);
+        // lead-in/out komşuya taşmaz
+        assert_eq!(run(vec![(1000, 2000), (2000, 3000)], PostOptions::default()), vec![(880, 2000), (2000, 3200)]);
+        assert_eq!(run(vec![(1000, 2000), (2000, 3000)], PostOptions { adjacent_bias: 1.0, ..Default::default() }), vec![(880, 2000), (2000, 3200)]);
+        // aynı anda konuşanlar (büyük çakışma) bozulmaz
+        let no_lead = PostOptions { lead_in_ms: 0, lead_out_ms: 0, adjacent_bias: 1.0, ..Default::default() };
+        assert_eq!(run(vec![(1000, 5000), (2000, 3000)], no_lead.clone()), vec![(1000, 5000), (2000, 3000)]);
+        // küçük boşluk kapatılır
+        assert_eq!(run(vec![(1000, 2000), (2100, 3000)], PostOptions { adjacent_bias: 0.0, ..no_lead }), vec![(1000, 2000), (2000, 3000)]);
     }
 
     #[test]

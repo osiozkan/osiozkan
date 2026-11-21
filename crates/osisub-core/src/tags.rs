@@ -84,21 +84,19 @@ pub fn max_line_len(text: &str) -> usize {
 pub fn karaoke_syllables(text: &str) -> Vec<(i64, String)> {
     let mut out: Vec<(i64, String)> = Vec::new();
     let mut pending: Option<i64> = None;
-    let mut start_new = false;
     for p in split(text) {
         match p {
             Part::Block(b) => {
                 for t in b.split('\\').skip(1) {
                     let rest = t.strip_prefix("kf").or_else(|| t.strip_prefix("ko")).or_else(|| t.strip_prefix('k')).or_else(|| t.strip_prefix('K'));
                     if let Some(num) = rest {
-                        if let Ok(v) = num.trim().parse::<i64>() {
+                        // libass gibi ondalık da kabul (\k12.5 → 13)
+                        if let Ok(v) = num.trim().parse::<f64>().map(|v| v.round() as i64) {
+                            // aynı blokta önceki \k metinsiz kaldıysa boş hece olarak süresi korunur
                             if let Some(p) = pending.take() {
-                                if !start_new {
-                                    out.push((p, String::new()));
-                                }
+                                out.push((p, String::new()));
                             }
                             pending = Some(v);
-                            start_new = true;
                         }
                     }
                 }
@@ -106,7 +104,6 @@ pub fn karaoke_syllables(text: &str) -> Vec<(i64, String)> {
             Part::Text(t) => {
                 if let Some(d) = pending.take() {
                     out.push((d, t.to_string()));
-                    start_new = false;
                 } else if let Some(last) = out.last_mut() {
                     last.1.push_str(t);
                 } else {
