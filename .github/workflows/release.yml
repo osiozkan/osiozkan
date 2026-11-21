@@ -46,6 +46,24 @@ jobs:
           cp ff/*/bin/ffmpeg.exe ff/*/bin/ffprobe.exe dist/ffmpeg/
           cp ff/*/bin/ffplay.exe dist/ffmpeg/ 2>/dev/null || true
           cp ff/*/LICENSE.txt dist/ffmpeg/ 2>/dev/null || true
+      - name: Windows için Tesseract OCR ekle (UB Mannheim derlemesi + eng/tur/jpn verisi; Apache-2.0)
+        if: runner.os == 'Windows'
+        # başarısız olursa paket Tesseract'sız yine üretilir (sistemde kurulu olan kullanılır)
+        continue-on-error: true
+        shell: bash
+        run: |
+          url=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" https://api.github.com/repos/UB-Mannheim/tesseract/releases/latest | grep -o '"browser_download_url": *"[^"]*w64-setup[^"]*\.exe"' | head -1 | sed 's/.*"\(http[^"]*\)"/\1/')
+          echo "kurulum: $url"
+          curl -fsSL -o tess-setup.exe "$url"
+          7z x -y -otess tess-setup.exe > /dev/null
+          mkdir -p dist/tesseract
+          cp -r tess/* dist/tesseract/
+          rm -rf dist/tesseract/\$PLUGINSDIR dist/tesseract/*uninstall* 2>/dev/null || true
+          mkdir -p dist/tesseract/tessdata
+          for l in eng tur jpn osd; do
+            [ -s dist/tesseract/tessdata/$l.traineddata ] || curl -fsSL -o dist/tesseract/tessdata/$l.traineddata "https://github.com/tesseract-ocr/tessdata_fast/raw/main/$l.traineddata"
+          done
+          if dist/tesseract/tesseract.exe --version | head -1 && dist/tesseract/tesseract.exe --list-langs; then echo "tesseract TAMAM"; else echo "tesseract YOK"; rm -rf dist/tesseract; fi
       - name: macOS için ffmpeg ekle (ffmpeg-static / ffprobe-static GPL derlemeleri; lisans THIRD_PARTY.md)
         if: runner.os == 'macOS'
         # indirme başarısız olursa paket ffmpeg'siz yine üretilir (sistemdeki ffmpeg kullanılır)

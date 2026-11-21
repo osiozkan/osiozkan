@@ -4,6 +4,7 @@
 
 **İngilizce arayüz:** *Görünüm → Arayüz dili / Language*. Menüler, pencereler, ipuçları, durum çubuğu ve Kalite iletileri İngilizce olabilir (anında değişir). Çevirisi eksik metin Türkçe kalır.
 **Gömülü altyazı OCR'ı kare-doğru:** satır başlangıç/bitişleri artık videonun kendi karelerinde bulunur ve Aegisub kare anlambilimiyle yazılır (eskiden 5 örnek/sn yüzünden ±200 ms sapabiliyordu). Hız neredeyse aynı: aradaki kareler yalnızca satır değiştiğinde incelenir. CLI'de eski kip `--coarse`.
+**Windows paketinde Tesseract OCR** (İngilizce, Türkçe, Japonca verisiyle): OCR ve gömülü altyazı okuma ayrıca kurulum gerektirmez. Kendiniz kurduysanız `Program Files\Tesseract-OCR` de bulunur.
 
 ## 0.7.0 — 2026-11-20 (yedinci gece)
 

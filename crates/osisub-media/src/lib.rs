@@ -28,7 +28,13 @@ pub fn tool_bin(name: &str, env: &str) -> String {
     }
     let exe = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     let found = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).and_then(|dir| {
-        [dir.join(&exe), dir.join("ffmpeg").join(&exe), dir.join("ffmpeg").join("bin").join(&exe)].into_iter().find(|p| p.is_file())
+        [dir.join(&exe), dir.join("ffmpeg").join(&exe), dir.join("ffmpeg").join("bin").join(&exe), dir.join(name).join(&exe)].into_iter().find(|p| p.is_file())
+    }).or_else(|| {
+        // Windows'ta standart kurulum klasörleri (PATH'e eklenmemiş olabilir; ör. UB Mannheim Tesseract)
+        if !cfg!(windows) { return None; }
+        let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into());
+        let sub = match name { "tesseract" => "Tesseract-OCR", _ => return None };
+        Some(std::path::Path::new(&pf).join(sub).join(&exe)).filter(|p| p.is_file())
     });
     let v = found.map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| name.to_string());
     if let Ok(mut c) = cache.lock() {
