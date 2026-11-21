@@ -299,7 +299,8 @@ pub fn parse(src: &str) -> Vec<Dialogue> {
 
     let mut out = Vec::new();
     // body/div bağlamı: (bölge, biçim, başlangıç ofseti)
-    let mut ctx: Vec<(Option<String>, Fmt, i64)> = vec![(None, Fmt::default(), 0)];
+    // (bölge, biçim, başlangıç ofseti, üst öğenin mutlak bitişi — TTML zaman kapsaması)
+    let mut ctx: Vec<(Option<String>, Fmt, i64, Option<i64>)> = vec![(None, Fmt::default(), 0, None)];
     let mut in_head = false;
     // Etkin <p>: (başlangıç, bitiş, üst?, metin, biçim yığını, yazılmış biçim)
     struct P {
@@ -318,9 +319,12 @@ pub fn parse(src: &str) -> Vec<Dialogue> {
                 ("head", true) => in_head = false,
                 _ if in_head => {}
                 ("body" | "div", false) if p.is_none() => {
-                    let (reg, f, off) = ctx.last().cloned().unwrap_or((None, Fmt::default(), 0));
-                    let off = off + tag.get("begin").and_then(|v| parse_time(v, rates)).unwrap_or(0);
-                    let entry = (tag.get("region").map(str::to_string).or(reg), apply_style(tag, &styles, f), off);
+                    let (reg, f, off0, pend) = ctx.last().cloned().unwrap_or((None, Fmt::default(), 0, None));
+                    let off = off0 + tag.get("begin").and_then(|v| parse_time(v, rates)).unwrap_or(0);
+                    let dend = tag.get("end").and_then(|v| parse_time(v, rates)).map(|e| off0 + e)
+                        .or_else(|| tag.get("dur").and_then(|v| parse_time(v, rates)).map(|d| off + d))
+                        .or(pend);
+                    let entry = (tag.get("region").map(str::to_string).or(reg), apply_style(tag, &styles, f), off, dend);
                     if !tag.self_close {
                         ctx.push(entry);
                     }
@@ -331,11 +335,17 @@ pub fn parse(src: &str) -> Vec<Dialogue> {
                     }
                 }
                 ("p", false) => {
-                    let (reg, f, off) = ctx.last().cloned().unwrap_or((None, Fmt::default(), 0));
+                    let (reg, f, off, pend) = ctx.last().cloned().unwrap_or((None, Fmt::default(), 0, None));
                     let begin = tag.get("begin").and_then(|v| parse_time(v, rates));
                     let end = tag.get("end").and_then(|v| parse_time(v, rates));
                     let dur = tag.get("dur").and_then(|v| parse_time(v, rates));
-                    let (Some(b), Some(e)) = (begin, end.or(begin.zip(dur).map(|(b, d)| b + d))) else { continue };
+                    // zamanı olmayan <p> üst div'in zamanını alır; bitişi yoksa üst öğenin bitişi
+                    let b = begin.unwrap_or(0);
+                    let e = match end.or(dur.map(|d| b + d)) {
+                        Some(e) => Some(e),
+                        None => pend.map(|pe| pe - off).or(begin.map(|b| b + 3000)),
+                    };
+                    let Some(e) = e else { continue };
                     let reg = tag.get("region").map(str::to_string).or(reg);
                     let top = reg.as_deref().and_then(|r| top_regions.get(r).copied()).unwrap_or(false);
                     let pf = apply_style(tag, &styles, f);

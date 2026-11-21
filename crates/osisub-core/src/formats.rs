@@ -1,6 +1,6 @@
 //! Ek altyazı biçimleri: LRC (gelişmiş sözcük zamanlı dahil), MicroDVD, SBV, TTML, TXT, CSV.
 use crate::ass::{Dialogue, Script};
-use crate::{karaoke, srt, tags, time};
+use crate::{karaoke, tags, time};
 
 fn ass_text_from_plain(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\\N")
@@ -26,6 +26,11 @@ fn parse_lrc_stamp(s: &str) -> Option<i64> {
 /// LRC oku. Gelişmiş `<mm:ss.xx>` sözcük zamanları `\kf` etiketlerine çevrilir.
 pub fn parse_lrc(text: &str) -> Vec<Dialogue> {
     let mut items: Vec<(i64, String)> = vec![];
+    // [offset:+500]: pozitif değer sözleri ERKEN gösterir (ms)
+    let offset: i64 = text.lines().find_map(|l| {
+        let l = l.trim();
+        l.strip_prefix("[offset:").and_then(|r| r.strip_suffix(']')).and_then(|v| v.trim().trim_start_matches('+').parse::<i64>().ok())
+    }).unwrap_or(0);
     for line in text.lines() {
         let mut rest = line.trim();
         let mut stamps = vec![];
@@ -41,7 +46,7 @@ pub fn parse_lrc(text: &str) -> Vec<Dialogue> {
             continue;
         }
         for t in stamps {
-            items.push((t, rest.to_string()));
+            items.push(((t - offset).max(0), rest.to_string()));
         }
     }
     items.sort_by_key(|x| x.0);
@@ -68,19 +73,30 @@ fn lrc_words_to_ass(raw: &str, start: i64, end: i64) -> String {
     while let Some(i) = rest.find('<') {
         let Some(j) = rest[i..].find('>') else { break };
         let seg = &rest[..i];
-        if marks.is_empty() && cur_t == start && lead.is_empty() {
-            lead = seg.to_string();
+        if marks.is_empty() {
+            lead.push_str(seg);
         } else if let Some(last) = marks.last_mut() {
             last.1.push_str(seg);
         }
-        if let Some(t) = parse_lrc_stamp(&rest[i + 1..i + j]) {
-            marks.push((t, String::new()));
-            cur_t = t;
+        match parse_lrc_stamp(&rest[i + 1..i + j]) {
+            Some(t) => {
+                marks.push((t, String::new()));
+                cur_t = t;
+                rest = &rest[i + j + 1..];
+            }
+            None => {
+                // zaman damgası değil ("I <3 you", "a < b"): "<" metin olarak kalır
+                if marks.is_empty() { lead.push('<'); } else if let Some(last) = marks.last_mut() { last.1.push('<'); }
+                rest = &rest[i + 1..];
+            }
         }
-        rest = &rest[i + j + 1..];
     }
+    let _ = cur_t;
     if let Some(last) = marks.last_mut() {
         last.1.push_str(rest);
+    } else {
+        // hiç sözcük zamanı yok: düz metin
+        return ass_text_from_plain(&format!("{lead}{rest}"));
     }
     let mut syls = vec![];
     if !lead.trim().is_empty() {
@@ -96,7 +112,8 @@ fn lrc_words_to_ass(raw: &str, start: i64, end: i64) -> String {
 pub fn write_lrc(script: &Script) -> String {
     let stamp = |ms: i64| format!("{:02}:{:02}.{:02}", ms / 60000, ms / 1000 % 60, ms / 10 % 100);
     let mut out = String::new();
-    for d in script.dialogues().filter(|d| !d.comment) {
+    let ds: Vec<&Dialogue> = script.dialogues().filter(|d| !d.comment).collect();
+    for (k, d) in ds.iter().enumerate() {
         let syls = karaoke::parse(&d.text);
         if syls.iter().any(|s| s.dur > 0) {
             let mut t = d.start_time;
@@ -110,6 +127,10 @@ pub fn write_lrc(script: &Script) -> String {
             out.push_str(&format!("[{}]{}", stamp(d.start_time), tags::visible_text(&d.text).replace('\n', " ")));
         }
         out.push('\n');
+        // LRC satırının bitişi yok: sonraki satır daha geç başlıyorsa boş satır bitişi işaretler
+        if ds.get(k + 1).map_or(true, |n| n.start_time > d.end_time) {
+            out.push_str(&format!("[{}]\n", stamp(d.end_time)));
+        }
     }
     out
 }
@@ -125,7 +146,9 @@ pub fn parse_microdvd(text: &str, default_fps: f64) -> Vec<Dialogue> {
         let Some((a, r)) = r.split_once('}') else { continue };
         let Some(r) = r.strip_prefix('{') else { continue };
         let Some((b, body)) = r.split_once('}') else { continue };
-        let (Ok(a), Ok(b)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>()) else { continue };
+        let Ok(a) = a.trim().parse::<i64>() else { continue };
+        // "{100}{}metin": bitiş yok (ffmpeg gibi) → başlangıç + 3 sn kadar kare
+        let b = if b.trim().is_empty() { a + (3.0 * fps).round() as i64 } else { let Ok(b) = b.trim().parse::<i64>() else { continue }; b };
         if a == 1 && b == 1 {
             if let Ok(f) = body.trim().parse::<f64>() {
                 fps = f;
@@ -133,11 +156,24 @@ pub fn parse_microdvd(text: &str, default_fps: f64) -> Vec<Dialogue> {
             }
         }
         let to_ms = |f: i64| (f as f64 * 1000.0 / fps).round() as i64;
-        let mut t = body.replace('|', "\\N");
-        // {y:i} → italik
-        if let Some(rest) = t.strip_prefix("{y:i}") {
-            t = format!("{{\\i1}}{}", rest);
-        }
+        // {Y:i} tüm satırlar, {y:i} yalnız o satır; i/b/u → \i1/\b1/\u1
+        let style_of = |l: &str| -> (String, String) {
+            let ll = l.to_ascii_lowercase();
+            if let Some(r) = ll.strip_prefix("{y:") {
+                if let Some(e) = r.find('}') {
+                    let tags: String = r[..e].split(',').filter_map(|x| match x.trim() { "i" => Some("\\i1"), "b" => Some("\\b1"), "u" => Some("\\u1"), _ => None }).collect();
+                    return (tags, l[3 + e + 1..].to_string());
+                }
+            }
+            (String::new(), l.to_string())
+        };
+        let (all, body) = style_of(body);
+        let lines: Vec<String> = body.split('|').map(|l| {
+            let (tg, rest) = style_of(l);
+            if tg.is_empty() { rest } else { format!("{{{tg}}}{rest}") }
+        }).collect();
+        let mut t = lines.join("\\N");
+        if !all.is_empty() { t = format!("{{{all}}}{t}"); }
         out.push(Dialogue { start_time: to_ms(a), end_time: to_ms(b), text: t, ..Default::default() });
     }
     out
@@ -147,7 +183,8 @@ pub fn write_microdvd(script: &Script, fps: f64) -> String {
     let mut out = format!("{{1}}{{1}}{}\n", fps);
     for d in script.dialogues().filter(|d| !d.comment) {
         let f = |ms: i64| (ms as f64 * fps / 1000.0).round() as i64;
-        out.push_str(&format!("{{{}}}{{{}}}{}\n", f(d.start_time), f(d.end_time), tags::visible_text(&d.text).replace('\n', "|")));
+        let italic = d.text.trim_start().starts_with("{\\i1") || d.text.contains("{\\i1}") && !d.text.contains("\\i0");
+        out.push_str(&format!("{{{}}}{{{}}}{}{}\n", f(d.start_time), f(d.end_time), if italic { "{Y:i}" } else { "" }, tags::visible_text(&d.text).replace('\n', "|")));
     }
     out
 }
@@ -172,16 +209,13 @@ pub fn write_sbv(script: &Script) -> String {
     let f = |ms: i64| format!("{}:{:02}:{:02}.{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000);
     let mut out = String::new();
     for d in script.dialogues().filter(|d| !d.comment) {
-        out.push_str(&format!("{},{}\n{}\n\n", f(d.start_time), f(d.end_time), srt::take_an_prefix(&srt::ass_text_to_srt(&d.text)).1.replace(['<', '>'], "")));
+        out.push_str(&format!("{},{}\n{}\n\n", f(d.start_time), f(d.end_time), tags::visible_text(&d.text)));
     }
     out
 }
 
 // ---------------------------------------------------------------------- TTML
 
-fn xml_unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
-}
 
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
@@ -269,6 +303,41 @@ fn strip_html(s: &str) -> String {
 
 /// SAMI (`.smi`/`.sami`): `<SYNC Start=ms>` blokları; boş (`&nbsp;`) blok önceki satırı bitirir.
 /// Birden çok dil sınıfı varsa ilk görülen sınıf alınır.
+/// HTML karakter başvuruları: sayısal (&#39; &#x15F;) ve sık adlar.
+fn html_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        let semi = tail.char_indices().take_while(|(k, _)| *k < 12).find(|(_, c)| *c == ';').map(|(k, _)| k);
+        let rep = semi.and_then(|e| {
+            let name = &tail[1..e];
+            let ch = if let Some(h) = name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+                u32::from_str_radix(h, 16).ok().and_then(char::from_u32)
+            } else if let Some(d) = name.strip_prefix('#') {
+                d.parse::<u32>().ok().and_then(char::from_u32)
+            } else {
+                match name {
+                    "amp" => Some('&'), "lt" => Some('<'), "gt" => Some('>'), "quot" => Some('"'), "apos" => Some('\''),
+                    "hellip" => Some('…'), "mdash" => Some('—'), "ndash" => Some('–'), "lsquo" => Some('‘'), "rsquo" => Some('’'),
+                    "ldquo" => Some('“'), "rdquo" => Some('”'), "eacute" => Some('é'), "egrave" => Some('è'), "agrave" => Some('à'),
+                    "ccedil" => Some('ç'), "Ccedil" => Some('Ç'), "ouml" => Some('ö'), "Ouml" => Some('Ö'), "uuml" => Some('ü'), "Uuml" => Some('Ü'),
+                    "iexcl" => Some('¡'), "iquest" => Some('¿'), "copy" => Some('©'), "shy" => Some('\u{ad}'),
+                    _ => None,
+                }
+            };
+            ch.map(|c| (c, e + 1))
+        });
+        match rep {
+            Some((c, n)) => { out.push(c); rest = &tail[n..]; }
+            None => { out.push('&'); rest = &tail[1..]; }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn parse_sami(text: &str) -> Vec<Dialogue> {
     let lower = text.to_ascii_lowercase();
     let mut syncs: Vec<(usize, i64)> = vec![];
@@ -291,17 +360,36 @@ pub fn parse_sami(text: &str) -> Vec<Dialogue> {
     let mut out: Vec<Dialogue> = vec![];
     for (k, &(body_start, st)) in syncs.iter().enumerate() {
         let body_end = syncs.get(k + 1).map(|n| lower[..n.0].rfind("<sync").unwrap_or(n.0)).unwrap_or_else(|| lower.find("</body").unwrap_or(text.len()));
-        let raw = &text[body_start..body_end.max(body_start)];
-        let rl = raw.to_ascii_lowercase();
-        // sınıf: <p class=XX>
-        if let Some(ci) = rl.find("class") {
-            let c: String = rl[ci + 5..].trim_start().trim_start_matches('=').trim_start().trim_start_matches(['"', '\'']).chars().take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
-            match &class {
-                None => class = Some(c),
-                Some(x) if *x != c => continue,
-                _ => {}
+        let raw_all = &text[body_start..body_end.max(body_start)];
+        // Bir SYNC içinde birden çok dil (<P Class=KRCC>…<P Class=ENCC>…): ilk görülen sınıf seçilir,
+        // yalnızca o sınıfın paragrafları alınır
+        let class_of = |seg: &str| -> Option<String> {
+            let sl = seg.to_ascii_lowercase();
+            let head = &sl[..sl.find('>').unwrap_or(sl.len())];
+            head.find("class").map(|ci| head[ci + 5..].trim_start().trim_start_matches('=').trim_start().trim_start_matches(['"', '\'']).chars().take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect())
+        };
+        let rla = raw_all.to_ascii_lowercase();
+        let mut cuts: Vec<usize> = rla.match_indices("<p").filter(|(i, _)| rla[i + 2..].starts_with(|c: char| c == '>' || c.is_whitespace())).map(|(i, _)| i).collect();
+        let kept: String = if cuts.is_empty() {
+            raw_all.to_string()
+        } else {
+            cuts.push(raw_all.len());
+            let mut k = String::new();
+            for w in cuts.windows(2) {
+                let seg = &raw_all[w[0]..w[1]];
+                if let Some(c) = class_of(seg) {
+                    match &class {
+                        None => class = Some(c),
+                        Some(x) if *x != c => continue,
+                        _ => {}
+                    }
+                }
+                k.push_str(seg);
             }
-        }
+            k
+        };
+        let raw = kept.as_str();
+        let rl = raw.to_ascii_lowercase();
         let with_breaks = {
             let mut t = String::new();
             let mut i = 0;
@@ -311,13 +399,14 @@ pub fn parse_sami(text: &str) -> Vec<Dialogue> {
                     i += rl[i..].find('>').map(|e| e + 1).unwrap_or(rl.len() - i);
                 } else {
                     let ch = raw[i..].chars().next().unwrap();
-                    t.push(ch);
+                    // HTML'de ham satır sonu boşluktur; yalnızca <br> satır böler
+                    t.push(if ch == '\n' || ch == '\r' { ' ' } else { ch });
                     i += ch.len_utf8();
                 }
             }
             t
         };
-        let plain = xml_unescape(&strip_html(&with_breaks).replace("&nbsp;", " ").replace("&NBSP;", " "));
+        let plain = html_unescape(&strip_html(&with_breaks).replace("&nbsp;", " ").replace("&NBSP;", " "));
         let lines: Vec<&str> = plain.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
         if let Some(prev) = out.last_mut() {
             if prev.end_time < 0 {
@@ -414,5 +503,32 @@ mod tests {
         assert_eq!(d.iter().map(|x| (x.start_time, x.end_time, x.text.as_str())).collect::<Vec<_>>(), vec![(1000, 3000, "Merhaba\\Ndünya & sen"), (4000, 6000, "İkinci"), (6000, 9000, "Üçüncü")]);
         let back = parse_sami(&write_sami(&Script::from_dialogues(d.clone())));
         assert_eq!(back.iter().map(|x| (x.start_time, x.end_time, x.text.clone())).collect::<Vec<_>>(), d.iter().map(|x| (x.start_time, x.end_time, x.text.clone())).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn inceleme_bicimler() {
+        // LRC: "<3" metin, offset, boşluk korunur
+        let d = parse_lrc("[offset:+500]\n[00:10.00]I <3 you\n");
+        assert_eq!(d[0].start_time, 9500);
+        assert_eq!(d[0].text, "I <3 you");
+        let sc = Script::from_dialogues(vec![Dialogue { start_time: 1000, end_time: 2000, text: "a".into(), ..Default::default() }, Dialogue { start_time: 10000, end_time: 11000, text: "b".into(), ..Default::default() }]);
+        let back = parse_lrc(&write_lrc(&sc));
+        assert_eq!((back[0].start_time, back[0].end_time), (1000, 2000));
+        // SBV: etiket ve < korunur
+        let sc = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "{\\i1}Merhaba{\\i0} 3 < 5".into(), ..Default::default() }]);
+        assert!(write_sbv(&sc).contains("\nMerhaba 3 < 5\n"), "{}", write_sbv(&sc));
+        // MicroDVD açık bitiş ve stiller
+        let d = parse_microdvd("{100}{}metin\n{200}{300}{Y:i}a|{y:b}b\n", 25.0);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].end_time, 4000 + 3000);
+        assert_eq!(d[1].text, "{\\i1}a\\N{\\b1}b");
+        // SAMI: iki dil, varlıklar, ham satır sonu
+        let d = parse_sami("<SAMI><BODY><SYNC Start=1000><P Class=KRCC>안녕<P Class=ENCC>Hello\n<SYNC Start=2000><P Class=KRCC>It&#39;s &#x15F;\nyes<br>no<SYNC Start=3000><P Class=KRCC>&nbsp;</BODY></SAMI>");
+        assert_eq!(d[0].text, "안녕");
+        assert_eq!(d[1].text, "It's ş yes\\Nno");
+        // TTML zaman kapsaması
+        let d = parse_ttml("<tt xmlns=\"http://www.w3.org/ns/ttml\"><body><div begin=\"1s\" end=\"3s\"><p>inherit</p></div><div><p begin=\"4s\">noend</p></div></body></tt>");
+        let v: Vec<(i64, i64, &str)> = d.iter().map(|x| (x.start_time, x.end_time, x.text.as_str())).collect();
+        assert_eq!(v, vec![(1000, 3000, "inherit"), (4000, 7000, "noend")]);
     }
 }
