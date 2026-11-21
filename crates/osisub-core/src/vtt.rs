@@ -14,7 +14,18 @@ pub fn parse(text: &str) -> Vec<Dialogue> {
         .filter(|b| !b.starts_with("NOTE") && !b.starts_with("STYLE") && !b.starts_with("REGION"))
         .map(cue_settings_to_an)
         .collect();
-    srt::parse(&cleaned.join("\n\n"))
+    let mut v = srt::parse(&cleaned.join("\n\n"));
+    for d in &mut v {
+        if d.text.contains('&') {
+            d.text = unescape(&d.text);
+        }
+    }
+    v
+}
+
+/// WebVTT karakter başvuruları (`&lt;3` → `<3`, `&nbsp;` → `\h`).
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", "\\h").replace("&lrm;", "\u{200e}").replace("&rlm;", "\u{200f}").replace("&amp;", "&")
 }
 
 /// İpucu ayarlarını (`line:0 align:start`…) metnin başına `{\\anN}` olarak taşır.
@@ -54,7 +65,11 @@ fn cue_settings_to_an(block: &str) -> String {
 pub fn write(script: &Script) -> String {
     let mut out = String::from("WEBVTT\n\n");
     for d in script.dialogues().filter(|d| !d.comment) {
-        let t = srt::ass_text_to_srt(&d.text);
+        // düz metindeki & < > kaçışlanır (etiket sanılmasın); etiketleri dönüştürücü ekler
+        let t = srt::ass_text_to_srt(&d.text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"));
+        if !d.text.trim().is_empty() && srt::srt_is_blank(&t) {
+            continue;
+        }
         let (an, body) = srt::take_an_prefix(&t);
         // ASS \an → WebVTT ipucu ayarları (üst: line:0, sol/sağ hizalama)
         let mut cue = String::new();
@@ -94,6 +109,18 @@ mod tests {
         assert_eq!(back[1].text, "{\\an1}Sol alt");
         assert_eq!(back[2].text, "Normal");
     }
+    #[test]
+    fn varliklar_ve_kimlikler() {
+        let d = parse("WEBVTT\n\nc1\n00:00:01.000 --> 00:00:02.000\nTom &amp; Jerry &lt;3\n\nc2\n00:00:03.000 --> 00:00:04.000\nB\n");
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].text, "Tom & Jerry <3");
+        assert_eq!(d[1].text, "B");
+        let s = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "{\\i1}a < b & c{\\i0}".into(), ..Default::default() }]);
+        let v = write(&s);
+        assert!(v.contains("<i>a &lt; b &amp; c</i>"), "{v}");
+        assert_eq!(parse(&v)[0].text, "{\\i1}a < b & c{\\i0}");
+    }
+
     #[test]
     fn vtt() {
         let d = parse("WEBVTT\n\nNOTE x\n\ncue1\n00:00:01.000 --> 00:00:02.000 align:start\nHi\n");

@@ -5,25 +5,31 @@ use crate::time;
 /// SRT metnini diyalog listesine çevirir. `<i>`, `<b>`, `<u>`, `<font color>` etiketleri ASS'ye çevrilir.
 pub fn parse(text: &str) -> Vec<Dialogue> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n").replace('\r', "\n");
-    let mut out = Vec::new();
-    for block in text.split("\n\n") {
-        let mut lines = block.trim_matches('\n').lines().peekable();
-        // Sıra numarası (olmayabilir).
-        let mut tl = match lines.next() {
-            Some(l) => l,
-            None => continue,
-        };
-        if !tl.contains("-->") {
-            tl = match lines.next() {
-                Some(l) => l,
-                None => continue,
-            };
-        }
-        let Some((a, b)) = tl.split_once("-->") else { continue };
-        // Bitişten sonraki koordinat/ayarları at.
+    let lines: Vec<&str> = text.split('\n').collect();
+    // Satır satır: her zaman satırı ("a --> b") yeni bir altyazı başlatır; hemen önündeki yalnız
+    // rakamdan oluşan satır sıra numarasıdır. Böylece altyazı içindeki boş satırlar ve yalnızca
+    // boşluk içeren ayraç satırları metni bölmez/birleştirmez (Aegisub gibi).
+    let timing = |l: &str| -> Option<(i64, i64)> {
+        let (a, b) = l.split_once("-->")?;
         let b = b.trim().split_whitespace().next().unwrap_or("");
-        let (Some(st), Some(en)) = (time::parse_generic(a), time::parse_generic(b)) else { continue };
-        let body: Vec<&str> = lines.collect();
+        Some((time::parse_generic(a.trim())?, time::parse_generic(b)?))
+    };
+    let starts: Vec<(usize, i64, i64)> = lines.iter().enumerate().filter_map(|(i, l)| timing(l).map(|(a, b)| (i, a, b))).collect();
+    let mut out = Vec::new();
+    for (k, &(i, st, en)) in starts.iter().enumerate() {
+        let mut stop = starts.get(k + 1).map_or(lines.len(), |n| n.0);
+        // sonraki altyazının sıra numarası bu altyazıya ait değil
+        if k + 1 < starts.len() && stop > i + 1 {
+            let prev = lines[stop - 1].trim();
+            // sıra numarası (SRT) ya da boş satırdan sonra gelen ipucu kimliği (WebVTT "cue1")
+            let after_blank = stop >= i + 3 && lines[stop - 2].trim().is_empty();
+            if !prev.is_empty() && (prev.chars().all(|c| c.is_ascii_digit()) || after_blank) {
+                stop -= 1;
+            }
+        }
+        let mut body: Vec<&str> = lines[i + 1..stop].iter().map(|l| if l.trim().is_empty() { "" } else { *l }).collect();
+        while body.last().map_or(false, |l| l.is_empty()) { body.pop(); }
+        while body.first().map_or(false, |l| l.is_empty()) { body.remove(0); }
         let text = srt_markup_to_ass(&body.join("\n"));
         out.push(Dialogue { start_time: st, end_time: en, text, ..Default::default() });
     }
@@ -46,6 +52,14 @@ fn srt_markup_to_ass(s: &str) -> String {
             break;
         };
         let tag = rest[i + 1..i + j].trim().to_ascii_lowercase();
+        let known = matches!(tag.as_str(), "i" | "/i" | "b" | "/b" | "u" | "/u" | "s" | "/s" | "/font" | "font")
+            || tag.starts_with("font ");
+        if !known {
+            // etiket değil ("<3", "a < b"): olduğu gibi bırak
+            out.push('<');
+            rest = &rest[i + 1..];
+            continue;
+        }
         match tag.as_str() {
             "i" => out.push_str("{\\i1}"),
             "/i" => out.push_str("{\\i0}"),
@@ -94,6 +108,8 @@ pub fn ass_text_to_srt(s: &str) -> String {
     let mut bold = false;
     let mut underline = false;
     let mut an: Option<u8> = None;
+    // `\p1` çizim kipi: vektör komutları metin değildir (tabela şekli SRT'de anlamsız harf olurdu)
+    let mut drawing = false;
     let mut chars = s.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
         match c {
@@ -110,7 +126,9 @@ pub fn ass_text_to_srt(s: &str) -> String {
                     let on = |t: &str, k: &str| {
                         t.strip_prefix(k).map(str::trim).filter(|v| v.chars().all(|c| c.is_ascii_digit())).map(|v| !v.is_empty() && v != "0" && v != "400")
                     };
-                    if let Some(v) = on(t, "i") {
+                    if let Some(p) = t.strip_prefix('p').map(str::trim).filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit())) {
+                        drawing = p != "0";
+                    } else if let Some(v) = on(t, "i") {
                         if v != italic { out.push_str(if v { "<i>" } else { "</i>" }); italic = v; }
                     } else if let Some(v) = on(t, "b") {
                         if v != bold { out.push_str(if v { "<b>" } else { "</b>" }); bold = v; }
@@ -125,6 +143,7 @@ pub fn ass_text_to_srt(s: &str) -> String {
                     if j <= end { chars.next(); } else { break; }
                 }
             }
+            _ if drawing => {}
             '\\' => match chars.peek().map(|&(_, c)| c) {
                 Some('N') | Some('n') => { chars.next(); out.push('\n'); }
                 Some('h') => { chars.next(); out.push(' '); }
@@ -142,12 +161,22 @@ pub fn ass_text_to_srt(s: &str) -> String {
     }
 }
 
+/// `ass_text_to_srt` çıktısında görünür metin yok mu (yalnızca biçim etiketleri / konum)?
+pub fn srt_is_blank(t: &str) -> bool {
+    let t = take_an_prefix(t).1;
+    ["<i>", "</i>", "<b>", "</b>", "<u>", "</u>"].iter().fold(t.to_string(), |a, tag| a.replace(tag, "")).trim().is_empty()
+}
+
 pub fn write(script: &Script) -> String {
     let mut out = String::new();
     let mut n = 0;
     for d in script.dialogues().filter(|d| !d.comment) {
+        let t = ass_text_to_srt(&d.text);
+        if !d.text.trim().is_empty() && srt_is_blank(&t) {
+            continue; // yalnızca çizimden (tabela şekli) oluşan satır
+        }
         n += 1;
-        out.push_str(&format!("{}\n{} --> {}\n{}\n\n", n, time::format_srt(d.start_time), time::format_srt(d.end_time), ass_text_to_srt(&d.text)));
+        out.push_str(&format!("{}\n{} --> {}\n{}\n\n", n, time::format_srt(d.start_time), time::format_srt(d.end_time), t));
     }
     out
 }
@@ -172,5 +201,30 @@ mod tests {
         let d = parse("1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Üst\n");
         assert_eq!(d[0].text, "{\\an8}Üst");
         assert!(write(&Script::from_dialogues(d)).contains("{\\an8}Üst"));
+    }
+
+    #[test]
+    fn inceleme_duzeltmeleri() {
+        // yalnızca boşluk içeren ayraç satırı altyazıları birleştirmez
+        let d = parse("1\n00:00:01,000 --> 00:00:02,000\nA\n \n2\n00:00:03,000 --> 00:00:04,000\nB\n");
+        assert_eq!(d.iter().map(|d| d.text.as_str()).collect::<Vec<_>>(), vec!["A", "B"]);
+        // altyazı içindeki boş satır metni kesmez (yazıcımız a\N\Nb'yi böyle yazar)
+        let d = parse("1\n00:00:01,000 --> 00:00:02,000\nA\n\nA2\n\n2\n00:00:03,000 --> 00:00:04,000\nB\n");
+        assert_eq!(d[0].text, "A\\N\\NA2");
+        assert_eq!(d[1].text, "B");
+        let s = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 1000, text: "a\\N\\Nb".into(), ..Default::default() }]);
+        assert_eq!(parse(&write(&s))[0].text, "a\\N\\Nb");
+        // bilinmeyen "etiket" düz metindir
+        assert_eq!(parse("1\n00:00:01,000 --> 00:00:02,000\nI <3 you <i>so</i> much\n")[0].text, "I <3 you {\\i1}so{\\i0} much");
+        assert_eq!(parse("1\n00:00:01,000 --> 00:00:02,000\nif a < b and c > d\n")[0].text, "if a < b and c > d");
+        // çizim satırı SRT'ye yazılmaz, çizimden sonraki metin kalır
+        let s = Script::from_dialogues(vec![
+            Dialogue { start_time: 0, end_time: 1000, text: "{\\an7\\pos(0,0)\\p1}m 0 0 l 100 0 100 100{\\p0}".into(), ..Default::default() },
+            Dialogue { start_time: 0, end_time: 1000, text: "{\\p1}m 0 0 l 1 1{\\p0}Yazı".into(), ..Default::default() },
+        ]);
+        let w = write(&s);
+        assert!(!w.contains("m 0 0"), "{w}");
+        assert_eq!(parse(&w).len(), 1);
+        assert_eq!(parse(&w)[0].text, "Yazı");
     }
 }
