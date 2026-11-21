@@ -71,6 +71,9 @@ pub struct MediaInfo {
     pub has_audio: bool,
     /// görüntü en-boy oranı (anamorfik kaynaklarda depolama oranından farklı; 0 = depolama oranı)
     pub dar: f64,
+    /// Kapsayıcının başlangıç zamanı (ms; TS yayın kayıtlarında ~1-2 sn). Altyazı ve dalga biçimi
+    /// 0'dan sayar; önizleme/anahtar kare zamanları bu kadar kaydırılır.
+    pub start_ms: i64,
 }
 
 impl MediaInfo {
@@ -110,6 +113,9 @@ pub fn probe(path: &Path) -> Result<MediaInfo, String> {
     let mut info = MediaInfo::default();
     if let Some(d) = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()) {
         info.duration_ms = (d * 1000.0) as i64;
+    }
+    if let Some(st) = v["format"]["start_time"].as_str().and_then(|d| d.parse::<f64>().ok()).filter(|x| x.is_finite() && *x > 0.0) {
+        info.start_ms = (st * 1000.0).round() as i64;
     }
     for s in v["streams"].as_array().cloned().unwrap_or_default() {
         match s["codec_type"].as_str() {
@@ -296,8 +302,12 @@ pub struct Frame {
     pub rgba: Vec<u8>,
 }
 
-fn ff_escape(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "\\'")
+/// Tek tırnak içindeki süzgeç değeri için kaçış. İki düzey vardır (süzgeç grafiği + seçenek):
+/// tırnak içinde `\` düzde kalır, bu yüzden `'` için tırnak kapatılıp `\\\'` ile verilir ve yeniden
+/// açılır ("Ali'nin" → `Ali'\\\''nin`). Eskiden `\'` yazılıyordu: kesme işaretli yollarda (ör.
+/// Windows'ta `C:\Users\O'Brien`) önizleme, oynatma ve videoya yakma hiç çalışmıyordu.
+pub(crate) fn ff_escape(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/").replace(':', "\\:").replace('\'', "'\\\\\\''")
 }
 
 /// libass `ass` süzgeci. ASS dosyasının yanında `.osisub-fonts` klasörü varsa (gömülü yazı tipleri
@@ -324,7 +334,7 @@ pub fn render_frames(video: &Path, ass: Option<&Path>, time_ms: i64, count: usiz
     }
     let width = (width.max(16) / 2) * 2;
     let height = ((width as f64 / info.display_aspect() / 2.0).round() as u32).max(1) * 2;
-    let mut vf = String::new();
+    let mut vf = start_shift(info);
     if let Some(a) = ass {
         vf.push_str(&format!("{},", ass_filter(a, "")));
     }
@@ -453,7 +463,7 @@ pub fn spawn_play(video: &Path, ass: Option<&Path>, start_ms: i64, dur_ms: i64, 
     let width = (width.max(16) / 2) * 2;
     let height = ((width as f64 / info.display_aspect() / 2.0).round() as u32).max(1) * 2;
     let fps = if info.fps > 0.0 { info.fps } else { 24.0 };
-    let mut vf = format!("scale={}:{},", width, height);
+    let mut vf = format!("{}scale={}:{},", start_shift(info), width, height);
     if let Some(a) = ass {
         vf.push_str(&format!("{},", ass_filter(a, &format!(":original_size={}x{}", width, height))));
     }
@@ -523,6 +533,23 @@ pub fn write_keyframe_file(keyframes_ms: &[i64], fps: f64) -> String {
     out
 }
 
+/// `-copyts` ile mutlak kalan zaman damgalarını kapsayıcı başlangıcına göre 0'a çeker (süzgeç öneki).
+fn start_shift(info: &MediaInfo) -> String {
+    if info.start_ms > 0 { format!("setpts=PTS-{:.3}/TB,", info.start_ms as f64 / 1000.0) } else { String::new() }
+}
+
+/// Kapsayıcı başlangıç zamanı (ms).
+fn start_offset_ms(path: &Path) -> i64 {
+    Command::new(ffprobe_bin())
+        .args(["-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<f64>().ok())
+        .filter(|x| x.is_finite() && *x > 0.0)
+        .map_or(0, |x| (x * 1000.0).round() as i64)
+}
+
 /// Video karelerinin sunum zamanları (ms, sıralı). Paket başlıklarından okunur (çözme yok, hızlı).
 pub fn frame_timestamps(path: &Path) -> Result<Vec<i64>, String> {
     let out = Command::new(ffprobe_bin())
@@ -535,6 +562,9 @@ pub fn frame_timestamps(path: &Path) -> Result<Vec<i64>, String> {
     }
     let mut v: Vec<i64> = String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().trim_end_matches(',').parse::<f64>().ok()).map(|s| (s * 1000.0).round() as i64).collect();
     v.sort_unstable();
+    // altyazı zamanı kapsayıcı başlangıcından sayılır
+    let st = start_offset_ms(path);
+    if st > 0 { for x in v.iter_mut() { *x -= st; } }
     Ok(v)
 }
 
@@ -547,11 +577,48 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
         .map_err(|e| e.to_string())?;
     let mut v: Vec<i64> = String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().trim_end_matches(',').parse::<f64>().ok()).map(|s| (s * 1000.0).round() as i64).collect();
     v.sort_unstable();
+    // altyazı zamanı kapsayıcı başlangıcından sayılır
+    let st = start_offset_ms(path);
+    if st > 0 { for x in v.iter_mut() { *x -= st; } }
     Ok(v)
 }
 
 #[cfg(test)]
 mod tests {
+    /// TS yayın kaydı (başlangıç zamanı 1.4 sn): önizleme ve anahtar kareler 0'dan sayar
+    #[test]
+    fn ts_baslangic_ofseti() {
+        if !crate::ffmpeg_available() { return; }
+        let d = std::env::temp_dir().join(format!("osisub-ts-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let ts = d.join("v.ts");
+        // ilk 2 sn siyah, sonra beyaz: kare içeriğinden zaman doğrulanır
+        let st = std::process::Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=2", "-f", "lavfi", "-i", "color=c=white:s=64x64:r=10:d=2",
+            "-filter_complex", "[0][1]concat=n=2:v=1", "-c:v", "libx264", "-g", "10", "-preset", "ultrafast", "-output_ts_offset", "1.4"]).arg(&ts).status().unwrap();
+        assert!(st.success());
+        let info = crate::probe(&ts).unwrap();
+        assert!(info.start_ms >= 1400, "{}", info.start_ms);
+        let kf = crate::keyframes(&ts).unwrap();
+        assert!(kf.first().map_or(false, |&k| k.abs() < 50), "{kf:?}");
+        let f = crate::render_frames(&ts, None, 2500, 1, 64, &info).unwrap();
+        assert!(f[0].rgba[(32 * 64 + 32) * 4] > 200, "2.5 sn beyaz olmalı");
+        let f = crate::render_frames(&ts, None, 1500, 1, 64, &info).unwrap();
+        assert!(f[0].rgba[(32 * 64 + 32) * 4] < 50, "1.5 sn siyah olmalı");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Kesme işareti, virgül, köşeli parantez, iki nokta ve Türkçe harf içeren klasörde libass önizlemesi.
+    #[test]
+    fn tuhaf_yolda_onizleme() {
+        if !crate::ffmpeg_available() { return; }
+        let dir = std::env::temp_dir().join(format!("osisub-yol-{}", std::process::id())).join("Çalışma Ağacı, test: [x]; it's");
+        let ass = "[Script Info]\nScriptType: v4.00+\nPlayResX: 64\nPlayResY: 64\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,,{\\p1}m 0 0 l 64 0 64 64 0 64\n";
+        let f = crate::render_ass_preview(ass, 64, 64, "0x000000", &dir).expect("önizleme");
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+        // çizim tüm kareyi beyaz kaplar
+        assert!(f.rgba[(32 * 64 + 32) * 4] > 200, "altyazı çizilmedi");
+    }
+
     #[test]
     fn screen_collision_with_real_libass() {
         if !crate::ffmpeg_available() {

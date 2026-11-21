@@ -144,10 +144,13 @@ pub fn parse_extradata_dump(s: &str) -> String {
 /// Gömülü yazı tiplerini (MKV ekleri) klasöre çıkarır; çıkarılan dosyaları döndürür.
 pub fn extract_attachments(video: &Path, dir: &Path) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let before: Vec<PathBuf> = std::fs::read_dir(dir).map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
+    // önceki hâl (yol → değişiklik zamanı, boyut): aynı ada yeniden yazılan ek de "çıkarılmış" sayılır
+    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.modified().ok(), m.len()));
+    let before: std::collections::HashMap<PathBuf, Option<(Option<std::time::SystemTime>, u64)>> =
+        std::fs::read_dir(dir).map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).map(|p| { let s = stamp(&p); (p, s) }).collect()).unwrap_or_default();
     // ffmpeg -dump_attachment ekleri yazdıktan sonra "çıktı yok" hatası verir; yok sayılır
     let _ = Command::new(crate::ffmpeg_bin()).current_dir(dir).args(["-v", "error", "-y", "-dump_attachment:t", "", "-i"]).arg(std::fs::canonicalize(video).unwrap_or(video.to_path_buf())).stdin(Stdio::null()).output();
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| !before.contains(p)).collect();
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| before.get(p).map_or(true, |s| *s != stamp(p))).collect();
     v.sort();
     Ok(v)
 }
@@ -188,11 +191,18 @@ pub fn mux_mkv(video: &Path, subtitle: &Path, out: &Path, o: &MuxOptions) -> Res
         cmd.args(["-f", "ffmetadata", "-i"]).arg(p).args(["-map_chapters", "2"]);
     }
     cmd.args(["-map", "0:v?", "-map", "0:a?"]);
-    let existing = if o.keep_existing_subs { subtitle_tracks(video).map(|t| t.len()).unwrap_or(0) } else { 0 };
+    let tracks = if o.keep_existing_subs { subtitle_tracks(video).unwrap_or_default() } else { vec![] };
+    let existing = tracks.len();
     if o.keep_existing_subs {
         cmd.args(["-map", "0:s?", "-map", "0:t?"]);
     }
     cmd.args(["-map", "1:0", "-c", "copy"]);
+    // MP4'ün mov_text altyazısı Matroska'ya kopyalanamaz ("Function not implemented"): SRT'ye çevrilir
+    for (k, t) in tracks.iter().enumerate() {
+        if t.codec == "mov_text" {
+            cmd.args([format!("-c:s:{k}"), "srt".into()]);
+        }
+    }
     let si = existing; // yeni izin altyazı dizini
     if !o.language.is_empty() {
         cmd.args([format!("-metadata:s:s:{si}"), format!("language={}", o.language)]);
@@ -215,6 +225,10 @@ pub fn mux_mkv(video: &Path, subtitle: &Path, out: &Path, o: &MuxOptions) -> Res
     let r = run(&mut cmd);
     if let Some((_, p)) = chap_file {
         let _ = std::fs::remove_file(p);
+    }
+    if r.is_err() {
+        // yarım kalmış çıktı (ör. 293 baytlık bozuk MKV) bırakma
+        let _ = std::fs::remove_file(out);
     }
     r
 }
@@ -247,8 +261,8 @@ fn attachment_count(video: &Path) -> usize {
 
 /// ffmpeg süzgeç yolu için kaçış (ass=...:fontsdir=...).
 fn filter_path(p: &Path) -> String {
-    let s = p.to_string_lossy().replace('\\', "/");
-    s.replace(':', "\\:").replace('\'', "\\'").replace(',', "\\,").replace('[', "\\[").replace(']', "\\]")
+    // değer tek tırnak içinde kullanılır: aynı kaçış (virgül/köşeli parantez tırnak içinde zaten düz)
+    crate::ff_escape(p)
 }
 
 #[derive(Clone, Debug)]
@@ -310,6 +324,34 @@ pub fn burn(video: &Path, ass: &Path, out: &Path, o: &BurnOptions, duration_ms: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MP4 (mov_text altyazılı) → MKV'ye gömme; ekleri iki kez çıkarma
+    #[test]
+    fn mov_text_ve_tekrar_ek_cikarma() {
+        if !crate::ffmpeg_available() { return; }
+        let d = std::env::temp_dir().join(format!("osisub-movtext-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let srt = d.join("a.srt");
+        std::fs::write(&srt, "1\n00:00:00,000 --> 00:00:01,000\nhi\n").unwrap();
+        let mp4 = d.join("v.mp4");
+        let st = Command::new(crate::ffmpeg_bin()).args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=1", "-i"]).arg(&srt)
+            .args(["-c:v", "libx264", "-preset", "ultrafast", "-c:s", "mov_text"]).arg(&mp4).status().unwrap();
+        assert!(st.success());
+        let ass = d.join("s.ass");
+        std::fs::write(&ass, osisub_core::Script::from_dialogues(vec![]).to_ass_string()).unwrap();
+        let font = std::fs::read_dir("/usr/share/fonts/truetype/dejavu").ok().and_then(|mut r| r.find_map(|e| e.ok().map(|e| e.path())));
+        let out = d.join("o.mkv");
+        let o = MuxOptions { keep_existing_subs: true, fonts: font.into_iter().collect(), ..Default::default() };
+        mux_mkv(&mp4, &ass, &out, &o).expect("mov_text'li MP4 gömülebilmeli");
+        assert_eq!(subtitle_tracks(&out).unwrap().len(), 2);
+        if !o.fonts.is_empty() {
+            let ex = d.join("ekler");
+            assert_eq!(extract_attachments(&out, &ex).unwrap().len(), 1);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            assert_eq!(extract_attachments(&out, &ex).unwrap().len(), 1, "ikinci çıkarmada da sayılır");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     const ASS: &str = "[Script Info]\nPlayResX: 320\nPlayResY: 240\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,Merhaba dünya\n";
 
