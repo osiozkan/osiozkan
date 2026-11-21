@@ -104,7 +104,7 @@
 - [x] `aegisub.get_frame` (arch1t3cht API: width/height/getPixel/getPixelFormatted; altyazılı kare)
 - [x] Lua konsolu (Otomasyon sekmesi): tek seferlik kod açık belgede makro olarak çalışır (subs/sel/active, Aegisub API + `require "osisub"`, Ctrl+Enter, geri alınabilir); xdotool ile doğrulandı
 - [x] osisub'a özgü Lua API (`require "osisub"`): tags.clean/lint/strip_notes/visible, text.upper/lower/title/sentence (Türkçe), balance/unbreak/tr_fix, furigana, romaji_to_kana, time; compat.lua'da testli
-- [x] Betikleri yeniden yükle (motoru sıfırlar)
+- [x] Betikleri yeniden yükle (motoru sıfırlar); 2026-11-21: betik/include/autoload dosyası kaydedilince otomatik (arka plan izleyici, boştayken çizim yok)
 - [x] Betik hata penceresi: hata iletisi + hatalı kaynak satırı (±3), yığın izi, kopyala (Windows yollarındaki boşluklar dahil)
 - [x] MoonScript hatalarında .moon satırına eşleme (yükleme ve çalıştırma hataları; hata penceresi .moon kaynağını gösterir)
 - [ ] Kullanıcının Lua betikleriyle regresyon test paketi (kullanıcıdan betikler istenmeli)

@@ -59,3 +59,5 @@ Daha hızlısı: **Video aracı → Perspektif**; satırın çevresinde 4 köşe
 - Kayıtta ilk üzerine yazmada `dosya.ass.bak` yedeği alınır.
 
 **Arayüz dili / Interface language:** *Görünüm → Arayüz dili / Language* ile Türkçe ya da İngilizce (anında değişir, ayarlara kaydedilir; `OSISUB_LANG=en` ortam değişkeni de seçer). Menüler, pencereler, ipuçları, durum çubuğu ve Kalite sekmesi iletileri çevrilir; çevirisi olmayan bir metin Türkçe kalır.
+
+**Betik geliştirirken:** yüklü bir Lua/MoonScript dosyasını (ya da include/autoload klasörlerindeki bir modülü) düzenleyicinizde kaydettiğiniz anda osisub betikleri kendiliğinden yeniden yükler; *Otomasyon → Betik dosyası değişince otomatik yeniden yükle* ile kapatılabilir. Makro çalışırken yeniden yükleme yapılmaz.

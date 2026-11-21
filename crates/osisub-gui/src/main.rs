@@ -7,6 +7,7 @@ mod hotkeys;
 mod i18n;
 mod media_ui;
 mod settings;
+mod script_watch;
 mod style_ui;
 mod theme;
 

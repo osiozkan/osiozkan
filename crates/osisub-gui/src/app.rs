@@ -152,6 +152,8 @@ pub struct App {
     last_title: Option<String>,
     /// Arka plan iş parçacıklarının arayüzü uyandırması için
     egui_ctx: egui::Context,
+    /// Lua betik dosyası izleyicisi (kaydedilince otomatik yeniden yükleme)
+    script_watch: crate::script_watch::ScriptWatch,
     /// Sahte video penceresi (açıksa düzenlenen ayarlar; süre dakika olarak ayrı tutulur)
     dummy_win: Option<(osisub_core::dummy::DummyVideo, f64)>,
     /// Kurulu yazı tipi aileleri (ilk gerektiğinde arka planda taranır)
@@ -646,6 +648,7 @@ impl App {
             hold_playing: false,
             last_title: None,
             egui_ctx: cc.egui_ctx.clone(),
+            script_watch: crate::script_watch::ScriptWatch::spawn(cc.egui_ctx.clone()),
             dummy_win: None,
             ocr: None,
             hardsub: None,
@@ -780,6 +783,7 @@ impl App {
                 if let Ok(t) = osisub_media::mux::subtitle_tracks(&v) { app.tracks_win = Some((v, t)); }
             }
         }
+        app.update_script_watch();
         app
     }
 
@@ -1119,6 +1123,7 @@ impl App {
         }
         self.loaded_scripts.push(p.clone());
         self.worker.send(Cmd::Load(p));
+        self.update_script_watch();
     }
 
     /// Motoru sıfırlayıp tüm betikleri yeniden yükler (betik geliştirirken değişiklikleri almak için).
@@ -1142,6 +1147,15 @@ impl App {
         let list = self.loaded_scripts.clone();
         for p in list { self.worker.send(Cmd::Load(p)); }
         self.log.push_str("— betikler yeniden yüklendi —\n");
+        self.update_script_watch();
+    }
+
+    /// İzlenen betikler: yüklü betik dosyaları + include ve autoload klasörleri (require edilen modüller).
+    fn update_script_watch(&self) {
+        let mut v: Vec<PathBuf> = self.loaded_scripts.iter().filter(|p| p.is_file()).cloned().collect();
+        v.extend(osisub_core::paths::automation_include_dirs());
+        v.extend(autoload_dir());
+        self.script_watch.set(v);
     }
 
     fn sync_media_state(&mut self) {
@@ -1159,6 +1173,14 @@ impl App {
     }
 
     fn pump_events(&mut self, ctx: &egui::Context) {
+        if self.script_watch.rx.try_recv().is_ok() {
+            while self.script_watch.rx.try_recv().is_ok() {}
+            // makro çalışırken ya da iletişim kutusu açıkken motoru sıfırlama
+            if self.settings.lua_autoreload && self.running.is_none() && self.dialog.is_none() {
+                self.reload_scripts();
+                self.status = tr("Betik dosyası değişti: betikler yeniden yüklendi").into();
+            }
+        }
         while let Ok(ev) = self.worker.events.try_recv() {
             match ev {
                 Event::Loaded(Ok((info, ms))) => {
@@ -2138,6 +2160,7 @@ impl App {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Lua / MoonScript", &["lua", "moon"]).pick_file() { self.load_lua(p); }
                 }
                 if ui.button(tr("Betikleri yeniden yükle")).clicked() { ui.close(); self.reload_scripts(); }
+                if ui.checkbox(&mut self.settings.lua_autoreload, tr("Betik dosyası değişince otomatik yeniden yükle")).on_hover_text(tr("Yüklü betikler ya da include/autoload klasörlerindeki .lua/.moon dosyaları kaydedilince motor yeniden yüklenir (betik geliştirirken)")).changed() { self.settings.save(); }
             });
             ui.menu_button(tr("Araçlar"), |ui| {
                 if ui.add(egui::Button::new(tr("Bul / Değiştir…")).shortcut_text("Ctrl+F")).clicked() { self.find_open = true; self.find_focus = true; ui.close(); }

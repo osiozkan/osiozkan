@@ -1154,3 +1154,6 @@
 ["Stil değiştir", "Change style"]
 ["Çoğalt ve kare kaydır", "Duplicate and shift by frame"]
 ["Yapıştır", "Paste"]
+["Betik dosyası değişti: betikler yeniden yüklendi", "Script file changed: scripts reloaded"]
+["Betik dosyası değişince otomatik yeniden yükle", "Reload scripts automatically when files change"]
+["Yüklü betikler ya da include/autoload klasörlerindeki .lua/.moon dosyaları kaydedilince motor yeniden yüklenir (betik geliştirirken)", "Reloads the engine when a loaded script or any .lua/.moon file in the include/autoload folders is saved (handy while developing scripts)"]

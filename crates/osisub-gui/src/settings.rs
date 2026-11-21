@@ -23,6 +23,8 @@ pub struct Settings {
     pub light_theme: bool,
     /// Arayüz dili: "tr" | "en"
     pub ui_lang: String,
+    /// Lua betik dosyası değişince otomatik yeniden yükle
+    pub lua_autoreload: bool,
     pub zoom: f32,
     pub glossary_path: String,
     pub dict_aff: String,
@@ -90,6 +92,7 @@ impl Default for Settings {
             fps: 23.976,
             light_theme: false,
             ui_lang: "tr".into(),
+            lua_autoreload: true,
             zoom: 1.0,
             glossary_path: String::new(),
             dict_aff: String::new(),
