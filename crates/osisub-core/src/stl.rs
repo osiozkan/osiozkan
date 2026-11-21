@@ -357,8 +357,11 @@ fn decode_text(b: &[u8]) -> String {
     s.trim_end_matches("\\N").trim().replace(" \\N", "\\N").replace("\\N ", "\\N")
 }
 
+/// GSI metin alanı (CPN 850): ASCII + Türkçede geçen CP850 harfleri.
+const CP850: &[(u8, char)] = &[(0x80, 'Ç'), (0x87, 'ç'), (0x94, 'ö'), (0x99, 'Ö'), (0x81, 'ü'), (0x9A, 'Ü'), (0xD5, 'ı'), (0x82, 'é'), (0x85, 'à'), (0x8A, 'è'), (0x84, 'ä'), (0x8E, 'Ä')];
+
 fn ascii_field(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).trim().to_string()
+    b.iter().map(|&x| if x < 0x80 { x as char } else { CP850.iter().find(|(k, _)| *k == x).map_or('?', |(_, c)| *c) }).collect::<String>().trim().to_string()
 }
 
 fn fps_of(dfc: &str) -> f64 {
@@ -450,6 +453,12 @@ fn pad(s: &str, n: usize) -> Vec<u8> {
     for c in s.chars() {
         if c.is_ascii() && !c.is_ascii_control() {
             v.push(c as u8);
+        } else if let Some((b, _)) = CP850.iter().find(|(_, x)| *x == c) {
+            v.push(*b);
+        } else {
+            // CP850'de olmayan Türkçe harfler en yakın ASCII'ye (eskiden tamamen siliniyordu)
+            let f = match c { 'ğ' => 'g', 'Ğ' => 'G', 'ş' => 's', 'Ş' => 'S', 'İ' => 'I', _ => continue };
+            v.push(f as u8);
         }
     }
     v.resize(n, b' ');
@@ -462,6 +471,34 @@ fn tc_bytes(ms: i64, fps: f64) -> [u8; 4] {
     let f = fps as i64;
     let secs = total_frames / f;
     [(secs / 3600).min(255) as u8, (secs / 60 % 60) as u8, (secs % 60) as u8, (total_frames % f) as u8]
+}
+
+/// Teletext satırı en çok `max` görünür karakter (GSI MNC=40): uzun satırlar sözcük sınırında
+/// kırılır (etiket blokları sayılmaz).
+fn wrap_rows(text: &str, max: usize) -> String {
+    text.split("\\N").map(|seg| {
+        if crate::tags::visible_text(seg).chars().count() <= max { return seg.to_string(); }
+        let mut out = String::new();
+        let (mut vis, mut last_space): (usize, Option<usize>) = (0, None);
+        let mut in_tag = false;
+        for c in seg.chars() {
+            out.push(c);
+            match c {
+                '{' => in_tag = true,
+                '}' => in_tag = false,
+                _ if in_tag => {}
+                ' ' => { last_space = Some(out.len() - 1); vis += 1; }
+                _ => vis += 1,
+            }
+            if !in_tag && vis > max {
+                if let Some(sp) = last_space.take() {
+                    out.replace_range(sp..sp + 1, "\\N");
+                    vis = crate::tags::visible_text(&out[sp + 2..]).chars().count();
+                }
+            }
+        }
+        out
+    }).collect::<Vec<_>>().join("\\N")
 }
 
 /// Satırı TF baytlarına çevirir (biçim baytlarıyla).
@@ -514,7 +551,7 @@ pub fn write(script: &Script, fps: f64) -> Vec<u8> {
     let lines: Vec<&Dialogue> = script.dialogues().filter(|d| !d.comment && !crate::tags::visible_text(&d.text).trim().is_empty()).collect();
     let mut ttis: Vec<[u8; 128]> = Vec::new();
     for (n, d) in lines.iter().enumerate() {
-        let (tf, nlines) = encode_text(&d.text);
+        let (tf, nlines) = encode_text(&wrap_rows(&d.text, 40));
         let an = crate::tags::split(&d.text)
             .iter()
             .find_map(|p| match p {
@@ -620,7 +657,9 @@ mod tests {
         assert_eq!(d[0].text, "Merhaba {\\i1}dünya{\\i0}\\Nikinci satır");
         assert_eq!((d[0].start_time, d[0].end_time), (1000, 2520));
         assert_eq!(d[1].text, "{\\an8}Üstte yazı");
-        assert_eq!(d[2].text, "Uzun ".repeat(40).trim());
+        // 40 karakteri aşan teletext satırı sözcük sınırında kırılır (MNC=40)
+        assert_eq!(d[2].text.replace("\\N", " "), "Uzun ".repeat(40).trim());
+        assert!(d[2].text.split("\\N").all(|l| l.chars().count() <= 40));
         assert_eq!(back.info("Title"), Some("Bolum 1"));
     }
 
@@ -632,5 +671,13 @@ mod tests {
         let back = parse(&b).unwrap();
         assert_eq!(back.dialogues().next().unwrap().start_time, 1000);
         assert!(parse(b"kisa").is_err());
+    }
+
+    #[test]
+    fn uzun_satir_ve_turkce_baslik() {
+        let w = wrap_rows("Bu satır kırk karakterden çok daha uzun bir altyazı satırıdır gerçekten", 40);
+        assert!(w.split("\\N").all(|l| l.chars().count() <= 40), "{w}");
+        assert_eq!(w.replace("\\N", " "), "Bu satır kırk karakterden çok daha uzun bir altyazı satırıdır gerçekten");
+        assert_eq!(ascii_field(&pad("Bölüm Şeker", 20)), "Bölüm Seker");
     }
 }
