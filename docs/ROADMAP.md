@@ -193,6 +193,10 @@
 - [x] Komut paleti (Ctrl+Shift+P; komutlar, pencereler, sekmeler, Lua makroları; Türkçe duyarsız bulanık arama)
 - [x] Türkçe + İngilizce arayüz (2026-11-21; `i18n.rs`: `tr()` / `trf!` / `tr_msg`, ~1090 metin `i18n/en.jsonl`'de, çevirisiz metin testi; Görünüm → Arayüz dili), açık/koyu tema
 
+## Kalite / doğrulama
+- [x] 2026-11-21 bağımsız kod incelemeleri (alt ajanlar, her bulgu yeniden üretilip testle düzeltildi): ayrıştırıcılar (SRT/VTT/ASS/kodlama, 11), Lua Automation 4 uyumu (7+4), zamanlama/karaoke (6), belge/geri al/pano (6), Türkçe metin düzeltmeleri/QC (10), ffmpeg medya katmanı (5)
+- [ ] Sıradaki inceleme alanları: diğer biçimler (LRC/MicroDVD/SAMI/TTML/EBU STL), GUI mantığı, yazım denetimi, karaoke şablonları, OCR
+
 ## Performans
 - [x] Büyük dosya ölçümleri: çekirdek `cargo test --release -p osisub-core --test perf -- --ignored --nocapture` (100k satır: QC 0.31 sn → 2026-11-20'de etiket/yazım/ad denetimleriyle 0.71 sn, yazma 0.07 sn, okuma 0.12 sn); arayüz `OSISUB_FRAME_LOG=1` ile kare süresi — 50k satırlık tipografi dosyasında (release) medyan 2.1 ms, yazarken en kötü 11 ms, kaydırma/gezinme ≤ 7 ms (2026-11-12); 2026-11-20 (yer imi önbelleği, etiket kipi, araç çubuğu sonrası) medyan 2.1 ms, p95 4.2 ms
 - [x] Geri alma belleği: satır sayısını değiştiren işlemler artık yalnızca değişen aralığı saklar (ortak önek/sonek); toplu ekleme/silme splice ile O(n); >5000 girdilik adımlar en fazla 8 tane tutulur
