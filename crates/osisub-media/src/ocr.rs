@@ -121,14 +121,17 @@ pub fn load_bitmap_subs(path: &std::path::Path, track: Option<u32>) -> Result<Ve
 /// `lang`: Tesseract dili (ör. "eng", "eng+jpn").
 pub fn ocr_file(path: &std::path::Path, track: Option<u32>, lang: &str) -> Result<osisub_core::Script, String> {
     let subs = load_bitmap_subs(path, track)?;
+    let mut italics: Vec<Vec<bool>> = Vec::with_capacity(subs.len());
     let pgms: Vec<Vec<u8>> = subs
         .iter()
         .map(|s| {
             let (w, h, px) = osisub_core::pgs::ocr_gray(s, 12);
+            // Tesseract italiği bildirmez: eğimden satır satır algıla
+            italics.push(osisub_core::italic::line_flags(w as usize, h as usize, &px));
             osisub_core::pgs::to_pgm(w, h, &px)
         })
         .collect();
-    let texts = ocr_pgms(&pgms, lang)?;
+    let texts: Vec<String> = ocr_pgms(&pgms, lang)?.iter().zip(&italics).map(|(t, f)| osisub_core::italic::apply(t, f)).collect();
     Ok(osisub_core::pgs::to_script(&subs, &texts))
 }
 
@@ -179,6 +182,34 @@ mod e2e {
         let d = sc.dialogues().next().unwrap();
         assert_eq!((d.start_time, d.end_time), (1000, 3000));
         assert_eq!(sc.info("PlayResX"), Some("1280"));
+    }
+
+    /// İtalik algılama gerçek yazı tipiyle: libass düz + italik satır → PGS → satır bayrakları.
+    #[test]
+    fn rendered_italic_line_detected() {
+        if !crate::ffmpeg_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("osisub-ital-e2e-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ass = dir.join("t.ass");
+        for (text, want) in [("Where are you going?\\N{\\i1}I will be right back.", vec![false, true]), ("{\\i1}Kimse bilmiyor, değil mi?", vec![true]), ("Kimse bilmiyor, değil mi?", vec![false]), ("{\\i1}VAY CANINA!\\N{\\i0}Bunu kim yaptı?", vec![true, false]), ("Bunu kim yaptı?\\N{\\i1}Ağaç, gölge, şimşek!", vec![false, true])] {
+            std::fs::write(&ass, format!("[Script Info]\nPlayResX: 1280\nPlayResY: 720\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,0,2,10,10,40,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{}\n", text)).unwrap();
+            let out = std::process::Command::new(crate::ffmpeg_bin())
+                .args(["-v", "error", "-f", "lavfi", "-i", "color=black:s=1280x720", "-vf"])
+                .arg(format!("ass={},format=gray", ass.display()))
+                .args(["-frames:v", "1", "-f", "rawvideo", "-"])
+                .output()
+                .unwrap();
+            let la: Vec<(u8, u8)> = out.stdout.iter().map(|&l| (l, if l > 8 { 255 } else { 0 })).collect();
+            let sup = osisub_core::pgs::encode(&[(0, 1000, 0, 0, 1280, 720, la)], (1280, 720));
+            let subs = osisub_core::pgs::parse(&sup).unwrap();
+            let (w, h, px) = osisub_core::pgs::ocr_gray(&subs[0], 12);
+            let lines = osisub_core::italic::text_lines(w as usize, h as usize, &px);
+            let sl: Vec<_> = lines.iter().map(|&(a, b)| osisub_core::italic::slant(w as usize, &px, a, b)).collect();
+            assert_eq!(osisub_core::italic::line_flags(w as usize, h as usize, &px), want, "{}: eğimler {:?}", text, sl);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// DVD VobSub: libass ile çizilen metin → 4 renkli SPU → .idx/.sub ve MKV izi → OCR.
