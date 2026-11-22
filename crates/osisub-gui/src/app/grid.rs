@@ -386,10 +386,62 @@ impl App {
             self.editor_sel = Some((at, p.min(q), p.max(q)));
         }
         let mut split_req: Option<bool> = None; // Some(false) = orantılı süre, Some(true) = video karesi
+        if out.response.secondary_clicked() {
+            // Aegisub gibi: sağ tıklanan sözcük için yazım önerileri ve eş anlamlılar
+            self.ctx_word = out.response.interact_pointer_pos().and_then(|p| {
+                let ci = out.galley.cursor_from_pos(p - out.galley_pos).index;
+                osisub_spell::thesaurus::word_at(&nd.text, ci.into()).map(|(a, b)| (at, a, b, nd.text.chars().skip(a).take(b - a).collect()))
+            });
+        }
+        let mut word_repl: Option<String> = None;
+        let mut add_word: Option<String> = None;
+        let ctx_word = self.ctx_word.clone().filter(|w| w.0 == at);
         out.response.context_menu(|ui| {
+            if let Some((_, _, _, w)) = &ctx_word {
+                if let Some(sp) = self.spell.as_deref() {
+                    if osisub_spell::should_flag(sp, w) && !self.spell_ignore.contains(&osisub_core::qc::tr_lower(w)) {
+                        ui.label(RichText::new(trf!("Yazım: \"{}\"", w)).weak());
+                        let sugs = sp.suggest(w, 8);
+                        if sugs.is_empty() { ui.label(RichText::new(tr("öneri yok")).weak()); }
+                        for s in sugs {
+                            if ui.button(&s).clicked() { word_repl = Some(s); ui.close(); }
+                        }
+                        if ui.button(tr("Sözlüğe ekle")).clicked() { add_word = Some(w.clone()); ui.close(); }
+                        ui.separator();
+                    }
+                }
+                let meanings: Vec<_> = self.thesauri.get().map(|v| v.iter().flat_map(|t| t.lookup(w)).collect()).unwrap_or_default();
+                if !meanings.is_empty() {
+                    ui.menu_button(trf!("Eş anlamlılar: {}", w), |ui| {
+                        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                            for m in meanings.iter().take(30) {
+                                ui.menu_button(format!("{} {}", m.words[0], m.pos), |ui| {
+                                    for s in &m.words {
+                                        if ui.button(s).clicked() { word_repl = Some(s.clone()); ui.close(); }
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    ui.separator();
+                }
+            }
             if ui.button(tr("İmleçte böl (süre metne orantılı)")).clicked() { split_req = Some(false); ui.close(); }
             if ui.add_enabled(self.media.framerate().is_some(), egui::Button::new(tr("İmleçte böl (video karesinde)"))).clicked() { split_req = Some(true); ui.close(); }
         });
+        if let Some(w) = add_word {
+            self.add_user_word(&w);
+        }
+        if let (Some(r), Some((_, a, b, w))) = (word_repl, ctx_word) {
+            // sözcük hâlâ yerindeyse değiştir (menü açıkken metin değişmiş olabilir)
+            let chars: Vec<char> = nd.text.chars().collect();
+            if b <= chars.len() && chars[a..b].iter().collect::<String>() == w {
+                let r = osisub_spell::thesaurus::match_case(&w, &r);
+                nd.text = chars[..a].iter().collect::<String>() + &r + &chars[b..].iter().collect::<String>();
+                tag_used = true;
+            }
+            self.ctx_word = None;
+        }
         let cps = qc::cps(&nd);
         let vis = osisub_core::tags::visible_text(&nd.text);
         let longest = osisub_core::tags::max_line_len(&nd.text);

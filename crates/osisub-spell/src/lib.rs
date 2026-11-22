@@ -2,6 +2,7 @@
 use osisub_core::ass::{Entry, Script};
 use osisub_core::tags;
 use std::path::{Path, PathBuf};
+pub mod thesaurus;
 
 const FLAG_DIRECTIVES: &[&str] = &["SFX", "PFX", "KEEPCASE", "NEEDAFFIX", "FORBIDDENWORD", "ONLYINCOMPOUND", "COMPOUNDFLAG", "NOSUGGEST", "WARN", "CIRCUMFIX", "COMPOUNDBEGIN", "COMPOUNDMIDDLE", "COMPOUNDEND", "COMPOUNDPERMITFLAG", "COMPOUNDFORBIDFLAG", "LEMMA_PRESENT", "SUBSTANDARD"];
 

@@ -197,6 +197,31 @@ impl App {
         }
     }
 
+    /// Eş anlamlılar sözlüklerini (th_tr_TR, th_en_US…) arka planda yükler; sağ tık menüsünde kullanılır.
+    /// Kullanıcı sözlüğüne ekler (dosyaya yazar, bu oturumda yoksayar, hata listesinden düşer).
+    pub(super) fn add_user_word(&mut self, word: &str) {
+        if let Some(p) = Self::user_words_path() {
+            if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+            let mut t = std::fs::read_to_string(&p).unwrap_or_default();
+            if !t.is_empty() && !t.ends_with('\n') { t.push('\n'); }
+            t.push_str(&format!("{}\n", word));
+            let _ = std::fs::write(&p, t);
+        }
+        let w = osisub_core::qc::tr_lower(word);
+        self.spell_ignore.insert(w.clone());
+        self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
+        self.miss_sel = None;
+    }
+
+    pub(super) fn load_thesauri(&mut self) {
+        let cell = self.thesauri.clone();
+        let extra: Vec<PathBuf> = Self::user_dict_dir().into_iter().collect();
+        std::thread::spawn(move || {
+            let v: Vec<_> = ["tr_TR", "en_US", "en_GB"].iter().filter_map(|l| osisub_spell::thesaurus::find_thesaurus(l, &extra)).filter_map(|(i, d)| osisub_spell::thesaurus::Thesaurus::load(&i, &d).ok()).collect();
+            let _ = cell.set(v);
+        });
+    }
+
     pub(super) fn load_dictionary(&mut self, aff: PathBuf, dic: PathBuf) {
         self.settings.dict_aff = aff.to_string_lossy().to_string();
         self.settings.dict_dic = dic.to_string_lossy().to_string();
@@ -341,16 +366,7 @@ impl App {
                     self.miss_sel = None;
                 }
                 if ui.button(tr("Sözlüğe ekle")).clicked() {
-                    if let Some(p) = Self::user_words_path() {
-                        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
-                        let mut t = std::fs::read_to_string(&p).unwrap_or_default();
-                        t.push_str(&format!("{}\n", m.word));
-                        let _ = std::fs::write(&p, t);
-                    }
-                    let w = osisub_core::qc::tr_lower(&m.word);
-                    self.spell_ignore.insert(w.clone());
-                    self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
-                    self.miss_sel = None;
+                    self.add_user_word(&m.word);
                 }
             });
         }

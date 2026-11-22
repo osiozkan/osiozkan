@@ -182,6 +182,10 @@ pub struct App {
     miss_sel: Option<usize>,
     suggestions: Vec<String>,
     spell_ignore: std::collections::HashSet<String>,
+    /// Eş anlamlılar sözlükleri (arka planda yüklenir; tr_TR, en_US…)
+    thesauri: std::sync::Arc<std::sync::OnceLock<Vec<osisub_spell::thesaurus::Thesaurus>>>,
+    /// Metin kutusunda sağ tıklanan sözcük: (satır, baş, son karakter, sözcük)
+    ctx_word: Option<(usize, usize, usize, String)>,
     vad_open: bool,
     vad: osisub_media::VadOptions,
     vad_skip_existing: bool,
@@ -678,6 +682,8 @@ impl App {
             miss_sel: None,
             suggestions: vec![],
             spell_ignore: Default::default(),
+            thesauri: Default::default(),
+            ctx_word: None,
             vad_open: false,
             vad: osisub_media::VadOptions::default(),
             vad_skip_existing: true,
@@ -694,6 +700,7 @@ impl App {
         };
         app.apply_settings();
         app.auto_load_dictionary();
+        app.load_thesauri();
         if !app.settings.glossary_path.is_empty() { app.load_glossary(PathBuf::from(app.settings.glossary_path.clone())); }
         if app.doc.path.is_none() { app.scan_recovery(); }
         if let Some(c) = compare {
