@@ -118,6 +118,8 @@ pub struct Media {
     vt_move0: Option<osisub_core::overrides::Move>,
     /// Konum aracı çoklu seçim sürüklemesi: (satır, varsa \\move, başlangıç konumu)
     vt_multi: Vec<(usize, Option<osisub_core::overrides::Move>, (f32, f32))>,
+    /// Döndürme/ölçek çoklu seçim: (satır, başlangıç değeri 1, değeri 2)
+    vt_vals: Vec<(usize, f32, f32)>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
     /// Eğme aracında sürüklenen tutamaç: 0 = \fax, 1 = \fay
@@ -193,6 +195,7 @@ impl Media {
             vt_press: None,
             vt_move0: None,
             vt_multi: vec![],
+            vt_vals: vec![],
             vt_quad: None,
             vt_qdrag: None,
             persp_box: None,
@@ -864,6 +867,24 @@ impl Media {
         }
     }
 
+    /// Seçili satırlar (etkin satır dahil) ve her birinin başlangıç değerleri.
+    fn selected_vals(doc: &Document, at: usize, f: impl Fn(&osisub_core::ass::Dialogue) -> (f32, f32)) -> Vec<(usize, f32, f32)> {
+        let mut lines = doc.target_lines();
+        if !lines.contains(&at) { lines.push(at); }
+        lines.into_iter().filter_map(|i| match doc.script.entries.get(i) {
+            Some(Entry::Dialogue(d)) => { let (a, b) = f(d); Some((i, a, b)) }
+            _ => None,
+        }).collect()
+    }
+
+    /// Birden çok satırın metnini tek (sürükleme boyunca birleşen) geri alma adımında yazar.
+    fn apply_multi(doc: &mut Document, key: &str, desc: &str, changes: Vec<(usize, String)>) {
+        let changes: Vec<(usize, String)> = changes.into_iter().filter(|(i, t)| matches!(doc.script.entries.get(*i), Some(Entry::Dialogue(d)) if &d.text != t)).collect();
+        if !changes.is_empty() {
+            doc.edit_keyed(desc, Some(key), |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); });
+        }
+    }
+
     /// Videodaki tipografi araçları: konum, kırpma, döndürme, ölçek.
     /// `img`: videonun ekrandaki tam dikdörtgeni (yakınlaştırmada panelden taşabilir), `vis`: görünen kısmı.
     fn tool_ui(&mut self, ui: &mut egui::Ui, img: Rect, vis: Rect, doc: &mut Document) {
@@ -1169,9 +1190,12 @@ impl Media {
                     // açı kipinde (frz0, başlangıç işaretçi açısı): Aegisub gibi göreli — ilk sürüklemede sıçramaz
                     let a0 = start.map(|q| { let v = q - o; -(v.y.atan2(v.x)).to_degrees() }).unwrap_or(0.0);
                     self.vt_drag = Some(if on_org { (1, org) } else { (0, (frz, a0)) });
+                    let frz_of = |x: &osisub_core::ass::Dialogue| (osisub_core::overrides::get_initial(&x.text, "frz").or_else(|| osisub_core::overrides::get_initial(&x.text, "fr")).and_then(|t| t.number()).unwrap_or(0.0) as f32, 0.0);
+                    self.vt_vals = Self::selected_vals(doc, at, frz_of);
                 }
                 if r.drag_stopped() {
                     self.vt_drag = None;
+                    self.vt_vals.clear();
                 }
                 if r.dragged() && matches!(self.vt_drag, Some((1, _))) {
                     if let Some(pos) = ptr {
@@ -1190,9 +1214,15 @@ impl Media {
                             a = (a / 15.0).round() * 15.0;
                         }
                         // açı birikerek sınırsız büyümesin: (-360, 360)
-                        let a = a % 360.0;
-                        let base = osisub_core::overrides::remove_initial(&d.text, "fr");
-                        Self::set_tag(doc, at, &base, "frz", &format!("{:.1}", a).trim_end_matches('0').trim_end_matches('.').to_string(), "Döndür");
+                        // seçili tüm satırlar aynı açı farkıyla döner (Aegisub)
+                        let delta = a - frz0;
+                        let fmt = |v: f32| format!("{:.1}", v % 360.0).trim_end_matches('0').trim_end_matches('.').to_string();
+                        let vals = if self.vt_vals.is_empty() { vec![(at, frz0, 0.0)] } else { self.vt_vals.clone() };
+                        let changes: Vec<(usize, String)> = vals.iter().filter_map(|&(i, v0, _)| match doc.script.entries.get(i) {
+                            Some(Entry::Dialogue(x)) => Some((i, osisub_core::overrides::set_initial(&osisub_core::overrides::remove_initial(&x.text, "fr"), "frz", &fmt(v0 + delta)))),
+                            _ => None,
+                        }).collect();
+                        Self::apply_multi(doc, &format!("vt:frz:{}", at), "Döndür", changes);
                     }
                 }
                 if r.secondary_clicked() {
@@ -1440,10 +1470,13 @@ impl Media {
                     // başlangıç değerleri: X ve Y ayrı ayrı, sürükleme farkıyla değişir (Aegisub)
                     self.vt_drag = Some((0, (sx, sy)));
                     self.vt_press = press.or(ptr);
+                    let get = |x: &osisub_core::ass::Dialogue, n: &str| osisub_core::overrides::get_initial(&x.text, n).and_then(|t| t.number()).unwrap_or(100.0) as f32;
+                    self.vt_vals = Self::selected_vals(doc, at, |x| (get(x, "fscx"), get(x, "fscy")));
                 }
                 if r.drag_stopped() {
                     self.vt_drag = None;
                     self.vt_press = None;
+                    self.vt_vals.clear();
                 }
                 if r.dragged() {
                     if let (Some(pos), Some(p0), Some((_, (x0, y0)))) = (ptr, self.vt_press, self.vt_drag) {
@@ -1456,12 +1489,18 @@ impl Media {
                             (x0 + dx, y0 + dy)
                         };
                         let f = |v: f32| format!("{}", v.round().clamp(0.0, 10000.0));
-                        let t1 = osisub_core::overrides::set_initial(&d.text, "fscx", &f(nx));
-                        let t2 = osisub_core::overrides::set_initial(&t1, "fscy", &f(ny));
-                        if t2 != d.text {
-                            let key = format!("vt:fsc:{}", at);
-                            doc.edit_keyed("Ölçek", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = t2));
-                        }
+                        // seçili tüm satırlara aynı fark (Shift'te aynı oran)
+                        let uniform = ui.input(|i| i.modifiers.shift);
+                        let vals = if self.vt_vals.is_empty() { vec![(at, x0, y0)] } else { self.vt_vals.clone() };
+                        let changes: Vec<(usize, String)> = vals.iter().filter_map(|&(i, a0, b0)| match doc.script.entries.get(i) {
+                            Some(Entry::Dialogue(x)) => {
+                                let (vx, vy) = if uniform { (a0 * nx / x0.max(1.0), b0 * ny / y0.max(1.0)) } else { (a0 + nx - x0, b0 + ny - y0) };
+                                let t1 = osisub_core::overrides::set_initial(&x.text, "fscx", &f(vx));
+                                Some((i, osisub_core::overrides::set_initial(&t1, "fscy", &f(vy))))
+                            }
+                            _ => None,
+                        }).collect();
+                        Self::apply_multi(doc, &format!("vt:fsc:{}", at), "Ölçek", changes);
                     }
                 }
             }
