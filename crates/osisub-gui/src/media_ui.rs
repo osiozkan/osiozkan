@@ -146,7 +146,7 @@ pub struct Media {
     pub play_opts: osisub_media::audio::PlayOpts,
     /// Video ayrı pencerede (Aegisub "Detach video")
     pub detached: bool,
-    spec_tex: Option<((i64, i64, usize, usize), TextureHandle)>,
+    spec_tex: Option<((i64, i64, usize, usize, usize), TextureHandle)>,
     stream: Option<osisub_media::PlayStream>,
     audio: Option<osisub_media::audio::AudioPlayer>,
     stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
@@ -1484,7 +1484,9 @@ impl Media {
             if ctrl && scroll.y != 0.0 || zoom != 1.0 {
                 let f = if zoom != 1.0 { 1.0 / zoom as f64 } else { (1.0 - scroll.y as f64 * 0.003).clamp(0.5, 2.0) };
                 let anchor = resp.hover_pos().map(|p| ms_of(p.x)).unwrap_or(vs);
-                let new_mpp = (self.ms_per_px * f).clamp(0.5, 200.0);
+                // en uzak: tüm dosya sığar (3 saatlik kayıt da); tepe hesabı piksel başına örneklemeli, sabit maliyet
+                let full = self.wave.as_ref().map_or(0.0, |w| w.duration_ms() as f64 / rect.width().max(1.0) as f64);
+                let new_mpp = (self.ms_per_px * f).clamp(0.5, full.max(200.0));
                 self.view_start = (anchor - (anchor - vs) * new_mpp / mpp).max(0.0);
                 self.ms_per_px = new_mpp;
             } else if scroll != egui::Vec2::ZERO {
@@ -1521,7 +1523,8 @@ impl Media {
         // Spektrum
         if let (true, Some(w)) = (self.spectrum, self.wave.clone()) {
             let bins = (rect.height() as usize).clamp(32, 256);
-            let key = ((vs * 10.0) as i64, (mpp * 1000.0) as i64, w_px, bins);
+            // dalga formu nesnesi de anahtarda: başka dosya açılınca eski görüntü kalmasın
+            let key = ((vs * 10.0) as i64, (mpp * 1000.0) as i64, w_px, bins, Arc::as_ptr(&w) as usize);
             if self.spec_tex.as_ref().map(|t| t.0) != Some(key) {
                 let raw = osisub_media::spectrogram(&w, vs, mpp, w_px, bins);
                 let pixels: Vec<Color32> = raw.iter().map(|&v| Self::heat(v)).collect();
@@ -1548,7 +1551,7 @@ impl Media {
         p.line_segment([Pos2::new(rect.left(), mid), Pos2::new(rect.right(), mid)], Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 25)));
 
         // Saniye çizgileri
-        let step = [100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0].iter().copied().find(|s| s / mpp > 70.0).unwrap_or(120000.0);
+        let step = [100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0, 1800000.0].iter().copied().find(|s| s / mpp > 70.0).unwrap_or(3600000.0);
         let mut t = (vs / step).floor() * step;
         while t < v_end {
             let x = x_of(t, vs, mpp);
