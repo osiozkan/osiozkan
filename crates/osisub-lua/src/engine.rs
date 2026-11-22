@@ -423,6 +423,7 @@ impl Engine {
             (m.process.clone(), m.config.clone(), m.info.kind.clone())
         };
         self.inner.borrow_mut().undo_desc = None;
+        let _ = self.lua.set_named_registry_value("osisub_port_warn", 0);
         let subs = self.lua.create_userdata(Subs::new(self.script.clone()))?;
         let res: mlua::Result<mlua::MultiValue> = match kind {
             MacroKind::Macro => process.call((subs, self.sel_table(selection)?, self.lua_active(active))),

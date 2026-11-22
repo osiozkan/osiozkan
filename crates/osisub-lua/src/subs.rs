@@ -85,6 +85,20 @@ fn map_removed(map: &VisMap, p: usize) {
     }
 }
 
+/// Aegisub'da hata verecek ama osisub'ın hoş gördüğü kullanım: betik burada çalışır, Aegisub'da çalışmaz.
+/// Günlüğe uyarı yazılır (makro başına en çok 5; `Engine` her çalıştırmada sayacı sıfırlar).
+pub fn port_warn(lua: &Lua, msg: &str) {
+    let n: i64 = lua.named_registry_value("osisub_port_warn").unwrap_or(0);
+    if n >= 5 {
+        return;
+    }
+    let _ = lua.set_named_registry_value("osisub_port_warn", n + 1);
+    let log: Option<mlua::Function> = lua.globals().get::<Table>("aegisub").ok().and_then(|a| a.get("log").ok());
+    if let Some(f) = log {
+        let _ = f.call::<()>((2, format!("Uyumluluk uyarısı: {} — Aegisub'da bu betik hata verir.\n", msg)));
+    }
+}
+
 fn vis_len(map: &VisMap, sc: &ass::Script) -> usize {
     with_map(map, sc, |v| v.len())
 }
@@ -353,8 +367,12 @@ impl UserData for Subs {
                             let _ = lua;
                             Ok(())
                         })?,
-                        "insert" => lua.create_function(move |_, (i, items): (i64, Variadic<Table>)| {
+                        "insert" => lua.create_function(move |lua, (i, items): (i64, Variadic<Table>)| {
                             let mut sc = sh.borrow_mut();
+                            let n = vis_len(&mp, &sc) as i64;
+                            if i < 1 || i > n + 1 {
+                                port_warn(lua, &format!("subs.insert({}, …) aralık dışı (1..{})", i, n + 1));
+                            }
                             let mut pos = raw_insert_pos(&mp, &sc, i);
                             for t in items {
                                 let sec = last_section(&sc);
@@ -368,7 +386,7 @@ impl UserData for Subs {
                             Ok(())
                         })?,
                         "script_resolution" => lua.create_function(move |_, ()| Ok(sh.borrow().script_resolution()))?,
-                        "delete" => lua.create_function(move |_, items: Variadic<Value>| {
+                        "delete" => lua.create_function(move |lua, items: Variadic<Value>| {
                             *ca.borrow_mut() = None;
                             let mut sc = sh.borrow_mut();
                             // Aegisub: tek tablo bağımsız değişkeni → içindeki indekslerin hepsi
@@ -377,6 +395,10 @@ impl UserData for Subs {
                                 Some(Value::Table(tb)) if items.len() == 1 => tb.clone().sequence_values::<Value>().filter_map(|x| x.ok()).filter_map(|x| num(&x)).collect(),
                                 _ => items.iter().map(|x| num(x).ok_or_else(|| mlua::Error::runtime("subs.delete: indeks sayı olmalı"))).collect::<mlua::Result<_>>()?,
                             };
+                            let n = vis_len(&mp, &sc) as i64;
+                            if let Some(bad) = v.iter().find(|&&i| i < 1 || i > n) {
+                                port_warn(lua, &format!("subs.delete({}) aralık dışı (satır sayısı {})", bad, n));
+                            }
                             let mut raw: Vec<usize> = v.into_iter().filter_map(|i| raw_at(&mp, &sc, i)).collect();
                             raw.sort_unstable();
                             raw.dedup();
@@ -400,7 +422,10 @@ impl UserData for Subs {
                             }
                             Ok(())
                         })?,
-                        _ => return Ok(Value::Nil),
+                        other => {
+                            port_warn(lua, &format!("subs.{} diye bir alan yok", other));
+                            return Ok(Value::Nil);
+                        }
                     };
                     Ok(Value::Function(f))
                 }
@@ -409,12 +434,17 @@ impl UserData for Subs {
                     let sc = shared.borrow();
                     match raw_at(&map, &sc, i) {
                         Some(r) => Ok(Value::Table(entry_to_table_in(lua, &sc.entries[r], Some((&sc, &cache)))?)),
-                        None => Ok(Value::Nil),
+                        None => {
+                            let n = vis_len(&map, &sc);
+                            drop(sc);
+                            port_warn(lua, &format!("subs[{}] okundu, satır sayısı {}", i, n));
+                            Ok(Value::Nil)
+                        }
                     }
                 }
             }
         });
-        methods.add_meta_function(MetaMethod::NewIndex, |_, (ud, key, val): (AnyUserData, Value, Value)| {
+        methods.add_meta_function(MetaMethod::NewIndex, |lua, (ud, key, val): (AnyUserData, Value, Value)| {
             let (shared, cache, map) = {
                 let b = ud.borrow::<Subs>()?;
                 (b.0.clone(), b.1.clone(), b.2.clone())
@@ -443,6 +473,10 @@ impl UserData for Subs {
                         sc.entries.insert(at, e);
                         map_inserted(&map, at, vis);
                     } else {
+                        let n = vis_len(&map, &sc) as i64;
+                        if i != n + 1 && i != 0 {
+                            port_warn(lua, &format!("subs[{}] = … (satır sayısı {}; yalnızca #subs+1 ekler)", i, n));
+                        }
                         let vis = lua_visible(&e);
                         sc.entries.push(e);
                         map_inserted(&map, sc.entries.len() - 1, vis);

@@ -94,3 +94,4 @@ Aegisub'ın `[Aegisub Project Garbage]` → `Automation Scripts:` alanı okunur 
 - `util.HSV_to_RGB` (yuvarlanmamış, `|H|`), `util.HSL_to_RGB` (S/L kıstırılır), `string.trim` (iki değer), `string.words` (headtail tabanlı) util.moon'dan birebir.
 - `unicode.len/codepoint/chars/charwidth` bayt tabanlı (geçersiz UTF-8'de hata yok); `aegisub.log` yarım UTF-8'i yazar.
 - `aegisub.decode_path("?video/x")` video yokken yolu değiştirmeden döndürür; `aegisub.video_size()` video yokken tek `nil` döner.
+- **Uyumluluk uyarıları:** Aegisub'da hata verip osisub'da çalışan kullanımlar (`subs[0]`, `subs[#subs+5]` okuma/yazma, aralık dışı `subs.insert`/`subs.delete`, `subs.bilinmeyen`) günlüğe "Uyumluluk uyarısı" düşer (makro başına en çok 5). Burada geliştirdiğiniz betiğin Aegisub'da da çalışacağından emin olmak için Otomasyon günlüğüne bakın.
