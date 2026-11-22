@@ -148,7 +148,8 @@ pub fn extract(video: &Path, o: &HardsubOptions, progress: &dyn Fn(f32), cancel:
     }
     let texts = crate::ocr::ocr_pgms(&pgms, &o.lang)?;
     progress(1.0);
-    let lines = merge_texts(found.iter().zip(texts).map(|(f, t)| (f.start, f.end, osisub_core::hardsub::tidy(&t))).collect(), step.ceil() as i64 + 1);
+    // italik: satır görüntüsünün eğiminden (Tesseract bildirmez)
+    let lines = merge_texts(found.iter().zip(texts).map(|(f, t)| (f.start, f.end, osisub_core::italic::apply(&osisub_core::hardsub::tidy(&t), &osisub_core::italic::flags_from_pgm(&f.pgm)))).collect(), step.ceil() as i64 + 1);
     let ds: Vec<osisub_core::ass::Dialogue> = lines.into_iter().map(|(s, e, t)| osisub_core::ass::Dialogue { start_time: s, end_time: e, text: t, ..Default::default() }).collect();
     Ok(osisub_core::Script::from_dialogues(ds))
 }

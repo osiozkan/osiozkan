@@ -90,6 +90,31 @@ pub fn line_flags(w: usize, h: usize, px: &[u8]) -> Vec<bool> {
     text_lines(w, h, px).into_iter().map(|(a, b)| is_italic_line(w, px, a, b)).collect()
 }
 
+/// P5 PGM baytlarından (`pgs::to_pgm`, hardsub görüntüleri) satır bayrakları; bozuksa boş.
+pub fn flags_from_pgm(pgm: &[u8]) -> Vec<bool> {
+    // başlık: "P5" boşluk W boşluk H boşluk 255 tek boşluk
+    let mut fields: Vec<usize> = vec![];
+    let mut i = 2;
+    if !pgm.starts_with(b"P5") {
+        return vec![];
+    }
+    while fields.len() < 3 && i < pgm.len() {
+        while i < pgm.len() && pgm[i].is_ascii_whitespace() { i += 1; }
+        let s = i;
+        while i < pgm.len() && pgm[i].is_ascii_digit() { i += 1; }
+        match std::str::from_utf8(&pgm[s..i]).ok().and_then(|t| t.parse().ok()) {
+            Some(v) => fields.push(v),
+            None => return vec![],
+        }
+    }
+    i += 1;
+    let (w, h) = (fields.first().copied().unwrap_or(0), fields.get(1).copied().unwrap_or(0));
+    match w.checked_mul(h) {
+        Some(n) if n > 0 && i + n <= pgm.len() => line_flags(w, h, &pgm[i..i + n]),
+        _ => vec![],
+    }
+}
+
 /// OCR metnine italik etiketi ekler. Metin satırı sayısı (`\N`) bayraklarla eşleşiyorsa satır
 /// satır, değilse çoğunluğa göre tüm metin. Hepsi italikse `{\i1}…` (Aegisub/SE gibi kapanış yok).
 pub fn apply(text: &str, flags: &[bool]) -> String {
@@ -171,5 +196,12 @@ mod tests {
         assert_eq!(apply("AB", &[true, false]), "AB");
         assert_eq!(apply("", &[true]), "");
         assert!(line_flags(0, 0, &[]).is_empty());
+        let (w, h) = (200, 100);
+        let px = bars(w, h, &[(10, 40, 0.0), (60, 90, 0.22)]);
+        let mut pgm = format!("P5\n{} {}\n255\n", w, h).into_bytes();
+        pgm.extend(&px);
+        assert_eq!(flags_from_pgm(&pgm), vec![false, true]);
+        assert!(flags_from_pgm(b"P5\n99999 99999\n255\n").is_empty());
+        assert!(flags_from_pgm(b"P6").is_empty());
     }
 }
