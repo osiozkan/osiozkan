@@ -31,6 +31,11 @@ fn keeps_letters(orig: &str, cand: &str) -> bool {
 /// Tek sözcüğü düzeltmeyi dener: önce aynen, sonra her karışıklığı tek tek her konumda, sonra
 /// aynı karışıklığı tüm konumlarda. Bulunamazsa `None`.
 pub fn fix_word(w: &str, is_word: &dyn Fn(&str) -> bool) -> Option<String> {
+    // Tek başına "l"/"|": Hunspell en_US tek harfleri kabul eder, bu yüzden aşağıdaki erken dönüşe
+    // takılırdı; OCR'da neredeyse her zaman "I" zamiridir ("l am here").
+    if (w == "l" || w == "|") && is_word("I") {
+        return Some("I".into());
+    }
     if w.is_empty() || is_word(w) || w.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
@@ -72,7 +77,7 @@ pub fn fix_text(text: &str, is_word: &dyn Fn(&str) -> bool) -> (String, usize) {
                     let lead = &cur[..cur.find(core).unwrap_or(0)];
                     let tail = &cur[lead.len() + core.len()..];
                     // önce sözcüğün tamamı (l'm → I'm), olmazsa Türkçe ek öncesi gövde (Hinata'ya)
-                    let whole = if is_word(core) { None } else { fix_word(core, is_word) };
+                    let whole = if is_word(core) && core != "l" && core != "|" { None } else { fix_word(core, is_word) };
                     let fixed = whole.or_else(|| match core.find('\'') {
                         Some(i) if !is_word(core) => fix_word(&core[..i], is_word).map(|f| format!("{f}{}", &core[i..])),
                         _ => None,
@@ -109,6 +114,17 @@ mod tests {
 
     fn dict(w: &str) -> bool {
         ["I", "I'm", "modern", "will", "hidden", "door", "Hello", "world", "Wow", "Sakura", "Open", "the", "Who's", "there", "cold", "outside", "Hinata", "and", "me"].iter().any(|d| d.eq_ignore_ascii_case(w) && (w.chars().next().unwrap().is_uppercase() == d.chars().next().unwrap().is_uppercase() || d.len() > 1))
+    }
+
+    #[test]
+    fn tek_l_zamir() {
+        // en_US Hunspell gibi tek harfleri kabul eden sözlük
+        let w = |x: &str| ["I", "l", "m", "am", "here", "it", "is"].contains(&x);
+        assert_eq!(super::fix_text("l am here", &w), ("I am here".to_string(), 1));
+        assert_eq!(super::fix_text("| am", &w).0, "I am");
+        // "I" sözlükte yoksa (ör. yalnız Türkçe) dokunma
+        let tr = |x: &str| ["l", "geldi"].contains(&x);
+        assert_eq!(super::fix_text("l geldi", &tr).1, 0);
     }
 
     #[test]

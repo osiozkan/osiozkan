@@ -17,12 +17,19 @@ pub fn languages() -> Vec<String> {
     String::from_utf8_lossy(&o.stdout).lines().skip(1).map(|l| l.trim().to_string()).filter(|l| !l.is_empty() && l != "osd").collect()
 }
 
+/// `|` → `I`; ama iki yanı harf olan `|` (He||o) bırakılır: OCR düzeltmesi sözlükle `l`'ye çevirir.
+fn pipe_to_i(l: &str) -> String {
+    let c: Vec<char> = l.chars().collect();
+    let letter = |i: usize| c.get(i).is_some_and(|x| x.is_alphabetic() || *x == '|');
+    (0..c.len()).map(|i| if c[i] == '|' && !(i > 0 && letter(i - 1) && letter(i + 1)) { 'I' } else { c[i] }).collect()
+}
+
 /// OCR çıktısındaki yaygın hataları düzeltir ve satırları `\N` ile birleştirir.
 pub fn clean_text(s: &str) -> String {
     let lines: Vec<String> = s
         .lines()
         .map(|l| {
-            let l = l.trim().replace('|', "I").replace("’", "'").replace("‘", "'").replace("“", "\"").replace("”", "\"");
+            let l = pipe_to_i(l.trim()).replace("’", "'").replace("‘", "'").replace("“", "\"").replace("”", "\"");
             // satır başındaki tek "-" diyalog çizgisi: "-Merhaba" → "- Merhaba"
             match l.strip_prefix('-') {
                 Some(r) if !r.starts_with(' ') && !r.is_empty() => format!("- {}", r),
@@ -133,6 +140,7 @@ mod tests {
     fn cleans_common_ocr_noise() {
         assert_eq!(clean_text("  |'m here.\n\n-Wait!\n"), "I'm here.\\N- Wait!");
         assert_eq!(clean_text("“Quote”"), "\"Quote\"");
+        assert_eq!(clean_text("He||o |t"), "He||o It");
     }
 }
 

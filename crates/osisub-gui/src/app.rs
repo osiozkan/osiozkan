@@ -392,7 +392,16 @@ fn autoload_dir() -> Option<PathBuf> {
 /// Düzenleme kutusu renklendirmesi: etiket blokları soluk, `\\N` vurgulu, yazım hataları kırmızı altçizgili.
 fn editor_job(text: &str, sp: Option<&osisub_spell::Speller>) -> LayoutJob {
     let parts = osisub_core::tags::split(text);
-    let visible: String = parts.iter().filter_map(|p| if let osisub_core::tags::Part::Text(t) = p { Some(*t) } else { None }).collect();
+    // Çizim (\p1) metni denetlenmez: aynı uzunlukta boşlukla değiştirilir (bayt konumları korunur)
+    let mut drawing = false;
+    let visible: String = parts.iter().map(|p| match p {
+        osisub_core::tags::Part::Text(t) if drawing => " ".repeat(t.len()),
+        osisub_core::tags::Part::Text(t) => t.to_string(),
+        osisub_core::tags::Part::Block(b) => {
+            if let Some(d) = osisub_core::tags::drawing_mode(b) { drawing = d; }
+            String::new()
+        }
+    }).collect();
     let bad: Vec<(usize, usize)> = match sp {
         Some(sp) => osisub_spell::word_spans(&visible).into_iter().filter(|&(a, b)| osisub_spell::should_flag(sp, &visible[a..b])).collect(),
         None => vec![],

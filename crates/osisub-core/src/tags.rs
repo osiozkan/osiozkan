@@ -32,7 +32,7 @@ pub fn split(text: &str) -> Vec<Part<'_>> {
 }
 
 /// Bloktaki son `\pN` çizim kipi ayarı (`\pos`/`\pbo` değil): Some(açık mı).
-fn drawing_mode(block: &str) -> Option<bool> {
+pub fn drawing_mode(block: &str) -> Option<bool> {
     let b = block.as_bytes();
     let mut res = None;
     let mut i = 0;

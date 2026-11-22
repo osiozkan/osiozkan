@@ -325,7 +325,9 @@ pub fn merge_texts(v: Vec<(i64, i64, String)>, max_gap_ms: i64) -> Vec<(i64, i64
     let norm = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect::<String>();
     let mut out: Vec<(i64, i64, String)> = vec![];
     for (s, e, t) in v {
-        if norm(&t).chars().count() < 2 {
+        // tek ASCII karakter çoğunlukla gürültü; tek kanji (嘘) ya da "I." gerçek satırdır
+        let n = norm(&t);
+        if n.is_empty() || (n.chars().count() == 1 && n.is_ascii() && !matches!(n.as_str(), "i" | "a" | "o")) {
             continue;
         }
         if let Some(last) = out.last_mut() {

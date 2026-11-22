@@ -59,8 +59,9 @@ pub struct Speller {
     dict: spellbook::Dictionary,
     /// ek sözlükler (ör. en_US): sözcük herhangi birinde varsa doğru sayılır
     others: Vec<spellbook::Dictionary>,
-    /// Kullanıcının eklediği sözcükler (küçük harf, Türkçe kurallı).
-    extra: Vec<String>,
+    /// Kullanıcının eklediği / yoksaydığı sözcükler (küçük harf, Türkçe kurallı). Paylaşılan (Arc) sözlüğe
+    /// arayüzden eklenebilsin diye kilitli: ızgara ve düzenleyici işaretleri hemen kalkar.
+    extra: std::sync::RwLock<std::collections::HashSet<String>>,
     pub name: String,
 }
 
@@ -94,7 +95,7 @@ pub fn find_dictionary(name: &str, extra_dirs: &[PathBuf]) -> Option<(PathBuf, P
 impl Speller {
     pub fn load(aff: &Path, dic: &Path) -> Result<Speller, String> {
         let dict = Self::parse(aff, dic)?;
-        Ok(Speller { dict, others: vec![], extra: vec![], name: aff.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default() })
+        Ok(Speller { dict, others: vec![], extra: Default::default(), name: aff.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default() })
     }
 
     /// Ek sözlük (çok dilli denetim): ör. tr_TR + en_US.
@@ -119,8 +120,10 @@ impl Speller {
         Ok(dict)
     }
 
-    pub fn add_word(&mut self, w: &str) {
-        self.extra.push(osisub_core::qc::tr_lower(w));
+    pub fn add_word(&self, w: &str) {
+        if let Ok(mut e) = self.extra.write() {
+            e.insert(osisub_core::qc::tr_lower(w));
+        }
     }
 
     pub fn check(&self, word: &str) -> bool {
@@ -129,7 +132,7 @@ impl Speller {
         }
         let lw = osisub_core::qc::tr_lower(word);
         // Japonca sözcükler Latin harfli: "Itadakimasu" Türkçe küçültmede "ıtadakimasu" olur, ASCII de dene
-        if self.extra.contains(&lw) || ANIME_WORDS.contains(&lw.as_str()) || ANIME_WORDS.contains(&word.to_lowercase().as_str()) {
+        if self.extra.read().is_ok_and(|e| e.contains(&lw)) || ANIME_WORDS.contains(&lw.as_str()) || ANIME_WORDS.contains(&word.to_lowercase().as_str()) {
             return true;
         }
         if self.dict.check(word) || self.dict.check(&lw) {
@@ -178,9 +181,38 @@ pub const ANIME_WORDS: &[&str] = &[
     "kimono", "yukata", "hakama", "torii", "jinja", "matsuri", "hanami", "onsen", "ryokan", "tatami", "shoji", "kotatsu", "futon", "manga", "anime", "otaku", "cosplay", "seiyuu", "idol", "mangaka", "isekai", "shounen", "shoujo", "seinen", "josei",
 ];
 
+/// Adres (https://…, www.…) ve e-posta gibi parçaları aynı bayt uzunlukta boşlukla örter: denetlenmezler.
+pub fn mask_urls(vis: &str) -> std::borrow::Cow<'_, str> {
+    if !vis.contains("://") && !vis.contains("www.") && !vis.contains('@') {
+        return std::borrow::Cow::Borrowed(vis);
+    }
+    let mut out = String::with_capacity(vis.len());
+    let mut last = 0;
+    let bytes = vis.as_bytes();
+    let mut i = 0;
+    while i <= bytes.len() {
+        if i == bytes.len() || bytes[i].is_ascii_whitespace() || bytes[i..].starts_with(b"\\N") || bytes[i..].starts_with(b"\\h") {
+            let tok = &vis[last..i];
+            let core = tok.trim_matches(|c: char| matches!(c, '(' | ')' | '"' | '\'' | '<' | '>' | ',' | '.' | '!' | '?' | ';' | ':'));
+            let url = core.contains("://") || core.to_ascii_lowercase().starts_with("www.") || core.split_once('@').is_some_and(|(a, b)| !a.is_empty() && b.contains('.') && !b.ends_with('.'));
+            if url { out.push_str(&" ".repeat(tok.len())); } else { out.push_str(tok); }
+            if i < bytes.len() {
+                let step = if bytes[i].is_ascii_whitespace() { 1 } else { 2 };
+                out.push_str(&vis[i..i + step]);
+                i += step;
+                last = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Metindeki denetlenecek sözcükler (etiketler ve \N atlanır; kesme işaretiyle ayrılan ekler çıkarılır: "İstanbul'da" → "İstanbul").
 pub fn words_of(text: &str) -> Vec<String> {
     let vis = tags::visible_text(text);
+    let vis = mask_urls(&vis).into_owned();
     let mut words = vec![];
     let mut cur = String::new();
     let flush = |cur: &mut String, words: &mut Vec<String>| {
@@ -215,6 +247,8 @@ pub fn words_of(text: &str) -> Vec<String> {
 /// Görünür metindeki sözcük gövdelerinin bayt aralıkları. `\\N`, `\\n`, `\\h` ayırıcıdır;
 /// kesme işaretinden sonraki Türkçe ek dışarıda bırakılır ("İstanbul'da" → "İstanbul").
 pub fn word_spans(vis: &str) -> Vec<(usize, usize)> {
+    let masked = mask_urls(vis);
+    let vis: &str = &masked;
     let mut spans = vec![];
     let b: Vec<(usize, char)> = vis.char_indices().collect();
     let mut start: Option<usize> = None;
@@ -273,33 +307,117 @@ pub fn should_flag(sp: &Speller, w: &str) -> bool {
 }
 
 /// Metindeki `word` sözcüğünü (tam sözcük, etiketler dışı) `repl` ile değiştirir; `all` değilse yalnızca ilkini.
+/// Sözcük sınırları görünür metne göre denetlenir: `\\N`/`\\h` ayırıcıdır, araya giren etiket bloğu
+/// (`wr{\\i1}old`) sözcüğü bölmez (blok değiştirilen sözcükten sonra korunur), çizim (`\\p1`) metnine dokunulmaz.
 pub fn replace_word(text: &str, word: &str, repl: &str, all: bool) -> String {
-    let mut done = false;
-    osisub_core::fixes::map_text(text, |t| {
-        if done && !all {
-            return t.to_string();
-        }
-        let chars: Vec<char> = t.chars().collect();
-        let w: Vec<char> = word.chars().collect();
-        let mut out = String::new();
-        let mut i = 0;
-        while i < chars.len() {
-            let is_match = !w.is_empty()
-                && (all || !done)
-                && chars[i..].starts_with(&w)
-                && (i == 0 || !chars[i - 1].is_alphanumeric())
-                && chars.get(i + w.len()).map_or(true, |c| !c.is_alphanumeric() || *c == '\'' || *c == '’');
-            if is_match {
-                out.push_str(repl);
-                i += w.len();
-                done = true;
-            } else {
-                out.push(chars[i]);
-                i += 1;
+    let raw: Vec<char> = text.chars().collect();
+    let w: Vec<char> = word.chars().collect();
+    if w.is_empty() {
+        return text.to_string();
+    }
+    // görünür karakterler: (ham konum, karakter); ayırıcılar ' '
+    let mut vis: Vec<(usize, char)> = vec![];
+    let mut drawing = false;
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == '{' {
+            if let Some(e) = raw[i..].iter().position(|&c| c == '}') {
+                let block: String = raw[i..i + e].iter().collect();
+                let mut rest = block.as_str();
+                while let Some(p) = rest.find("\\p") {
+                    let num: String = rest[p + 2..].chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !num.is_empty() {
+                        drawing = num.parse::<u32>().unwrap_or(0) > 0;
+                    }
+                    rest = &rest[p + 2..];
+                }
+                i += e + 1;
+                continue;
             }
         }
-        out
-    })
+        if raw[i] == '\\' && matches!(raw.get(i + 1), Some('N') | Some('n') | Some('h')) {
+            vis.push((i, ' '));
+            i += 2;
+            continue;
+        }
+        vis.push((i, if drawing { ' ' } else { raw[i] }));
+        i += 1;
+    }
+    let mut hits: Vec<(usize, usize)> = vec![]; // ham [baş, son)
+    let mut s = 0;
+    while s + w.len() <= vis.len() {
+        let ok = vis[s..s + w.len()].iter().map(|x| x.1).eq(w.iter().copied())
+            && (s == 0 || !vis[s - 1].1.is_alphanumeric())
+            && vis.get(s + w.len()).is_none_or(|x| !x.1.is_alphanumeric());
+        if ok {
+            hits.push((vis[s].0, vis[s + w.len() - 1].0 + 1));
+            if !all {
+                break;
+            }
+            s += w.len();
+        } else {
+            s += 1;
+        }
+    }
+    if hits.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut pos = 0;
+    for (a, b) in hits {
+        out.extend(&raw[pos..a]);
+        out.push_str(repl);
+        // sözcüğün içindeki etiket blokları korunur
+        let mut j = a;
+        while j < b {
+            if raw[j] == '{' {
+                if let Some(e) = raw[j..b].iter().position(|&c| c == '}') {
+                    out.extend(&raw[j..j + e + 1]);
+                    j += e + 1;
+                    continue;
+                }
+            }
+            j += 1;
+        }
+        pos = b;
+    }
+    out.extend(&raw[pos..]);
+    out
+}
+
+#[cfg(test)]
+mod replace_tests {
+    use super::replace_word as r;
+
+    #[test]
+    fn adresler_denetlenmez() {
+        assert_eq!(super::words_of("visit https://example.com/wrold now"), vec!["visit", "now"]);
+        assert_eq!(super::words_of("yaz: ali@ornek.com.tr ve www.site.org!"), vec!["yaz", "ve"]);
+        assert_eq!(super::words_of("@Saki selam"), vec!["Saki", "selam"]);
+        let v = "git https://x.y/abc\\Nşimdi";
+        let sp = super::word_spans(v);
+        let w: Vec<&str> = sp.iter().map(|&(a, b)| &v[a..b]).collect();
+        assert_eq!(w, vec!["git", "şimdi"]);
+    }
+
+    #[test]
+    fn satir_sonu_ve_etiket_sinirlari() {
+        assert_eq!(r("hello\\Nwrold", "wrold", "world", false), "hello\\Nworld");
+        assert_eq!(r("a\\hwrold", "wrold", "world", false), "a\\hworld");
+        // görünür sözcük "helwrold": içini değiştirme
+        assert_eq!(r("hel{\\i1}wrold", "wrold", "world", true), "hel{\\i1}wrold");
+        // etiketle bölünmüş sözcük değiştirilir, etiket korunur
+        assert_eq!(r("wr{\\i1}old x", "wrold", "world", false), "world{\\i1} x");
+        // etiket içine dokunma
+        assert_eq!(r("{\\an8}an an", "an", "en", true), "{\\an8}en en");
+        assert_eq!(r("{\\an8}an an", "an", "en", false), "{\\an8}en an");
+        // Türkçe ek
+        assert_eq!(r("İstanbl'da", "İstanbl", "İstanbul", false), "İstanbul'da");
+        // çizim
+        assert_eq!(r("{\\p1}m 0 0 l 1 1{\\p0} m", "m", "M", true), "{\\p1}m 0 0 l 1 1{\\p0} M");
+        assert_eq!(r("abc", "", "x", true), "abc");
+        assert_eq!(r("a{b", "b", "c", true), "a{c");
+    }
 }
 
 /// Tüm (yorum olmayan) satırlardaki yanlış yazılmış sözcükler.
@@ -336,7 +454,7 @@ mod tests {
     const DIC: &str = "4\nhello/S\nworld\nİstanbul\nmerhaba\n";
 
     pub(super) fn sp() -> Speller {
-        Speller { dict: spellbook::Dictionary::new(AFF, DIC).unwrap(), others: vec![], extra: vec![], name: "test".into() }
+        Speller { dict: spellbook::Dictionary::new(AFF, DIC).unwrap(), others: vec![], extra: Default::default(), name: "test".into() }
     }
 
     #[test]

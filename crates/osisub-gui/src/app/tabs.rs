@@ -207,7 +207,14 @@ impl App {
             t.push_str(&format!("{}\n", word));
             let _ = std::fs::write(&p, t);
         }
+        self.ignore_word(word);
+    }
+
+    /// Bu oturumda sözcüğü doğru say: listeden, ızgaradaki kırmızı satır numarasından ve düzenleyici altçizgisinden kalkar.
+    pub(super) fn ignore_word(&mut self, word: &str) {
         let w = osisub_core::qc::tr_lower(word);
+        if let Some(sp) = &self.spell { sp.add_word(word); }
+        self.spell_rows.borrow_mut().0 = u64::MAX;
         self.spell_ignore.insert(w.clone());
         self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
         self.miss_sel = None;
@@ -360,10 +367,7 @@ impl App {
             });
             ui.horizontal(|ui| {
                 if ui.button(tr("Yoksay")).clicked() {
-                    let w = osisub_core::qc::tr_lower(&m.word);
-                    self.spell_ignore.insert(w.clone());
-                    self.misses.retain(|x| osisub_core::qc::tr_lower(&x.word) != w);
-                    self.miss_sel = None;
+                    self.ignore_word(&m.word);
                 }
                 if ui.button(tr("Sözlüğe ekle")).clicked() {
                     self.add_user_word(&m.word);
