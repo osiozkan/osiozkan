@@ -53,7 +53,7 @@ pub fn approx_extents(st: &StyleMetrics, text: &str) -> (f64, f64, f64, f64) {
             c if (c as u32) >= 0x2E80 => 1.0,
             _ => 0.52,
         };
-        w += em * fs * if st.bold { 1.07 } else { 1.0 } * st.scale_x / 100.0 + st.spacing;
+        w += em * fs * if st.bold { 1.07 } else { 1.0 } * st.scale_x / 100.0 + st.spacing * st.scale_x / 100.0;
     }
     (w, fs * 1.117 * st.scale_y / 100.0, fs * 0.212 * st.scale_y / 100.0, fs * 0.033)
 }
@@ -375,29 +375,21 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         "parse_karaoke_data",
         lua.create_function(|lua, line: Table| {
             let text: String = line.get::<Option<String>>("text")?.unwrap_or_default();
-            let mut syls = osisub_core::karaoke::parse(&text);
             let out = lua.create_table()?;
-            let mk = |dur: i64, start: i64, tag: &str, t: &str| -> Result<Table> {
+            let mk = |dur: i64, start: i64, tag: &str, t: &str, stripped: &str| -> Result<Table> {
                 let s = lua.create_table()?;
                 s.set("duration", dur)?;
                 s.set("start_time", start)?;
                 s.set("end_time", start + dur)?;
                 s.set("tag", tag)?;
                 s.set("text", t)?;
-                s.set("text_stripped", osisub_core::tags::strip_tags(t))?;
+                s.set("text_stripped", stripped)?;
                 Ok(s)
             };
-            if osisub_core::karaoke::has_lead(&text) && !syls.is_empty() {
-                let lead = syls.remove(0);
-                out.raw_set(0, mk(0, 0, "k", &lead.text)?)?;
-            } else {
-                out.raw_set(0, mk(0, 0, "k", "")?)?;
-            }
-            let mut t = 0i64;
-            for (i, sy) in syls.iter().enumerate() {
-                let d = sy.dur * 10;
-                out.raw_set(i as i64 + 1, mk(d, t, &sy.kind, &sy.text)?)?;
-                t += d;
+            // Aegisub 3: [0] her zaman boş (2.x uyumu); ilk \k öncesi metin [1] olur (auto4_lua.cpp)
+            out.raw_set(0, mk(0, 0, "", "", "")?)?;
+            for (i, sy) in osisub_core::karaoke::parse_aegisub(&text).iter().enumerate() {
+                out.raw_set(i as i64 + 1, mk(sy.dur_ms, sy.start_ms, &sy.tag, &sy.text, &sy.stripped)?)?;
             }
             Ok(out)
         })?,

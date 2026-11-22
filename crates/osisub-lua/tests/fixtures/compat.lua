@@ -150,6 +150,13 @@ function all_checks(subs, sel, active)
   subs.append(l, l)
   subs.delete({ n0 + 1, n0 + 2 })
   check(#subs == n0, "subs.delete(tablo)")
+  -- parse_karaoke_data (Aegisub 3 AssKaraoke): [0] boş, baş metin [1], etiket ters eğik çizgili
+  local kd = aegisub.parse_karaoke_data({ text = "abc{\\k10}def{\\b1\\K20}gh" })
+  check(kd[0].text == "" and kd[0].tag == "", "kara[0] boş")
+  check(#kd == 3 and kd[1].text == "abc" and kd[1].duration == 0, "baş metin kara[1]")
+  check(kd[2].text == "def{\\b1}" and kd[2].tag == "\\k" and kd[2].text_stripped == "def", "\\k öncesi etiket önceki hecede")
+  check(kd[3].tag == "\\kf" and kd[3].start_time == 100 and kd[3].duration == 200, "\\K → \\kf")
+  check(#aegisub.parse_karaoke_data({ text = "{\\k0}{\\k10}a" }) == 1, "boş 0 süreli hece atlanır")
   aegisub.set_undo_point("uyumluluk")
   return { first }
 end

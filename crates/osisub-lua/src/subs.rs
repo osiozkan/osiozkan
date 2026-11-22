@@ -130,6 +130,14 @@ fn str_field(t: &Table, k: &str) -> Option<String> {
     }
 }
 
+/// Aegisub: `lua_tointeger` keser, `AssTime` en yakın santisaniyeye yuvarlar ve [0, 10 sa) aralığına sıkıştırır
+/// (`!retime("abs",1234.7,…)!` → 1230). Okununca aynı değer döner.
+fn ass_time(v: f64) -> i64 {
+    let t = if v.is_finite() { v.trunc().clamp(-1e12, 1e12) as i64 } else { 0 };
+    let r = (t + 5) - (t + 5).rem_euclid(10);
+    r.clamp(0, 10 * 3600 * 1000 - 1)
+}
+
 fn num_field(t: &Table, k: &str) -> Option<f64> {
     match t.get::<Value>(k).ok()? {
         Value::Number(n) => Some(n),
@@ -264,8 +272,8 @@ pub fn table_to_entry(t: &Table, default_section: &str) -> Result<Entry> {
             Entry::Dialogue(Dialogue {
                 comment: bool_field(t, "comment").unwrap_or(false),
                 layer: int("layer", 0),
-                start_time: num_field(t, "start_time").unwrap_or(0.0).round() as i64,
-                end_time: num_field(t, "end_time").unwrap_or(0.0).round() as i64,
+                start_time: ass_time(num_field(t, "start_time").unwrap_or(0.0)),
+                end_time: ass_time(num_field(t, "end_time").unwrap_or(0.0)),
                 style: str_field(t, "style").unwrap_or_else(|| "Default".into()),
                 actor: str_field(t, "actor").unwrap_or_default(),
                 margin_l: int("margin_l", 0),
@@ -443,6 +451,16 @@ impl UserData for Subs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aegisub_zaman_yuvarlama() {
+        assert_eq!(ass_time(1234.7), 1230);
+        assert_eq!(ass_time(1236.0), 1240);
+        assert_eq!(ass_time(1235.0), 1240);
+        assert_eq!(ass_time(-20.0), 0);
+        assert_eq!(ass_time(f64::NAN), 0);
+        assert_eq!(ass_time(1e15), 10 * 3600 * 1000 - 1);
+    }
 
     #[test]
     fn entry_table_roundtrip() {

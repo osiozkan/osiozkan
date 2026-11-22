@@ -634,3 +634,139 @@ mod tap_offset_tests {
         assert_eq!(crate::time::parse_generic("-00:00:01,500"), Some(0));
     }
 }
+/// Aegisub `aegisub.parse_karaoke_data` hecesi (AssKaraoke::ParseSyllables ile birebir).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AegiSyl {
+    /// Hece başlangıcı, satır başına göre ms.
+    pub start_ms: i64,
+    pub dur_ms: i64,
+    /// "\\k", "\\kf" (\\K dahil) ya da "\\ko".
+    pub tag: String,
+    /// Etiketlerle birlikte metin (`GetText(false)`).
+    pub text: String,
+    /// Yalnızca düz metin (çizim komutları dahil, etiket/yorum blokları hariç).
+    pub stripped: String,
+}
+
+/// Bir etiket bloğunun içini (parantez içindeki `\` hariç) etiketlere böler; ilk `\` öncesi yorum
+/// metni ayrı parça olarak döner (`None` adla).
+fn split_block(inner: &str) -> Vec<(Option<String>, String)> {
+    let mut out: Vec<(Option<String>, String)> = vec![];
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    for ch in inner.chars() {
+        if ch == '\\' && depth == 0 && !cur.is_empty() {
+            out.push((None, std::mem::take(&mut cur)));
+        }
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = (depth - 1).max(0),
+            _ => {}
+        }
+        cur.push(ch);
+    }
+    if !cur.is_empty() { out.push((None, cur)); }
+    for (name, raw) in out.iter_mut() {
+        if let Some(r) = raw.strip_prefix('\\') {
+            let n: String = r.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+            *name = Some(n);
+        }
+    }
+    out
+}
+
+/// Aegisub 3 `AssKaraoke` hece ayrımı: ilk `\k` öncesi metin 0 süreli ilk hece olur; süresi 0 ve
+/// metni boş heceler atlanır (etiketleri sonraki heceye geçer); bir bloktaki `\k`'dan önceki etiketler
+/// önceki hecenin sonuna, sonrakiler yeni heceye yazılır; `\K` → `\kf`; süre tam sayıya kesilir.
+pub fn parse_aegisub(text: &str) -> Vec<AegiSyl> {
+    let mut out = vec![];
+    let mut syl = AegiSyl { start_ms: 0, dur_ms: 0, tag: "\\k".into(), text: String::new(), stripped: String::new() };
+    // not: çizim (\p1) metni Aegisub'da da hem metne hem düz metne girer
+    let mut rest = text;
+    while !rest.is_empty() {
+        let (block, after) = match (rest.starts_with('{'), rest.find('}')) {
+            (true, Some(e)) => (Some(&rest[1..e]), &rest[e + 1..]),
+            _ => (None, ""),
+        };
+        let Some(inner) = block else {
+            // düz metin: bir sonraki '{' ya da sona kadar (kapanmamış '{' düz metindir)
+            let end = rest[1..].find('{').map(|i| i + 1).unwrap_or(rest.len());
+            let (t, r) = rest.split_at(end);
+            syl.text.push_str(t);
+            syl.stripped.push_str(t);
+            rest = r;
+            continue;
+        };
+        rest = after;
+        if !inner.contains('\\') {
+            // yorum bloğu: etiket gibi metne eklenir, düz metne değil
+            syl.text.push_str(&format!("{{{}}}", inner));
+            continue;
+        }
+        let mut in_tag = false;
+        for (name, raw) in split_block(inner) {
+            let is_k = name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("k") || n.eq_ignore_ascii_case("kf") || n.eq_ignore_ascii_case("ko"));
+            if is_k {
+                if in_tag { syl.text.push('}'); in_tag = false; }
+                let n = name.unwrap();
+                let tag = if n == "K" { "\\kf".to_string() } else { format!("\\{}", n.to_ascii_lowercase()) };
+                if syl.dur_ms > 0 || !syl.stripped.is_empty() {
+                    let next_start = syl.start_ms + syl.dur_ms;
+                    out.push(std::mem::replace(&mut syl, AegiSyl { start_ms: next_start, dur_ms: 0, tag: String::new(), text: String::new(), stripped: String::new() }));
+                } else {
+                    syl.start_ms += syl.dur_ms;
+                }
+                let num = raw[1 + n.len()..].trim().trim_start_matches('(');
+                let v: f64 = num.trim_end_matches(')').trim().parse().unwrap_or(0.0);
+                syl.tag = tag;
+                syl.dur_ms = (v.trunc() as i64) * 10;
+            } else {
+                if !in_tag { syl.text.push('{'); in_tag = true; }
+                syl.text.push_str(&raw);
+            }
+        }
+        if in_tag { syl.text.push('}'); }
+    }
+    out.push(syl);
+    out
+}
+
+#[cfg(test)]
+mod aegisub_parse_tests {
+    use super::parse_aegisub as p;
+
+    fn view(t: &str) -> Vec<(i64, i64, String, String)> {
+        p(t).into_iter().map(|s| (s.start_ms, s.dur_ms, s.tag, s.text)).collect()
+    }
+
+    #[test]
+    fn bas_metin_ilk_hece() {
+        assert_eq!(view("abc{\\k10}def{\\k20}gh"), vec![(0, 0, "\\k".into(), "abc".into()), (0, 100, "\\k".into(), "def".into()), (100, 200, "\\k".into(), "gh".into())]);
+        // metinsiz baş etiket sonraki heceye geçer
+        assert_eq!(view("{\\an8}{\\k10}a"), vec![(0, 100, "\\k".into(), "{\\an8}a".into())]);
+    }
+
+    #[test]
+    fn bos_sifir_heceler_atlanir() {
+        assert_eq!(view("{\\k0}{\\k10}a{\\k0}{\\k10}b").len(), 2);
+        // süresi olan boş hece korunur (bekleme)
+        assert_eq!(view("{\\k30}{\\k10}a"), vec![(0, 300, "\\k".into(), "".into()), (300, 100, "\\k".into(), "a".into())]);
+    }
+
+    #[test]
+    fn k_oncesi_etiket_onceki_heceye() {
+        assert_eq!(view("{\\k10}a{\\b1\\k10}b"), vec![(0, 100, "\\k".into(), "a{\\b1}".into()), (100, 100, "\\k".into(), "b".into())]);
+        assert_eq!(view("{\\k10\\-fx}a"), vec![(0, 100, "\\k".into(), "{\\-fx}a".into())]);
+        // aynı blokta iki \k
+        assert_eq!(view("{\\k10\\kf20}a"), vec![(0, 100, "\\k".into(), "".into()), (100, 200, "\\kf".into(), "a".into())]);
+    }
+
+    #[test]
+    fn k_buyuk_ve_ondalik_ve_t() {
+        assert_eq!(view("{\\K15.7}a"), vec![(0, 150, "\\kf".into(), "a".into())]);
+        assert_eq!(view("{\\ko5\\t(0,100,\\fs20)}a"), vec![(0, 50, "\\ko".into(), "{\\t(0,100,\\fs20)}a".into())]);
+        assert_eq!(view("{yorum}{\\k5}a")[0].3, "{yorum}a");
+        assert_eq!(view("a{b")[0].3, "a{b");
+        assert_eq!(p("")[0].dur_ms, 0);
+    }
+}
