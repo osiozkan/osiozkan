@@ -1182,3 +1182,5 @@
 ["kenarlık ekle", "add borders"]
 ["kenarlık kaldır", "remove borders"]
 ["Bu adda başka bir stil de var — adı değiştirin", "Another style has this name — rename it"]
+["Çeviri — Enter: kaydet ve sonraki satır, Shift+Enter: satır sonu (\\N)", "Translation — Enter: save and next line, Shift+Enter: line break (\\N)"]
+["Makine çevirisi: {} satır çevrildi, sonra hata: {}", "Machine translation: {} lines translated, then error: {}"]

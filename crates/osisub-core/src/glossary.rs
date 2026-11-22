@@ -29,7 +29,9 @@ pub struct Finding {
 }
 
 fn contains_word(hay: &str, needle: &str, allow_suffix: bool) -> bool {
-    let (h, n) = (qc::tr_lower(hay), qc::tr_lower(needle));
+    // İngilizce kaynak BÜYÜK HARFLİ olabilir ("KIRITO" → Türkçe küçültmede "kırıto"): ı/i katlanır
+    let fold = |x: &str| qc::tr_lower(x).replace('ı', "i");
+    let (h, n) = (fold(hay), fold(needle));
     let mut start = 0;
     while let Some(i) = h[start..].find(&n) {
         let a = start + i;
@@ -112,5 +114,15 @@ mod tests {
         assert!(contains_word("İSTANBUL güzel", "istanbul", true));
         assert!(!contains_word("insanlar", "san", false));
         assert!(contains_word("Sakura'ya", "sakura", true));
+    }
+}
+
+#[cfg(test)]
+mod caps_tests {
+    #[test]
+    fn buyuk_harfli_kaynak() {
+        assert!(super::contains_word("KIRITO, WAIT!", "Kirito", false));
+        assert!(super::contains_word("SENSEI!", "sensei", false));
+        assert!(super::contains_word("İstanbul'a", "istanbul", true));
     }
 }

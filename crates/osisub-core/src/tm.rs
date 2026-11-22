@@ -150,7 +150,8 @@ impl Memory {
     pub fn parse(text: &str) -> Memory {
         let mut m = Memory::default();
         for l in text.lines() {
-            if l.starts_with('#') {
+            // yalnızca sekmesiz '#' satırları yorumdur: "#1 fan<TAB>…" gerçek girdidir
+            if l.starts_with('#') && !l.contains('\t') {
                 continue;
             }
             if let Some((s, t)) = l.split_once('\t') {
@@ -217,5 +218,17 @@ mod tests {
         assert_eq!(similarity("", ""), 100);
         assert_eq!(similarity("abcd", "abce"), 75);
         assert_eq!(normalize("{\\b1}Hey,  YOU!\\Nthere"), "hey you there");
+    }
+}
+
+#[cfg(test)]
+mod hash_tests {
+    #[test]
+    fn diyez_ile_baslayan_kaynak_korunur() {
+        let mut m = super::Memory::default();
+        m.add("#1 fan", "1 numaralı hayran");
+        let back = super::Memory::parse(&m.to_tsv());
+        assert_eq!(back.len(), 1);
+        assert!(super::Memory::parse("# yorum\n").is_empty() || super::Memory::parse("# yorum\n").len() == 0);
     }
 }

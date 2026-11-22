@@ -737,7 +737,8 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
         }
         "batch" => {
             let recursive = flag(&mut args, "--recursive");
-            if args.len() < 2 { return Err("kullanım: batch <klasör> <uzantı> [--recursive]".into()); }
+            let overwrite = flag(&mut args, "--overwrite");
+            if args.len() < 2 { return Err("kullanım: batch <klasör> <uzantı> [--recursive] [--overwrite]".into()); }
             let to = args[1].trim_start_matches('.').to_lowercase();
             let mut files = vec![];
             collect(Path::new(&args[0]), recursive, &mut files);
@@ -745,7 +746,13 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             for f in files {
                 let ext = osisub_core::io::ext_of(&f);
                 if !osisub_core::io::OPEN_EXTS.contains(&ext.as_str()) || ext == "txt" || ext == to { continue; }
-                match osisub_core::io::load(&f).and_then(|s| osisub_core::io::save(&s, &f.with_extension(&to))) {
+                // aynı adlı hedef (ör. çeviri ep1.ass varken ep1.srt) sessizce ezilmesin
+                let target = f.with_extension(&to);
+                if target.exists() && !overwrite {
+                    eprintln!("atlandı {}: {} zaten var (--overwrite)", f.display(), target.display());
+                    continue;
+                }
+                match osisub_core::io::load(&f).and_then(|s| osisub_core::io::save(&s, &target)) {
                     Ok(()) => { n += 1; println!("{} → .{}", f.display(), to); }
                     Err(e) => eprintln!("atlandı {}: {}", f.display(), e),
                 }

@@ -829,9 +829,11 @@ impl App {
             w.log.clear();
             std::thread::spawn(move || {
                 let (mut ok, mut bad) = (0, 0);
-                for f in files {
+                let clash = osisub_core::filebatch::conflicts(&files, &job);
+                for (f, clash) in files.into_iter().zip(clash) {
                     let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    let m = match osisub_core::filebatch::run_file(&f, &job) {
+                    let r = match clash { Some(e) => Err(e), None => osisub_core::filebatch::run_file(&f, &job) };
+                    let m = match r {
                         Ok((out, note)) => { ok += 1; format!("TAMAM {name} → {}{}", out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), if note.is_empty() { String::new() } else { format!(" ({note})") }) }
                         Err(e) => { bad += 1; format!("HATA  {name}: {e}") }
                     };
@@ -1400,15 +1402,18 @@ impl App {
     /// referans satırı, değilse satırın kendi metni.
     pub(super) fn start_mt(&mut self) {
         let Some(cfg) = self.mt_config() else { return };
-        let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment)).collect();
+        // tabela/karaoke/çizim satırları çevrilmez (çizim komutları ve \k satırları bozulurdu)
+        let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment && !qc::is_typeset(d) && !qc::is_karaoke(d) && !osisub_core::tags::strip_tags(&d.text).trim().is_empty())).collect();
         let mut idx = vec![];
         let mut texts = vec![];
+        let from_ref = !self.ref_lines.is_empty();
         for i in targets {
             let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) else { continue };
-            let src = if self.ref_lines.is_empty() {
+            let src = if !from_ref {
                 d.text.clone()
             } else {
-                self.ref_lines.iter().filter(|r| r.1 > d.start_time && r.0 < d.end_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time)).map(|r| r.2.replace('\n', "\\N")).unwrap_or_default()
+                // referans satırlarında satır sonu " ⏎ " olarak saklı
+                self.ref_lines.iter().filter(|r| r.1 > d.start_time && r.0 < d.end_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time)).map(|r| r.2.replace(" ⏎ ", "\\N").replace('\n', "\\N")).unwrap_or_default()
             };
             if src.trim().is_empty() { continue; }
             idx.push(i);
@@ -1419,38 +1424,55 @@ impl App {
         std::thread::spawn(move || {
             let mut out = vec![];
             for chunk in texts.chunks(40) {
-                match osisub_media::mt::translate(&cfg, chunk) {
+                // 429 (hız sınırı) / geçici hata: artan beklemeyle 3 kez daha dene
+                let mut r = osisub_media::mt::translate(&cfg, chunk);
+                for wait in [2u64, 5, 10] {
+                    match &r {
+                        Err(e) if e.contains("429") || e.to_ascii_lowercase().contains("too many") || e.contains("503") => {
+                            std::thread::sleep(std::time::Duration::from_secs(wait));
+                            r = osisub_media::mt::translate(&cfg, chunk);
+                        }
+                        _ => break,
+                    }
+                }
+                match r {
                     Ok(v) => out.extend(v),
-                    Err(e) => { let _ = tx.send((idx, Err(e))); return; }
+                    // başarılı parçalar kaybolmasın (ücretli çeviri): kısmi sonuç + hata
+                    Err(e) => { let n = out.len(); let _ = tx.send((idx[..n].to_vec(), out, Some(e))); return; }
                 }
             }
-            let _ = tx.send((idx, Ok(out)));
+            let _ = tx.send((idx, out, None));
         });
         self.mt_rx = Some(rx);
         self.mt_rev = self.doc.rev;
+        self.mt_from_ref = from_ref;
         self.status = tr("Makine çevirisi çalışıyor…").into();
     }
 
     pub(super) fn poll_mt(&mut self, ctx: &egui::Context) {
         let Some(rx) = &self.mt_rx else { return };
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
-        let Ok((idx, r)) = rx.try_recv() else { return };
+        let Ok((idx, out, err)) = rx.try_recv() else { return };
         self.mt_rx = None;
         if self.doc.rev != self.mt_rev {
             self.status = tr("Makine çevirisi: belge bu arada değişti, sonuç uygulanmadı").into();
             return;
         }
-        match r {
-            Ok(out) => {
-                let mut s = self.doc.script.clone();
-                for (&i, t) in idx.iter().zip(out.iter()) {
-                    if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) { d.text = t.clone(); }
+        if !out.is_empty() {
+            let mut s = self.doc.script.clone();
+            for (&i, t) in idx.iter().zip(out.iter()) {
+                if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) {
+                    // referanstan çevrildiyse satırın kendi baş etiketleri ({\an8}, {\pos}) korunur
+                    let head = if self.mt_from_ref && !t.starts_with('{') { osisub_core::tags::leading_blocks(&d.text).to_string() } else { String::new() };
+                    d.text = head + t;
                 }
-                self.doc.apply_new_script("Makine çevirisi", s);
-                self.status = trf!("{} satır çevrildi (gözden geçirin!)", out.len());
             }
-            Err(e) => self.status = trf!("Makine çevirisi: {e}"),
+            self.doc.apply_new_script("Makine çevirisi", s);
         }
+        self.status = match err {
+            None => trf!("{} satır çevrildi (gözden geçirin!)", out.len()),
+            Some(e) => trf!("Makine çevirisi: {} satır çevrildi, sonra hata: {}", out.len(), e),
+        };
     }
 
     pub(super) fn mt_window(&mut self, ctx: &egui::Context) {

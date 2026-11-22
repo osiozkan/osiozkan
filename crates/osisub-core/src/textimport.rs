@@ -106,10 +106,13 @@ pub fn fill_existing(script: &mut Script, items: &[Item], from: usize, actors: b
             continue;
         }
         let Some(x) = it.next() else { break };
-        // baştaki etiket bloğu (ör. {\an8}) korunur
-        let lead = if d.text.starts_with('{') { d.text.find('}').map(|e| d.text[..=e].to_string()).filter(|b| !b.contains("\\k")).unwrap_or_default() } else { String::new() };
-        // dışa aktarımda boş satır "-" olarak yazılır
-        d.text = if x.text == "-" { lead } else { format!("{lead}{}", x.text) };
+        // baştaki etiket blokları (ör. {\an8}{\i1}) korunur; karaoke blokları hariç
+        let lead: String = crate::tags::split(crate::tags::leading_blocks(&d.text)).into_iter().filter_map(|p| match p {
+            crate::tags::Part::Block(b) if !b.contains("\\k") => Some(format!("{{{b}}}")),
+            _ => None,
+        }).collect();
+        // dışa aktarımda boş satır "-", gerçek "-" metni "\-" olarak yazılır
+        d.text = match x.text.as_str() { "-" => lead, "\\-" => format!("{lead}-"), t => format!("{lead}{t}") };
         if actors && !x.actor.is_empty() {
             d.actor = x.actor.clone();
         }
@@ -136,6 +139,8 @@ pub fn export(script: &Script, speakers: bool) -> String {
         }
         // satır başında yorum işareti varsa kaçış (ad önekli satırda gerekmez)
         let t = if t.starts_with('#') || t.starts_with("//") { format!("\\{t}") } else { t };
+        // metni tam olarak "-" olan satır boş satır işaretiyle karışmasın
+        let t = if t == "-" && crate::tags::visible_text(&d.text).trim() == "-" { "\\-".to_string() } else { t };
         if speakers && (split_speaker(&t).is_some() || t.starts_with(": ")) {
             // ad gibi görünen metin ("Dinle: geliyorlar") geri alınırken ada dönüşmesin
             out.push_str(&format!(": {t}\n"));
@@ -167,6 +172,26 @@ mod tests {
         // URL / uzun önek ad değildir
         assert_eq!(parse("http://a.b: x", Split::Lines, true)[0].actor, "");
         assert_eq!(parse("Bu çok uzun bir cümlenin başı: devamı", Split::Lines, true)[0].actor, "");
+    }
+
+    #[test]
+    fn tire_ve_coklu_bas_blok_gidis_donus() {
+        let mut sc = Script::from_dialogues(vec![
+            Dialogue { text: "-".into(), ..Default::default() },
+            Dialogue { text: "".into(), ..Default::default() },
+            Dialogue { text: "{\\an8}{\\i1}üst".into(), ..Default::default() },
+        ]);
+        let txt = export(&sc, false);
+        let items = parse(&txt, Split::Lines, false);
+        for d in sc.dialogues_mut() { d.text = osisub_core_dummy(&d.text); }
+        fill_existing(&mut sc, &items, 0, false);
+        let t: Vec<String> = sc.dialogues().map(|d| d.text.clone()).collect();
+        assert_eq!(t, vec!["-", "", "{\\an8}{\\i1}üst"]);
+    }
+
+    /// içe aktarmadan önce metni boz (yalnız baş blokları kalsın) — yerleştirmenin gerçekten yazdığını görmek için
+    fn osisub_core_dummy(t: &str) -> String {
+        format!("{}ESKİ", crate::tags::leading_blocks(t))
     }
 
     #[test]

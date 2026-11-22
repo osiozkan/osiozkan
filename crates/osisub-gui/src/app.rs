@@ -257,7 +257,8 @@ pub struct App {
     /// Sesle yeniden zamanlama sonucu (arka plan)
     mt_open: bool,
     /// Makine çevirisi sonucu: (entry dizinleri, sonuç)
-    mt_rx: Option<std::sync::mpsc::Receiver<(Vec<usize>, Result<Vec<String>, String>)>>,
+    mt_rx: Option<std::sync::mpsc::Receiver<(Vec<usize>, Vec<String>, Option<String>)>>,
+    mt_from_ref: bool,
     resync_rx: Option<std::sync::mpsc::Receiver<Result<Vec<osisub_media::resync::Group>, String>>>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
@@ -572,6 +573,7 @@ impl App {
             resync_rx: None,
             mt_open: false,
             mt_rx: None,
+            mt_from_ref: false,
             editor_cursor: None,
             editor_sel: None,
             style_pv: None,
@@ -580,7 +582,8 @@ impl App {
             spell_rows: std::cell::RefCell::new((u64::MAX, Default::default())),
             qc_media_key: (0, false),
             select_crit: Default::default(),
-            tm: tm_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::tm::Memory::parse(&t)).unwrap_or_default(),
+            // UTF-8 olmayan (Excel'de kaydedilmiş) bellek de okunur; okunamazsa boş bellek kaydedilip dosyayı silmez (tm_load_failed)
+            tm: tm_path().and_then(|p| std::fs::read(p).ok()).map(|b| osisub_core::tm::Memory::parse(&osisub_core::ass::decode_bytes(&b))).unwrap_or_default(),
             tm_rev: 0,
             tm_dirty: false,
             tm_cache: (usize::MAX, u64::MAX, vec![]),
@@ -2240,7 +2243,7 @@ impl App {
                     if ui.button(tr("İçe aktar (TSV)…")).clicked() {
                         ui.close();
                         if let Some(p) = rfd::FileDialog::new().add_filter("TSV", &["tsv", "txt"]).pick_file() {
-                            match std::fs::read_to_string(&p) {
+                            match std::fs::read(&p).map(|b| osisub_core::ass::decode_bytes(&b)) {
                                 Ok(t) => {
                                     let before = self.tm.len();
                                     self.tm.merge(osisub_core::tm::Memory::parse(&t));

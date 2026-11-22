@@ -375,6 +375,8 @@ impl App {
         let out = egui::ScrollArea::vertical().id_salt("editor_text").max_height(max_h).show(ui, |ui| {
             TextEdit::multiline(&mut nd.text).desired_rows(3).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text(tr("Altyazı metni — satır sonu için \\N")).show(ui)
         }).inner;
+        // Enter ile girilen ham satır sonu dosyada Dialogue satırını böler: ASS satır sonuna (\N) çevir
+        fix_newlines(ui.ctx(), out.response.id, &mut nd.text, true);
         if tag_used {
             // eklenen etiketlerden sonra seçim aynı metni göstersin (ardışık düğmeler için)
             if let Some((_, a, b)) = self.editor_sel.filter(|s| s.0 == at) {
@@ -472,5 +474,31 @@ impl App {
             let desc = if tag_used { "Etiket ekle" } else if nd.text != d.text { "Metin düzenle" } else { "Satırı düzenle" };
             self.doc.edit_keyed(desc, if key.is_empty() { None } else { Some(&key) }, |tx| tx.replace(at, Entry::Dialogue(nd)));
         }
+    }
+}
+
+/// Metin kutusundaki ham satır sonlarını kaldırır (`keep` ise `\N` yapar) ve imleci buna göre kaydırır
+/// (yoksa imleç `\` ile `N` arasında kalır ve sonraki harf araya girer).
+pub(crate) fn fix_newlines(ctx: &egui::Context, id: egui::Id, text: &mut String, keep: bool) {
+    if !text.contains(['\n', '\r']) {
+        return;
+    }
+    let mut st = egui::text_edit::TextEditState::load(ctx, id);
+    let cur: Option<usize> = st.as_ref().and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.into());
+    let mut out = String::with_capacity(text.len() + 2);
+    let (mut n, mut newpos) = (0usize, None);
+    for (i, c) in text.chars().enumerate() {
+        if Some(i) == cur { newpos = Some(n); }
+        match c {
+            '\r' => {}
+            '\n' => if keep { out.push_str("\\N"); n += 2; },
+            _ => { out.push(c); n += 1; }
+        }
+    }
+    if newpos.is_none() && cur.is_some() { newpos = Some(n); }
+    *text = out;
+    if let (Some(s), Some(p)) = (st.as_mut(), newpos) {
+        s.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(p))));
+        s.clone().store(ctx, id);
     }
 }

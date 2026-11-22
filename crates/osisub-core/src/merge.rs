@@ -95,7 +95,8 @@ pub fn merge_into(base: &mut Script, other: &Script, opts: &MergeOptions) -> Mer
         match base.style_by_name(&st.name) {
             Some(existing) if same_style(existing, st) => {}
             Some(_) => {
-                let taken = |n: &str, base: &Script, extra: &[Entry]| base.style_by_name(n).is_some() || extra.iter().any(|e| matches!(e, Entry::Style(s) if s.name == n));
+                // diğer dosyanın kendi stil adları da dolu sayılır (onun "Default (2)"si ile çakışmasın)
+                let taken = |n: &str, base: &Script, extra: &[Entry]| base.style_by_name(n).is_some() || extra.iter().any(|e| matches!(e, Entry::Style(s) if s.name == n)) || other.styles().any(|s| s.name == n);
                 let mut k = 2;
                 let mut name = if opts.style_suffix.is_empty() { format!("{} ({})", st.name, k) } else { format!("{}{}", st.name, opts.style_suffix) };
                 while taken(&name, base, &new_styles) {
@@ -186,6 +187,21 @@ mod tests {
         let ds: Vec<_> = a.dialogues().cloned().collect();
         assert_eq!(a.extra_values(&ds[0].extra)["k"], "A");
         assert_eq!(a.extra_values(&ds[1].extra)["k"], "B");
+    }
+
+    #[test]
+    fn diger_dosyanin_ad_cakismasi() {
+        let mut base = script(1920, 1080, &style("Default", 60), "");
+        let other = script(1920, 1080, &(style("Default", 99) + &style("Default (2)", 77)), "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,a\nDialogue: 0,0:00:01.00,0:00:02.00,Default (2),,0,0,0,,b\n");
+        merge_into(&mut base, &other, &MergeOptions::default());
+        let names: Vec<&str> = base.styles().map(|s| s.name.as_str()).collect();
+        let mut uniq = names.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(names.len(), uniq.len(), "{:?}", names);
+        let a = base.dialogues().find(|d| d.text == "a").unwrap().style.clone();
+        let b = base.dialogues().find(|d| d.text == "b").unwrap().style.clone();
+        assert_ne!(a, b);
     }
 
     #[test]

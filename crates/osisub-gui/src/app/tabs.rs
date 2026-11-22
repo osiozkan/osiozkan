@@ -22,7 +22,11 @@ impl App {
                 let v = osisub_core::tags::visible_text(&dd.text).replace('\n', " ⏎ ");
                 if v.trim().is_empty() { continue; }
                 let end = self.ref_lines.partition_point(|r| r.0 < dd.end_time);
-                let same = self.ref_lines[..end].iter().rev().take(6).any(|r| r.1 > dd.start_time && r.2.trim() == v.trim());
+                let mut ov: Vec<&(i64, i64, String)> = self.ref_lines[..end].iter().rev().take(6).filter(|r| r.1 > dd.start_time).collect();
+                // Ctrl+I birden çok referans satırını " ⏎ " ile birleştirir: birleşimi de say
+                ov.sort_by_key(|r| r.0);
+                let joined = ov.iter().map(|r| r.2.trim()).collect::<Vec<_>>().join(" ⏎ ");
+                let same = ov.iter().any(|r| r.2.trim() == v.trim()) || (ov.len() > 1 && joined == v.trim());
                 if !same { done += 1; }
             }
             self.tr_progress = (self.doc.rev, done, total, self.ref_lines.len());
@@ -106,16 +110,16 @@ impl App {
             ui.fonts_mut(|f| f.layout_job(job))
         };
         let id = egui::Id::unique("translate_box");
-        let r = ui.add(TextEdit::multiline(&mut nd.text).id(id).desired_rows(4).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text(tr("Çeviri — Enter: kaydet ve sonraki satır")));
+        let r = ui.add(TextEdit::multiline(&mut nd.text).id(id).desired_rows(4).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace).layouter(&mut layouter).hint_text(tr("Çeviri — Enter: kaydet ve sonraki satır, Shift+Enter: satır sonu (\\N)")));
         if self.tr_last_active != at {
             self.tr_last_active = at;
             r.request_focus();
         }
         // Enter = sonraki satır (metin kutusu Enter'ı tüketmeden önce yakala)
         let enter = r.has_focus() && ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift);
-        if enter {
-            nd.text = nd.text.trim_end_matches('\n').to_string();
-        }
+        // metne ham satır sonu girmesin (dosyada Dialogue satırını ikiye bölerdi): Enter'ın eklediği
+        // satır sonu silinir, Shift+Enter ASS satır sonu \N olur
+        super::grid::fix_newlines(ui.ctx(), id, &mut nd.text, !enter);
         let cps = qc::cps(&nd);
         ui.horizontal(|ui| {
             ui.label(RichText::new(trf!("{} karakter", osisub_core::tags::visible_len(&nd.text))).weak());

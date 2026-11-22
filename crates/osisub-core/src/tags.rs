@@ -47,6 +47,18 @@ pub fn drawing_mode(block: &str) -> Option<bool> {
     res
 }
 
+/// Satır başındaki ardışık `{...}` blokları (ör. `{\\an8}{\\i1}`); metin yoksa boş.
+pub fn leading_blocks(text: &str) -> &str {
+    let mut end = 0;
+    while text[end..].starts_with('{') {
+        match text[end..].find('}') {
+            Some(e) => end += e + 1,
+            None => break,
+        }
+    }
+    &text[..end]
+}
+
 /// Tüm `{...}` bloklarını kaldırır; `\p1` çizim kipindeki metin (şekil koordinatları) görünmez sayılır.
 pub fn strip_tags(text: &str) -> String {
     let mut out = String::new();
@@ -141,5 +153,15 @@ mod tests {
     fn karaoke() {
         let k = karaoke_syllables("{\\k20}ka{\\k30}ra");
         assert_eq!(k, vec![(20, "ka".into()), (30, "ra".into())]);
+    }
+}
+
+#[cfg(test)]
+mod leading_tests {
+    #[test]
+    fn bas_bloklar() {
+        assert_eq!(super::leading_blocks("{\\an8}{\\i1}üst{\\i0}"), "{\\an8}{\\i1}");
+        assert_eq!(super::leading_blocks("metin"), "");
+        assert_eq!(super::leading_blocks("{açık"), "");
     }
 }

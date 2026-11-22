@@ -57,11 +57,38 @@ pub fn process(s: &mut Script, job: &Job) -> String {
     notes.join(", ")
 }
 
+/// Toplu iş başlamadan çakışmaları bulur: bir dosyanın çıktısı BAŞKA bir girdinin üzerine yazacaksa
+/// (ör. `ep1.srt` → `ep1.ass` varken) ya da iki girdi aynı çıktıyı üretiyorsa o girdi için hata.
+/// Üzerine yazma izni yalnızca dosyanın kendi girdisini kapsar; başka girdi asla ezilmez.
+pub fn conflicts(files: &[PathBuf], job: &Job) -> Vec<Option<String>> {
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let inputs: Vec<PathBuf> = files.iter().map(|f| canon(f)).collect();
+    let mut seen: std::collections::HashMap<PathBuf, usize> = std::collections::HashMap::new();
+    files.iter().enumerate().map(|(i, f)| {
+        let out = out_path(f, job);
+        let oc = canon(&out);
+        if let Some(j) = inputs.iter().position(|x| *x == oc) {
+            if j != i {
+                return Some(format!("çıktı {} başka bir girdi dosyasının üzerine yazacak", out.display()));
+            }
+        }
+        if let Some(&k) = seen.get(&oc) {
+            return Some(format!("çıktı {} aynı zamanda {} dosyasının çıktısı", out.display(), files[k].display()));
+        }
+        seen.insert(oc, i);
+        None
+    }).collect()
+}
+
 /// Tek dosyayı işler; çıktı yolunu ve raporu döndürür.
 pub fn run_file(input: &Path, job: &Job) -> Result<(PathBuf, String), String> {
     let out = out_path(input, job);
-    if !job.overwrite && out.exists() && same_file(&out, input) {
-        return Err("çıktı girdinin üzerine yazacak (son ek verin ya da üzerine yazmaya izin verin)".into());
+    if !job.overwrite && out.exists() {
+        return Err(if same_file(&out, input) {
+            "çıktı girdinin üzerine yazacak (son ek verin ya da üzerine yazmaya izin verin)".into()
+        } else {
+            format!("{} zaten var (üzerine yazmaya izin verin ya da son ek verin)", out.display())
+        });
     }
     let mut s = crate::io::load(input)?;
     let note = process(&mut s, job);
@@ -93,6 +120,16 @@ mod tests {
         std::fs::write(&a, src).unwrap();
         // aynı ada yazma engellenir
         assert!(run_file(&a, &Job::default()).is_err());
+        // ep1.srt → ep1.ass varken: başka girdi ezilmez
+        let b = a.with_extension("srt");
+        std::fs::write(&b, "1\n00:00:01,000 --> 00:00:02,000\nx\n").unwrap();
+        let j = Job { out_ext: "ass".into(), overwrite: true, ..Job::default() };
+        let c = conflicts(&[a.clone(), b.clone()], &j);
+        assert!(c[0].is_none() && c[1].is_some(), "{:?}", c);
+        // var olan başka dosyanın üzerine izinsiz yazılmaz
+        let job = Job { out_ext: "srt".into(), ..Default::default() };
+        assert!(run_file(&a, &job).unwrap_err().contains("zaten var"));
+        std::fs::remove_file(&b).unwrap();
         let job = Job { out_ext: "srt".into(), shift_ms: 500, fixes: Some(Default::default()), remove_comments: true, ..Default::default() };
         let (out, note) = run_file(&a, &job).unwrap();
         assert_eq!(out, dir.join("b01.srt"));
