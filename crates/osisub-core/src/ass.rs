@@ -431,6 +431,9 @@ impl Script {
                 Box::new(grouped.iter().copied())
             }
         };
+        let has_events = self.entries.iter().any(|e| e.section() == SEC_EVENTS);
+        let mut events_done = false;
+        let events_head = format!("[{}]{nl}Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text{nl}", SEC_EVENTS);
         for e in iter {
             if let Entry::Dialogue(d) = e {
                 if !keep(d) {
@@ -446,6 +449,12 @@ impl Script {
             }
             let sec = e.section();
             if cur != Some(sec) {
+                // hiç satır yoksa da [Events] başlığı yazılır (Aegisub; tüm satırları silen makrodan sonra)
+                if !has_events && !events_done && cur == Some(SEC_STYLES) {
+                    out.push_str(nl);
+                    out.push_str(&events_head);
+                    events_done = true;
+                }
                 if cur.is_some() {
                     out.push_str(nl);
                 }
@@ -477,6 +486,10 @@ impl Script {
                 Entry::Unknown { raw, .. } => out.push_str(raw),
             }
             out.push_str(nl);
+        }
+        if !has_events && !events_done && self.entries.iter().any(|e| matches!(e, Entry::Style(_))) {
+            out.push_str(nl);
+            out.push_str(&events_head);
         }
         out
     }
@@ -841,6 +854,21 @@ mod tests {
 #[cfg(test)]
 mod roundtrip_tests {
     use super::*;
+
+    #[test]
+    fn satirsiz_betikte_events_basligi() {
+        let mut s = Script::new_default();
+        s.entries.retain(|e| !matches!(e, Entry::Dialogue(_)));
+        let t = s.to_ass_string().replace("\r\n", "\n");
+        assert!(t.ends_with("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"), "{}", t);
+        let mut s2 = Script::parse(&format!("{}\n[Aegisub Extradata]\nData: 1,a,b\n", t));
+        let t2 = s2.to_ass_string();
+        assert!(t2.find("[Events]").unwrap() < t2.find("[Aegisub Extradata]").unwrap(), "{}", t2);
+        assert_eq!(t2.matches("[Events]").count(), 1);
+        // sonra eklenen satır Events'e gider
+        s2.append_in_section(Entry::Dialogue(Dialogue::default()));
+        assert_eq!(s2.to_ass_string().matches("[Events]").count(), 1);
+    }
 
     #[test]
     fn ssa_scripttype_ve_virgullu_stil_adi() {

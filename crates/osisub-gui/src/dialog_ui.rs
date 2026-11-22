@@ -98,9 +98,11 @@ pub fn show(ctx: &egui::Context, title: &str, st: &mut DialogState) -> Option<Di
             let buttons: Vec<String> = if st.spec.buttons.is_empty() { vec!["OK".into(), "Cancel".into()] } else { st.spec.buttons.clone() };
             for b in buttons {
                 if ui.button(&b).clicked() {
+                    // Aegisub: false yalnızca iptal kimliğine bağlı düğmede (ya da varsayılan OK/Cancel'da
+                    // Cancel'da) döner; "Cancel" etiketli özel düğme etiketini döndürür
                     let is_cancel = match &st.spec.cancel {
                         Some(c) => *c == b,
-                        None => b.eq_ignore_ascii_case("cancel") || b.eq_ignore_ascii_case("iptal"),
+                        None => st.spec.buttons.is_empty() && b == "Cancel",
                     };
                     result = Some(DialogResult { button: if is_cancel { None } else { Some(b) }, values: st.values.clone() });
                 }

@@ -140,7 +140,9 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
         let inn = inner.clone();
         native.set(
             "log",
-            lua.create_function(move |_, (level, msg): (i64, String)| {
+            lua.create_function(move |_, (level, msg): (i64, mlua::String)| {
+                // bayt bayt kesilmiş dize (("é"):sub(1,1)) hata vermesin: Aegisub da yazar
+                let msg = msg.to_string_lossy().to_string();
                 let mut i = inn.borrow_mut();
                 i.host.log(level, &msg);
                 i.log.push_str(&msg);
@@ -326,6 +328,15 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                             continue;
                         }
                     }
+                    // intedit tam sayı döner (Aegisub lua_pushinteger), sınırlar içinde
+                    if let (Some("intedit"), DV::Num(n)) = (class.as_deref(), v) {
+                        let c = spec.controls.iter().find(|c| &c.name == k);
+                        let mut n = n.trunc();
+                        if let Some(lo) = c.and_then(|c| c.min) { n = n.max(lo); }
+                        if let Some(hi) = c.and_then(|c| c.max) { n = n.min(hi); }
+                        res.set(k.as_str(), n as i64)?;
+                        continue;
+                    }
                     res.set(k.as_str(), dv_to_lua(lua, v)?)?;
                 }
                 let b = match r.button {
@@ -429,7 +440,7 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
             lua.create_function(move |_, ()| {
                 Ok(match inn.borrow().host.video_size() {
                     Some((w, h)) => MultiValue::from_iter([Value::Integer(w as i64), Value::Integer(h as i64), Value::Number(w as f64 / h as f64), Value::Integer(0)]),
-                    None => MultiValue::new(),
+                    None => MultiValue::from_iter([Value::Nil]),
                 })
             })?,
         )?;
@@ -510,7 +521,7 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 };
                 for tag in ["?script", "?video", "?audio", "?data", "?user", "?local", "?temp", "?dictionary"] {
                     if let Some(rest) = p.strip_prefix(tag) {
-                        if let Some(base) = repl(tag) {
+                        if let Some(base) = repl(tag).filter(|b| !b.is_empty()) {
                             return Ok(format!("{}{}", base, rest));
                         }
                     }
@@ -589,6 +600,9 @@ fn boost_pattern(pat: &str) -> String {
 }
 
 fn compile(pat: &str, icase: bool) -> Result<Regex> {
+    if pat.is_empty() {
+        return Err(mlua::Error::runtime("Regular expression must not be empty"));
+    }
     // harf duyarsızlığı satır içi (?i): fancy-regex'te bakış ifadeli desende yapıcı bayrağı işlemiyor
     let p = boost_pattern(pat);
     let p = if icase { format!("(?i){p}") } else { p };
@@ -625,8 +639,10 @@ fn captures_table(lua: &Lua, s: &str, c: &fancy_regex::Captures) -> Result<Table
     Ok(out)
 }
 
-fn match_first(lua: &Lua, re: &Regex, s: &str) -> Result<Value> {
-    let Some(c) = re.captures(s).map_err(mlua::Error::external)? else { return Ok(Value::Nil) };
+fn match_first(lua: &Lua, re: &Regex, s: &str, start: usize) -> Result<Value> {
+    let mut pos = start.saturating_sub(1).min(s.len());
+    while !s.is_char_boundary(pos) { pos += 1; }
+    let Some(c) = re.captures_from_pos(s, pos).map_err(mlua::Error::external)? else { return Ok(Value::Nil) };
     Ok(Value::Table(captures_table(lua, s, &c)?))
 }
 
@@ -673,21 +689,45 @@ fn sub_impl(re: &Regex, s: &str, repl: Value, count: Option<i64>) -> Result<Stri
     let limit = count.filter(|c| *c > 0).map(|c| c as usize).unwrap_or(0);
     match repl {
         Value::Function(f) => {
+            // Aegisub re.moon: grupsuz desende işlev tüm eşleşmeyle, gruplu desende her yakalama grubu
+            // için (str, first, last) ile çağrılır; dize dönmezse özgün metin kalır.
+            let call = |text: &str, a: usize, b: usize| -> Result<Option<String>> {
+                match f.call::<Value>((text, a + 1, b))? {
+                    Value::String(r) => Ok(Some(r.to_str()?.to_string())),
+                    _ => Ok(None),
+                }
+            };
             let mut out = String::new();
             let mut last = 0;
             let mut n = 0;
-            for m in re.find_iter(s) {
-                let m = m.map_err(mlua::Error::external)?;
+            let mut pos = 0;
+            while pos <= s.len() {
+                let Some(c) = re.captures_from_pos(s, pos).map_err(mlua::Error::external)? else { break };
+                let m = c.get(0).expect("0. grup");
                 if limit != 0 && n >= limit {
                     break;
                 }
                 out.push_str(&s[last..m.start()]);
-                let r: String = f.call(m.as_str())?;
-                out.push_str(&r);
+                if c.len() <= 1 {
+                    out.push_str(&call(m.as_str(), m.start(), m.end())?.unwrap_or_else(|| m.as_str().to_string()));
+                } else {
+                    let mut cur = m.start();
+                    for g in 1..c.len() {
+                        let Some(cm) = c.get(g) else { continue };
+                        if cm.start() < cur { continue; } // iç içe grup: dış grup zaten yazıldı
+                        out.push_str(&s[cur..cm.start()]);
+                        out.push_str(&call(cm.as_str(), cm.start(), cm.end())?.unwrap_or_else(|| cm.as_str().to_string()));
+                        cur = cm.end();
+                    }
+                    out.push_str(&s[cur..m.end()]);
+                }
                 last = m.end();
                 n += 1;
+                pos = if m.end() > m.start() { m.end() } else {
+                    match s[m.end()..].chars().next() { Some(ch) => m.end() + ch.len_utf8(), None => break }
+                };
             }
-            out.push_str(&s[last..]);
+            out.push_str(&s[last.min(s.len())..]);
             Ok(out)
         }
         Value::String(r) => {
@@ -734,38 +774,66 @@ local raw = re.compile
 re.compile = function(p, ...) return add(raw(p, ...)) end
 re.split = function(s, p, skip_empty, max_split, ...) return re.compile(p, ...):split(s, skip_empty, max_split) end
 re.gsplit = function(s, p, skip_empty, max_split, ...) return re.compile(p, ...):gsplit(s, skip_empty, max_split) end
-re.gmatch = function(s, p, ...) return re.compile(p, ...):gmatch(s) end
+re.gmatch = function(s, p, ...)
+  local start, flags = nil, {}
+  for _, a in ipairs({...}) do if type(a) == "number" then start = a else flags[#flags + 1] = a end end
+  return re.compile(p, unpack(flags)):gmatch(s, start)
+end
 re.gfind = function(s, p, ...) return re.compile(p, ...):gfind(s) end
 "#;
 
-fn install_re(lua: &Lua, re: &Table) -> Result<()> {
-    re.set("ICASE", 1)?;
-    re.set("NOSUB", 2)?;
-    re.set("BASIC", 4)?;
-    re.set("NEWLINE", 8)?;
-    let flags = |v: Variadic<Value>| v.iter().fold(0i64, |a, x| a | match x { Value::Integer(i) => *i, Value::Number(n) => *n as i64, _ => 0 });
-    re.set("find", lua.create_function(move |lua, (s, p, f): (String, String, Variadic<Value>)| find_all(lua, &compile(&p, flags(f) & 1 != 0)?, &s))?)?;
-    re.set("match", lua.create_function(move |lua, (s, p, f): (String, String, Variadic<Value>)| match_first(lua, &compile(&p, flags(f) & 1 != 0)?, &s))?)?;
-    let sub = lua.create_function(move |_, (s, p, r, rest): (String, String, Value, Variadic<Value>)| {
-        let mut count = None;
-        let mut fl = 0;
-        for (i, v) in rest.iter().enumerate() {
-            let n = match v { Value::Integer(i) => *i, Value::Number(n) => *n as i64, _ => 0 };
-            if i == 0 { count = Some(n); } else { fl |= n; }
+/// Bağımsız değişkenlerden `re.ICASE` gibi bayrakları ayırır (Aegisub: `agi_re_flag` cdata;
+/// burada `{__re_flag = n}` tablosu). Kalanlar sırayla döner (başlangıç, en çok değiştirme…).
+fn split_re_args(v: &Variadic<Value>) -> (i64, Vec<Value>) {
+    let mut flags = 0;
+    let mut rest = vec![];
+    for x in v.iter() {
+        match x {
+            Value::Table(t) => match t.raw_get::<Option<i64>>("__re_flag") {
+                Ok(Some(f)) => flags |= f,
+                _ => rest.push(x.clone()),
+            },
+            Value::Nil => {}
+            _ => rest.push(x.clone()),
         }
-        sub_impl(&compile(&p, fl & 1 != 0)?, &s, r, count)
+    }
+    (flags, rest)
+}
+
+fn num_arg(v: Option<&Value>) -> Option<i64> {
+    match v {
+        Some(Value::Integer(i)) => Some(*i),
+        Some(Value::Number(n)) => Some(*n as i64),
+        _ => None,
+    }
+}
+
+fn install_re(lua: &Lua, re: &Table) -> Result<()> {
+    for (name, v) in [("ICASE", 1), ("NOSUB", 2), ("BASIC", 4), ("NEWLINE", 8), ("COLLATE", 16), ("EXTENDED", 32), ("NOSUBS", 2), ("NO_MOD_M", 64)] {
+        let t = lua.create_table()?;
+        t.set("__re_flag", v)?;
+        re.set(name, t)?;
+    }
+    re.set("find", lua.create_function(move |lua, (s, p, f): (String, String, Variadic<Value>)| find_all(lua, &compile(&p, split_re_args(&f).0 & 1 != 0)?, &s))?)?;
+    re.set("match", lua.create_function(move |lua, (s, p, f): (String, String, Variadic<Value>)| {
+        let (fl, rest) = split_re_args(&f);
+        match_first(lua, &compile(&p, fl & 1 != 0)?, &s, num_arg(rest.first()).unwrap_or(1).max(1) as usize)
+    })?)?;
+    let sub = lua.create_function(move |_, (s, p, r, rest): (String, String, Value, Variadic<Value>)| {
+        let (fl, rest) = split_re_args(&rest);
+        sub_impl(&compile(&p, fl & 1 != 0)?, &s, r, num_arg(rest.first()))
     })?;
     re.set("sub", sub.clone())?;
     re.set("gsub", sub)?;
     re.set(
         "compile",
         lua.create_function(move |lua, (p, f): (String, Variadic<Value>)| {
-            let rx = Rc::new(compile(&p, flags(f) & 1 != 0)?);
+            let rx = Rc::new(compile(&p, split_re_args(&f).0 & 1 != 0)?);
             let t = lua.create_table()?;
             let r = rx.clone();
             t.set("find", lua.create_function(move |lua, (_s, s): (Value, String)| find_all(lua, &r, &s))?)?;
             let r = rx.clone();
-            t.set("match", lua.create_function(move |lua, (_s, s): (Value, String)| match_first(lua, &r, &s))?)?;
+            t.set("match", lua.create_function(move |lua, (_s, s, start): (Value, String, Option<i64>)| match_first(lua, &r, &s, start.unwrap_or(1).max(1) as usize))?)?;
             let r = rx.clone();
             let sub = lua.create_function(move |_, (_s, s, rep, count): (Value, String, Value, Option<i64>)| sub_impl(&r, &s, rep, count))?;
             t.set("sub", sub.clone())?;
@@ -780,31 +848,52 @@ fn install_re(lua: &Lua, re: &Table) -> Result<()> {
 
 // ------------------------------------------------------------------ unicode
 
+/// Aegisub unicode.moon'dan birebir: bayt tabanlı (geçersiz UTF-8'de hata vermez).
+const UNICODE_IMPL: &str = r#"
+local unicode = ...
+function unicode.charwidth(s, i)
+  local b = s:byte(i or 1)
+  if not b then return 1 elseif b < 128 then return 1 elseif b < 224 then return 2 elseif b < 240 then return 3 else return 4 end
+end
+function unicode.chars(s)
+  local curchar, i = 0, 1
+  return function()
+    if i > s:len() then return end
+    local j = i
+    curchar = curchar + 1
+    i = i + unicode.charwidth(s, i)
+    return s:sub(j, i - 1), curchar
+  end
+end
+function unicode.len(s)
+  local n = 0
+  for _ in unicode.chars(s) do n = n + 1 end
+  return n
+end
+function unicode.codepoint(s)
+  local b = s:byte(1)
+  if not b then return nil end
+  if b < 128 then return b end
+  local res, w
+  if b < 224 then res, w = b - 192, 2 elseif b < 240 then res, w = b - 224, 3 else res, w = b - 240, 4 end
+  for i = 2, w do res = res * 64 + (s:byte(i) or 128) - 128 end
+  return res
+end
+"#;
+
 fn install_unicode(lua: &Lua, u: &Table) -> Result<()> {
-    u.set("codepoint", lua.create_function(|_, s: String| Ok(s.chars().next().map(|c| c as u32).unwrap_or(0)))?)?;
-    u.set("len", lua.create_function(|_, s: String| Ok(s.chars().count()))?)?;
-    u.set("to_upper", lua.create_function(|_, s: String| Ok(s.to_uppercase()))?)?;
-    u.set("to_lower", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
-    u.set("to_fold", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
+    // büyük/küçük harf: geçersiz UTF-8 bayrakları hata yerine U+FFFD olur
+    let conv = |f: fn(&str) -> String| move |_: &Lua, s: mlua::String| Ok(f(&s.to_string_lossy()));
+    u.set("to_upper", lua.create_function(conv(|s| s.to_uppercase()))?)?;
+    u.set("to_lower", lua.create_function(conv(|s| s.to_lowercase()))?)?;
+    u.set("to_fold", lua.create_function(conv(|s| s.to_lowercase()))?)?;
     // Aegisub unicode.lua adları
-    u.set("to_upper_case", lua.create_function(|_, s: String| Ok(s.to_uppercase()))?)?;
-    u.set("to_lower_case", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
-    u.set("to_fold_case", lua.create_function(|_, s: String| Ok(s.to_lowercase()))?)?;
-    u.set("tr_upper", lua.create_function(|_, s: String| Ok(osisub_core::qc::tr_upper(&s)))?)?;
-    u.set("tr_lower", lua.create_function(|_, s: String| Ok(osisub_core::qc::tr_lower(&s)))?)?;
-    u.set(
-        "chars",
-        lua.create_function(|lua, s: String| {
-            let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
-            let idx = Rc::new(RefCell::new(0usize));
-            lua.create_function(move |_, ()| {
-                let mut i = idx.borrow_mut();
-                let r = chars.get(*i).cloned();
-                *i += 1;
-                Ok(r)
-            })
-        })?,
-    )?;
+    u.set("to_upper_case", lua.create_function(conv(|s| s.to_uppercase()))?)?;
+    u.set("to_lower_case", lua.create_function(conv(|s| s.to_lowercase()))?)?;
+    u.set("to_fold_case", lua.create_function(conv(|s| s.to_lowercase()))?)?;
+    u.set("tr_upper", lua.create_function(conv(osisub_core::qc::tr_upper))?)?;
+    u.set("tr_lower", lua.create_function(conv(osisub_core::qc::tr_lower))?)?;
+    lua.load(UNICODE_IMPL).set_name("osisub/unicode").call::<()>(u.clone())?;
     Ok(())
 }
 

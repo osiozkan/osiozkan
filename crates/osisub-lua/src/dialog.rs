@@ -95,19 +95,29 @@ impl DialogSpec {
             if let Ok(Value::Table(items)) = t.get::<Value>("items") {
                 c.items = items.sequence_values::<String>().filter_map(|x| x.ok()).collect();
             }
-            // Varsayılanlar: edit/textbox -> text, dropdown -> value.
-            if c.value.is_none() {
-                c.value = match class.as_str() {
-                    "edit" | "textbox" => Some(DV::Str(c.text.clone())),
-                    "intedit" | "floatedit" | "alpha" => Some(DV::Num(c.min.unwrap_or(0.0).max(0.0).min(c.max.unwrap_or(f64::MAX)))),
-                    "checkbox" => Some(DV::Bool(false)),
-                    "dropdown" => Some(DV::Str(c.items.first().cloned().unwrap_or_default())),
-                    "color" | "coloralpha" => Some(DV::Str("&H000000&".into())),
-                    _ => None,
-                };
-                if matches!(class.as_str(), "edit" | "textbox") && c.value == Some(DV::Str(String::new())) {
-                    c.value = Some(DV::Str(String::new()));
+            // Sınıfa göre tür ve varsayılanlar (Aegisub auto4_lua_dialog.cpp)
+            let raw_value = t.get::<Value>("value").unwrap_or(Value::Nil);
+            let has_text = !matches!(t.get::<Value>("text"), Ok(Value::Nil) | Err(_));
+            match class.as_str() {
+                // value dizeye çevrilir; ikisi de varsa text kazanır
+                "edit" | "textbox" => c.value = Some(DV::Str(if has_text { c.text.clone() } else { s(&t, "value") })),
+                "intedit" | "floatedit" => {
+                    let int = class == "intedit";
+                    let mut v = match raw_value { Value::Integer(x) => x as f64, Value::Number(x) => x, _ => 0.0 };
+                    // min >= max: sınırsız
+                    if let (Some(lo), Some(hi)) = (c.min, c.max) {
+                        if lo >= hi { c.min = None; c.max = None; }
+                    }
+                    if int { v = v.trunc(); c.min = c.min.map(f64::trunc); c.max = c.max.map(f64::trunc); }
+                    if let Some(lo) = c.min { v = v.max(lo); }
+                    if let Some(hi) = c.max { v = v.min(hi); }
+                    c.value = Some(DV::Num(v));
                 }
+                // yalnızca gerçek boolean kabul edilir (value=1 → false)
+                "checkbox" => c.value = Some(DV::Bool(matches!(raw_value, Value::Boolean(true)))),
+                "dropdown" | "alpha" => c.value = Some(DV::Str(s(&t, "value"))),
+                "color" | "coloralpha" => c.value = Some(DV::Str(match s(&t, "value") { v if v.is_empty() => "&H000000&".into(), v => v })),
+                _ => {}
             }
             spec.controls.push(c);
         }
@@ -135,7 +145,8 @@ impl DialogSpec {
                 }
             }
         }
-        let button = self.buttons.first().cloned().or(Some("OK".into()));
+        // varsayılan düğme: ok kimliği, yoksa iptal olmayan ilk düğme
+        let button = self.ok.clone().filter(|o| self.buttons.contains(o)).or_else(|| self.buttons.iter().find(|b| Some(*b) != self.cancel.as_ref()).cloned()).or(Some("OK".into()));
         DialogResult { button, values }
     }
 }

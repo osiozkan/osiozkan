@@ -89,39 +89,52 @@ function util.interpolate_alpha(t, a1, a2)
   return util.ass_alpha(util.interpolate(t, x1, x2))
 end
 
--- H derece [0,360); S,V [0,1] (255 ölçeği de kabul edilir). r,g,b [0,255] döner.
+-- Aegisub util.moon'dan birebir: H derece (|H| % 360), S/V 0–1; r,g,b YUVARLANMAMIŞ 0–255 döner.
 function util.HSV_to_RGB(H, S, V)
-  if S > 1 or V > 1 then S, V = S / 255, V / 255 end
-  H = (H % 360) / 60
-  local c = V * S
-  local x = c * (1 - math.abs(H % 2 - 1))
-  local m = V - c
-  local r, g, b
-  local i = math.floor(H)
-  if i == 0 then r, g, b = c, x, 0
-  elseif i == 1 then r, g, b = x, c, 0
-  elseif i == 2 then r, g, b = 0, c, x
-  elseif i == 3 then r, g, b = 0, x, c
-  elseif i == 4 then r, g, b = x, 0, c
-  else r, g, b = c, 0, x end
-  return round((r + m) * 255), round((g + m) * 255), round((b + m) * 255)
+  local r, g, b = 0, 0, 0
+  if S == 0 then
+    r = util.clamp(V * 255, 0, 255); g = r; b = r
+  else
+    H = math.abs(H) % 360
+    local Hi = math.floor(H / 60)
+    local f = H / 60.0 - Hi
+    local p, q, t = V * (1 - S), V * (1 - f * S), V * (1 - (1 - f) * S)
+    if Hi == 0 then r, g, b = V * 255.0, t * 255.0, p * 255.0
+    elseif Hi == 1 then r, g, b = q * 255.0, V * 255.0, p * 255.0
+    elseif Hi == 2 then r, g, b = p * 255.0, V * 255.0, t * 255.0
+    elseif Hi == 3 then r, g, b = p * 255.0, q * 255.0, V * 255.0
+    elseif Hi == 4 then r, g, b = t * 255.0, p * 255.0, V * 255.0
+    elseif Hi == 5 then r, g, b = V * 255.0, p * 255.0, q * 255.0
+    else error("math.floor(H % 360 / 60) should be [0, 6), is " .. tostring(Hi) .. "?") end
+  end
+  return r, g, b
 end
 
+-- Aegisub util.moon'dan birebir (S, L 0–1'e kıstırılır; tam sayı döner).
 function util.HSL_to_RGB(H, S, L)
-  if S > 1 or L > 1 then S, L = S / 255, L / 255 end
-  local c = (1 - math.abs(2 * L - 1)) * S
-  H = (H % 360) / 60
-  local x = c * (1 - math.abs(H % 2 - 1))
-  local m = L - c / 2
   local r, g, b
-  local i = math.floor(H)
-  if i == 0 then r, g, b = c, x, 0
-  elseif i == 1 then r, g, b = x, c, 0
-  elseif i == 2 then r, g, b = 0, c, x
-  elseif i == 3 then r, g, b = 0, x, c
-  elseif i == 4 then r, g, b = x, 0, c
-  else r, g, b = c, 0, x end
-  return round((r + m) * 255), round((g + m) * 255), round((b + m) * 255)
+  H = math.abs(H) % 360
+  S = util.clamp(S, 0, 1)
+  L = util.clamp(L, 0, 1)
+  if S == 0 then
+    r, g, b = L, L, L
+  else
+    local Q = L < 0.5 and L * (1.0 + S) or L + S - (L * S)
+    local P = 2.0 * L - Q
+    local Hk = H / 360
+    local Tr, Tg, Tb
+    if Hk < 1/3 then Tr, Tg, Tb = Hk + 1/3, Hk, Hk + 2/3
+    elseif Hk > 2/3 then Tr, Tg, Tb = Hk - 2/3, Hk, Hk - 1/3
+    else Tr, Tg, Tb = Hk + 1/3, Hk, Hk - 1/3 end
+    local function comp(T)
+      if T < 1/6 then return P + ((Q - P) * 6.0 * T)
+      elseif 1/6 <= T and T < 1/2 then return Q
+      elseif 1/2 <= T and T < 2/3 then return P + ((Q - P) * (2/3 - T) * 6.0)
+      else return P end
+    end
+    r, g, b = comp(Tr), comp(Tg), comp(Tb)
+  end
+  return math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)
 end
 
 function util.RGB_to_HSV(r, g, b)
@@ -157,18 +170,24 @@ function util.uuid()
   return s:sub(1, 8) .. "-" .. s:sub(9, 12) .. "-4" .. s:sub(14, 16) .. "-a" .. s:sub(18, 20) .. "-" .. s:sub(21, 32)
 end
 
+-- Aegisub util.moon: trim gsub'un iki değerini döner; words headtail üzerine kurulu ("" başta olabilir)
 function string.trim(s)
-  return (s:gsub("^%s*(.-)%s*$", "%1"))
+  return s:gsub("^%s*(.-)%s*$", "%1")
 end
 
 function string.headtail(s)
-  local a, b = s:find("%s+")
-  if a then return s:sub(1, a - 1), s:sub(b + 1) end
+  local a, b, head, tail = s:find("(.-)%s+(.*)")
+  if a then return head, tail end
   return s, ""
 end
 
 function string.words(s)
-  return s:gmatch("%S+")
+  return function()
+    if s == "" then return end
+    local head, tail = string.headtail(s)
+    s = tail
+    return head
+  end
 end
 
 -- Aegisub include/utils.lua uyumluluğu: eski betiklerin kullandığı genel takma adlar.

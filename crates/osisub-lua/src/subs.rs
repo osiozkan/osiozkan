@@ -285,6 +285,9 @@ pub fn table_to_entry(t: &Table, default_section: &str) -> Result<Entry> {
                 extra: Vec::new(),
             })
         }
+        // Aegisub: sınıfsız ya da bilinmeyen sınıflı tablo hatadır (boş/çöp satır yazılmasın)
+        "" => return Err(mlua::Error::runtime("Table lacks 'class' field")),
+        c if c != "unknown" => return Err(mlua::Error::runtime(format!("Found line with unknown class: {}", c))),
         _ => {
             let section = str_field(t, "section")
                 .map(|s| s.trim_start_matches('[').trim_end_matches(']').to_string())

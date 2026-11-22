@@ -88,7 +88,7 @@ function all_checks(subs, sel, active)
   check(aegisub.decode_path("?temp/x"):find("x$"), "decode_path")
   local p = aegisub.project_properties()
   check(type(p) == "table" and p.video_position == 0, "project_properties")
-  check(select("#", aegisub.video_size()) == 0, "video_size headless")
+  check(select("#", aegisub.video_size()) == 1 and aegisub.video_size() == nil, "video_size headless")
   check(aegisub.frame_from_ms(1000) == nil, "frame_from_ms headless")
   -- text_extents
   local meta, styles = karaskel.collect_head(subs)
@@ -157,6 +157,42 @@ function all_checks(subs, sel, active)
   check(kd[2].text == "def{\\b1}" and kd[2].tag == "\\k" and kd[2].text_stripped == "def", "\\k öncesi etiket önceki hecede")
   check(kd[3].tag == "\\kf" and kd[3].start_time == 100 and kd[3].duration == 200, "\\K → \\kf")
   check(#aegisub.parse_karaoke_data({ text = "{\\k0}{\\k10}a" }) == 1, "boş 0 süreli hece atlanır")
+  -- re: işlevle değiştirme grup başına, bayraklar işaretli, match başlangıcı, boş desen hatası
+  check(re.sub("x=1", "=(\\d)", function(d) return tostring(tonumber(d) + 1) end) == "x=2", "re.sub işlev grup başına")
+  check(re.sub("ab", "a", function() return nil end) == "ab", "re.sub işlev nil → özgün")
+  check(re.sub("aAa", "a", "x", re.ICASE) == "xxx", "re.sub ICASE bayrağı")
+  check(re.sub("aaa", "a", "x", 2) == "xxa", "re.sub en çok 2")
+  check(re.compile("a"):match("aXa", 2)[1].first == 3, "match başlangıç konumu")
+  check(not pcall(re.find, "abc", ""), "boş desen hata verir")
+  -- util.moon birebir: HSV yuvarlanmamış, negatif ton; HSL kıstırma; trim iki değer; words headtail
+  check(util.ass_color(util.HSV_to_RGB(30, .5, .5)) == "&H3F5F7F&", "HSV_to_RGB yuvarlamaz")
+  local hr, hg, hb = util.HSV_to_RGB(-30, 1, 1)
+  check(hr == 255 and hg == 127.5 and hb == 0, "HSV_to_RGB |H|")
+  local lr, lg, lb = util.HSL_to_RGB(0, 2, .5)
+  check(lr == 255 and lg == 0 and lb == 0, "HSL_to_RGB kıstırma")
+  check(select("#", string.trim(" a ")) == 2, "trim iki değer")
+  local ws = {}
+  for w in string.words(" a b") do ws[#ws + 1] = w end
+  check(#ws == 3 and ws[1] == "" and ws[3] == "b", "words headtail")
+  -- geçersiz UTF-8 hata vermez
+  check(unicode.len("\255a") == 1, "unicode.len bayt tabanlı")
+  check(unicode.codepoint("ğ") == 0x11F, "unicode.codepoint")
+  aegisub.log(5, ("é"):sub(1, 1))
+  check(select("#", aegisub.video_size()) >= 1, "video_size nil döner")
+  -- iletişim kutusu değer türleri (başsız: varsayılanlar döner)
+  local db, dr = aegisub.dialog.display({
+    { class = "intedit", name = "i", value = 50, max = 10, min = 0 },
+    { class = "intedit", name = "j", value = 3.7 },
+    { class = "checkbox", name = "c", value = 1 },
+    { class = "textbox", name = "t", value = 5 },
+    { class = "edit", name = "e", value = "v", text = "t" },
+    { class = "dropdown", name = "d", items = { "a", "b" } },
+  }, { "Cancel", "OK" }, { cancel = "Cancel" })
+  check(db == "OK", "başsız düğme iptal değil")
+  check(dr.i == 10 and dr.j == 3, "intedit kıstır/kes")
+  check(dr.c == false and dr.t == "5" and dr.e == "t" and dr.d == "", "değer türleri")
+  check(not pcall(subs.append, { text = "x" }), "sınıfsız satır hata")
+  check(not pcall(subs.append, { class = "foo", raw = "raw" }), "bilinmeyen sınıf hata")
   aegisub.set_undo_point("uyumluluk")
   return { first }
 end
