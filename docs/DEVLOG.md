@@ -159,3 +159,4 @@ Dal: `claude/vibrant-clarke-0m2nvf` (`-e4mle3` ileri sarıldı; main'de yalnızc
 - **Bağımsız Lua API incelemesi** (arch1t3cht kaynaklarıyla): 12 farkın çoğu düzeltildi (bkz. LUA_UYUMLULUK.md). Bilinçli bırakılan: `subs.foo`/`subs[0]`/aralık dışı `insert`/`delete(99)` Aegisub'da hata, osisub'da sessiz (betik kırılmasın diye); `project_properties` eksik alanları; doğrulama işlevinin `subs`'u değiştirebilmesi.
 - CI: Windows'ta fikstür CRLF ile geliyor (test `replace("\r\n","\n")`); ui-e2e yer imi adımına bekleme eklendi (CI'da üç kez düştü, yerelde hiç).
 - Zaman kaydırma: yalnız başlangıç/bitiş + geçmiş (ayarlarda `shift_history`).
+- Performans (bu gecenin gerilemesi yakalandı): seçim → Lua dizini eşlemesi satır başına tarıyordu (O(n²)); 50k satır tümü seçiliyken boş makro 4.3 sn → 0.1 sn (`subs::visible_raw` tek geçiş + ikili arama). 50k satırda okuma döngüsü 0.2 sn, 5000 silme 1.35 sn (Vec::remove; kabul edilebilir).

@@ -29,6 +29,11 @@ pub fn lua_visible(e: &Entry) -> bool {
     !matches!(e, Entry::Unknown { .. })
 }
 
+/// Lua'ya görünen satırların ham dizinleri (artan sıralı; Lua dizini = konum + 1).
+pub fn visible_raw(script: &ass::Script) -> Vec<usize> {
+    script.entries.iter().enumerate().filter(|(_, e)| lua_visible(e)).map(|(i, _)| i).collect()
+}
+
 /// Ham (0 tabanlı) dizin → Lua dizini (1 tabanlı); gizli satırsa `None`.
 pub fn lua_index_of(script: &ass::Script, raw: usize) -> Option<usize> {
     if raw >= script.entries.len() || !lua_visible(&script.entries[raw]) { return None; }

@@ -376,9 +376,10 @@ impl Engine {
     /// Seçim (ham, 1 tabanlı) → Lua dizinleri (gizli satırlar sayılmaz; bkz. `subs::lua_visible`).
     fn sel_table(&self, sel: &[usize]) -> mlua::Result<Table> {
         let t = self.lua.create_table()?;
-        let sc = self.script.borrow();
-        for (i, v) in sel.iter().filter_map(|&v| v.checked_sub(1).and_then(|r| crate::subs::lua_index_of(&sc, r))).enumerate() {
-            t.set(i + 1, v as i64)?;
+        // tek geçişte ham → Lua eşlemesi (seçim başına tarama 50k satırda O(n²) oluyordu)
+        let vis = crate::subs::visible_raw(&self.script.borrow());
+        for (i, v) in sel.iter().filter_map(|&v| v.checked_sub(1).and_then(|r| vis.binary_search(&r).ok())).enumerate() {
+            t.set(i + 1, (v + 1) as i64)?;
         }
         Ok(t)
     }
@@ -449,7 +450,8 @@ impl Engine {
                 let mut out = RunOutcome { undo_desc, ..Default::default() };
                 let mut it = vals.into_iter();
                 if let Some(Value::Table(t)) = it.next() {
-                    out.selection = Some(t.sequence_values::<i64>().filter_map(|v| v.ok()).filter(|&v| v >= 1).filter_map(|v| self.raw_from_lua(v as usize)).collect());
+                    let vis = crate::subs::visible_raw(&self.script.borrow());
+                    out.selection = Some(t.sequence_values::<i64>().filter_map(|v| v.ok()).filter(|&v| v >= 1).filter_map(|v| vis.get(v as usize - 1).map(|r| r + 1)).collect());
                 }
                 match it.next() {
                     Some(Value::Integer(i)) if i >= 1 => out.active = self.raw_from_lua(i as usize),
