@@ -164,7 +164,8 @@ pub fn move_boundary(syls: &mut [Syl], i: usize, delta: i64) {
     if i + 1 >= syls.len() {
         return;
     }
-    let d = delta.clamp(-syls[i].dur, syls[i + 1].dur);
+    // negatif süreli hecede (bozuk {\\k-5}) clamp(min > max) paniklemesin
+    let d = delta.max(-syls[i].dur.max(0)).min(syls[i + 1].dur.max(0));
     syls[i].dur += d;
     syls[i + 1].dur -= d;
 }
@@ -729,6 +730,17 @@ pub fn parse_aegisub(text: &str) -> Vec<AegiSyl> {
     }
     out.push(syl);
     out
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    #[test]
+    fn negatif_sure_paniklemez() {
+        let mut v = super::parse("{\\k-5}a{\\k3}b");
+        super::move_boundary(&mut v, 0, 1);
+        super::move_boundary(&mut v, 0, -10);
+        assert_eq!(super::total(&v), -2);
+    }
 }
 
 #[cfg(test)]

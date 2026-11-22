@@ -387,6 +387,14 @@ impl Document {
         self.edit_keyed("Metin düzenle", Some(&format!("text:{}", at)), |tx| tx.dialogue_mut(at, |d| d.text = text.to_string()));
     }
 
+    /// Son düzenlemeyi kapatır: sonraki aynı anahtarlı düzenleme ona eklenmez, ayrı geri alma adımı olur
+    /// (bir sürükleme bittiğinde ya da tek seferlik işlemlerden sonra; Aegisub her sürüklemeyi ayrı kaydeder).
+    pub fn seal(&mut self) {
+        if let Some(l) = self.undo.last_mut() {
+            l.key = None;
+        }
+    }
+
     pub fn set_times(&mut self, at: usize, start: i64, end: i64) {
         self.edit_keyed("Zaman düzenle", Some(&format!("time:{}", at)), |tx| {
             tx.dialogue_mut(at, |d| {
@@ -790,6 +798,21 @@ mod tests {
 
     fn first_dlg(d: &Document) -> usize {
         d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap()
+    }
+
+    #[test]
+    fn seal_ayri_geri_alma_adimi() {
+        let mut d = Document::new(Script::from_dialogues(vec![Dialogue::default()]));
+        let at = d.script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        let orig = match &d.script.entries[at] { Entry::Dialogue(x) => (x.start_time, x.end_time), _ => unreachable!() };
+        d.set_times(at, 100, 200);
+        d.set_times(at, 150, 200); // aynı sürükleme: birleşir
+        d.seal();
+        d.set_times(at, 150, 900); // yeni işlem
+        d.undo();
+        assert!(matches!(&d.script.entries[at], Entry::Dialogue(x) if (x.start_time, x.end_time) == (150, 200)));
+        d.undo();
+        assert!(matches!(&d.script.entries[at], Entry::Dialogue(x) if (x.start_time, x.end_time) == orig));
     }
 
     #[test]

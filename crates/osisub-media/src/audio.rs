@@ -26,7 +26,9 @@ impl Shared {
     /// Aygıt geri çağrısı: `out` interleaved f32; yetmeyen kısım sessizlikle doldurulur.
     pub fn fill(&self, out: &mut [f32]) {
         let mut b = self.buf.lock().unwrap();
-        let n = out.len().min(b.len());
+        // yalnızca tam kareler: yarım kare çekilirse sonraki dolgu kanalları kaydırır (sol↔sağ takası)
+        let ch = self.channels.max(1) as usize;
+        let n = out.len().min(b.len()) / ch * ch;
         for (o, s) in out.iter_mut().zip(b.drain(..n)) {
             *o = s;
         }
@@ -283,5 +285,21 @@ mod tests {
         assert!((n as i64 - 192000).abs() < 9600, "yavaş örnek sayısı {}", n);
         assert!((peak - peak1 * 0.5).abs() < 0.05, "tepe {peak} / {peak1}");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fill_tests {
+    #[test]
+    fn yarim_kare_cekilmez() {
+        let sh = super::Shared::new(2, 48000);
+        sh.push(&[1.0, 2.0, 3.0]); // 1.5 kare (boru yarım okundu)
+        let mut out = [9.0f32; 4];
+        sh.fill(&mut out);
+        assert_eq!(out, [1.0, 2.0, 0.0, 0.0]);
+        sh.push(&[4.0]);
+        let mut out = [0.0f32; 2];
+        sh.fill(&mut out);
+        assert_eq!(out, [3.0, 4.0], "kanal sırası korunur");
     }
 }

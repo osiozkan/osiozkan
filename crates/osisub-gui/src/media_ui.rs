@@ -112,6 +112,8 @@ pub struct Media {
     /// Videoda \pos sürükleme aracı.
     pub tool: VideoTool,
     vt_drag: Option<(u8, (f32, f32))>,
+    /// Sürüklemenin başladığı ekran noktası (göreli araçlar: ölçek)
+    vt_press: Option<egui::Pos2>,
     /// \move aracı: sürükleme başındaki değer
     vt_move0: Option<osisub_core::overrides::Move>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
@@ -186,6 +188,7 @@ impl Media {
             snap_kf: true,
             tool: VideoTool::None,
             vt_drag: None,
+            vt_press: None,
             vt_move0: None,
             vt_quad: None,
             vt_qdrag: None,
@@ -685,6 +688,7 @@ impl Media {
         if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
             let t = self.framerate().map_or(self.playhead, |fr| fr.time_at_start(fr.frame_at(self.playhead)));
             doc.set_times(doc.active, t.min(d.end_time), d.end_time);
+            doc.seal();
         }
     }
 
@@ -693,6 +697,7 @@ impl Media {
         if let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active).cloned() {
             let t = self.framerate().map_or(self.playhead, |fr| fr.time_at_end(fr.frame_at(self.playhead)));
             doc.set_times(doc.active, d.start_time, t.max(d.start_time));
+            doc.seal();
         }
     }
 
@@ -823,7 +828,8 @@ impl Media {
     fn current_pos(doc: &Document, d: &osisub_core::ass::Dialogue) -> (f32, f32) {
         let (rx, ry) = doc.script.res();
         let (rx, ry) = (rx as f32, ry as f32);
-        if let Some(t) = osisub_core::overrides::get_initial(&d.text, "pos") {
+        // \pos yoksa \move başlangıç noktası (Aegisub; döndürme/ölçek/çizim araçlarının çapası)
+        if let Some(t) = osisub_core::overrides::get_initial(&d.text, "pos").or_else(|| osisub_core::overrides::get_initial(&d.text, "move")) {
             let a = t.args();
             return (a.first().and_then(|v| v.trim().parse().ok()).unwrap_or(rx / 2.0), a.get(1).and_then(|v| v.trim().parse().ok()).unwrap_or(ry / 2.0));
         }
@@ -857,6 +863,10 @@ impl Media {
         let cur = Self::current_pos(doc, &d);
         let c = to_screen(cur.0, cur.1);
         let r = ui.interact(vis, egui::Id::unique("video_tool"), Sense::click_and_drag());
+        // her sürükleme ayrı geri alma adımı
+        if r.drag_stopped() {
+            doc.seal();
+        }
         let ptr = r.interact_pointer_pos();
         let press = ui.input(|i| i.pointer.press_origin());
         if r.hovered() {
@@ -1028,7 +1038,9 @@ impl Media {
                 }
             }
             VideoTool::Clip => {
-                let existing: Option<(f32, f32, f32, f32)> = osisub_core::overrides::get_initial(&d.text, "clip").and_then(|t| {
+                // \clip ya da \iclip: hangisi varsa o düzenlenir (Aegisub adı korur, ikinci kırpma eklenmez)
+                let clip_name = if osisub_core::overrides::get_initial(&d.text, "iclip").is_some() && osisub_core::overrides::get_initial(&d.text, "clip").is_none() { "iclip" } else { "clip" };
+                let existing: Option<(f32, f32, f32, f32)> = osisub_core::overrides::get_initial(&d.text, clip_name).and_then(|t| {
                     let a: Vec<f32> = t.args().iter().filter_map(|v| v.trim().parse().ok()).collect();
                     (a.len() == 4).then(|| (a[0], a[1], a[2], a[3]))
                 });
@@ -1071,14 +1083,14 @@ impl Media {
                         let (x, y) = to_script(pos);
                         let (x, y) = (x.round().clamp(0.0, rx), y.round().clamp(0.0, ry));
                         let (ax, ay) = (anchor.0.round(), anchor.1.round());
-                        Self::set_tag(doc, at, &d.text, "clip", &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
+                        Self::set_tag(doc, at, &d.text, clip_name, &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
                     }
                 }
                 if r.drag_stopped() {
                     self.vt_drag = None;
                 }
                 if r.secondary_clicked() {
-                    let nt = osisub_core::overrides::remove_initial(&d.text, "clip");
+                    let nt = osisub_core::overrides::remove_initial(&osisub_core::overrides::remove_initial(&d.text, "clip"), "iclip");
                     if nt != d.text {
                         doc.edit("Kırpmayı kaldır", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
                     }
@@ -1087,7 +1099,8 @@ impl Media {
             VideoTool::Rotate => {
                 let org = osisub_core::overrides::get_initial(&d.text, "org").map(|t| t.args()).and_then(|a| Some((a.first()?.trim().parse::<f32>().ok()?, a.get(1)?.trim().parse::<f32>().ok()?))).unwrap_or(cur);
                 let o = to_screen(org.0, org.1);
-                let frz = osisub_core::overrides::get_initial(&d.text, "frz").and_then(|t| t.number()).unwrap_or(0.0) as f32;
+                // \fr, \frz'nin eşanlamlısı
+                let frz = osisub_core::overrides::get_initial(&d.text, "frz").or_else(|| osisub_core::overrides::get_initial(&d.text, "fr")).and_then(|t| t.number()).unwrap_or(0.0) as f32;
                 let rad = 70.0;
                 let hpos = o + egui::vec2(rad * (-frz).to_radians().cos(), rad * (-frz).to_radians().sin());
                 p.circle_stroke(o, rad, Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xe5, 0x6b, 0x9a, 120)));
@@ -1099,8 +1112,11 @@ impl Media {
                 p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("tutamaç: açı (Shift = 15°) · beyaz nokta: \\org taşı · sağ tık: \\frz kaldır"), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 170));
                 if r.drag_started() {
                     // 1 = \org taşı, 0 = açı
-                    let on_org = press.or(ptr).map_or(false, |q| q.distance(o) < 10.0);
-                    self.vt_drag = Some((if on_org { 1 } else { 0 }, org));
+                    let start = press.or(ptr);
+                    let on_org = start.map_or(false, |q| q.distance(o) < 10.0);
+                    // açı kipinde (frz0, başlangıç işaretçi açısı): Aegisub gibi göreli — ilk sürüklemede sıçramaz
+                    let a0 = start.map(|q| { let v = q - o; -(v.y.atan2(v.x)).to_degrees() }).unwrap_or(0.0);
+                    self.vt_drag = Some(if on_org { (1, org) } else { (0, (frz, a0)) });
                 }
                 if r.drag_stopped() {
                     self.vt_drag = None;
@@ -1113,11 +1129,18 @@ impl Media {
                 } else if r.dragged() {
                     if let Some(pos) = ptr {
                         let v = pos - o;
-                        let mut a = -(v.y.atan2(v.x)).to_degrees();
+                        let now = -(v.y.atan2(v.x)).to_degrees();
+                        let (frz0, a0) = match self.vt_drag { Some((0, b)) => b, _ => (frz, now) };
+                        let mut da = now - a0;
+                        if da > 180.0 { da -= 360.0; } else if da < -180.0 { da += 360.0; }
+                        let mut a = frz0 + da;
                         if ui.input(|i| i.modifiers.shift) {
                             a = (a / 15.0).round() * 15.0;
                         }
-                        Self::set_tag(doc, at, &d.text, "frz", &format!("{:.1}", a).trim_end_matches('0').trim_end_matches('.').to_string(), "Döndür");
+                        // açı birikerek sınırsız büyümesin: (-360, 360)
+                        let a = a % 360.0;
+                        let base = osisub_core::overrides::remove_initial(&d.text, "fr");
+                        Self::set_tag(doc, at, &base, "frz", &format!("{:.1}", a).trim_end_matches('0').trim_end_matches('.').to_string(), "Döndür");
                     }
                 }
                 if r.secondary_clicked() {
@@ -1359,12 +1382,30 @@ impl Media {
                 let h = c + egui::vec2(sx / 100.0 * 60.0, 0.0);
                 p.line_segment([c, h], Stroke::new(2.0, col));
                 p.circle_filled(h, 6.0, col);
-                p.text(c + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("ölçek {:.0}%", sx), egui::FontId::monospace(11.0), col);
+                p.text(c + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, format!("ölçek {:.0}% × {:.0}%", sx, osisub_core::overrides::get_initial(&d.text, "fscy").and_then(|t| t.number()).unwrap_or(100.0)), egui::FontId::monospace(11.0), col);
+                let sy = osisub_core::overrides::get_initial(&d.text, "fscy").and_then(|t| t.number()).unwrap_or(100.0) as f32;
+                if r.drag_started() {
+                    // başlangıç değerleri: X ve Y ayrı ayrı, sürükleme farkıyla değişir (Aegisub)
+                    self.vt_drag = Some((0, (sx, sy)));
+                    self.vt_press = press.or(ptr);
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                    self.vt_press = None;
+                }
                 if r.dragged() {
-                    if let Some(pos) = ptr {
-                        let v = ((pos - c).length() / 60.0 * 100.0).round().clamp(1.0, 1000.0);
-                        let t1 = osisub_core::overrides::set_initial(&d.text, "fscx", &format!("{}", v));
-                        let t2 = osisub_core::overrides::set_initial(&t1, "fscy", &format!("{}", v));
+                    if let (Some(pos), Some(p0), Some((_, (x0, y0)))) = (ptr, self.vt_press, self.vt_drag) {
+                        // 1 ekran pikseli = %1; sağa X büyür, yukarı Y büyür; Shift: oranı koruyarak tekdüze
+                        let (dx, dy) = (pos.x - p0.x, p0.y - pos.y);
+                        let (nx, ny) = if ui.input(|i| i.modifiers.shift) {
+                            let k = ((x0 + dx.max(dy)).max(1.0)) / x0.max(1.0);
+                            (x0 * k, y0 * k)
+                        } else {
+                            (x0 + dx, y0 + dy)
+                        };
+                        let f = |v: f32| format!("{}", v.round().clamp(0.0, 10000.0));
+                        let t1 = osisub_core::overrides::set_initial(&d.text, "fscx", &f(nx));
+                        let t2 = osisub_core::overrides::set_initial(&t1, "fscy", &f(ny));
                         if t2 != d.text {
                             let key = format!("vt:fsc:{}", at);
                             doc.edit_keyed("Ölçek", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = t2));
@@ -1512,7 +1553,11 @@ impl Media {
         if resp.drag_started() {
             if let Some(pos) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos()) {
                 let syl = k_bounds.iter().enumerate().filter(|(_, x)| (pos.x - **x).abs() <= 5.0).min_by(|a, b| (pos.x - a.1).abs().total_cmp(&(pos.x - b.1).abs())).map(|(i, _)| i);
-                self.drag = if (pos.x - xs).abs() <= 7.0 { Drag::Start } else if (pos.x - xe).abs() <= 7.0 { Drag::End } else if let Some(i) = syl { Drag::Syl(i) } else if pos.x > xs && pos.x < xe && ui.input(|i| i.modifiers.alt) { Drag::Body(ms_of(pos.x) as i64 - d.start_time) } else { Drag::None };
+                // kısa/0 uzunluklu satırda iki işaretçi üst üste: en yakını (eşitse sürükleme yönüne göre) seçilir
+                let (ds, de) = ((pos.x - xs).abs(), (pos.x - xe).abs());
+                let right = resp.interact_pointer_pos().is_some_and(|q| q.x > pos.x);
+                let pick_end = de < ds || (de == ds && right);
+                self.drag = if ds.min(de) <= 7.0 { if pick_end { Drag::End } else { Drag::Start } } else if let Some(i) = syl { Drag::Syl(i) } else if pos.x > xs && pos.x < xe && ui.input(|i| i.modifiers.alt) { Drag::Body(ms_of(pos.x) as i64 - d.start_time) } else { Drag::None };
             }
         }
         // Karaoke: heceye çift tıkla → yalnızca o heceyi oynat
@@ -1550,8 +1595,11 @@ impl Media {
             if let Some(pos) = resp.interact_pointer_pos() {
                 let m = self.snap_ms(ms_of(pos.x) as i64).max(0);
                 match self.drag {
-                    Drag::Start => doc.set_times(act, m.min(d.end_time), d.end_time),
-                    Drag::End => doc.set_times(act, d.start_time, m.max(d.start_time)),
+                    // işaretçiler kesişince yer değiştirir (Aegisub): satır ters dönmez, sürüklenen uç değişir
+                    Drag::Start if m > d.end_time => { doc.set_times(act, d.end_time, m); self.drag = Drag::End; }
+                    Drag::Start => doc.set_times(act, m, d.end_time),
+                    Drag::End if m < d.start_time => { doc.set_times(act, m, d.start_time); self.drag = Drag::Start; }
+                    Drag::End => doc.set_times(act, d.start_time, m),
                     Drag::Body(off) => {
                         let ns = self.snap_ms(m - off).max(0);
                         doc.set_times(act, ns, ns + d.duration());
@@ -1564,6 +1612,7 @@ impl Media {
         }
         if resp.drag_stopped() {
             self.drag = Drag::None;
+            doc.seal();
         }
         if resp.hovered() {
             if let Some(pos) = resp.hover_pos() {
@@ -1578,6 +1627,7 @@ impl Media {
                 let m = self.snap_ms(ms_of(pos.x) as i64).max(0);
                 if ui.input(|i| i.modifiers.shift) {
                     doc.set_times(act, m.min(d.end_time), d.end_time);
+                    doc.seal();
                 }
                 self.playhead = m;
             }
@@ -1586,6 +1636,7 @@ impl Media {
             if let Some(pos) = resp.interact_pointer_pos() {
                 let m = self.snap_ms(ms_of(pos.x) as i64).max(0);
                 doc.set_times(act, d.start_time, m.max(d.start_time));
+                doc.seal();
             }
         }
     }
