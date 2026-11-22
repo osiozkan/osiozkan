@@ -672,11 +672,23 @@ impl Media {
     }
 
     fn snap_ms(&self, ms: i64) -> i64 {
-        if self.snap_kf {
+        self.snap_ms_to(ms, &[], false)
+    }
+
+    /// Yapışma: anahtar kareler ve (Aegisub gibi) görünen diğer satırların başlangıç/bitişleri.
+    /// `invert` (Shift basılı): yapışma ayarını o an tersine çevirir.
+    fn snap_ms_to(&self, ms: i64, others: &[i64], invert: bool) -> i64 {
+        if self.snap_kf != invert {
             let tol = (self.ms_per_px * 6.0) as i64;
-            if let Some(k) = self.keyframes.iter().copied().filter(|k| (k - ms).abs() <= tol).min_by_key(|k| (k - ms).abs()) {
+            let kf = self.keyframes.iter().copied().filter(|k| (k - ms).abs() <= tol).min_by_key(|k| (k - ms).abs());
+            let ln = others.iter().copied().filter(|k| (k - ms).abs() <= tol).min_by_key(|k| (k - ms).abs());
+            match (kf, ln) {
+                // diğer satırın sınırı zaten ASS zamanı: olduğu gibi (bitişik satırlar boşluksuz birleşir)
+                (Some(k), Some(l)) if (l - ms).abs() < (k - ms).abs() => return l,
+                (None, Some(l)) => return l,
                 // tam kare zamanı yerine ASS-güvenli sınır (yoksa satır sahne değişiminden bir kare sonra başlayabilir)
-                return self.framerate().map_or(k, |fr| fr.time_at_start(fr.frame_at(k)));
+                (Some(k), _) => return self.framerate().map_or(k, |fr| fr.time_at_start(fr.frame_at(k))),
+                (None, None) => {}
             }
         }
         match (self.snap, self.framerate()) {
@@ -1633,7 +1645,14 @@ impl Media {
         }
         if resp.dragged() && self.drag != Drag::None && !matches!(self.drag, Drag::Syl(_)) {
             if let Some(pos) = resp.interact_pointer_pos() {
-                let m = self.snap_ms(ms_of(pos.x) as i64).max(0);
+                // görünen diğer satırların sınırları (yorumlar hariç)
+                let view_end = vs + rect.width() as f64 * mpp;
+                let others: Vec<i64> = doc.script.entries.iter().enumerate().filter_map(|(i, e)| match e {
+                    Entry::Dialogue(x) if i != act && !x.comment && (x.end_time as f64) >= vs && (x.start_time as f64) <= view_end => Some([x.start_time, x.end_time]),
+                    _ => None,
+                }).flatten().collect();
+                let inv = ui.input(|i| i.modifiers.shift);
+                let m = self.snap_ms_to(ms_of(pos.x) as i64, &others, inv).max(0);
                 match self.drag {
                     // işaretçiler kesişince yer değiştirir (Aegisub): satır ters dönmez, sürüklenen uç değişir
                     Drag::Start if m > d.end_time => { doc.set_times(act, d.end_time, m); self.drag = Drag::End; }
@@ -1641,7 +1660,7 @@ impl Media {
                     Drag::End if m < d.start_time => { doc.set_times(act, m, d.start_time); self.drag = Drag::Start; }
                     Drag::End => doc.set_times(act, d.start_time, m),
                     Drag::Body(off) => {
-                        let ns = self.snap_ms(m - off).max(0);
+                        let ns = self.snap_ms_to(m - off, &others, inv).max(0);
                         doc.set_times(act, ns, ns + d.duration());
                     }
                     Drag::Syl(_) | Drag::None => {}
