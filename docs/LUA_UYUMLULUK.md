@@ -7,7 +7,7 @@ osisub, Aegisub betiklerini değişiklik gerekmeden çalıştırmayı hedefler. 
 **Kayıt:** `aegisub.register_macro(ad, açıklama, işlem, doğrulama?, etkin?)`, `aegisub.register_filter(ad, açıklama, öncelik, işlem, yapılandırma?)`, `script_name/description/author/version/namespace`.
 
 **`subs` nesnesi:** `subs[i]` (okuma/yazma/silme `= nil`), `subs[0] = satır` (sona ekle), `#subs`, `subs.n`, `subs.append`, `subs.insert(i, ...)`, `subs.delete(...)`, `subs.deleterange(a, b)`, `ipairs(subs)`.
-Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil), `unknown`. Alanlar Aegisub ile aynıdır (`section = "[Events]"`, `margin_t/margin_b/margin_v`, `extra`, `raw`).
+Satır sınıfları: `info`, `style`, `dialogue` (yorum dahil). Aegisub 3 gibi `[Script Info]` içindeki `;` yorumları, `[Aegisub Project Garbage]`, `[Fonts]`/`[Graphics]` ekleri ve Extradata Lua'ya **gösterilmez** (dizinler bunlar atlanarak sayılır; dosyada korunur). Sınıfsız ya da bilinmeyen sınıflı tablo yazmak hata verir (`Table lacks 'class' field`). Alanlar Aegisub ile aynıdır (`section = "[Events]"`, `margin_t/margin_b/margin_v`, `extra`, `raw`).
 
 `line.extra` (Aegisub Extradata) gerçek veridir: dosyadaki `[Aegisub Extradata]` bölümünden okunur, `subs[i] = line` / `subs.append` / `subs.insert` ile yazılınca bölüme işlenir ve satıra `{=kimlik}` ön eki olarak kaydedilir (Aegisub ile aynı `e`/`u` kodlaması; ön ek arayüzde görünmez). Aegisub-Motion, ASSFoundation ve satır başına ayar saklayan betikler verilerini korur. `subs.append` satırı Aegisub gibi kendi bölümünün sonuna ekler (olaylar `[Fonts]`'tan sonra düşmez).
 
@@ -84,3 +84,13 @@ Aegisub'ın `[Aegisub Project Garbage]` → `Automation Scripts:` alanı okunur 
 
 ## aegisub.get_frame (Aegisub 3.3+ / arch1t3cht)
 `aegisub.get_frame(kare, altyazılı?)` açık videodan tam çözünürlükte kare döndürür: `frame:width()`, `frame:height()`, `frame:getPixel(x, y)` (0xRRGGBB), `frame:getPixelFormatted(x, y)` ("&HBBGGRR&"). Videodan renk alan betikler çalışır. Video açık değilse `nil`.
+
+
+## 2026-11-22 uyumluluk düzeltmeleri
+- `aegisub.parse_karaoke_data`: Aegisub 3 `AssKaraoke` ile birebir — `[0]` her zaman boş (`tag=""`), ilk `\k` öncesi metin `[1]` olur, süresi 0 ve metni boş heceler atlanır (etiketleri sonrakine geçer), `\k`'dan önceki etiketler önceki hecenin sonuna yazılır, `tag` ters eğik çizgili (`"\\k"`, `"\\kf"`; `\K` → `\kf`), süre tam sayıya kesilir.
+- Satır zamanları yazılırken Aegisub gibi kesilir ve santisaniyeye yuvarlanır (`1234.7` → `1230`), [0, 10 sa) aralığına sıkıştırılır.
+- `re.sub(s, p, işlev)`: gruplu desende işlev her yakalama grubu için `(str, first, last)` ile çağrılır; dize dönmezse özgün metin kalır. `re.ICASE` vb. bayraklar sayı değil işaretli nesne (konumsal bağımsız değişkenlerle karışmaz); `compiled:match(s, başlangıç)`; boş desen hata verir.
+- `aegisub.dialog.display`: "Cancel" etiketli özel düğme etiketini döndürür (false yalnızca `button_ids.cancel` ya da varsayılan OK/Cancel'da); `intedit` sınırlara kıstırılır ve tam sayı döner; `checkbox` yalnızca gerçek boolean; `textbox`/`edit` değeri dizedir, `text` önceliklidir; `dropdown` varsayılanı `""`.
+- `util.HSV_to_RGB` (yuvarlanmamış, `|H|`), `util.HSL_to_RGB` (S/L kıstırılır), `string.trim` (iki değer), `string.words` (headtail tabanlı) util.moon'dan birebir.
+- `unicode.len/codepoint/chars/charwidth` bayt tabanlı (geçersiz UTF-8'de hata yok); `aegisub.log` yarım UTF-8'i yazar.
+- `aegisub.decode_path("?video/x")` video yokken yolu değiştirmeden döndürür; `aegisub.video_size()` video yokken tek `nil` döner.
