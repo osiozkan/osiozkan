@@ -139,9 +139,13 @@ pub fn parse(b: &[u8]) -> Result<Vec<PgsSub>, String> {
     let mut objects: HashMap<u16, Obj> = HashMap::new();
     let mut out: Vec<PgsSub> = Vec::new();
     // Bekleyen kompozisyon: (pts, ekran, palet, [(nesne, x, y, kırpma)])
-    type Comp = (i64, u32, u32, u8, Vec<(u16, u32, u32)>);
+    type Crop = Option<(usize, usize, usize, usize)>;
+    type Comp = (i64, u32, u32, u8, Vec<(u16, u32, u32, Crop)>);
     let mut pending: Option<Comp> = None;
-    let mut open: Option<usize> = None; // bitişi bekleyen çıktı
+    // Ekrandaki görüntü kümesinin çıktıları (bitişi bekleyen) ve palet indeksli içeriği: aynı içerik
+    // yeniden gönderilirse (Acquisition Point, yalnız palet güncellemesi / solma) yeni satır açılmaz.
+    let mut open: Vec<usize> = vec![];
+    let mut open_sig: Vec<(u32, u32, usize, usize, Vec<u8>)> = vec![];
     let mut i = 0;
     while i + 13 <= b.len() {
         if &b[i..i + 2] != b"PG" {
@@ -159,6 +163,11 @@ pub fn parse(b: &[u8]) -> Result<Vec<PgsSub>, String> {
         match ty {
             0x16 if seg.len() >= 11 => {
                 let (sw, sh) = (be16(seg, 0), be16(seg, 2));
+                // Epoch Start: önceki nesne ve paletler geçersiz
+                if seg[7] & 0x80 != 0 {
+                    objects.clear();
+                    palettes.clear();
+                }
                 let pal = seg[9];
                 let n = seg[10] as usize;
                 let mut objs = Vec::new();
@@ -170,7 +179,12 @@ pub fn parse(b: &[u8]) -> Result<Vec<PgsSub>, String> {
                     let id = be16(seg, k) as u16;
                     let cropped = seg[k + 3] & 0x40 != 0;
                     let (x, y) = (be16(seg, k + 4), be16(seg, k + 6));
-                    objs.push((id, x, y));
+                    let crop = if cropped && k + 16 <= seg.len() {
+                        Some((be16(seg, k + 8) as usize, be16(seg, k + 10) as usize, be16(seg, k + 12) as usize, be16(seg, k + 14) as usize))
+                    } else {
+                        None
+                    };
+                    objs.push((id, x, y, crop));
                     k += if cropped { 16 } else { 8 };
                 }
                 pending = Some((ms, sw, sh, pal, objs));
@@ -200,40 +214,88 @@ pub fn parse(b: &[u8]) -> Result<Vec<PgsSub>, String> {
             0x80 => {
                 // Görüntü kümesi tamam: kompozisyonu uygula
                 let Some((t, sw, sh, pal_id, objs)) = pending.take() else { continue };
-                if let Some(k) = open.take() {
-                    if out[k].end_ms <= out[k].start_ms {
-                        out[k].end_ms = t;
-                    }
-                }
-                if objs.is_empty() {
-                    continue;
-                }
                 let pal = palettes.get(&pal_id).copied().unwrap_or([(0, 0); 256]);
                 let mut images = Vec::new();
-                for (id, x, y) in objs {
+                let mut sig = Vec::new();
+                for (id, x, y, crop) in objs {
                     let Some(o) = objects.get(&id) else { continue };
                     if o.w == 0 || o.h == 0 || o.w * o.h > 16_000_000 {
                         continue;
                     }
-                    let idx = decode_rle(&o.data, o.w, o.h);
-                    images.push(Bitmap { x, y, width: o.w as u32, height: o.h as u32, la: idx.iter().map(|&c| pal[c as usize]).collect() });
+                    let mut idx = decode_rle(&o.data, o.w, o.h);
+                    let (mut w, mut h) = (o.w, o.h);
+                    // kırpma: nesnenin yalnızca bu bölgesi ekranda (satır satır açılan yazılar)
+                    if let Some((cx, cy, cw, ch)) = crop {
+                        let (cx, cy) = (cx.min(w), cy.min(h));
+                        let (cw, ch) = (cw.min(w - cx), ch.min(h - cy));
+                        if cw == 0 || ch == 0 {
+                            continue;
+                        }
+                        idx = (cy..cy + ch).flat_map(|r| idx[r * w + cx..r * w + cx + cw].to_vec()).collect();
+                        (w, h) = (cw, ch);
+                    }
+                    let la: Vec<(u8, u8)> = idx.iter().map(|&c| pal[c as usize]).collect();
+                    // tamamen saydam nesne (solma başı ya da gizleme) görünmez
+                    if la.iter().all(|p| p.1 == 0) {
+                        continue;
+                    }
+                    images.push(Bitmap { x, y, width: w as u32, height: h as u32, la });
+                    sig.push((x, y, w, h, idx));
                 }
+                if !open.is_empty() && !images.is_empty() && sig == open_sig {
+                    // aynı içerik: süreyi uzat; daha opak sürüm (solma sonu) OCR için daha iyi
+                    let alpha = |v: &[Bitmap]| v.iter().flat_map(|b| b.la.iter()).map(|p| p.1 as u64).sum::<u64>();
+                    let old: Vec<Bitmap> = open.iter().flat_map(|&k| out[k].images.clone()).collect();
+                    if alpha(&images) > alpha(&old) {
+                        for g in split_groups(images, sh) {
+                            if let Some(&k) = open.iter().find(|&&k| out[k].images.iter().map(|b| (b.x, b.y)).eq(g.iter().map(|b| (b.x, b.y)))) {
+                                out[k].images = g;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                for k in open.drain(..) {
+                    if out[k].end_ms <= out[k].start_ms {
+                        out[k].end_ms = t;
+                    }
+                }
+                open_sig.clear();
                 if images.is_empty() {
                     continue;
                 }
-                out.push(PgsSub { start_ms: t, end_ms: t, screen_w: sw, screen_h: sh, images });
-                open = Some(out.len() - 1);
+                open_sig = sig;
+                // birbirinden uzak (üst + alt) nesneler ayrı satırlar olur
+                for g in split_groups(images, sh) {
+                    out.push(PgsSub { start_ms: t, end_ms: t, screen_w: sw, screen_h: sh, images: g });
+                    open.push(out.len() - 1);
+                }
             }
             _ => {}
         }
     }
     // Bitişi olmayan son altyazı: 5 sn varsay
-    if let Some(k) = open {
+    for k in open {
         if out[k].end_ms <= out[k].start_ms {
             out[k].end_ms = out[k].start_ms + 5000;
         }
     }
     Ok(out)
+}
+
+/// Nesneleri dikey konuma göre gruplar: aralarında ekran yüksekliğinin %10'undan büyük boşluk varsa
+/// ayrı grup (üstte tabela/konuşma + altta diyalog → iki ayrı satır).
+fn split_groups(mut imgs: Vec<Bitmap>, screen_h: u32) -> Vec<Vec<Bitmap>> {
+    imgs.sort_by_key(|b| b.y);
+    let gap = (screen_h / 10).max(1);
+    let mut out: Vec<Vec<Bitmap>> = vec![];
+    let mut bottom = 0u32;
+    for b in imgs {
+        let new_group = out.is_empty() || b.y > bottom.saturating_add(gap);
+        bottom = if new_group { b.y + b.height } else { bottom.max(b.y + b.height) };
+        if new_group { out.push(vec![b]); } else { out.last_mut().unwrap().push(b); }
+    }
+    out
 }
 
 /// OCR için tek gri görüntü (P5 PGM): nesneler dikey sırayla birleştirilir, metin koyu, arka plan
@@ -245,7 +307,12 @@ pub fn ocr_gray(sub: &PgsSub, pad: u32) -> (u32, u32, Vec<u8>) {
     let x1 = imgs.iter().map(|b| b.x + b.width).max().unwrap_or(0);
     let y0 = imgs.iter().map(|b| b.y).min().unwrap_or(0);
     let y1 = imgs.iter().map(|b| b.y + b.height).max().unwrap_or(0);
-    let (w, h) = (x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+    // bozuk dosyada uzak koordinatlar: taşma ve dev bellek yerine 1×1 beyaz görüntü (toplu OCR'da sayfa sırası korunur)
+    let (w, h) = ((x1 as u64 - x0 as u64 + 2 * pad as u64), (y1 as u64 - y0 as u64 + 2 * pad as u64));
+    if w * h > 16_000_000 {
+        return (1, 1, vec![255]);
+    }
+    let (w, h) = (w as u32, h as u32);
     let mut px = vec![255u8; (w * h) as usize];
     for b in imgs {
         for yy in 0..b.height {
@@ -272,6 +339,13 @@ pub fn to_script(subs: &[PgsSub], texts: &[String]) -> crate::ass::Script {
             continue;
         }
         let text = if s.is_top() { format!("{{\\an8}}{}", t) } else { t.clone() };
+        // aynı metin hemen ardından yeniden gösterildiyse (yeniden kodlanmış küme) tek satır
+        if let Some(last) = ds.iter_mut().rev().find(|d: &&mut crate::ass::Dialogue| d.text == text) {
+            if s.start_ms >= last.end_time && s.start_ms - last.end_time <= 40 {
+                last.end_time = last.end_time.max(s.end_ms);
+                continue;
+            }
+        }
         ds.push(crate::ass::Dialogue { start_time: s.start_ms, end_time: s.end_ms, text, ..Default::default() });
     }
     let mut sc = crate::ass::Script::from_dialogues(ds);
@@ -405,5 +479,110 @@ mod tests {
         assert_eq!(g[(4 * w + 5) as usize], 255); // siyah kenar → beyaz
         assert!(to_pgm(w, h, &g).starts_with(b"P5\n48 18\n255\n"));
         assert!(parse(b"bozuk").is_err());
+    }
+
+    /// Ham bölüm yazıcı (test): PCS/PDS/ODS/END
+    fn seg(out: &mut Vec<u8>, ms: i64, ty: u8, data: &[u8]) {
+        out.extend_from_slice(b"PG");
+        out.extend_from_slice(&((ms * 90) as u32).to_be_bytes());
+        out.extend_from_slice(&0u32.to_be_bytes());
+        out.push(ty);
+        out.extend_from_slice(&(data.len() as u16).to_be_bytes());
+        out.extend_from_slice(data);
+    }
+    fn pcs(state: u8, objs: &[(u16, u16, u16, Option<[u16; 4]>)]) -> Vec<u8> {
+        let mut p = vec![];
+        p.extend_from_slice(&1920u16.to_be_bytes());
+        p.extend_from_slice(&1080u16.to_be_bytes());
+        p.push(0x10);
+        p.extend_from_slice(&0u16.to_be_bytes());
+        p.extend_from_slice(&[state, 0, 0, objs.len() as u8]);
+        for (id, x, y, crop) in objs {
+            p.extend_from_slice(&id.to_be_bytes());
+            p.push(0);
+            p.push(if crop.is_some() { 0x40 } else { 0 });
+            p.extend_from_slice(&x.to_be_bytes());
+            p.extend_from_slice(&y.to_be_bytes());
+            if let Some(c) = crop { for v in c { p.extend_from_slice(&v.to_be_bytes()); } }
+        }
+        p
+    }
+    fn ods(id: u16, w: usize, h: usize, px: &[u8]) -> Vec<u8> {
+        let rle = encode_rle(px, w, h);
+        let mut o = vec![];
+        o.extend_from_slice(&id.to_be_bytes());
+        o.push(0);
+        o.push(0xC0);
+        o.extend_from_slice(&((rle.len() + 4) as u32).to_be_bytes()[1..]);
+        o.extend_from_slice(&(w as u16).to_be_bytes());
+        o.extend_from_slice(&(h as u16).to_be_bytes());
+        o.extend_from_slice(&rle);
+        o
+    }
+    fn pds(alpha: u8) -> Vec<u8> {
+        vec![0, 0, 1, 235, 128, 128, alpha]
+    }
+
+    #[test]
+    fn edinim_noktasi_ve_solma_tek_satir() {
+        let px = vec![1u8; 20 * 4];
+        let mut b = vec![];
+        // 1000: epoch start, yarı saydam (solma başı)
+        seg(&mut b, 1000, 0x16, &pcs(0x80, &[(0, 100, 900, None)]));
+        seg(&mut b, 1000, 0x14, &pds(80));
+        seg(&mut b, 1000, 0x15, &ods(0, 20, 4, &px));
+        seg(&mut b, 1000, 0x80, &[]);
+        // 1200: yalnız palet güncellemesi (tam opak)
+        seg(&mut b, 1200, 0x16, &pcs(0x00, &[(0, 100, 900, None)]));
+        seg(&mut b, 1200, 0x14, &pds(255));
+        seg(&mut b, 1200, 0x80, &[]);
+        // 2000: acquisition point, aynı nesne yeniden gönderilir
+        seg(&mut b, 2000, 0x16, &pcs(0x40, &[(0, 100, 900, None)]));
+        seg(&mut b, 2000, 0x14, &pds(255));
+        seg(&mut b, 2000, 0x15, &ods(0, 20, 4, &px));
+        seg(&mut b, 2000, 0x80, &[]);
+        // 3000: temizle
+        seg(&mut b, 3000, 0x16, &pcs(0x00, &[]));
+        seg(&mut b, 3000, 0x80, &[]);
+        let subs = parse(&b).unwrap();
+        assert_eq!(subs.len(), 1, "{:?}", subs.iter().map(|s| (s.start_ms, s.end_ms)).collect::<Vec<_>>());
+        assert_eq!((subs[0].start_ms, subs[0].end_ms), (1000, 3000));
+        assert_eq!(subs[0].images[0].la[0].1, 255, "en opak sürüm OCR'lanır");
+    }
+
+    #[test]
+    fn ust_ve_alt_ayri_satir_ve_kirpma() {
+        let px: Vec<u8> = (0..20 * 4).map(|i| if i < 40 { 1 } else { 0 }).collect();
+        let mut b = vec![];
+        seg(&mut b, 0, 0x16, &pcs(0x80, &[(0, 100, 40, None), (1, 100, 1000, Some([0, 0, 20, 2]))]));
+        seg(&mut b, 0, 0x14, &pds(255));
+        seg(&mut b, 0, 0x15, &ods(0, 20, 4, &px));
+        seg(&mut b, 0, 0x15, &ods(1, 20, 4, &px));
+        seg(&mut b, 0, 0x80, &[]);
+        seg(&mut b, 500, 0x16, &pcs(0x00, &[]));
+        seg(&mut b, 500, 0x80, &[]);
+        let subs = parse(&b).unwrap();
+        assert_eq!(subs.len(), 2);
+        assert!(subs[0].is_top() && !subs[1].is_top());
+        assert_eq!((subs[1].images[0].width, subs[1].images[0].height), (20, 2), "kırpma uygulanır");
+        assert!(subs.iter().all(|s| s.end_ms == 500));
+    }
+
+    #[test]
+    fn ayni_metin_birlesir() {
+        let mk = |a, b| PgsSub { start_ms: a, end_ms: b, screen_w: 1920, screen_h: 1080, images: vec![Bitmap { x: 0, y: 900, width: 1, height: 1, la: vec![(255, 255)] }] };
+        let sc = to_script(&[mk(0, 1000), mk(1000, 2000), mk(3000, 4000)], &["A".into(), "A".into(), "A".into()]);
+        let t: Vec<_> = sc.dialogues().map(|d| (d.start_time, d.end_time)).collect();
+        assert_eq!(t, vec![(0, 2000), (3000, 4000)]);
+    }
+
+    #[test]
+    fn uzak_nesneler_tasmaz() {
+        let la = vec![(255u8, 255u8)];
+        let s = PgsSub { start_ms: 0, end_ms: 1, screen_w: 1920, screen_h: 1080, images: vec![
+            Bitmap { x: 0, y: 0, width: 1, height: 1, la: la.clone() },
+            Bitmap { x: 65535, y: 65535, width: 1, height: 1, la },
+        ] };
+        assert_eq!(ocr_gray(&s, 12), (1, 1, vec![255]));
     }
 }
