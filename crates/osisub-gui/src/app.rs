@@ -87,6 +87,8 @@ pub struct App {
     /// kaydırma: seçimden sonra başlayan tüm satırlar da
     shift_after: bool,
     shift_part: osisub_core::qc::ShiftPart,
+    /// Stil adı düzenleme oturumu: (stil girdisi, son belge sürümü, eski adı kullanan satırlar, \\r içeren satırlar)
+    style_rename: Option<(usize, u64, Vec<usize>, Vec<usize>)>,
     fps: f64,
     quit_confirm: bool,
     shot: Option<PathBuf>,
@@ -102,6 +104,7 @@ pub struct App {
     find_selection_only: bool,
     resample_open: bool,
     res_x: i32,
+    res_ar: osisub_core::timing::ArMode,
     res_y: i32,
     post: PostOptions,
     post_selection_only: bool,
@@ -612,6 +615,7 @@ impl App {
             shift_all: false,
             shift_after: false,
             shift_part: Default::default(),
+            style_rename: None,
             fps: 23.976,
             quit_confirm: false,
             shot,
@@ -627,6 +631,7 @@ impl App {
             find_selection_only: false,
             resample_open: false,
             res_x: 1920,
+            res_ar: Default::default(),
             res_y: 1080,
             post: PostOptions::default(),
             post_selection_only: true,

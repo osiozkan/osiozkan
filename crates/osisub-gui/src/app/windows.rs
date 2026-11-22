@@ -1810,9 +1810,18 @@ impl App {
                 }
             });
             ui.label(RichText::new(tr("Stiller, kenar boşlukları, \\pos/\\move/\\org/\\clip/\\fs/\\bord/... ve çizimler ölçeklenir.")).weak().small());
+            let (oar, nar) = (ox as f64 / oy.max(1) as f64, self.res_x as f64 / self.res_y.max(1) as f64);
+            if (oar - nar).abs() / nar > 0.01 {
+                ui.horizontal(|ui| {
+                    ui.label(tr("En-boy oranı değişiyor:"));
+                    ui.radio_value(&mut self.res_ar, timing::ArMode::Stretch, tr("yatay ger"));
+                    ui.radio_value(&mut self.res_ar, timing::ArMode::AddBorder, tr("kenarlık ekle"));
+                    ui.radio_value(&mut self.res_ar, timing::ArMode::RemoveBorder, tr("kenarlık kaldır"));
+                });
+            }
             if ui.button(tr("Uygula")).clicked() {
                 let mut s = self.doc.script.clone();
-                timing::resample(&mut s, self.res_x, self.res_y);
+                timing::resample_ar(&mut s, self.res_x, self.res_y, self.res_ar);
                 self.doc.apply_new_script("Çözünürlüğü yeniden örnekle", s);
             }
         });

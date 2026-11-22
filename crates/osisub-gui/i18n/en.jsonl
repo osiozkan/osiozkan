@@ -1177,3 +1177,8 @@
 ["başl.", "start"]
 ["bitiş", "end"]
 ["Değerleri doldur (Uygula ile uygulanır)", "Fill in the values (apply with Apply)"]
+["En-boy oranı değişiyor:", "Aspect ratio changes:"]
+["yatay ger", "stretch"]
+["kenarlık ekle", "add borders"]
+["kenarlık kaldır", "remove borders"]
+["Bu adda başka bir stil de var — adı değiştirin", "Another style has this name — rename it"]

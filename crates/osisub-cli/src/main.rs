@@ -44,7 +44,7 @@ KULLANIM:
   osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
   osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes] [--redundant]
                           (--tags: etiketleri onar, --notes: {notları} sil)
-  osisub resample <girdi> <genişlik> <yükseklik> [çıktı]
+  osisub resample <girdi> <genişlik> <yükseklik> [çıktı] [--ar stretch|border|unborder]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
   osisub find <girdi> <desen> [--regex] [--case] [--replace METİN [çıktı]]
   osisub resync <eski-video> <yeni-video> <girdi> [çıktı] [--search ms]
@@ -503,11 +503,17 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             save(&s, &out)
         }
         "resample" => {
+            let ar = match opt(&mut args, "--ar").as_deref() {
+                None | Some("stretch") => osisub_core::timing::ArMode::Stretch,
+                Some("border") => osisub_core::timing::ArMode::AddBorder,
+                Some("unborder") => osisub_core::timing::ArMode::RemoveBorder,
+                Some(x) => return Err(format!("--ar: stretch | border | unborder (verilen: {})", x)),
+            };
             if args.len() < 3 { return Err("kullanım: resample <girdi> <genişlik> <yükseklik> [çıktı]".into()); }
             let (w, h): (i32, i32) = (args[1].parse().map_err(|_| "genişlik sayı olmalı")?, args[2].parse().map_err(|_| "yükseklik sayı olmalı")?);
             let out = args.get(3).cloned().unwrap_or_else(|| args[0].clone());
             let mut s = load(&args[0])?;
-            osisub_core::timing::resample(&mut s, w, h);
+            osisub_core::timing::resample_ar(&mut s, w, h, ar);
             save(&s, &out)
         }
         "post" => {

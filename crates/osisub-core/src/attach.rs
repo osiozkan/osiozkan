@@ -114,7 +114,8 @@ pub fn attach(script: &mut Script, file_name: &str, data: &[u8]) -> String {
     let section = if is_font { SEC_FONTS } else { SEC_GRAPHICS };
     let name = if is_font {
         match file_name.rsplit_once('.') {
-            Some((stem, ext)) if !stem.ends_with("_0") && !stem.chars().last().map_or(false, |c| c.is_ascii_digit()) => format!("{}_0.{}", stem, ext),
+            // Aegisub: yalnızca .ttf'e "_0" eklenir; "Font2.ttf" → "Font2_0.ttf", "Font_3.ttf" olduğu gibi
+            Some((stem, ext)) if ext.eq_ignore_ascii_case("ttf") && !stem.rsplit_once('_').is_some_and(|(_, n)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())) => format!("{}_0.{}", stem, ext),
             _ => file_name.to_string(),
         }
     } else {
@@ -152,6 +153,10 @@ mod tests {
         let font: Vec<u8> = (0..500u32).map(|i| (i % 251) as u8).collect();
         let name = attach(&mut s, "Yazı.ttf", &font);
         assert_eq!(name, "Yazı_0.ttf");
+        let mut s2 = Script::default();
+        assert_eq!(attach(&mut s2, "Font2.ttf", b"x"), "Font2_0.ttf");
+        assert_eq!(attach(&mut s2, "Font_3.ttf", b"x"), "Font_3.ttf");
+        assert_eq!(attach(&mut s2, "Gothic.otf", b"x"), "Gothic.otf");
         attach(&mut s, "logo.png", b"\x89PNG....");
         let l = list(&s);
         assert_eq!(l.len(), 2);

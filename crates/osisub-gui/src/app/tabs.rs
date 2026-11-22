@@ -408,14 +408,14 @@ impl App {
             if ui.button(tr("+ Yeni")).clicked() {
                 let at = idxs.last().map_or(self.doc.script.entries.len(), |i| i + 1);
                 let mut s = Style::default();
-                s.name = format!("Stil{}", idxs.len() + 1);
+                s.name = self.unique_style_name(&format!("Stil{}", idxs.len() + 1));
                 self.doc.edit("Stil ekle", |tx| tx.insert(at, vec![Entry::Style(s)]));
                 self.style_sel = idxs.len();
             }
             if ui.button(tr("Çoğalt")).clicked() {
                 if let Some(&i) = idxs.get(self.style_sel) {
                     if let Entry::Style(s) = self.doc.script.entries[i].clone() {
-                        let mut c = s; c.name.push_str(" kopya");
+                        let mut c = s; c.name = self.unique_style_name(&format!("{} kopya", c.name));
                         self.doc.edit("Stil çoğalt", |tx| tx.insert(i + 1, vec![Entry::Style(c)]));
                         self.style_sel += 1;
                     }
@@ -463,23 +463,47 @@ impl App {
                 let fonts = self.font_families();
                 if fonts.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(300)); }
                 if style_ui::edit(ui, &mut ns, fonts.as_deref().map(|v| v.as_slice())) && ns != s {
-                    // Ad değişirse diyalogları da güncelle.
+                    // Ad değişirse diyalogları da güncelle. Yazarken ara adlar başka bir stille çakışabilir
+                    // ("Default2" → "Default" → "Defaul"): bu yüzden yeniden adlandırma oturumunun başında
+                    // eski adı kullanan satırlar kaydedilir ve yalnızca onlar güncellenir (stiller birleşmez).
                     let rename = (ns.name != s.name).then(|| (s.name.clone(), ns.name.clone()));
+                    if let Some((old, _)) = &rename {
+                        let fresh = !matches!(&self.style_rename, Some((si, rev, ..)) if *si == i && *rev == self.doc.rev);
+                        if fresh {
+                            let ents = &self.doc.script.entries;
+                            let lines: Vec<usize> = ents.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if &d.style == old)).map(|(k, _)| k).collect();
+                            let refs: Vec<usize> = ents.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.text.contains("\\r"))).map(|(k, _)| k).collect();
+                            self.style_rename = Some((i, 0, lines, refs));
+                        }
+                    }
+                    let tracked = self.style_rename.clone().filter(|t| t.0 == i);
                     let key = format!("style:{}", i);
                     self.doc.edit_keyed("Stil düzenle", Some(&key), |tx| {
                         tx.replace(i, Entry::Style(ns));
-                        if let Some((old, new)) = rename {
-                            let affected: Vec<usize> = tx.script().entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.style == old)).map(|(k, _)| k).collect();
-                            for k in affected { tx.dialogue_mut(k, |d| d.style = new.clone()); }
+                        if let (Some((old, new)), Some((_, _, lines, refs))) = (rename, tracked) {
+                            for k in lines { tx.dialogue_mut(k, |d| d.style = new.clone()); }
                             // \r<eski> başvuruları da
                             let map = [(old.clone(), new.clone())];
-                            let refs: Vec<usize> = tx.script().entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Dialogue(d) if d.text.contains("\\r"))).map(|(k, _)| k).collect();
                             for k in refs { tx.dialogue_mut(k, |d| d.text = osisub_core::merge::rename_r_refs(&d.text, &map)); }
                         }
                     });
+                    if let Some(t) = self.style_rename.as_mut() { t.1 = self.doc.rev; }
+                }
+                // aynı adda iki stil: satırlar hangisini kullanacağını bilemez
+                if let Entry::Style(cur) = &self.doc.script.entries[i] {
+                    if self.doc.script.styles().filter(|x| x.name == cur.name).count() > 1 {
+                        ui.colored_label(theme::BAD, tr("Bu adda başka bir stil de var — adı değiştirin"));
+                    }
                 }
             }
         }
+    }
+
+    /// Betikte olmayan bir stil adı: "ad", "ad 2", "ad 3"…
+    pub(super) fn unique_style_name(&self, base: &str) -> String {
+        let taken: std::collections::HashSet<&str> = self.doc.script.styles().map(|s| s.name.as_str()).collect();
+        if !taken.contains(base) { return base.to_string(); }
+        (2..).map(|n| format!("{} {}", base, n)).find(|c| !taken.contains(c.as_str())).unwrap()
     }
 
     /// libass ile çizilen stil önizlemesi (arka planda; stil/metin değişince yenilenir).

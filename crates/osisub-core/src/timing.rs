@@ -112,44 +112,72 @@ fn fmt(v: f64) -> String {
     if (r - r.round()).abs() < 1e-9 { format!("{}", r.round() as i64) } else { format!("{}", r) }
 }
 
-fn scale_tag(t: &mut Tag, sx: f64, sy: f64) {
-    let uni = sy; // yazı boyutu/kenar gibi tek yönlü değerler dikey orana göre
+/// Yeniden örnekleme durumu (Aegisub `resample_state`): rx/ry ölçek, `ar` yatay germe
+/// (\fscx ve stil ScaleX çarpanı), ml/mt sol/üst kenar eklemesi (kenarlık kiplerinde).
+#[derive(Clone, Copy)]
+struct Rs {
+    rx: f64,
+    ry: f64,
+    ar: f64,
+    ml: f64,
+    mt: f64,
+}
+
+/// En-boy oranı değişince ne yapılacağı (Aegisub Resample Resolution "Aspect Ratio Handling").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ArMode {
+    /// Yatay ger: \fscx ve stil ScaleX yeni/eski oranla çarpılır (Aegisub varsayılanı).
+    #[default]
+    Stretch,
+    /// Kenarlık ekle (pillarbox/letterbox): yazı oranı korunur, konumlar ortalanır.
+    AddBorder,
+    /// Kenarlık kaldır: tersine kırpma.
+    RemoveBorder,
+}
+
+fn scale_drawing(text: &str, sx: f64, sy: f64, shx: f64, shy: f64) -> String {
+    let mut axis = 0usize;
+    text.split_whitespace().map(|tk| match tk.parse::<f64>() {
+        Ok(v) => {
+            let r = if axis % 2 == 0 { fmt((v + shx) * sx) } else { fmt((v + shy) * sy) };
+            axis += 1;
+            r
+        }
+        Err(_) => tk.to_string(),
+    }).collect::<Vec<_>>().join(" ")
+}
+
+fn scale_tag(t: &mut Tag, st: &Rs) {
+    let (sx, sy) = (st.rx, st.ry);
     match t.name.as_str() {
-        "fs" | "bord" | "shad" | "fsp" | "blur" | "be" => t.arg = scale_num(&t.arg, uni),
+        // \fs+5 / \fs-5 göreli: dokunma (Aegisub: NORMAL sınıfı)
+        "fs" if t.arg.trim_start().starts_with(['+', '-']) => {}
+        "fs" | "bord" | "shad" | "fsp" | "pbo" => t.arg = scale_num(&t.arg, sy),
         "xbord" | "xshad" => t.arg = scale_num(&t.arg, sx),
         "ybord" | "yshad" => t.arg = scale_num(&t.arg, sy),
+        "fscx" if st.ar != 1.0 => t.arg = scale_num(&t.arg, st.ar),
         "pos" | "org" | "move" | "clip" | "iclip" => {
             let args = t.args();
-            // clip(vektör) çizim komutu: [scale,] m x y l x y ...
             let all_num = args.iter().all(|a| a.trim().parse::<f64>().is_ok());
             if all_num && (t.name != "move" || args.len() >= 4) {
+                let rect = t.name == "clip" || t.name == "iclip";
                 let scaled: Vec<String> = args.iter().enumerate().map(|(i, a)| {
-                    // move: x1 y1 x2 y2 [t1 t2] — ilk dört koordinat; clip dikdörtgen: x1 y1 x2 y2
-                    if t.name == "move" && i >= 4 { a.clone() } else { scale_num(a, if i % 2 == 0 { sx } else { sy }) }
+                    // move: x1 y1 x2 y2 [t1 t2] — ilk dört koordinat
+                    if t.name == "move" && i >= 4 { return a.clone(); }
+                    let v = a.trim().parse::<f64>().unwrap_or(0.0);
+                    let r = if i % 2 == 0 { (v + st.ml) * sx } else { (v + st.mt) * sy };
+                    // dikdörtgen kırpma tam sayıdır (Aegisub INT, +0.5 yuvarlama)
+                    if rect { format!("{}", (r + 0.5).floor() as i64) } else { fmt(r) }
                 }).collect();
                 t.arg = format!("({})", scaled.join(","));
             } else if t.name == "clip" || t.name == "iclip" {
                 let inner = t.arg.trim().trim_start_matches('(').trim_end_matches(')');
-                let toks: Vec<&str> = inner.split_whitespace().collect();
-                let mut out: Vec<String> = Vec::new();
-                let mut axis = 0;
-                let mut start = 0;
-                // İlk simge sayıysa (ölçek) ve ardından komut harfi geliyorsa ölçek olarak bırak.
-                if let Some(first) = toks.first() {
-                    if first.parse::<f64>().is_ok() && toks.get(1).map_or(false, |x| x.parse::<f64>().is_err()) {
-                        out.push(first.to_string());
-                        start = 1;
-                    }
-                }
-                for tk in &toks[start..] {
-                    if tk.parse::<f64>().is_ok() {
-                        out.push(scale_num(tk, if axis % 2 == 0 { sx } else { sy }));
-                        axis += 1;
-                    } else {
-                        out.push(tk.to_string());
-                    }
-                }
-                t.arg = format!("({})", out.join(" "));
+                // ilk alan sayı ve virgülle ayrılmışsa ölçek: \clip(2,m 0 0 l ...)
+                let (head, body) = match inner.split_once(',') {
+                    Some((h, b)) if h.trim().parse::<f64>().is_ok() => (format!("{},", h.trim()), b),
+                    _ => (String::new(), inner),
+                };
+                t.arg = format!("({}{})", head, scale_drawing(body, sx, sy, st.ml, st.mt));
             }
         }
         "t" => {
@@ -159,7 +187,7 @@ fn scale_tag(t: &mut Tag, sx: f64, sy: f64) {
                 let (head, tags) = inner.split_at(p);
                 let mut sub = overrides::parse_block(tags);
                 for s in sub.iter_mut() {
-                    scale_tag(s, sx, sy);
+                    scale_tag(s, st);
                 }
                 t.arg = format!("({}{})", head, overrides::block_to_string(&sub));
             }
@@ -168,7 +196,7 @@ fn scale_tag(t: &mut Tag, sx: f64, sy: f64) {
     }
 }
 
-fn scale_text(text: &str, sx: f64, sy: f64) -> String {
+fn scale_text(text: &str, st: &Rs) -> String {
     let mut segs = overrides::parse(text);
     let mut in_drawing = false;
     for s in segs.iter_mut() {
@@ -178,52 +206,78 @@ fn scale_text(text: &str, sx: f64, sy: f64) -> String {
                     if t.name == "p" {
                         in_drawing = t.arg.trim().parse::<f64>().map_or(false, |v| v > 0.0);
                     }
-                    scale_tag(t, sx, sy);
+                    scale_tag(t, st);
                 }
             }
-            Seg::Text(t) if in_drawing => {
-                let toks: Vec<String> = t.split_whitespace().scan(0usize, |axis, tk| {
-                    if tk.parse::<f64>().is_ok() {
-                        let r = scale_num(tk, if *axis % 2 == 0 { sx } else { sy });
-                        *axis += 1;
-                        Some(r)
-                    } else {
-                        Some(tk.to_string())
-                    }
-                }).collect();
-                *t = toks.join(" ");
-            }
+            // çizim \pos'a göreli: kaydırma yok; yatay germede \fscx zaten çarpıldığından rx/ar
+            Seg::Text(t) if in_drawing => *t = scale_drawing(t, st.rx / st.ar, st.ry, 0.0, 0.0),
             _ => {}
         }
     }
     overrides::to_string(&segs)
 }
 
-/// Betik çözünürlüğünü değiştirir; stilleri, kenar boşluklarını ve etiketleri ölçekler.
+/// Betik çözünürlüğünü değiştirir; stilleri, kenar boşluklarını ve etiketleri ölçekler (yatay germe).
 pub fn resample(script: &mut Script, new_x: i32, new_y: i32) {
+    resample_ar(script, new_x, new_y, ArMode::Stretch)
+}
+
+/// Aegisub `ResampleResolution` ile aynı: en-boy oranı %1'den az değişiyorsa dönüştürülmez.
+pub fn resample_ar(script: &mut Script, new_x: i32, new_y: i32, mode: ArMode) {
     let (ox, oy) = script.res();
-    if (ox, oy) == (new_x, new_y) || ox == 0 || oy == 0 {
+    if (ox, oy) == (new_x, new_y) || ox <= 0 || oy <= 0 || new_x <= 0 || new_y <= 0 {
         return;
     }
-    let (sx, sy) = (new_x as f64 / ox as f64, new_y as f64 / oy as f64);
+    let old_ar = ox as f64 / oy as f64;
+    let new_ar = new_x as f64 / new_y as f64;
+    let mut margin = [0.0f64; 4]; // sol, sağ, üst, alt
+    let mut ar = 1.0;
+    if (old_ar - new_ar).abs() / new_ar > 0.01 {
+        let mut horiz = new_ar > old_ar;
+        match mode {
+            ArMode::Stretch => ar = new_ar / old_ar,
+            ArMode::AddBorder | ArMode::RemoveBorder => {
+                if mode == ArMode::RemoveBorder { horiz = !horiz; }
+                if horiz {
+                    let m = ((oy as f64 * new_ar - ox as f64) / 2.0).trunc();
+                    margin[0] = m;
+                    margin[1] = m;
+                } else {
+                    let m = ((ox as f64 / new_ar - oy as f64) / 2.0).trunc();
+                    margin[2] = m;
+                    margin[3] = m;
+                }
+            }
+        }
+    }
+    let sx_src = ox as f64 + margin[0] + margin[1];
+    let sy_src = oy as f64 + margin[2] + margin[3];
+    let st = Rs { rx: new_x as f64 / sx_src, ry: new_y as f64 / sy_src, ar, ml: margin[0], mt: margin[2] };
+    let mg = |v: i32, add: f64, r: f64| ((v as f64 + add) * r + 0.5).floor() as i32;
     for e in script.entries.iter_mut() {
         match e {
             Entry::Style(s) => {
-                s.fontsize = (s.fontsize * sy * 100.0).round() / 100.0;
-                s.outline = (s.outline * sy * 100.0).round() / 100.0;
-                s.shadow = (s.shadow * sy * 100.0).round() / 100.0;
-                s.spacing = (s.spacing * sx * 100.0).round() / 100.0;
-                s.margin_l = (s.margin_l as f64 * sx).round() as i32;
-                s.margin_r = (s.margin_r as f64 * sx).round() as i32;
-                s.margin_t = (s.margin_t as f64 * sy).round() as i32;
-                s.margin_b = (s.margin_b as f64 * sy).round() as i32;
+                s.fontsize = (s.fontsize * st.ry * 100.0).round() / 100.0;
+                s.outline = (s.outline * st.ry * 100.0).round() / 100.0;
+                s.shadow = (s.shadow * st.ry * 100.0).round() / 100.0;
+                s.spacing = (s.spacing * st.ry * 100.0).round() / 100.0;
+                s.scale_x = (s.scale_x * st.ar * 100.0).round() / 100.0;
+                s.margin_l = mg(s.margin_l, margin[0], st.rx);
+                s.margin_r = mg(s.margin_r, margin[1], st.rx);
+                s.margin_t = mg(s.margin_t, margin[2], st.ry);
+                s.margin_b = mg(s.margin_b, margin[2], st.ry);
             }
             Entry::Dialogue(d) => {
-                d.margin_l = (d.margin_l as f64 * sx).round() as i32;
-                d.margin_r = (d.margin_r as f64 * sx).round() as i32;
-                d.margin_t = (d.margin_t as f64 * sy).round() as i32;
-                d.margin_b = (d.margin_b as f64 * sy).round() as i32;
-                d.text = scale_text(&d.text, sx, sy);
+                // karaoke şablonu / kod satırları ölçeklenmez (Aegisub)
+                if d.comment && (d.effect.starts_with("template") || d.effect.starts_with("code")) {
+                    continue;
+                }
+                // satır kenar boşluğu yalnızca 0 değilse (0 = stilinkini kullan)
+                if d.margin_l != 0 { d.margin_l = mg(d.margin_l, margin[0], st.rx); }
+                if d.margin_r != 0 { d.margin_r = mg(d.margin_r, margin[1], st.rx); }
+                if d.margin_t != 0 { d.margin_t = mg(d.margin_t, margin[2], st.ry); }
+                if d.margin_b != 0 { d.margin_b = mg(d.margin_b, margin[2], st.ry); }
+                d.text = scale_text(&d.text, &st);
             }
             _ => {}
         }
@@ -325,6 +379,39 @@ mod tests {
         assert!(t.contains("\\pos(640,360)") && t.contains("\\fs60") && t.contains("\\t(0,500,\\fs120)") && t.contains("\\clip(0,0,1280,720)"), "{}", t);
         assert!(t.contains("m 0 0 l 20 40"), "{}", t);
         assert_eq!(s.dialogues().next().unwrap().margin_t, 10);
+    }
+
+    const HEAD: &str = "[Script Info]\nPlayResX: 640\nPlayResY: 480\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,1,0,1,2,1,2,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+
+    #[test]
+    fn resample_aegisub_ayrintilari() {
+        // 4:3 → 16:9 yatay germe: \fscx ve ScaleX ×1.333, çizim ry ile, \fs+ ve \be dokunulmaz
+        let mut s = Script::parse(&format!("{}Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{{\\fs+5\\be1\\blur2\\pbo10\\fscx100\\iclip(1,1,3,3)\\clip(m 0 0 l 64 48)}}a{{\\p1}}m 0 0 l 10 10{{\\p0}}\nComment: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,template line,{{\\fs30\\pos($x,$y)}}\n", HEAD));
+        resample(&mut s, 1280, 720);
+        let st = s.styles().next().unwrap();
+        assert_eq!((st.fontsize, st.spacing, st.scale_x), (30.0, 1.5, 133.33));
+        let ds: Vec<_> = s.dialogues().collect();
+        let t = &ds[0].text;
+        for want in ["\\fs+5", "\\be1", "\\blur2", "\\pbo15", "\\fscx133.33", "\\iclip(2,2,6,5)", "\\clip(m 0 0 l 128 72)", "m 0 0 l 15 15"] {
+            assert!(t.contains(want), "{} yok: {}", want, t);
+        }
+        assert_eq!(ds[1].text, "{\\fs30\\pos($x,$y)}", "şablon satırı ölçeklenmez");
+    }
+
+    #[test]
+    fn resample_kenarlik_ekle() {
+        // 640x480 → 1280x720 kenarlık: kaynak 853x480 sayılır (sol/sağ +106), \pos ortalanır, \fscx değişmez
+        let mut s = Script::parse(&format!("{}Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{{\\pos(320,240)\\fscx100}}a\n", HEAD));
+        resample_ar(&mut s, 1280, 720, ArMode::AddBorder);
+        let t = &s.dialogues().next().unwrap().text;
+        assert!(t.contains("\\fscx100"), "{}", t);
+        let x: f64 = t.split("pos(").nth(1).unwrap().split(',').next().unwrap().parse().unwrap();
+        assert!((x - 640.0).abs() < 2.0, "{}", t);
+        assert_eq!(s.styles().next().unwrap().scale_x, 100.0);
+        // oran neredeyse aynıysa (848x480 → 1280x720) germe yok
+        let mut s = Script::parse(&format!("{}Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{{\\fscx100}}a\n", HEAD.replace("640", "848")));
+        resample(&mut s, 1280, 720);
+        assert!(s.dialogues().next().unwrap().text.contains("\\fscx100"));
     }
 
     #[test]
