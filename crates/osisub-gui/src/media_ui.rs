@@ -116,6 +116,8 @@ pub struct Media {
     vt_press: Option<egui::Pos2>,
     /// \move aracı: sürükleme başındaki değer
     vt_move0: Option<osisub_core::overrides::Move>,
+    /// Konum aracı çoklu seçim sürüklemesi: (satır, varsa \\move, başlangıç konumu)
+    vt_multi: Vec<(usize, Option<osisub_core::overrides::Move>, (f32, f32))>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
     /// Eğme aracında sürüklenen tutamaç: 0 = \fax, 1 = \fay
@@ -190,6 +192,7 @@ impl Media {
             vt_drag: None,
             vt_press: None,
             vt_move0: None,
+            vt_multi: vec![],
             vt_quad: None,
             vt_qdrag: None,
             persp_box: None,
@@ -875,19 +878,56 @@ impl Media {
         match self.tool {
             VideoTool::None => {}
             VideoTool::Pos => {
-                if osisub_core::overrides::get_initial(&d.text, "move").is_some() {
-                    p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, crate::i18n::tr("\\move var: konum aracı devre dışı"), egui::FontId::proportional(12.0), Color32::from_rgb(0xe0, 0xa8, 0x4a));
-                    return;
-                }
                 p.circle_stroke(c, 8.0, Stroke::new(2.0, col));
                 p.line_segment([c - egui::vec2(14.0, 0.0), c + egui::vec2(14.0, 0.0)], Stroke::new(1.0, col));
                 p.line_segment([c - egui::vec2(0.0, 14.0), c + egui::vec2(0.0, 14.0)], Stroke::new(1.0, col));
                 p.text(c + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, format!("{:.0}, {:.0}", cur.0, cur.1), egui::FontId::monospace(11.0), col);
-                if r.dragged() || r.clicked() {
+                // Aegisub sürükleme aracı: sürükleme farkı SEÇİLİ TÜM satırlara uygulanır; \move'lu satırda
+                // iki nokta birlikte kayar; ekran dışına çıkılabilir (kayarak giren tabelalar)
+                if r.drag_started() {
+                    if let Some(pos) = press.or(ptr) {
+                        self.vt_drag = Some((0, to_script(pos)));
+                        let mut lines: Vec<usize> = doc.target_lines();
+                        if !lines.contains(&at) { lines.push(at); }
+                        self.vt_multi = lines.into_iter().filter_map(|i| match doc.script.entries.get(i) {
+                            Some(Entry::Dialogue(dd)) => Some((i, osisub_core::overrides::Move::get(&dd.text), Self::current_pos(doc, dd))),
+                            _ => None,
+                        }).collect();
+                    }
+                }
+                if r.dragged() {
+                    if let (Some((_, anchor)), Some(pos)) = (self.vt_drag, ptr) {
+                        let (x, y) = to_script(pos);
+                        let (dx, dy) = ((x - anchor.0).round() as f64, (y - anchor.1).round() as f64);
+                        let mut changes: Vec<(usize, String)> = vec![];
+                        for (i, mv, p0) in &self.vt_multi {
+                            let Some(Entry::Dialogue(dd)) = doc.script.entries.get(*i) else { continue };
+                            let nt = match mv {
+                                Some(m0) => {
+                                    let mut m = *m0;
+                                    m.from = (m0.from.0 + dx, m0.from.1 + dy);
+                                    m.to = (m0.to.0 + dx, m0.to.1 + dy);
+                                    m.apply(&dd.text)
+                                }
+                                None => osisub_core::overrides::set_initial(&dd.text, "pos", &format!("({},{})", p0.0.round() as f64 + dx + 0.0, p0.1.round() as f64 + dy + 0.0)),
+                            };
+                            if nt != dd.text { changes.push((*i, nt)); }
+                        }
+                        if !changes.is_empty() {
+                            doc.edit_keyed("Konum", Some("vt:pos:multi"), |tx| for (i, nt) in changes { tx.dialogue_mut(i, |dd| dd.text = nt); });
+                        }
+                    }
+                } else if r.clicked() {
+                    // tıklama: etkin satırı tıklanan noktaya koy
                     if let Some(pos) = ptr {
                         let (x, y) = to_script(pos);
-                        Self::set_tag(doc, at, &d.text, "pos", &format!("({},{})", x.round().clamp(0.0, rx), y.round().clamp(0.0, ry)), "Konum");
+                        Self::set_tag(doc, at, &d.text, "pos", &format!("({},{})", x.round() + 0.0, y.round() + 0.0), "Konum");
+                        doc.seal();
                     }
+                }
+                if r.drag_stopped() {
+                    self.vt_drag = None;
+                    self.vt_multi.clear();
                 }
             }
             VideoTool::Move => {
@@ -919,7 +959,7 @@ impl Media {
                 if r.dragged() {
                     if let (Some((mode, anchor)), Some(m0), Some(pos)) = (self.vt_drag, self.vt_move0, ptr) {
                         let (x, y) = to_script(pos);
-                        let (x, y) = (x.clamp(0.0, rx) as f64, y.clamp(0.0, ry) as f64);
+                        let (x, y) = (x as f64, y as f64);
                         let mut m = m0;
                         match mode {
                             1 => m.from = (x.round(), y.round()),
@@ -1081,8 +1121,8 @@ impl Media {
                 if r.dragged() {
                     if let (Some((_, anchor)), Some(pos)) = (self.vt_drag, ptr) {
                         let (x, y) = to_script(pos);
-                        let (x, y) = (x.round().clamp(0.0, rx), y.round().clamp(0.0, ry));
-                        let (ax, ay) = (anchor.0.round(), anchor.1.round());
+                        let (x, y) = (x.round() + 0.0, y.round() + 0.0);
+                        let (ax, ay) = (anchor.0.round() + 0.0, anchor.1.round() + 0.0);
                         Self::set_tag(doc, at, &d.text, clip_name, &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
                     }
                 }
