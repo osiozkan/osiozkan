@@ -373,12 +373,22 @@ impl Engine {
         Ok(info)
     }
 
+    /// Seçim (ham, 1 tabanlı) → Lua dizinleri (gizli satırlar sayılmaz; bkz. `subs::lua_visible`).
     fn sel_table(&self, sel: &[usize]) -> mlua::Result<Table> {
         let t = self.lua.create_table()?;
-        for (i, v) in sel.iter().enumerate() {
-            t.set(i + 1, *v as i64)?;
+        let sc = self.script.borrow();
+        for (i, v) in sel.iter().filter_map(|&v| v.checked_sub(1).and_then(|r| crate::subs::lua_index_of(&sc, r))).enumerate() {
+            t.set(i + 1, v as i64)?;
         }
         Ok(t)
+    }
+
+    fn lua_active(&self, active: usize) -> i64 {
+        active.checked_sub(1).and_then(|r| crate::subs::lua_index_of(&self.script.borrow(), r)).unwrap_or(0) as i64
+    }
+
+    fn raw_from_lua(&self, i: usize) -> Option<usize> {
+        crate::subs::raw_index_of(&self.script.borrow(), i).map(|r| r + 1)
     }
 
     pub fn validate_macro(&mut self, id: usize, selection: &[usize], active: usize) -> bool {
@@ -389,7 +399,7 @@ impl Engine {
             Ok(s) => s,
             Err(_) => return false,
         };
-        match f.call::<Value>((subs, sel, active as i64)) {
+        match f.call::<Value>((subs, sel, self.lua_active(active))) {
             Ok(Value::Boolean(b)) => b,
             Ok(Value::Nil) => false,
             Ok(_) => true,
@@ -402,7 +412,7 @@ impl Engine {
         let Some(f) = f else { return false };
         let Ok(sel) = self.sel_table(selection) else { return false };
         let Ok(subs) = self.lua.create_userdata(Subs::new(self.script.clone())) else { return false };
-        matches!(f.call::<Value>((subs, sel, active as i64)), Ok(Value::Boolean(true)))
+        matches!(f.call::<Value>((subs, sel, self.lua_active(active))), Ok(Value::Boolean(true)))
     }
 
     pub fn run_macro(&mut self, id: usize, selection: &[usize], active: usize) -> Result<RunOutcome, EngineError> {
@@ -414,7 +424,7 @@ impl Engine {
         self.inner.borrow_mut().undo_desc = None;
         let subs = self.lua.create_userdata(Subs::new(self.script.clone()))?;
         let res: mlua::Result<mlua::MultiValue> = match kind {
-            MacroKind::Macro => process.call((subs, self.sel_table(selection)?, active as i64)),
+            MacroKind::Macro => process.call((subs, self.sel_table(selection)?, self.lua_active(active))),
             MacroKind::Filter => {
                 let cfg = self.lua.create_table()?;
                 if let Some(c) = config {
@@ -439,11 +449,11 @@ impl Engine {
                 let mut out = RunOutcome { undo_desc, ..Default::default() };
                 let mut it = vals.into_iter();
                 if let Some(Value::Table(t)) = it.next() {
-                    out.selection = Some(t.sequence_values::<i64>().filter_map(|v| v.ok()).map(|v| v as usize).collect());
+                    out.selection = Some(t.sequence_values::<i64>().filter_map(|v| v.ok()).filter(|&v| v >= 1).filter_map(|v| self.raw_from_lua(v as usize)).collect());
                 }
                 match it.next() {
-                    Some(Value::Integer(i)) => out.active = Some(i as usize),
-                    Some(Value::Number(n)) => out.active = Some(n as usize),
+                    Some(Value::Integer(i)) if i >= 1 => out.active = self.raw_from_lua(i as usize),
+                    Some(Value::Number(n)) if n >= 1.0 => out.active = self.raw_from_lua(n as usize),
                     _ => {}
                 }
                 Ok(out)

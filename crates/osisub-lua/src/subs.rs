@@ -11,12 +11,77 @@ type ExtraCache = Rc<RefCell<Option<std::collections::BTreeMap<u32, (String, Str
 
 /// Lua `subs` nesnesi. İkinci alan Extradata önbelleğidir (her yazmada temizlenir);
 /// `line.extra` okumak böylece satır başına tüm belgeyi taramaz.
-pub struct Subs(pub SharedScript, ExtraCache);
+/// Üçüncü alan görünür dizin → ham dizin eşlemesidir: Aegisub gibi Lua yalnızca
+/// info/style/dialogue satırlarını görür (Script Info `;` yorumları, `[Aegisub Project Garbage]`,
+/// `[Fonts]`, Extradata gizli). Yoksa karaskel.collect_head ilk yorumda durup "No styles were found" verir.
+pub struct Subs(pub SharedScript, ExtraCache, VisMap);
+
+type VisMap = Rc<RefCell<Option<(usize, Vec<usize>)>>>;
 
 impl Subs {
     pub fn new(script: SharedScript) -> Subs {
-        Subs(script, Rc::new(RefCell::new(None)))
+        Subs(script, Rc::new(RefCell::new(None)), Rc::new(RefCell::new(None)))
     }
+}
+
+/// Lua'ya görünen satır mı (Aegisub 3.x `subs` içeriği).
+pub fn lua_visible(e: &Entry) -> bool {
+    !matches!(e, Entry::Unknown { .. })
+}
+
+/// Ham (0 tabanlı) dizin → Lua dizini (1 tabanlı); gizli satırsa `None`.
+pub fn lua_index_of(script: &ass::Script, raw: usize) -> Option<usize> {
+    if raw >= script.entries.len() || !lua_visible(&script.entries[raw]) { return None; }
+    Some(script.entries[..raw].iter().filter(|e| lua_visible(e)).count() + 1)
+}
+
+/// Lua dizini (1 tabanlı) → ham (0 tabanlı) dizin.
+pub fn raw_index_of(script: &ass::Script, lua_i: usize) -> Option<usize> {
+    if lua_i == 0 { return None; }
+    script.entries.iter().enumerate().filter(|(_, e)| lua_visible(e)).nth(lua_i - 1).map(|(i, _)| i)
+}
+
+fn with_map<R>(map: &VisMap, sc: &ass::Script, f: impl FnOnce(&[usize]) -> R) -> R {
+    let mut m = map.borrow_mut();
+    if m.as_ref().is_none_or(|(n, _)| *n != sc.entries.len()) {
+        let v: Vec<usize> = sc.entries.iter().enumerate().filter(|(_, e)| lua_visible(e)).map(|(i, _)| i).collect();
+        *m = Some((sc.entries.len(), v));
+    }
+    f(&m.as_ref().unwrap().1)
+}
+
+/// Lua dizini (1 tabanlı) → ham dizin; aralık dışıysa `None`.
+fn raw_at(map: &VisMap, sc: &ass::Script, i: i64) -> Option<usize> {
+    with_map(map, sc, |v| if i >= 1 { v.get(i as usize - 1).copied() } else { None })
+}
+
+/// Lua'da `i`'nci satırdan önce ekleme konumu (ham); `i` sondan sonraysa belge sonu.
+fn raw_insert_pos(map: &VisMap, sc: &ass::Script, i: i64) -> usize {
+    raw_at(map, sc, i.max(1)).unwrap_or(sc.entries.len())
+}
+
+/// Ham `p` konumuna satır eklendi: eşlemeyi yeniden kurmadan güncelle.
+fn map_inserted(map: &VisMap, p: usize, visible: bool) {
+    if let Some((n, v)) = map.borrow_mut().as_mut() {
+        let k = v.partition_point(|&x| x < p);
+        for x in &mut v[k..] { *x += 1; }
+        if visible { v.insert(k, p); }
+        *n += 1;
+    }
+}
+
+/// Ham `p` konumundaki satır silindi.
+fn map_removed(map: &VisMap, p: usize) {
+    if let Some((n, v)) = map.borrow_mut().as_mut() {
+        let k = v.partition_point(|&x| x < p);
+        if v.get(k) == Some(&p) { v.remove(k); }
+        for x in &mut v[k..] { *x -= 1; }
+        *n -= 1;
+    }
+}
+
+fn vis_len(map: &VisMap, sc: &ass::Script) -> usize {
+    with_map(map, sc, |v| v.len())
 }
 
 /// Satırın `extra` tablosu: Extradata kimliklerinden anahtar → değer.
@@ -249,35 +314,39 @@ fn last_section(script: &ass::Script) -> String {
 impl UserData for Subs {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_function(MetaMethod::Index, |lua, (ud, key): (AnyUserData, Value)| -> Result<Value> {
-            let (shared, cache) = {
+            let (shared, cache, map) = {
                 let b = ud.borrow::<Subs>()?;
-                (b.0.clone(), b.1.clone())
+                (b.0.clone(), b.1.clone(), b.2.clone())
             };
             match &key {
                 Value::String(s) => {
                     let name = s.to_str()?.to_string();
                     let sh = shared.clone();
                     let ca = cache.clone();
+                    let mp = map.clone();
                     let f = match name.as_str() {
-                        "n" => return Ok(Value::Integer(shared.borrow().entries.len() as i64)),
+                        "n" => return Ok(Value::Integer(vis_len(&map, &shared.borrow()) as i64)),
                         "append" => lua.create_function(move |lua, items: Variadic<Table>| {
                             let mut sc = sh.borrow_mut();
                             for t in items {
                                 let sec = last_section(&sc);
                                 let e = table_to_entry_in(&t, &sec, &mut sc, &ca)?;
                                 sc.append_in_section(e);
+                                *mp.borrow_mut() = None;
                             }
                             let _ = lua;
                             Ok(())
                         })?,
                         "insert" => lua.create_function(move |_, (i, items): (i64, Variadic<Table>)| {
                             let mut sc = sh.borrow_mut();
-                            let mut pos = (i.max(1) - 1) as usize;
+                            let mut pos = raw_insert_pos(&mp, &sc, i);
                             for t in items {
                                 let sec = last_section(&sc);
                                 let e = table_to_entry_in(&t, &sec, &mut sc, &ca)?;
                                 let p = pos.min(sc.entries.len());
+                                let vis = lua_visible(&e);
                                 sc.entries.insert(p, e);
+                                map_inserted(&mp, p, vis);
                                 pos += 1;
                             }
                             Ok(())
@@ -288,26 +357,30 @@ impl UserData for Subs {
                             let mut sc = sh.borrow_mut();
                             // Aegisub: tek tablo bağımsız değişkeni → içindeki indekslerin hepsi
                             let num = |x: &Value| match x { Value::Integer(i) => Some(*i), Value::Number(n) => Some(*n as i64), _ => None };
-                            let mut v: Vec<i64> = match items.first() {
+                            let v: Vec<i64> = match items.first() {
                                 Some(Value::Table(tb)) if items.len() == 1 => tb.clone().sequence_values::<Value>().filter_map(|x| x.ok()).filter_map(|x| num(&x)).collect(),
                                 _ => items.iter().map(|x| num(x).ok_or_else(|| mlua::Error::runtime("subs.delete: indeks sayı olmalı"))).collect::<mlua::Result<_>>()?,
                             };
-                            v.sort_unstable();
-                            v.dedup();
-                            for i in v.into_iter().rev() {
-                                if i >= 1 && (i as usize) <= sc.entries.len() {
-                                    sc.entries.remove(i as usize - 1);
-                                }
+                            let mut raw: Vec<usize> = v.into_iter().filter_map(|i| raw_at(&mp, &sc, i)).collect();
+                            raw.sort_unstable();
+                            raw.dedup();
+                            for r in raw.into_iter().rev() {
+                                sc.entries.remove(r);
+                                map_removed(&mp, r);
                             }
                             Ok(())
                         })?,
                         "deleterange" => lua.create_function(move |_, (a, b): (i64, i64)| {
                             *ca.borrow_mut() = None;
                             let mut sc = sh.borrow_mut();
-                            let a = (a.max(1) - 1) as usize;
-                            let b = (b.max(0) as usize).min(sc.entries.len());
-                            if a < b {
-                                sc.entries.drain(a..b);
+                            let raw: Vec<usize> = with_map(&mp, &sc, |v| {
+                                let a = (a.max(1) - 1) as usize;
+                                let b = (b.max(0) as usize).min(v.len());
+                                if a < b { v[a..b].to_vec() } else { vec![] }
+                            });
+                            for r in raw.into_iter().rev() {
+                                sc.entries.remove(r);
+                                map_removed(&mp, r);
                             }
                             Ok(())
                         })?,
@@ -318,46 +391,52 @@ impl UserData for Subs {
                 other => {
                     let Some(i) = idx(other) else { return Ok(Value::Nil) };
                     let sc = shared.borrow();
-                    if i >= 1 && (i as usize) <= sc.entries.len() {
-                        Ok(Value::Table(entry_to_table_in(lua, &sc.entries[i as usize - 1], Some((&sc, &cache)))?))
-                    } else {
-                        Ok(Value::Nil)
+                    match raw_at(&map, &sc, i) {
+                        Some(r) => Ok(Value::Table(entry_to_table_in(lua, &sc.entries[r], Some((&sc, &cache)))?)),
+                        None => Ok(Value::Nil),
                     }
                 }
             }
         });
         methods.add_meta_function(MetaMethod::NewIndex, |_, (ud, key, val): (AnyUserData, Value, Value)| {
-            let (shared, cache) = {
+            let (shared, cache, map) = {
                 let b = ud.borrow::<Subs>()?;
-                (b.0.clone(), b.1.clone())
+                (b.0.clone(), b.1.clone(), b.2.clone())
             };
             let Some(i) = idx(&key) else { return Ok(()) };
             let mut sc = shared.borrow_mut();
             *cache.borrow_mut() = None;
             match val {
                 Value::Nil => {
-                    if i >= 1 && (i as usize) <= sc.entries.len() {
-                        sc.entries.remove(i as usize - 1);
+                    if let Some(r) = raw_at(&map, &sc, i) {
+                        sc.entries.remove(r);
+                        map_removed(&map, r);
                     }
                 }
                 Value::Table(t) => {
                     let sec = last_section(&sc);
                     let e = table_to_entry_in(&t, &sec, &mut sc, &cache)?;
-                    if i >= 1 && (i as usize) <= sc.entries.len() {
-                        sc.entries[i as usize - 1] = e;
+                    if let Some(r) = raw_at(&map, &sc, i) {
+                        let keep = lua_visible(&e);
+                        sc.entries[r] = e;
+                        if !keep { *map.borrow_mut() = None; }
                     } else if i < 0 {
                         // Aegisub: negatif dizin = |i|'nci satırdan ÖNCE ekle.
-                        let at = ((-i) as usize - 1).min(sc.entries.len());
+                        let at = raw_insert_pos(&map, &sc, -i);
+                        let vis = lua_visible(&e);
                         sc.entries.insert(at, e);
+                        map_inserted(&map, at, vis);
                     } else {
+                        let vis = lua_visible(&e);
                         sc.entries.push(e);
+                        map_inserted(&map, sc.entries.len() - 1, vis);
                     }
                 }
                 _ => return Err(mlua::Error::runtime("subs: atama için tablo ya da nil gerekli")),
             }
             Ok(())
         });
-        methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(this.0.borrow().entries.len() as i64));
+        methods.add_meta_method(MetaMethod::Len, |_, this, ()| Ok(vis_len(&this.2, &this.0.borrow()) as i64));
     }
 }
 
