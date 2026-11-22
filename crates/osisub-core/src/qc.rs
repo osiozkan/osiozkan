@@ -399,12 +399,36 @@ pub fn script_issues_dar(script: &Script, video: Option<(u32, u32)>, dar: Option
 /// Seçili (indeks listesi) satırları kaydırır. `None` = tümü.
 /// `only`: kaydırılacak entry indeksleri (sıralı olmak zorunda değil).
 pub fn shift(script: &mut Script, ms: i64, only: Option<&[usize]>) {
+    shift_part(script, ms, only, ShiftPart::Both)
+}
+
+/// Kaydırılacak zaman alanı (Aegisub Shift Times: "Affect: start and end / start / end").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ShiftPart {
+    #[default]
+    Both,
+    Start,
+    End,
+}
+
+/// Yalnız başlangıç ya da bitiş kaydırılınca satır tersine dönmesin: bitiş ≥ başlangıç.
+fn fix_order(d: &mut crate::ass::Dialogue, part: ShiftPart) {
+    if d.end_time < d.start_time {
+        match part {
+            ShiftPart::Start => d.start_time = d.end_time,
+            _ => d.end_time = d.start_time,
+        }
+    }
+}
+
+pub fn shift_part(script: &mut Script, ms: i64, only: Option<&[usize]>, part: ShiftPart) {
     let only: Option<Vec<usize>> = only.map(|o| { let mut v = o.to_vec(); v.sort_unstable(); v });
     for (i, e) in script.entries.iter_mut().enumerate() {
         if let Entry::Dialogue(d) = e {
             if only.as_ref().map_or(true, |s| s.binary_search(&i).is_ok()) {
-                d.start_time = (d.start_time + ms).max(0);
-                d.end_time = (d.end_time + ms).max(0);
+                if part != ShiftPart::End { d.start_time = (d.start_time + ms).max(0); }
+                if part != ShiftPart::Start { d.end_time = (d.end_time + ms).max(0); }
+                fix_order(d, part);
             }
         }
     }
@@ -413,16 +437,46 @@ pub fn shift(script: &mut Script, ms: i64, only: Option<&[usize]>) {
 /// Kare cinsinden kaydırma (Aegisub "Shift Times" kare kipi): her satırın görünen ilk/son karesi
 /// `frames` kare kaydırılır; VFR'de doğru, santisaniye yuvarlamasında kayma birikmez.
 pub fn shift_frames(script: &mut Script, fr: &crate::vfr::Framerate, frames: i64, only: Option<&[usize]>) {
+    shift_frames_part(script, fr, frames, only, ShiftPart::Both)
+}
+
+pub fn shift_frames_part(script: &mut Script, fr: &crate::vfr::Framerate, frames: i64, only: Option<&[usize]>, part: ShiftPart) {
     let only: Option<Vec<usize>> = only.map(|o| { let mut v = o.to_vec(); v.sort_unstable(); v });
     for (i, e) in script.entries.iter_mut().enumerate() {
         if let Entry::Dialogue(d) = e {
             if only.as_ref().map_or(true, |s| s.binary_search(&i).is_ok()) {
                 let (fs, fe) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time));
                 let empty = d.end_time <= d.start_time;
-                d.start_time = fr.time_at_start((fs + frames).max(0));
-                d.end_time = if empty { d.start_time } else { fr.time_at_end((fe + frames).max(0)).max(d.start_time) };
+                if part != ShiftPart::End { d.start_time = fr.time_at_start((fs + frames).max(0)); }
+                if part != ShiftPart::Start {
+                    d.end_time = if empty && part == ShiftPart::Both { d.start_time } else { fr.time_at_end((fe + frames).max(0)) };
+                }
+                fix_order(d, part);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod shift_part_tests {
+    use super::*;
+
+    #[test]
+    fn yalniz_baslangic_ya_da_bitis() {
+        let mut s = Script::from_dialogues(vec![crate::ass::Dialogue { start_time: 1000, end_time: 2000, ..Default::default() }]);
+        shift_part(&mut s, 300, None, ShiftPart::Start);
+        assert_eq!(s.dialogues().next().map(|d| (d.start_time, d.end_time)), Some((1300, 2000)));
+        shift_part(&mut s, -500, None, ShiftPart::End);
+        assert_eq!(s.dialogues().next().map(|d| (d.start_time, d.end_time)), Some((1300, 1500)));
+        // ters dönmez
+        shift_part(&mut s, 900, None, ShiftPart::Start);
+        assert_eq!(s.dialogues().next().map(|d| (d.start_time, d.end_time)), Some((1500, 1500)));
+        let fr = crate::vfr::Framerate::cfr(23.976);
+        let mut s = Script::from_dialogues(vec![crate::ass::Dialogue { start_time: 1000, end_time: 2000, ..Default::default() }]);
+        shift_frames_part(&mut s, &fr, 2, None, ShiftPart::End);
+        let d = s.dialogues().next().unwrap().clone();
+        assert_eq!(d.start_time, 1000);
+        assert_eq!(fr.frame_at_end(d.end_time), fr.frame_at_end(2000) + 2);
     }
 }
 

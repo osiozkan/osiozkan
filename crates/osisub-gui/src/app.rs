@@ -86,6 +86,7 @@ pub struct App {
     shift_all: bool,
     /// kaydırma: seçimden sonra başlayan tüm satırlar da
     shift_after: bool,
+    shift_part: osisub_core::qc::ShiftPart,
     fps: f64,
     quit_confirm: bool,
     shot: Option<PathBuf>,
@@ -610,6 +611,7 @@ impl App {
             shift_frames: 24,
             shift_all: false,
             shift_after: false,
+            shift_part: Default::default(),
             fps: 23.976,
             quit_confirm: false,
             shot,

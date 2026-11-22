@@ -1579,13 +1579,41 @@ impl App {
                     let n = only.as_ref().map_or(self.doc.script.dialogues().count(), |v| v.len());
                     let mut s = self.doc.script.clone();
                     // Kare kipi + video kare hızı: satır başına gerçek kare kaydırması (VFR doğru)
+                    let part = self.shift_part;
                     match self.media.framerate().filter(|_| self.shift_use_frames) {
-                        Some(fr) => { qc::shift_frames(&mut s, &fr, self.shift_frames, only.as_deref()); self.doc.apply_new_script("Kare kaydır", s); }
-                        None => { qc::shift(&mut s, self.shift_ms, only.as_deref()); self.doc.apply_new_script("Kaydır", s); }
+                        Some(fr) => { qc::shift_frames_part(&mut s, &fr, self.shift_frames, only.as_deref(), part); self.doc.apply_new_script("Kare kaydır", s); }
+                        None => { qc::shift_part(&mut s, self.shift_ms, only.as_deref(), part); self.doc.apply_new_script("Kaydır", s); }
                     }
+                    let h = (if self.shift_use_frames { self.shift_frames } else { self.shift_ms }, self.shift_use_frames, part as u8);
+                    self.settings.shift_history.retain(|x| *x != h);
+                    self.settings.shift_history.insert(0, h);
+                    self.settings.shift_history.truncate(12);
+                    self.settings.save();
                     self.status = trf!("{} satır kaydırıldı", n);
                 }
             });
+            ui.horizontal(|ui| {
+                use qc::ShiftPart;
+                ui.label(tr("Etkilenen:"));
+                ui.radio_value(&mut self.shift_part, ShiftPart::Both, tr("başlangıç ve bitiş"));
+                ui.radio_value(&mut self.shift_part, ShiftPart::Start, tr("yalnız başlangıç"));
+                ui.radio_value(&mut self.shift_part, ShiftPart::End, tr("yalnız bitiş"));
+            });
+            if !self.settings.shift_history.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(tr("Geçmiş:")).weak());
+                    for h in self.settings.shift_history.clone() {
+                        let part = [tr("ikisi"), tr("başl."), tr("bitiş")][(h.2 as usize).min(2)].to_string();
+                        let lbl = format!("{:+} {} ({})", h.0, if h.1 { tr("kare") } else { "ms".into() }, part);
+                        if ui.small_button(lbl).on_hover_text(tr("Değerleri doldur (Uygula ile uygulanır)")).clicked() {
+                            self.shift_use_frames = h.1;
+                            if h.1 { self.shift_frames = h.0; } else { self.shift_ms = h.0; }
+                            self.shift_part = match h.2 { 1 => qc::ShiftPart::Start, 2 => qc::ShiftPart::End, _ => qc::ShiftPart::Both };
+                        }
+                    }
+                    if ui.small_button(tr("Temizle")).clicked() { self.settings.shift_history.clear(); self.settings.save(); }
+                });
+            }
             ui.separator();
             ui.strong(tr("Son-işleyici"));
             egui::Grid::new("post_grid").num_columns(2).show(ui, |ui| {

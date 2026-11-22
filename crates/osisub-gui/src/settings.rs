@@ -8,6 +8,8 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct Settings {
     pub recent: Vec<String>,
+    /// Zaman kaydırma geçmişi (Aegisub Shift Times gibi; en yeni başta): (miktar, kare mi, 0=ikisi 1=başlangıç 2=bitiş)
+    pub shift_history: Vec<(i64, bool, u8)>,
     pub max_cps: f64,
     pub max_line_len: usize,
     pub max_lines: usize,
@@ -78,6 +80,7 @@ impl Default for Settings {
         let p = PostOptions::default();
         Settings {
             recent: vec![],
+            shift_history: vec![],
             max_cps: r.max_cps,
             max_line_len: r.max_line_len,
             max_lines: r.max_lines,
