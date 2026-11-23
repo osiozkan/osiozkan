@@ -128,6 +128,8 @@ pub struct Media {
     vt_vals: Vec<(usize, f32, f32)>,
     /// vektör \clip aracı: sürüklenen nokta (komut, nokta)
     vt_vdrag: Option<(usize, usize)>,
+    /// Vektör kırpma serbest çizim: sürüklenen yol (betik koordinatı × ölçek çarpanı)
+    vt_free: Option<Vec<(f64, f64)>>,
     /// Eğme aracında sürüklenen tutamaç: 0 = \fax, 1 = \fay
     shear_axis: Option<u8>,
     /// perspektif aracı: son oturtulan dörtgen (satır, satır metni, köşeler) ve sürüklenen köşe (4 = tümü)
@@ -222,6 +224,7 @@ impl Media {
             persp_keep_org: false,
             persp_need_layout: false,
             vt_vdrag: None,
+            vt_free: None,
             shear_axis: None,
             fonts_key: String::new(),
             video_zoom: 1.0,
@@ -1248,11 +1251,32 @@ impl Media {
                     let is_ctrl = cmds[*ci].kind == 'b';
                     if is_ctrl { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
                 }
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · Shift+tık: parçaya nokta · Alt+tık: yeni şekil · Ctrl+tık: eğri · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · Shift+tık: parçaya nokta · Alt+tık: yeni şekil · boşta sürükle: serbest çizim · Ctrl+tık: eğri · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
                 let mut changed = false;
                 if r.drag_started() {
                     self.vt_vdrag = press.or(ptr).and_then(hit);
+                    // boş alanda sürükleme: serbest çizim (Aegisub freehand)
+                    self.vt_free = if self.vt_vdrag.is_none() { press.or(ptr).map(|p| { let (x, y) = to_script(p); vec![(x as f64 * mul, y as f64 * mul)] }) } else { None };
+                }
+                if let (Some(path), true) = (self.vt_free.as_mut(), r.dragged()) {
+                    if let Some(pos) = ptr {
+                        let (x, y) = to_script(pos);
+                        let q = (x as f64 * mul, y as f64 * mul);
+                        if path.last().map_or(true, |l| scr(*l).distance(scr(q)) >= 3.0) { path.push(q); }
+                    }
+                }
+                if let Some(path) = &self.vt_free {
+                    let pts: Vec<Pos2> = path.iter().map(|&q| scr(q)).collect();
+                    for w in pts.windows(2) { p.line_segment([w[0], w[1]], Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); }
+                }
+                if r.drag_stopped() {
+                    if let Some(path) = self.vt_free.take() {
+                        // tolerans ≈ 1.5 ekran pikseli
+                        let (a, _) = to_script(Pos2::ZERO);
+                        let (b, _) = to_script(Pos2::new(1.5, 0.0));
+                        changed |= drawing::push_freehand(&mut cmds, &path, ((b - a).abs() as f64 * mul).max(0.5));
+                    }
                 }
                 if r.dragged() {
                     if let (Some((ci, pi)), Some(pos)) = (self.vt_vdrag, ptr) {

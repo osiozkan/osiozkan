@@ -109,6 +109,39 @@ pub fn push_point(cmds: &mut Vec<Cmd>, p: (f64, f64)) {
     }
 }
 
+/// Ramer–Douglas–Peucker sadeleştirmesi: `tol`'dan az sapan ara noktalar atılır (serbest çizim).
+pub fn simplify(pts: &[(f64, f64)], tol: f64) -> Vec<(f64, f64)> {
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    let (a, b) = (pts[0], pts[pts.len() - 1]);
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    let dist = |p: (f64, f64)| if len > 0.0 { ((p.0 - a.0) * dy - (p.1 - a.1) * dx).abs() / len } else { ((p.0 - a.0).powi(2) + (p.1 - a.1).powi(2)).sqrt() };
+    let (k, dmax) = pts[1..pts.len() - 1].iter().enumerate().map(|(k, &p)| (k + 1, dist(p))).fold((0, -1.0), |m, x| if x.1 > m.1 { x } else { m });
+    if dmax > tol {
+        let mut l = simplify(&pts[..=k], tol);
+        let r = simplify(&pts[k..], tol);
+        l.pop();
+        l.extend(r);
+        l
+    } else {
+        vec![a, b]
+    }
+}
+
+/// Serbest çizilmiş yolu yeni bir şekil olarak ekler (sadeleştirilip yuvarlanır). 3 noktadan azsa eklemez.
+pub fn push_freehand(cmds: &mut Vec<Cmd>, path: &[(f64, f64)], tol: f64) -> bool {
+    let mut s: Vec<(f64, f64)> = simplify(path, tol).into_iter().map(|p| (p.0.round(), p.1.round())).collect();
+    s.dedup();
+    if s.len() < 3 {
+        return false;
+    }
+    cmds.push(Cmd { kind: 'm', pts: vec![s[0]] });
+    cmds.push(Cmd { kind: 'l', pts: s[1..].to_vec() });
+    true
+}
+
 /// Yeni şekil (kontur) başlatır: `m` noktası (Aegisub vektör kırpma "yeni şekil" kipi).
 pub fn push_move(cmds: &mut Vec<Cmd>, p: (f64, f64)) {
     cmds.push(Cmd { kind: 'm', pts: vec![p] });
@@ -263,6 +296,25 @@ mod tests {
         assert_eq!(polylines(&c)[0].len(), 1 + 2 + 12);
         // büyük harf ve fazla boşluk
         assert_eq!(to_string(&parse("M 0 0  L 5 5")), "m 0 0 l 5 5");
+    }
+
+    #[test]
+    fn freehand_simplified() {
+        // daire çevresi 360 nokta → birkaç düzine
+        let path: Vec<(f64, f64)> = (0..360).map(|d| { let a = (d as f64).to_radians(); (500.0 + 100.0 * a.cos(), 300.0 + 100.0 * a.sin()) }).collect();
+        let mut c = vec![];
+        assert!(push_freehand(&mut c, &path, 1.5));
+        let n = points(&c).len();
+        assert!((10..60).contains(&n), "{n}");
+        // her ara nokta daireye yakın
+        for (_, _, p) in points(&c) {
+            let r = ((p.0 - 500.0).powi(2) + (p.1 - 300.0).powi(2)).sqrt();
+            assert!((r - 100.0).abs() < 2.0);
+        }
+        // düz çizgi iki noktaya iner, şekil sayılmaz
+        let line: Vec<(f64, f64)> = (0..50).map(|i| (i as f64, 0.0)).collect();
+        assert_eq!(simplify(&line, 1.0).len(), 2);
+        assert!(!push_freehand(&mut c, &line, 1.0));
     }
 
     #[test]
