@@ -10,6 +10,18 @@
 5. libmpv ile donanım hızlandırmalı oynatma.
 6. Karaoke: furigana tamam (okunuş romajiden otomatik: kanji zamanlayıcı); romaji satırı olmayan şarkılar için kanji okunuş sözlüğü düşünülebilir.
 
+## Aegisub eşdeğerliği (2026-11-23 komut denetimi)
+- [x] Kare komutları: split before/after, snap to scene, shift to frame, start/length ±10 ms, lead in/out, boundary/large frame steps, select visible, insert at video time, grid move up/down, video jump start/end
+- [x] Videoya hizala (time/align), ızgara katlamaları (grid/fold/*; `_aegi_folddata`), Replace Next + F3, split preserve, clear text, revert / insert original, `\2c` düğmesi
+- [x] Betik özellikleri iletişim kutusu + çözünürlük uyuşmazlığı sorusu, stil katalogları (.sty) + stil sırası, sort selected / text with tags
+- [x] Kare PNG kaydet/kopyala, ses klibi WAV, spektrum 0–11 kHz, perspektif `\move` + keep `\org`, vektör kırpma nokta ekle / yeni şekil, kırpma tüm seçime
+- [x] Lua `aegisub.gui.*`, `set_status_text`, `project_properties` tam alanlar
+- [ ] Karaoke kipinde `time/next|prev` heceden heceye ve `/shift` uzunluk tuşları (ses görünümünde hece seçimi gerekli)
+- [ ] Perspektif: `\org` "no \fax" kipi, dış düzlem (outer/lock outer), ızgara katmanı
+- [ ] Vektör kırpma serbest çizim (freehand / smooth freehand), eğriyi düz çizgiye çevirme
+- [ ] Video yakınlaştırma ön ayarları (50/100/200 %), altyazıyı saydam arka planla kare olarak kaydet (`video/frame/save/subs`)
+- [ ] Ctrl+←/→ (satır sınırı) varsayılan tuşu: metin kutusunda sözcük atlamayla çakıştığı için atanmadı
+
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
 - [x] SRT/VTT oku-yaz, temel HTML etiketi ↔ ASS dönüşümü

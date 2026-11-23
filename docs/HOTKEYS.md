@@ -23,6 +23,15 @@
 | Q / W | Başlangıçtan önceki / bitişten sonraki 500 ms'yi oynat |
 | E / D | Satırın ilk / son 500 ms'sini oynat |
 | Z / X | Önceki satır / sonraki satır (sonuncudaysa bitişinden başlayan yeni satır) |
+| C / V | Etkin satıra giriş / çıkış payı (lead-in/out) ekle (Aegisub ses kipi) |
+| Ctrl+5 | Sahneye yapıştır: seçili satırlar geçerli kareyi çevreleyen anahtar karelere (Aegisub) |
+| Ctrl+6 | Geçerli kareye kaydır: etkin satır bu karede başlayacak kadar seçimi kaydır (Aegisub) |
+| Ctrl+Shift+D | Seçili satırları kareden sonra böl (kare satırın dışındaysa tek karelik kopya; kare kare tipografi) |
+| F3 | Sonrakini bul (desen boşsa Bul penceresi) |
+| Izgara: [+] / [-] tıkla | Katlamayı aç / kapat (Düzen → Katlama) |
+| Vektör kırpma: Shift+tık / Alt+tık | Parçaya nokta ekle / yeni şekil başlat |
+
+Kısayolu olmayan Aegisub komutları (Yardım → Kısayolları düzenle ile atanabilir; Aegisub `hotkey.json` içe aktarılınca kendiliğinden gelir): kareden önce böl, başlangıç/bitiş ±10 ms, satır sınırına git (Ctrl+←/→ Aegisub'da), 10 kare ileri/geri, karede görünen satırları seç, video zamanında satır ekle, satırları yukarı/aşağı taşı, kareyi PNG kaydet/kopyala, seçili satırların sesini kaydet, videoyu satırın başına/sonuna götür, videoya hizala, katlama komutları, sonrakini değiştir.
 | Dalga formu: sürükle (kenar tutamaçları) | Başlangıç/bitiş ayarla (kareye/anahtar kareye yapışır) |
 | Dalga formu: Alt+sürükle | Satırı taşı |
 | Dalga formu: tıkla / Shift+tıkla / sağ tıkla | Playhead / başlangıç / bitiş |
