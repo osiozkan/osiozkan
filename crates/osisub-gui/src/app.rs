@@ -54,6 +54,9 @@ pub struct App {
     filter: String,
     rows: Vec<usize>,
     rows_key: (u64, String),
+    /// Geçerli katlamalar ve (katlı satır varsa) ızgaradaki satırların gerçek numaraları
+    folds: Vec<osisub_core::folds::Fold>,
+    row_no: Vec<usize>,
     rules: Rules,
     issues: Vec<Issue>,
     /// Kalite sekmesi süzgeci ("" = tümü, yoksa Kind::category)
@@ -424,6 +427,14 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("audio_clip", "Seçili satırların sesini kaydet (WAV)"),
     ("find_next", "Sonrakini bul"),
     ("replace_next", "Sonrakini değiştir"),
+    ("fold_create", "Seçimi katla"),
+    ("fold_toggle", "Katlamayı aç/kapat"),
+    ("fold_open", "Katlamayı aç"),
+    ("fold_close", "Katlamayı kapat"),
+    ("fold_clear", "Katlamayı kaldır"),
+    ("fold_open_all", "Tüm katlamaları aç"),
+    ("fold_close_all", "Tüm katlamaları kapat"),
+    ("fold_clear_all", "Tüm katlamaları kaldır"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -637,6 +648,8 @@ impl App {
             tm_cache: (usize::MAX, u64::MAX, vec![]),
             rows: vec![],
             rows_key: (u64::MAX, String::new()),
+            folds: vec![],
+            row_no: vec![],
             rules: Rules::default(),
             issues: vec![],
             qc_filter: "",
@@ -1404,6 +1417,9 @@ impl App {
         let key = (self.doc.rev, self.filter.clone());
         if self.rows_key != key {
             let f = self.filter.to_lowercase();
+            // katlamalar (Aegisub folds): süzgeç boşken katlı blokların içi gizlenir
+            self.folds = osisub_core::folds::list(&self.doc.script);
+            let hidden = if f.is_empty() && self.folds.iter().any(|x| x.collapsed) { osisub_core::folds::hidden(&self.doc.script) } else { Default::default() };
             self.rows = self
                 .doc
                 .script
@@ -1411,10 +1427,18 @@ impl App {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, e)| match e {
+                    Entry::Dialogue(_) if hidden.contains(&i) => None,
                     Entry::Dialogue(d) if f.is_empty() || osisub_core::tags::strip_tags(&d.text).to_lowercase().contains(&f) || d.actor.to_lowercase().contains(&f) || d.style.to_lowercase().contains(&f) => Some(i),
                     _ => None,
                 })
                 .collect();
+            // satır numarası: süzgeç yoksa gerçek sıra (katlı satırlar sayılır, Aegisub gibi)
+            self.row_no = if hidden.is_empty() { vec![] } else {
+                let mut n = 0;
+                let mut ord = std::collections::HashMap::new();
+                for (i, e) in self.doc.script.entries.iter().enumerate() { if matches!(e, Entry::Dialogue(_)) { n += 1; ord.insert(i, n); } }
+                self.rows.iter().map(|i| ord[i]).collect()
+            };
             self.rows_key = key;
         }
         if self.qc_seen_rev != self.doc.rev {
@@ -1782,6 +1806,24 @@ impl App {
             "audio_clip" => self.media.save_audio_clip(&self.doc, ctx),
             "find_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_next(); } }
             "replace_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_replace_next(); } }
+            "fold_create" => {
+                let t = self.doc.target_lines();
+                let mut sc = self.doc.script.clone();
+                match (t.first(), t.last()) {
+                    (Some(&a), Some(&b)) if a < b && osisub_core::folds::add(&mut sc, a, b) => { self.doc.apply_new_script("Katla", sc); self.doc.select(vec![a], a); }
+                    _ => self.status = tr("Katlamak için en az iki satır seçin (başka bir katlamayı yarıda kesemez)").into(),
+                }
+            }
+            "fold_toggle" | "fold_open" | "fold_close" | "fold_clear" | "fold_open_all" | "fold_close_all" | "fold_clear_all" => {
+                let mut sc = self.doc.script.clone();
+                let f = |c: bool| -> Option<bool> { match id { "fold_toggle" => Some(!c), "fold_open" | "fold_open_all" => Some(false), "fold_close" | "fold_close_all" => Some(true), _ => None } };
+                let n = if id.ends_with("_all") { osisub_core::folds::update_all(&mut sc, f) } else {
+                    let mut t = self.doc.target_lines();
+                    if !t.contains(&self.doc.active) { t.push(self.doc.active); }
+                    osisub_core::folds::update_at(&mut sc, &t, f)
+                };
+                if n == 0 { self.status = tr("Katlama yok").into(); } else { self.doc.apply_new_script("Katlama", sc); }
+            }
             "split_preserve" => {
                 let at = self.doc.active;
                 match self.editor_cursor.filter(|(l, _)| *l == at) {
@@ -2225,6 +2267,11 @@ impl App {
                     if ui.button(tr("Yer imleri listesi…")).clicked() { self.bookmarks_open = true; ui.close(); }
                 });
                 if ui.button(tr("İki satırı değiş tokuş et")).clicked() { self.run_command("swap_lines", ui.ctx()); ui.close(); }
+                ui.menu_button(tr("Katlama"), |ui| {
+                    for (cmd, l) in [("fold_create", "Seçimi katla"), ("fold_toggle", "Aç/kapat"), ("fold_open", "Aç"), ("fold_close", "Kapat"), ("fold_clear", "Kaldır"), ("fold_open_all", "Tümünü aç"), ("fold_close_all", "Tümünü kapat"), ("fold_clear_all", "Tümünü kaldır")] {
+                        if ui.button(tr(l)).clicked() { ui.close(); self.run_command(cmd, ui.ctx()); }
+                    }
+                }).response.on_hover_text(tr("Bir satır bloğunu (ör. tabelanın katmanları) tek satıra katlar; Aegisub katlamalarıyla aynı biçimde dosyaya kaydedilir"));
                 if ui.button(tr("Karede görünen satırları seç")).on_hover_text(tr("Videonun geçerli karesinde görünen tüm satırlar (Aegisub: Select Visible)")).clicked() { self.run_command("select_visible", ui.ctx()); ui.close(); }
                 if ui.button(tr("Satırları yukarı taşı")).clicked() { self.run_command("move_up", ui.ctx()); ui.close(); }
                 if ui.button(tr("Satırları aşağı taşı")).clicked() { self.run_command("move_down", ui.ctx()); ui.close(); }

@@ -130,6 +130,7 @@ impl App {
             }
         }
         let rows = std::mem::take(&mut self.rows); // kopyalamadan ödünç al; fonksiyon sonunda geri konur
+        let fold_req: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
         let mut clicked: Option<usize> = None;
         let mut action: Option<RowAction> = None;
         let style_names: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
@@ -184,8 +185,17 @@ impl App {
                         _ => false,
                     };
                     let bookmarked = !d.extra.is_empty() && d.extra.iter().any(|id| self.bookmark_ids.1.contains(id));
+                    let no = self.row_no.get(pos).copied().unwrap_or(pos + 1);
+                    // katlama işareti: açan satırda [+] (katlı) / [-], kapatanda alt köşe
+                    let fold_open = self.folds.iter().find(|f| f.start == ei).map(|f| f.collapsed);
+                    let fold_end = self.folds.iter().any(|f| f.end == ei);
                     row.col(|ui| {
-                        let txt = if bookmarked { format!("» {}", pos + 1) } else { (pos + 1).to_string() };
+                        if let Some(c) = fold_open {
+                            if ui.add(egui::Label::new(RichText::new(if c { "[+]" } else { "[-]" }).monospace().color(theme::ACCENT)).sense(egui::Sense::click())).on_hover_text(tr("Katlamayı aç/kapat")).clicked() { fold_req.set(Some(ei)); }
+                        } else if fold_end {
+                            ui.label(RichText::new("`-").monospace().weak()).on_hover_text(tr("Katlamanın sonu"));
+                        }
+                        let txt = if bookmarked { format!("» {}", no) } else { no.to_string() };
                         let r = ui.label(col(txt, if misspelled { Some(theme::BAD) } else if bookmarked { Some(theme::ACCENT) } else { None }));
                         if misspelled { r.on_hover_text(tr("Bu satırda yazım hatası olabilir")); } else if bookmarked {
                             let note = osisub_core::bookmarks::get(&self.doc.script, ei).unwrap_or_default();
@@ -281,6 +291,13 @@ impl App {
             }
         }
         self.rows = rows;
+        if let Some(ei) = fold_req.get() {
+            let mut sc = self.doc.script.clone();
+            if osisub_core::folds::update_at(&mut sc, &[ei], |c| Some(!c)) > 0 {
+                self.doc.apply_new_script("Katlama", sc);
+                self.doc.select(vec![ei], ei);
+            }
+        }
     }
 
     pub(super) fn time_field(ui: &mut egui::Ui, id: &str, buf: &mut String, current: i64) -> Option<i64> {
