@@ -39,6 +39,9 @@ pub struct RunDone {
     pub undo_desc: Option<String>,
     pub cancelled: bool,
     pub log: String,
+    /// `aegisub.gui` ile istenen metin kutusu seçimi (başlangıç, imleç; 0 tabanlı bayt).
+    pub text_selection: Option<(i64, i64)>,
+    pub status_text: Option<String>,
 }
 
 pub enum Event {
@@ -188,6 +191,8 @@ impl Worker {
                                 undo_desc: o.undo_desc,
                                 cancelled: o.cancelled,
                                 log,
+                                text_selection: o.text_selection,
+                                status_text: o.status_text,
                             }),
                         };
                         let _ = ev_tx.send(Event::Done(ev));

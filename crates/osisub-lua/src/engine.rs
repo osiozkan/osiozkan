@@ -165,6 +165,11 @@ pub struct RunOutcome {
     pub active: Option<usize>,
     pub undo_desc: Option<String>,
     pub cancelled: bool,
+    /// `aegisub.gui.set_cursor/set_selection` ile istenen metin kutusu seçimi: (başlangıç, bitiş=imleç),
+    /// 0 tabanlı UTF-8 bayt konumları (Aegisub/Scintilla gibi). Makro bitince uygulanır.
+    pub text_selection: Option<(i64, i64)>,
+    /// `aegisub.set_status_text` ile durum çubuğu metni (son çağrı).
+    pub status_text: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -205,6 +210,9 @@ pub(crate) struct Inner {
     pub undo_desc: Option<String>,
     pub clipboard: String,
     pub fonts: crate::fonts::FontDb,
+    /// `aegisub.gui` için: makro süresince istenen metin seçimi (0 tabanlı bayt) ve durum metni.
+    pub text_sel_staged: Option<(i64, i64)>,
+    pub status_text: Option<String>,
 }
 
 pub struct Engine {
@@ -269,6 +277,8 @@ impl Engine {
             log: String::new(),
             include_dirs: vec![],
             props: HashMap::new(),
+            text_sel_staged: None,
+            status_text: None,
             undo_desc: None,
             clipboard: String::new(),
             fonts: Default::default(),
@@ -422,7 +432,12 @@ impl Engine {
             let m = inner.macros.get(id).ok_or_else(|| EngineError { message: format!("makro {} yok", id) })?;
             (m.process.clone(), m.config.clone(), m.info.kind.clone())
         };
-        self.inner.borrow_mut().undo_desc = None;
+        {
+            let mut i = self.inner.borrow_mut();
+            i.undo_desc = None;
+            i.text_sel_staged = None;
+            i.status_text = None;
+        }
         let _ = self.lua.set_named_registry_value("osisub_port_warn", 0);
         let subs = self.lua.create_userdata(Subs::new(self.script.clone()))?;
         let res: mlua::Result<mlua::MultiValue> = match kind {
@@ -445,10 +460,13 @@ impl Engine {
                 process.call((subs, cfg))
             }
         };
-        let undo_desc = self.inner.borrow_mut().undo_desc.take();
+        let (undo_desc, text_selection, status_text) = {
+            let mut i = self.inner.borrow_mut();
+            (i.undo_desc.take(), i.text_sel_staged.take(), i.status_text.take())
+        };
         match res {
             Ok(vals) => {
-                let mut out = RunOutcome { undo_desc, ..Default::default() };
+                let mut out = RunOutcome { undo_desc, text_selection, status_text, ..Default::default() };
                 let mut it = vals.into_iter();
                 if let Some(Value::Table(t)) = it.next() {
                     let vis = crate::subs::visible_raw(&self.script.borrow());

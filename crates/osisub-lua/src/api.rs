@@ -480,7 +480,53 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 })
             })?,
         )?;
-        aegisub.set("get_cursor", lua.create_function(|_, ()| Ok(MultiValue::new()))?)?;
+        // aegisub.gui (Aegisub 3.3+/arch1t3cht): metin kutusundaki imleç/seçim, 1 tabanlı bayt konumları.
+        // Başlangıç değerleri ana makineden (`text_sel_start/end` özellikleri), ayarlananlar makro bitince uygulanır.
+        let gui = lua.create_table()?;
+        let cur_sel = |i: &crate::engine::Inner| -> (i64, i64) {
+            i.text_sel_staged.unwrap_or_else(|| {
+                let g = |k: &str| i.props.get(k).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+                (g("text_sel_start"), g("text_sel_end"))
+            })
+        };
+        let inn = inner.clone();
+        gui.set("get_cursor", lua.create_function(move |_, ()| Ok(cur_sel(&inn.borrow()).1 + 1))?)?;
+        let inn = inner.clone();
+        gui.set(
+            "get_selection",
+            lua.create_function(move |_, ()| {
+                let (a, b) = cur_sel(&inn.borrow());
+                Ok((a.min(b) + 1, a.max(b) + 1))
+            })?,
+        )?;
+        let inn = inner.clone();
+        gui.set(
+            "set_cursor",
+            lua.create_function(move |_, p: f64| {
+                let p = p as i64 - 1;
+                inn.borrow_mut().text_sel_staged = Some((p, p));
+                Ok(())
+            })?,
+        )?;
+        let inn = inner.clone();
+        gui.set(
+            "set_selection",
+            lua.create_function(move |_, (a, b): (f64, f64)| {
+                inn.borrow_mut().text_sel_staged = Some((a as i64 - 1, b as i64 - 1));
+                Ok(())
+            })?,
+        )?;
+        let inn = inner.clone();
+        gui.set("is_modified", lua.create_function(move |_, ()| Ok(inn.borrow().props.get("is_modified").map_or(false, |v| v == "1")))?)?;
+        aegisub.set("gui", gui)?;
+        let inn = inner.clone();
+        aegisub.set(
+            "set_status_text",
+            lua.create_function(move |_, t: String| {
+                inn.borrow_mut().status_text = Some(t);
+                Ok(())
+            })?,
+        )?;
         let inn = inner.clone();
         aegisub.set(
             "project_properties",
@@ -494,6 +540,10 @@ pub(crate) fn install(lua: &Lua, inner: &InnerRc, script: &SharedScript) -> Resu
                 t.set("video_zoom", 1.0)?;
                 t.set("ar_mode", 0)?;
                 t.set("ar_value", 0.0)?;
+                t.set("export_filters", i.props.get("export_filters").cloned().unwrap_or_default())?;
+                t.set("style_storage", i.props.get("style_storage").cloned().unwrap_or_default())?;
+                t.set("scroll_position", i.props.get("scroll_position").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0))?;
+                t.set("active_row", i.props.get("active_row").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0))?;
                 t.set("script_file", i.props.get("script_file").cloned().unwrap_or_default())?;
                 Ok(t)
             })?,

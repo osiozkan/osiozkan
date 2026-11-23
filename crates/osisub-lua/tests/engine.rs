@@ -238,3 +238,24 @@ end)
     assert_eq!(vals["a-mo.json"], "{\"x\":[1,2]}");
     assert_eq!(vals["eski"], "değer, virgül");
 }
+
+#[test]
+fn gui_cursor_selection_status() {
+    let mut e = Engine::new(Box::new(HeadlessHost { quiet: true, ..Default::default() })).unwrap();
+    e.set_script(Script::parse(ASS));
+    e.load_script(Path::new("tests/fixtures/gui.lua")).unwrap();
+    let idx = last_dialogue_idx(&e);
+    // metin "{\k20}ka{\k30}ra": bağlantı bayt 3, imleç bayt 7 (0 tabanlı)
+    e.set_property("text_sel_start", "7");
+    e.set_property("text_sel_end", "3");
+    e.set_property("is_modified", "1");
+    e.set_property("active_row", "3");
+    let out = e.run_macro(0, &[idx], idx).unwrap();
+    let log = e.take_log();
+    assert!(log.contains("cursor=4 sel=4,8 mod=true"), "{log}");
+    // "ra" bayt 15'te (1 tabanlı): set_selection(17, 15) → imleç solda
+    assert!(log.contains("after=15,17 cur=15"), "{log}");
+    assert!(log.contains("row=3 filt=string"), "{log}");
+    assert_eq!(out.text_selection, Some((16, 14)));
+    assert_eq!(out.status_text.as_deref(), Some("bitti"));
+}

@@ -12,3 +12,4 @@ mod vendor;
 
 pub use dialog::{Control, DialogResult, DialogSpec, DV};
 pub use engine::{BoundsRenderer, builtin_script, error_location, BUILTIN_PREFIX, BUILTIN_SCRIPTS, Engine, EngineError, Host, HeadlessHost, MacroInfo, MacroKind, RunOutcome, ScriptInfo, StyleMetrics};
+pub use subs::lua_index_of;

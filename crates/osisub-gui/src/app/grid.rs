@@ -377,6 +377,20 @@ impl App {
         }).inner;
         // Enter ile girilen ham satır sonu dosyada Dialogue satırını böler: ASS satır sonuna (\N) çevir
         fix_newlines(ui.ctx(), out.response.id, &mut nd.text, true);
+        if let Some((_, a, b)) = self.pending_text_sel.take().filter(|p| p.0 == at) {
+            if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), out.response.id) {
+                st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b))));
+                st.store(ui.ctx(), out.response.id);
+            } else {
+                let mut st = egui::text_edit::TextEditState::default();
+                st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b))));
+                st.store(ui.ctx(), out.response.id);
+            }
+            self.editor_cursor = Some((at, b));
+            self.editor_sel = Some((at, a.min(b), a.max(b)));
+            out.response.request_focus();
+            ui.ctx().request_repaint();
+        }
         if tag_used {
             // eklenen etiketlerden sonra seçim aynı metni göstersin (ardışık düğmeler için)
             if let Some((_, a, b)) = self.editor_sel.filter(|s| s.0 == at) {

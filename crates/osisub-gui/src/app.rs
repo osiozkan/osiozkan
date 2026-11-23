@@ -266,6 +266,8 @@ pub struct App {
     editor_cursor: Option<(usize, usize)>,
     /// Düzenleme kutusundaki seçim: (satır, başlangıç, bitiş) karakter dizinleri (araç çubuğu için)
     editor_sel: Option<(usize, usize, usize)>,
+    /// Lua `aegisub.gui.set_selection/set_cursor` sonucu: (satır, bağlantı, imleç) karakter dizinleri; sonraki karede metin kutusuna uygulanır
+    pending_text_sel: Option<(usize, usize, usize)>,
     /// Stil önizlemesi: (anahtar, doku), bekleyen istek, örnek metin
     style_pv: Option<(u64, egui::TextureHandle)>,
     style_pv_rx: Option<std::sync::mpsc::Receiver<(u64, Result<osisub_media::Frame, String>)>>,
@@ -576,6 +578,7 @@ impl App {
             mt_from_ref: false,
             editor_cursor: None,
             editor_sel: None,
+            pending_text_sel: None,
             style_pv: None,
             style_pv_rx: None,
             style_pv_text: "Aa Iı İi Ğğ Şş Çç Öö Üü 123".into(),
@@ -1142,6 +1145,20 @@ impl App {
         }
         self.sync_media_state();
         if let Some(f) = self.media.framerate() { props.push(("video_position".to_string(), f.frame_at(self.media.playhead).to_string())); }
+        // aegisub.gui: metin kutusundaki seçim (bağlantı, imleç) 0 tabanlı UTF-8 bayt; is_modified; active_row
+        let at = self.doc.active;
+        let (anchor, cursor) = match (self.editor_sel.filter(|s| s.0 == at), self.editor_cursor.filter(|c| c.0 == at)) {
+            (Some((_, a, b)), Some((_, c))) => (if c == a { b } else { a }, c),
+            (None, Some((_, c))) => (c, c),
+            _ => (0, 0),
+        };
+        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at) {
+            let byte = |ci: usize| d.text.char_indices().nth(ci).map_or(d.text.len(), |(b, _)| b);
+            props.push(("text_sel_start".to_string(), byte(anchor).to_string()));
+            props.push(("text_sel_end".to_string(), byte(cursor).to_string()));
+        }
+        props.push(("is_modified".to_string(), if self.doc.is_dirty() { "1" } else { "0" }.to_string()));
+        props.push(("active_row".to_string(), osisub_lua::lua_index_of(&self.doc.script, at).unwrap_or(0).to_string()));
         // Aegisub gibi: seçim boşsa etkin satır seçili sayılır.
         let mut selection = self.doc.selection.clone();
         if selection.is_empty() && self.doc.active < self.doc.script.entries.len() { selection.push(self.doc.active); }
@@ -1296,8 +1313,17 @@ impl App {
                         }
                         Ok(done) => {
                             let cancelled = done.cancelled;
+                            let (tsel, stxt) = (done.text_selection, done.status_text.clone());
                             self.doc.apply_run_done(done, &name);
                             self.status = if cancelled { format!("{}: iptal edildi", name) } else { format!("{}: tamamlandı", name) };
+                            if let (false, Some(t)) = (cancelled, stxt) {
+                                self.status = t;
+                            }
+                            // Aegisub gibi: seçim değişiklikleri uygulandıktan sonra etkin satırın metninde
+                            if let (false, Some((a, b)), Some(Entry::Dialogue(d))) = (cancelled, tsel, self.doc.script.entries.get(self.doc.active)) {
+                                let ch = |bi: i64| { let bi = bi.clamp(0, d.text.len() as i64) as usize; d.text.char_indices().take_while(|(i, _)| *i < bi).count() };
+                                self.pending_text_sel = Some((self.doc.active, ch(a), ch(b)));
+                            }
                         }
                         Err((msg, log)) => {
                             self.export_job = None;
