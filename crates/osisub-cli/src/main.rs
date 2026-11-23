@@ -42,7 +42,7 @@ KULLANIM:
   osisub transcribe <video|ses> <çıktı> [--lang ja|auto] [--translate] [--model ggml-x.bin] [--max-len N]
                  sesten zamanlanmış altyazı (whisper.cpp; --translate: İngilizceye)
   osisub ocr <girdi.sup|.idx|video> <çıktı> [--lang eng] [--track N]   PGS / DVD VobSub → metin (Tesseract)
-  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes] [--redundant]
+  osisub fixes <girdi> [çıktı] [--ellipsis] [--sentence] [--hi] [--min-dur N] [--min-gap N] [--balance N] [--tr] [--tags] [--notes] [--redundant] [--max-dur N] [--lone-dash] [--no-se]
                           (--tags: etiketleri onar, --notes: {notları} sil)
   osisub resample <girdi> <genişlik> <yükseklik> [çıktı] [--ar stretch|border|unborder]
   osisub post <girdi> [çıktı] [--lead-in N] [--lead-out N] [--gap N] [--video dosya]
@@ -475,6 +475,9 @@ fn real_main(mut args: Vec<String>) -> Result<(), String> {
             f.sentence_case = flag(&mut args, "--sentence");
             f.remove_hi = flag(&mut args, "--hi");
             f.tr_spelling = flag(&mut args, "--tr");
+            f.lone_dash = flag(&mut args, "--lone-dash");
+            if flag(&mut args, "--no-se") { f.punct_cleanup = false; f.normalize_unicode = false; f.missing_bracket = false; }
+            f.max_duration_ms = opt(&mut args, "--max-dur").and_then(|v| v.parse().ok());
             f.balance_lines = opt(&mut args, "--balance").and_then(|v| v.parse().ok());
             f.min_duration_ms = opt(&mut args, "--min-dur").and_then(|v| v.parse().ok());
             f.min_gap_ms = opt(&mut args, "--min-gap").and_then(|v| v.parse().ok());

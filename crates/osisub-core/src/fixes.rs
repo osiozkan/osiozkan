@@ -22,12 +22,24 @@ pub struct Fixes {
     pub balance_lines: Option<usize>,
     pub min_duration_ms: Option<i64>,
     pub min_gap_ms: Option<i64>,
+    /// Çok uzun süreleri kısalt (SE FixLongDisplayTimes; None = kapalı)
+    pub max_duration_ms: Option<i64>,
+    /// Gereksiz noktalama (SE FixUnneededPeriods/FixCommas/FixDoubleApostrophes): `?.` → `?`, `....` → `...`,
+    /// `,,` → `,`, `''` → `"`, `……` → `…`
+    pub punct_cleanup: bool,
+    /// Görünmez/benzer Unicode karakterleri sadeleştir (SE NormalizeStrings): bölünmez boşluk, sıfır
+    /// genişlikli boşluk, metin içi BOM, ‐‑‒– tireleri, tam genişlikli iki nokta
+    pub normalize_unicode: bool,
+    /// Eksik açılış köşeli/normal parantezini ekle (SE FixMissingOpenBracket): `müzik]` → `[müzik]`
+    pub missing_bracket: bool,
+    /// Tek konuşmacılı satırdaki baştaki diyalog tiresini sil (SE RemoveDialogFirstLineInNonDialogs)
+    pub lone_dash: bool,
     pub only: Option<Vec<usize>>,
 }
 
 impl Default for Fixes {
     fn default() -> Self {
-        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, tr_spelling: false, split_long: None, balance_lines: None, min_duration_ms: None, min_gap_ms: None, only: None }
+        Fixes { mojibake: true, double_spaces: true, edge_spaces: true, ellipsis: false, space_before_punct: true, space_after_punct: true, sentence_case: false, dialogue_dash: true, remove_hi: false, tr_spelling: false, split_long: None, balance_lines: None, min_duration_ms: None, min_gap_ms: None, max_duration_ms: None, punct_cleanup: true, normalize_unicode: true, missing_bracket: true, lone_dash: false, only: None }
     }
 }
 
@@ -259,10 +271,112 @@ fn fix_dialogue_dash(text: &str) -> String {
         .join("\\N")
 }
 
+/// SE NormalizeStrings: görünmez ve benzer karakterler (em tire — ve … korunur).
+pub fn normalize_unicode(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| match c {
+            '\u{200B}' | '\u{FEFF}' | '\u{200E}' | '\u{200F}' | '\u{2060}' => None,
+            '\u{00A0}' | '\u{202F}' | '\u{2007}' => Some(' '),
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2043}' => Some('-'),
+            '\u{02F8}' | '\u{FF1A}' | '\u{FE13}' => Some(':'),
+            _ => Some(c),
+        })
+        .collect()
+}
+
+/// SE FixUnneededPeriods + FixCommas + FixDoubleApostrophes.
+pub fn punct_cleanup(s: &str) -> String {
+    let mut t = s.to_string();
+    // "?." / "!." (ardından nokta gelmiyorsa; "?..." korunur)
+    for p in ['?', '!'] {
+        let mut out = String::with_capacity(t.len());
+        let cs: Vec<char> = t.chars().collect();
+        let mut i = 0;
+        while i < cs.len() {
+            out.push(cs[i]);
+            if cs[i] == p && cs.get(i + 1) == Some(&'.') && cs.get(i + 2) != Some(&'.') {
+                i += 2;
+                continue;
+            }
+            i += 1;
+        }
+        t = out;
+    }
+    while t.contains("....") {
+        t = t.replace("....", "...");
+    }
+    for (a, b) in [("……", "…"), (".…", "…"), ("….", "…"), (",,", ","), ("''", "\"")] {
+        while t.contains(a) {
+            t = t.replace(a, b);
+        }
+    }
+    t
+}
+
+/// SE FixMissingOpenBracket: `müzik çalıyor]` → `[müzik çalıyor]` (satırda açılış yoksa).
+fn missing_bracket(line: &str) -> String {
+    let mut out = line.to_string();
+    for (o, c) in [('[', ']'), ('(', ')')] {
+        if let Some(k) = out.find(c) {
+            let lead = out.len() - out.trim_start_matches(['-', ' ', '–']).len();
+            let inner = out.get(lead..k).unwrap_or("");
+            // gülen yüz (:) ;)), madde işareti (a) 1)) ve sayılar değil: en az iki harf, kapanıştan önce harf/nokta
+            let ok = inner.chars().filter(|c| c.is_alphabetic()).count() >= 2 && inner.chars().last().map_or(false, |l| l.is_alphabetic() || ".!?…".contains(l));
+            if ok && out.matches(c).count() == 1 && !out.contains(o) {
+                // satır başındaki tire/boşluktan sonra aç
+                out.insert(lead, o);
+            }
+        }
+    }
+    out
+}
+
+/// Tek konuşmacılı satırda baştaki diyalog tiresi (iki satırdan yalnız biri tireyle başlıyorsa ya da tek satır).
+fn lone_dash(text: &str) -> String {
+    let lines: Vec<&str> = text.split("\\N").collect();
+    let dashed = |l: &str| tags::strip_tags(l).trim_start().starts_with(['-', '–']);
+    let n = lines.iter().filter(|l| dashed(l)).count();
+    if n != 1 || !dashed(lines[0]) {
+        return text.to_string();
+    }
+    let mut first = lines[0].to_string();
+    // etiketlerden sonraki ilk tireyi ve ardındaki boşluğu sil
+    let mut done = false;
+    first = map_text(&first, |x| {
+        if done {
+            return x.to_string();
+        }
+        let tt = x.trim_start();
+        if tt.is_empty() {
+            return x.to_string();
+        }
+        done = true;
+        match tt.strip_prefix('-').or_else(|| tt.strip_prefix('–')) {
+            Some(r) => format!("{}{}", &x[..x.len() - tt.len()], r.trim_start()),
+            None => x.to_string(),
+        }
+    });
+    let mut v = vec![first];
+    v.extend(lines[1..].iter().map(|s| s.to_string()));
+    v.join("\\N")
+}
+
 pub fn fix_text(text: &str, f: &Fixes) -> String {
     let mut t = text.to_string();
     if f.mojibake {
         t = map_text(&t, fix_mojibake);
+    }
+    if f.normalize_unicode {
+        t = map_text(&t, normalize_unicode);
+    }
+    if f.punct_cleanup {
+        t = map_text(&t, punct_cleanup);
+    }
+    if f.missing_bracket {
+        t = t.split("\\N").map(missing_bracket).collect::<Vec<_>>().join("\\N");
+    }
+    if f.lone_dash {
+        t = lone_dash(&t);
     }
     if f.remove_hi {
         t = remove_hi(&t);
@@ -341,7 +455,7 @@ pub fn apply(script: &mut Script, f: &Fixes) -> Report {
     if let Some(max) = f.split_long {
         rep.split_lines += split_long_lines(script, max, f.only.as_deref());
     }
-    if f.min_duration_ms.is_some() || f.min_gap_ms.is_some() {
+    if f.min_duration_ms.is_some() || f.min_gap_ms.is_some() || f.max_duration_ms.is_some() {
         rep.timing_changes += fix_timing(script, f);
     }
     rep
@@ -450,6 +564,11 @@ fn fix_timing_chain(script: &mut Script, f: &Fixes, order: &[usize]) -> usize {
         let next_start = order.get(k + 1).and_then(|&j| if let Entry::Dialogue(d) = &script.entries[j] { Some(d.start_time) } else { None });
         let Entry::Dialogue(d) = &mut script.entries[order[k]] else { continue };
         let before = (d.start_time, d.end_time);
+        if let Some(max) = f.max_duration_ms.filter(|&m| m > 0) {
+            if d.end_time - d.start_time > max {
+                d.end_time = d.start_time + max;
+            }
+        }
         if let Some(min) = f.min_duration_ms {
             if d.end_time - d.start_time < min {
                 let want = d.start_time + min;
@@ -476,6 +595,37 @@ fn _unused(_: &Dialogue) {}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn se_rules_punct_unicode_bracket_dash() {
+        let f = Fixes::default();
+        assert_eq!(fix_text("Ne?. Gel!. Hadi?... Yok....", &f), "Ne? Gel! Hadi?... Yok...");
+        assert_eq!(fix_text("Evet,, tamam. ''Merhaba''", &f), "Evet, tamam. \"Merhaba\"");
+        assert_eq!(fix_text("Bekle……", &f), "Bekle…");
+        assert_eq!(fix_text("A\u{00A0}B\u{200B}C \u{2013} D", &f), "A BC - D");
+        assert_eq!(fix_text("müzik çalıyor] Merhaba", &f), "[müzik çalıyor] Merhaba");
+        assert_eq!(fix_text("- kapı çalar) Kim o?", &f), "- (kapı çalar) Kim o?");
+        assert_eq!(fix_text("[tamam] ve (bu)", &f), "[tamam] ve (bu)");
+        for keep in ["Güzel :)", "a) birinci", "Bunu sevdim ;)", "1) madde", "Tamam :]"] {
+            assert_eq!(fix_text(keep, &f), keep);
+        }
+        // etiket içine dokunulmaz
+        assert_eq!(fix_text("{\\an8}Ne?.", &f), "{\\an8}Ne?");
+        let g = Fixes { lone_dash: true, ..Fixes::default() };
+        assert_eq!(fix_text("- Merhaba.", &g), "Merhaba.");
+        assert_eq!(fix_text("{\\i1}- Merhaba.\\Nnasılsın?", &g), "{\\i1}Merhaba.\\Nnasılsın?");
+        assert_eq!(fix_text("- Merhaba.\\N- Selam.", &g), "- Merhaba.\\N- Selam.");
+        // ikileme bozulmaz
+        assert_eq!(fix_text("yavaş yavaş gel", &f), "yavaş yavaş gel");
+    }
+
+    #[test]
+    fn max_duration_caps() {
+        let mut sc = Script::from_dialogues(vec![Dialogue { start_time: 0, end_time: 20000, text: "uzun".into(), ..Default::default() }]);
+        let r = apply(&mut sc, &Fixes { max_duration_ms: Some(8000), ..Fixes::default() });
+        assert_eq!(r.timing_changes, 1);
+        assert_eq!(sc.dialogues().next().unwrap().end_time, 8000);
+    }
+
     use super::*;
 
     fn s(texts: &[&str]) -> Script {

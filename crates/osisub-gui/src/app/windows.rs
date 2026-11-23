@@ -2869,6 +2869,10 @@ impl App {
             ui.checkbox(&mut f.sentence_case, tr("Cümle başlarını büyük harf yap (Türkçe i/İ, ı/I)"));
             ui.checkbox(&mut f.remove_hi, tr("İşitme engelli notlarını sil ([ağlar], (müzik), AD: ön ekleri)"));
             ui.checkbox(&mut f.tr_spelling, tr("Türkçe yaygın yazım hataları (herşey → her şey, yada → ya da, şuan → şu an, gelecekmisin → gelecek misin…)"));
+            ui.checkbox(&mut f.punct_cleanup, tr("Gereksiz noktalama (?. → ?, .... → ..., ,, → , , '' → \")"));
+            ui.checkbox(&mut f.normalize_unicode, tr("Görünmez karakterler (bölünmez boşluk, sıfır genişlikli boşluk, farklı tire türleri)")).on_hover_text(tr("Webden/makine çevirisinden gelen metinlerde satır genişliğini ve kırılmayı bozan karakterler (Subtitle Edit: Normalize strings)"));
+            ui.checkbox(&mut f.missing_bracket, tr("Eksik açılış parantezi (müzik çalıyor] → [müzik çalıyor])"));
+            ui.checkbox(&mut f.lone_dash, tr("Tek konuşmacılı satırda baştaki tireyi sil"));
             ui.horizontal(|ui| {
                 let mut on = f.balance_lines.is_some();
                 ui.checkbox(&mut on, tr("Satırları dengele (satır başına karakter)")).on_hover_text(tr("Uzun metni en fazla iki dengeli satıra kırar (noktalamada, bağlaçla bitirmeden); sığan metni tek satır yapar. Tipografi/karaoke satırlarına dokunmaz."));
@@ -2890,6 +2894,13 @@ impl App {
                 f.min_duration_ms = self.min_dur_on.then_some(v);
             });
             ui.horizontal(|ui| {
+                let mut on = f.max_duration_ms.is_some();
+                ui.checkbox(&mut on, tr("En uzun süre (ms)"));
+                let mut v = f.max_duration_ms.unwrap_or(8000);
+                ui.add_enabled(on, egui::DragValue::new(&mut v).speed(50).range(1000..=60000));
+                f.max_duration_ms = on.then_some(v);
+            });
+            ui.horizontal(|ui| {
                 ui.checkbox(&mut self.min_gap_on, tr("En küçük boşluk (ms)"));
                 let mut v = f.min_gap_ms.unwrap_or(84);
                 ui.add_enabled(self.min_gap_on, egui::DragValue::new(&mut v).speed(5));
@@ -2898,15 +2909,68 @@ impl App {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.fixes_selection_only, tr("Yalnızca seçim"));
-                if ui.button(tr("Uygula")).clicked() {
+                if ui.button(tr("Önizle")).on_hover_text(tr("Her değişikliği önce/sonra olarak listeler; yalnız işaretlediklerinizi uygularsınız (Subtitle Edit gibi)")).clicked() {
+                    let mut o = self.fixes.clone();
+                    o.only = if self.fixes_selection_only { Some(self.doc.selection.clone()) } else { None };
+                    o.split_long = None; // bölme satır sayısını değiştirir: önizlemede yok
+                    let mut s = self.doc.script.clone();
+                    osisub_core::fixes::apply(&mut s, &o);
+                    let mut v = vec![];
+                    if s.entries.len() == self.doc.script.entries.len() {
+                        let mut row = 0;
+                        for (i, (a, b)) in self.doc.script.entries.iter().zip(s.entries.iter()).enumerate() {
+                            if let (Entry::Dialogue(x), Entry::Dialogue(y)) = (a, b) {
+                                row += 1;
+                                if x != y { v.push((i, row, true, x.clone(), y.clone())); }
+                            }
+                        }
+                    }
+                    self.status = trf!("{} değişiklik önerildi", v.len());
+                    self.fixes_preview = Some(v);
+                }
+                if ui.button(tr("Hepsini uygula")).clicked() {
                     let mut o = self.fixes.clone();
                     o.only = if self.fixes_selection_only { Some(self.doc.selection.clone()) } else { None };
                     let mut s = self.doc.script.clone();
                     let rep = osisub_core::fixes::apply(&mut s, &o);
                     self.doc.apply_new_script("Sık hataları düzelt", s);
+                    self.fixes_preview = None;
                     self.status = trf!("{} satır değişti, {} zamanlama düzeltildi, {} satır bölündü", rep.changed_lines, rep.timing_changes, rep.split_lines);
                 }
             });
+            if let Some(v) = self.fixes_preview.as_mut() {
+                ui.separator();
+                let rev = self.doc.rev;
+                let _ = rev;
+                ui.horizontal(|ui| {
+                    ui.label(trf!("{} öneri", v.len()));
+                    if ui.small_button(tr("Tümünü işaretle")).clicked() { for x in v.iter_mut() { x.2 = true; } }
+                    if ui.small_button(tr("Hiçbirini")).clicked() { for x in v.iter_mut() { x.2 = false; } }
+                });
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    for (_, row, on, a, b) in v.iter_mut() {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(on, "");
+                            ui.label(RichText::new(format!("#{}", row)).weak().small());
+                            let mut desc = vec![];
+                            if a.text != b.text { desc.push(format!("{}  →  {}", a.text, b.text)); }
+                            if (a.start_time, a.end_time) != (b.start_time, b.end_time) { desc.push(format!("{}–{} → {}–{}", time::format_ass(a.start_time), time::format_ass(a.end_time), time::format_ass(b.start_time), time::format_ass(b.end_time))); }
+                            ui.label(RichText::new(desc.join("  ·  ")).monospace().small());
+                        });
+                    }
+                });
+                if ui.button(tr("İşaretlileri uygula")).clicked() {
+                    let mut s = self.doc.script.clone();
+                    let mut n = 0;
+                    for (i, _, on, a, b) in v.iter() {
+                        // belge önizlemeden sonra değiştiyse yalnız hâlâ aynı olan satırlar
+                        if *on && matches!(s.entries.get(*i), Some(Entry::Dialogue(x)) if x == a) { s.entries[*i] = Entry::Dialogue(b.clone()); n += 1; }
+                    }
+                    self.doc.apply_new_script("Sık hataları düzelt", s);
+                    self.status = trf!("{} düzeltme uygulandı", n);
+                    self.fixes_preview = None;
+                }
+            }
         });
         self.fixes_open = open;
     }

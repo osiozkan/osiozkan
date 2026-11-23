@@ -111,6 +111,8 @@ pub struct App {
     info_new: (String, String),
     /// Stiller sekmesi: oluşturulacak katalog adı
     catalog_new: String,
+    /// Sık hataları düzelt önizlemesi: (girdi, uygula mı, önce, sonra)
+    fixes_preview: Option<Vec<(usize, usize, bool, osisub_core::ass::Dialogue, osisub_core::ass::Dialogue)>>,
     /// Videoya hizala penceresi ve renk toleransı
     align_open: bool,
     align_tol: f64,
@@ -708,6 +710,7 @@ impl App {
             find_pos: None,
             info_new: Default::default(),
             catalog_new: String::new(),
+            fixes_preview: None,
             align_open: false,
             align_tol: 20.0,
             res_checked: None,
