@@ -347,10 +347,10 @@ impl App {
                     }
                 }
                 ui.separator();
-                for (name, label) in [("1c", "Renk"), ("3c", "Kenar"), ("4c", "Gölge")] {
+                for (name, label) in [("1c", "Renk"), ("2c", "İkincil"), ("3c", "Kenar"), ("4c", "Gölge")] {
                     let cur = osisub_core::overrides::tag_value_before(&nd.text, a, name).or_else(|| if name == "1c" { osisub_core::overrides::tag_value_before(&nd.text, a, "c") } else { None })
                         .and_then(|v| osisub_core::color::Color::parse(&v))
-                        .or_else(|| osisub_core::color::Color::parse(match name { "1c" => &st.color1, "3c" => &st.color3, _ => &st.color4 }))
+                        .or_else(|| osisub_core::color::Color::parse(match name { "1c" => &st.color1, "2c" => &st.color2, "3c" => &st.color3, _ => &st.color4 }))
                         .unwrap_or(osisub_core::color::Color::WHITE);
                     let mut rgb = [cur.r, cur.g, cur.b];
                     ui.label(RichText::new(tr(label)).small());
@@ -402,6 +402,7 @@ impl App {
             self.editor_sel = Some((at, p.min(q), p.max(q)));
         }
         let mut split_req: Option<bool> = None; // Some(false) = orantılı süre, Some(true) = video karesi
+        let mut edit_cmd: Option<&'static str> = None;
         if out.response.secondary_clicked() {
             // Aegisub gibi: sağ tıklanan sözcük için yazım önerileri ve eş anlamlılar
             self.ctx_word = out.response.interact_pointer_pos().and_then(|p| {
@@ -444,6 +445,11 @@ impl App {
             }
             if ui.button(tr("İmleçte böl (süre metne orantılı)")).clicked() { split_req = Some(false); ui.close(); }
             if ui.add_enabled(self.media.framerate().is_some(), egui::Button::new(tr("İmleçte böl (video karesinde)"))).clicked() { split_req = Some(true); ui.close(); }
+            if ui.button(tr("İmleçte böl (zamanlar korunur)")).clicked() { edit_cmd = Some("split_preserve"); ui.close(); }
+            ui.separator();
+            if ui.button(tr("Metni temizle (etiketler kalır)")).on_hover_text(tr("Düz metni siler; etiketler, notlar ve çizimler kalır (Aegisub: Clear Text)")).clicked() { edit_cmd = Some("clear_text"); ui.close(); }
+            if ui.button(tr("Orijinali ekle")).on_hover_text(tr("Satırın seçildiği andaki metnini imlece ekler (Aegisub: Insert Original)")).clicked() { edit_cmd = Some("insert_original"); ui.close(); }
+            if ui.button(tr("Satırı geri al")).on_hover_text(tr("Satır metnini seçildiği andaki haline döndürür (Aegisub: Revert)")).clicked() { edit_cmd = Some("revert_line"); ui.close(); }
         });
         if let Some(w) = add_word {
             self.add_user_word(&w);
@@ -480,6 +486,13 @@ impl App {
         if let Some(at_frame) = split_req {
             if nd == d {
                 self.split_at_cursor(at_frame);
+                return;
+            }
+        }
+        if let Some(c) = edit_cmd {
+            if nd == d {
+                let ctx = ui.ctx().clone();
+                self.run_command(c, &ctx);
                 return;
             }
         }

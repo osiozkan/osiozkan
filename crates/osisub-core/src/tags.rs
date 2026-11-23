@@ -32,6 +32,28 @@ pub fn split(text: &str) -> Vec<Part<'_>> {
 }
 
 /// Bloktaki son `\pN` çizim kipi ayarı (`\pos`/`\pbo` değil): Some(açık mı).
+/// Aegisub `edit/clear/text`: düz metni siler; etiket blokları, notlar ve çizimler (`\p1`) kalır.
+/// Tabelayı yeniden yazarken etiketleri korumak için.
+pub fn clear_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut drawing = false;
+    for p in split(text) {
+        match p {
+            Part::Block(b) => {
+                if let Some(d) = drawing_mode(b) {
+                    drawing = d;
+                }
+                out.push('{');
+                out.push_str(b);
+                out.push('}');
+            }
+            Part::Text(t) if drawing => out.push_str(t),
+            Part::Text(_) => {}
+        }
+    }
+    out
+}
+
 pub fn drawing_mode(block: &str) -> Option<bool> {
     let b = block.as_bytes();
     let mut res = None;
@@ -134,6 +156,13 @@ pub fn karaoke_syllables(text: &str) -> Vec<(i64, String)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clear_text_keeps_tags_and_drawings() {
+        assert_eq!(super::clear_text("{\\an8\\pos(1,2)}Tabela{\\c&H0000FF&} yazısı{not}"), "{\\an8\\pos(1,2)}{\\c&H0000FF&}{not}");
+        assert_eq!(super::clear_text("{\\p1}m 0 0 l 10 0{\\p0}yazı"), "{\\p1}m 0 0 l 10 0{\\p0}");
+        assert_eq!(super::clear_text("düz"), "");
+    }
+
     use super::*;
     #[test]
     fn strip() {

@@ -539,9 +539,18 @@ impl Document {
     /// Satırı metindeki `char_pos` karakterinden ve `time_ms` zamanından ikiye böler.
     /// `char_pos` etiketsiz (görünür+etiket dahil ham) metin üzerindedir; etiket bloklarının ortasında bölünmez.
     pub fn split(&mut self, at: usize, char_pos: usize, time_ms: i64) -> bool {
+        self.split_inner(at, char_pos, Some(time_ms))
+    }
+
+    /// Aegisub `edit/line/split/preserve`: imleçte böler, iki parça da asıl satırın zamanlarını korur.
+    pub fn split_keep_times(&mut self, at: usize, char_pos: usize) -> bool {
+        self.split_inner(at, char_pos, None)
+    }
+
+    fn split_inner(&mut self, at: usize, char_pos: usize, time: Option<i64>) -> bool {
         let Some(Entry::Dialogue(d)) = self.script.entries.get(at).cloned() else { return false };
         let chars: Vec<char> = d.text.chars().collect();
-        if char_pos == 0 || char_pos >= chars.len() || time_ms <= d.start_time || time_ms >= d.end_time {
+        if char_pos == 0 || char_pos >= chars.len() || time.map_or(false, |t| t <= d.start_time || t >= d.end_time) {
             return false;
         }
         // Etiket bloğu içindeyse ya da \N / \h kaçışının ortasındaysa engelle.
@@ -554,8 +563,8 @@ impl Document {
         let b_raw: String = chars[char_pos..].iter().collect();
         let b = b_raw.trim_start();
         let b = b.strip_prefix("\\N").unwrap_or(b).trim_start().to_string();
-        let d1 = Dialogue { text: a, end_time: time_ms, ..d.clone() };
-        let d2 = Dialogue { text: b, start_time: time_ms, ..d };
+        let d1 = Dialogue { text: a, end_time: time.unwrap_or(d.end_time), ..d.clone() };
+        let d2 = Dialogue { text: b, start_time: time.unwrap_or(d.start_time), ..d };
         self.edit("Böl", |tx| {
             tx.replace(at, Entry::Dialogue(d1));
             tx.insert(at + 1, vec![Entry::Dialogue(d2)]);
@@ -814,6 +823,16 @@ mod tests {
         assert!(matches!(&d.script.entries[at], Entry::Dialogue(x) if (x.start_time, x.end_time) == (150, 200)));
         d.undo();
         assert!(matches!(&d.script.entries[at], Entry::Dialogue(x) if (x.start_time, x.end_time) == orig));
+    }
+
+    #[test]
+    fn split_keep_times_preserves() {
+        let mut d = doc();
+        let a = first_dlg(&d);
+        d.set_text(a, "Merhaba dünya");
+        assert!(d.split_keep_times(a, 8));
+        let v: Vec<(i64, i64, String)> = d.script.dialogues().take(2).map(|x| (x.start_time, x.end_time, x.text.clone())).collect();
+        assert_eq!(v, vec![(0, 2000, "Merhaba".into()), (0, 2000, "dünya".into())]);
     }
 
     #[test]

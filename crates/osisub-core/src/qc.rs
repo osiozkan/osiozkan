@@ -522,14 +522,12 @@ pub enum SortKey {
     Effect,
     Layer,
     Text,
+    /// Etiketler dahil ham metin (Aegisub "Text"; `Text` etiketsiz = Aegisub "Text (stripped)")
+    TextRaw,
 }
 
-/// Diyalog satırlarını anahtara göre (kararlı) sıralar; diğer girdiler yerinde kalır.
-pub fn sort_by(script: &mut Script, key: SortKey) {
-    let Some(first) = script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))) else { return };
-    let last = script.entries.iter().rposition(|e| matches!(e, Entry::Dialogue(_))).unwrap();
-    let mut slice: Vec<Entry> = script.entries.drain(first..=last).collect();
-    slice.sort_by(|a, b| match (a, b) {
+fn sort_cmp(a: &Entry, b: &Entry, key: SortKey) -> std::cmp::Ordering {
+    match (a, b) {
         (Entry::Dialogue(x), Entry::Dialogue(y)) => match key {
             SortKey::Start => (x.start_time, x.layer).cmp(&(y.start_time, y.layer)),
             SortKey::End => x.end_time.cmp(&y.end_time),
@@ -538,11 +536,31 @@ pub fn sort_by(script: &mut Script, key: SortKey) {
             SortKey::Effect => tr_lower(&x.effect).cmp(&tr_lower(&y.effect)).then(x.start_time.cmp(&y.start_time)),
             SortKey::Layer => x.layer.cmp(&y.layer).then(x.start_time.cmp(&y.start_time)),
             SortKey::Text => tr_lower(&tags::strip_tags(&x.text)).cmp(&tr_lower(&tags::strip_tags(&y.text))),
+            SortKey::TextRaw => x.text.cmp(&y.text),
         },
         _ => std::cmp::Ordering::Equal,
-    });
-    for (k, e) in slice.into_iter().enumerate() {
-        script.entries.insert(first + k, e);
+    }
+}
+
+/// Diyalog satırlarını anahtara göre (kararlı) sıralar; diğer girdiler yerinde kalır.
+pub fn sort_by(script: &mut Script, key: SortKey) {
+    let Some(first) = script.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))) else { return };
+    let last = script.entries.iter().rposition(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+    let mut slice: Vec<Entry> = script.entries.drain(first..=last).collect();
+    slice.sort_by(|a, b| sort_cmp(a, b, key));
+    script.entries.splice(first..first, slice);
+}
+
+/// Aegisub `grid/sort/*/selected`: yalnızca seçili diyalog satırlarını, kendi kapladıkları
+/// konumlar içinde (kararlı) sıralar; seçilmeyen satırlar yerinde kalır.
+pub fn sort_selected(script: &mut Script, key: SortKey, sel: &[usize]) {
+    let mut pos: Vec<usize> = sel.iter().copied().filter(|&i| matches!(script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+    pos.sort_unstable();
+    pos.dedup();
+    let mut items: Vec<Entry> = pos.iter().map(|&i| script.entries[i].clone()).collect();
+    items.sort_by(|a, b| sort_cmp(a, b, key));
+    for (&i, e) in pos.iter().zip(items) {
+        script.entries[i] = e;
     }
 }
 
@@ -892,5 +910,23 @@ mod tests {
         let sc = Script::parse(t);
         let v = check(&sc, &Rules::default());
         assert!(v.iter().any(|i| i.kind == Kind::TagError && i.message.starts_with("Bozuk satır")), "{v:?}");
+    }
+
+    #[test]
+    fn sort_only_selected_lines() {
+        let mut sc = Script::from_dialogues(vec![
+            Dialogue { start_time: 500, text: "c".into(), ..Default::default() },
+            Dialogue { start_time: 300, text: "x".into(), ..Default::default() },
+            Dialogue { start_time: 100, text: "{\\i1}b".into(), ..Default::default() },
+            Dialogue { start_time: 200, text: "a".into(), ..Default::default() },
+        ]);
+        let f = sc.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        sort_selected(&mut sc, SortKey::Start, &[f, f + 2, f + 3]);
+        let t: Vec<String> = sc.dialogues().map(|d| d.text.clone()).collect();
+        assert_eq!(t, vec!["{\\i1}b", "x", "a", "c"]);
+        sort_selected(&mut sc, SortKey::Text, &[f, f + 2]);
+        assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "x", "{\\i1}b", "c"]);
+        sort_by(&mut sc, SortKey::TextRaw);
+        assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "c", "x", "{\\i1}b"]);
     }
 }

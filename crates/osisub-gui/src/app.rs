@@ -268,6 +268,8 @@ pub struct App {
     editor_sel: Option<(usize, usize, usize)>,
     /// Lua `aegisub.gui.set_selection/set_cursor` sonucu: (satır, bağlantı, imleç) karakter dizinleri; sonraki karede metin kutusuna uygulanır
     pending_text_sel: Option<(usize, usize, usize)>,
+    /// Aegisub "initial line state": etkin satırın seçildiği andaki metni (geri al / orijinali ekle)
+    line_initial: (usize, String),
     /// Stil önizlemesi: (anahtar, doku), bekleyen istek, örnek metin
     style_pv: Option<(u64, egui::TextureHandle)>,
     style_pv_rx: Option<std::sync::mpsc::Receiver<(u64, Result<osisub_media::Frame, String>)>>,
@@ -404,6 +406,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("insert_after_video", "Arkasına video zamanında satır ekle"),
     ("move_up", "Satırları yukarı taşı"),
     ("move_down", "Satırları aşağı taşı"),
+    ("split_preserve", "İmleçte böl (zamanlar korunur)"),
+    ("clear_text", "Metni temizle (etiketler kalır)"),
+    ("revert_line", "Satırı geri al (seçildiği andaki metin)"),
+    ("insert_original", "Orijinal metni imlece ekle"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -603,6 +609,7 @@ impl App {
             editor_cursor: None,
             editor_sel: None,
             pending_text_sel: None,
+            line_initial: (usize::MAX, String::new()),
             style_pv: None,
             style_pv_rx: None,
             style_pv_text: "Aa Iı İi Ğğ Şş Çç Öö Üü 123".into(),
@@ -1369,6 +1376,11 @@ impl App {
     // ------------------------------------------------------------ önbellekler
 
     fn refresh_caches(&mut self) {
+        if self.line_initial.0 != self.doc.active {
+            if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active) {
+                self.line_initial = (self.doc.active, d.text.clone());
+            }
+        }
         let key = (self.doc.rev, self.filter.clone());
         if self.rows_key != key {
             let f = self.filter.to_lowercase();
@@ -1699,6 +1711,32 @@ impl App {
                 self.status = trf!("{n} boşluk/örtüşme kapatıldı");
             }
             "split_cursor" => self.split_at_cursor(false),
+            "split_preserve" => {
+                let at = self.doc.active;
+                match self.editor_cursor.filter(|(l, _)| *l == at) {
+                    Some((_, pos)) => { if self.doc.split_keep_times(at, pos) { self.editor_cursor = None; } else { self.status = tr("Bu konumda bölünemez (etiket içi, satır başı/sonu ya da süre dışı)").into(); } }
+                    None => self.status = tr("Önce düzenleme kutusunda imleci konumlandırın").into(),
+                }
+            }
+            "clear_text" | "revert_line" | "insert_original" => {
+                let at = self.doc.active;
+                if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at) {
+                    let orig = if self.line_initial.0 == at { self.line_initial.1.clone() } else { d.text.clone() };
+                    let (desc, t) = match id {
+                        "clear_text" => ("Metni temizle", osisub_core::tags::clear_text(&d.text)),
+                        "revert_line" => ("Satırı geri al", orig),
+                        _ => {
+                            let chars: Vec<char> = d.text.chars().collect();
+                            let (a, b) = self.editor_sel.filter(|s| s.0 == at).map(|s| (s.1, s.2)).unwrap_or((chars.len(), chars.len()));
+                            let (a, b) = (a.min(chars.len()), b.min(chars.len()));
+                            ("Orijinali ekle", chars[..a].iter().collect::<String>() + &orig + &chars[b..].iter().collect::<String>())
+                        }
+                    };
+                    if t != d.text {
+                        self.doc.edit(desc, |tx| tx.dialogue_mut(at, |x| x.text = t));
+                    }
+                }
+            }
             "balance_lines" => self.rebreak_selected(true),
             "guide" => self.guide = Some(String::new()),
             "song_place" => self.song_win = Some(windows::SongWin::new()),
@@ -2157,16 +2195,18 @@ impl App {
                         if ui.add(b).on_hover_text(tr(tip)).clicked() { ui.close(); self.run_command(cmd, ui.ctx()); }
                     }
                 });
-                ui.menu_button(tr("Sırala"), |ui| {
-                    for (k, l) in [(qc::SortKey::Start, "Başlangıç zamanına göre"), (qc::SortKey::End, "Bitiş zamanına göre"), (qc::SortKey::Style, "Stile göre"), (qc::SortKey::Actor, "Konuşana göre"), (qc::SortKey::Effect, "Efekte göre"), (qc::SortKey::Layer, "Katmana göre"), (qc::SortKey::Text, "Metne göre")] {
-                        if ui.button(l).clicked() {
-                            let mut s = self.doc.script.clone();
-                            qc::sort_by(&mut s, k);
-                            self.doc.apply_new_script("Sırala", s);
-                            ui.close();
+                for only_sel in [false, true] {
+                    ui.menu_button(tr(if only_sel { "Seçilenleri sırala" } else { "Sırala" }), |ui| {
+                        for (k, l) in [(qc::SortKey::Start, "Başlangıç zamanına göre"), (qc::SortKey::End, "Bitiş zamanına göre"), (qc::SortKey::Style, "Stile göre"), (qc::SortKey::Actor, "Konuşana göre"), (qc::SortKey::Effect, "Efekte göre"), (qc::SortKey::Layer, "Katmana göre"), (qc::SortKey::Text, "Metne göre"), (qc::SortKey::TextRaw, "Metne göre (etiketler dahil)")] {
+                            if ui.button(tr(l)).clicked() {
+                                let mut s = self.doc.script.clone();
+                                if only_sel { qc::sort_selected(&mut s, k, &self.doc.target_lines()); } else { qc::sort_by(&mut s, k); }
+                                self.doc.apply_new_script("Sırala", s);
+                                ui.close();
+                            }
                         }
-                    }
-                });
+                    });
+                }
             });
             ui.menu_button(tr("Görünüm"), |ui| {
                 let mut light = self.settings.light_theme;
