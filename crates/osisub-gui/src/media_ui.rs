@@ -140,6 +140,8 @@ pub struct Media {
     pub persp_dist: f64,
     /// Perspektif aracı: satırdaki \org'u koru (Aegisub ORGMODE_KEEP)
     pub persp_keep_org: bool,
+    /// İstenen yakınlaştırma (1.0 = %100 gerçek piksel); sonraki çizimde uygulanır
+    pub zoom_preset: Option<f32>,
     /// perspektif aracı LayoutRes'siz betiğe değer yazdı: uygulama LayoutRes'i ekler
     pub persp_need_layout: bool,
     /// önizleme klasörüne çıkarılmış gömülü yazı tiplerinin anahtarı (ad:boyut;…)
@@ -222,6 +224,7 @@ impl Media {
             ar_override: None,
             persp_dist: osisub_core::perspective::DIST_PX,
             persp_keep_org: false,
+            zoom_preset: None,
             persp_need_layout: false,
             vt_vdrag: None,
             vt_free: None,
@@ -922,6 +925,13 @@ impl Media {
             }
             if let Some(t) = &self.tex {
                 let sz = t.size_vec2();
+                // Aegisub video/zoom/50|100|200: videonun gerçek piksel boyutuna göre (panele sığdırmanın altına inmez)
+                if let (Some(z), Some(info)) = (self.zoom_preset.take(), self.info.as_ref()) {
+                    let fit = (rect.width() / sz.x).min(rect.height() / sz.y);
+                    let want = info.width as f32 * z / ui.ctx().pixels_per_point();
+                    self.video_zoom = (want / (sz.x * fit)).clamp(1.0, 16.0);
+                    self.video_pan = egui::Vec2::ZERO;
+                }
                 let scale = (rect.width() / sz.x).min(rect.height() / sz.y) * self.video_zoom;
                 let img = Rect::from_center_size(rect.center() + self.video_pan, sz * scale);
                 ui.painter_at(rect).image(t.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);

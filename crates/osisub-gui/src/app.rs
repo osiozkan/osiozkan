@@ -431,6 +431,9 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("frame_copy_raw", "Kareyi panoya kopyala (altyazısız)"),
     ("audio_clip", "Seçili satırların sesini kaydet (WAV)"),
     ("frame_save_subs", "Kareyi yalnız altyazılarla saydam PNG kaydet"),
+    ("zoom_100", "Video yakınlaştırma %100"),
+    ("zoom_200", "Video yakınlaştırma %200"),
+    ("zoom_fit", "Videoyu panele sığdır"),
     ("find_next", "Sonrakini bul"),
     ("replace_next", "Sonrakini değiştir"),
     ("fold_create", "Seçimi katla"),
@@ -1860,6 +1863,9 @@ impl App {
             "split_cursor" => self.split_at_cursor(false),
             "frame_save" | "frame_save_raw" | "frame_copy" | "frame_copy_raw" => self.media.export_frame(&self.doc, !id.ends_with("_raw"), id.starts_with("frame_copy"), ctx),
             "audio_clip" => self.media.save_audio_clip(&self.doc, ctx),
+            "zoom_100" => self.media.zoom_preset = Some(1.0),
+            "zoom_200" => self.media.zoom_preset = Some(2.0),
+            "zoom_fit" => { self.media.video_zoom = 1.0; self.media.video_pan = egui::Vec2::ZERO; }
             "frame_save_subs" => self.media.export_frame_ex(&self.doc, true, true, false, ctx),
             "find_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_next(); } }
             "replace_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_replace_next(); } }
@@ -2455,6 +2461,12 @@ impl App {
                     self.open_dummy_window();
                 }
                 ui.checkbox(&mut self.show_media, tr("Medya panelini göster"));
+                ui.menu_button(tr("Yakınlaştır"), |ui| {
+                    if ui.button(tr("Panele sığdır")).clicked() { self.media.video_zoom = 1.0; self.media.video_pan = egui::Vec2::ZERO; ui.close(); }
+                    for (z, l) in [(0.5, "%50"), (1.0, "%100 (gerçek boyut)"), (2.0, "%200")] {
+                        if ui.button(tr(l)).clicked() { self.media.zoom_preset = Some(z); ui.close(); }
+                    }
+                });
                 ui.menu_button(tr("Kareyi kaydet / kopyala"), |ui| {
                     let ok = self.media.info.as_ref().map_or(false, |i| i.has_video);
                     if ui.add_enabled(ok, egui::Button::new(tr("PNG olarak kaydet (altyazılı)…"))).clicked() { ui.close(); self.media.export_frame(&self.doc, true, false, ui.ctx()); }

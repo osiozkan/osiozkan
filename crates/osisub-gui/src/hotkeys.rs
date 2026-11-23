@@ -114,6 +114,8 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/frame/save", "frame_save"),
     ("video/frame/save/raw", "frame_save_raw"),
     ("video/frame/save/subs", "frame_save_subs"),
+    ("video/zoom/100", "zoom_100"),
+    ("video/zoom/200", "zoom_200"),
     ("video/frame/copy", "frame_copy"),
     ("video/frame/copy/raw", "frame_copy_raw"),
     ("audio/save/clip", "audio_clip"),
