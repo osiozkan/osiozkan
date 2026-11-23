@@ -275,6 +275,26 @@ impl Media {
         Some(i)
     }
 
+    /// Kare hızı ve playhead'in bulunduğu kare (video açıksa).
+    pub fn cur_frame(&self) -> Option<(Arc<osisub_core::vfr::Framerate>, i64)> {
+        let fr = self.framerate()?;
+        let f = fr.frame_at(fr.snap(self.playhead));
+        Some((fr, f))
+    }
+
+    /// Videonun kare sayısı (süre ve kare hızından).
+    pub fn frame_count(&self) -> Option<i64> {
+        let fr = self.framerate()?;
+        let d = self.info.as_ref()?.duration_ms;
+        (d > 0).then(|| fr.frame_at(d).max(1))
+    }
+
+    pub fn jump_frame(&mut self, n: i64) {
+        if let Some(fr) = self.framerate() {
+            self.playhead = fr.time_at(n.max(0)).max(0);
+        }
+    }
+
     /// Önceki/sonraki anahtar kareye git (`dir` < 0 geri). Anahtar kare yoksa yerinde kalır.
     pub fn step_keyframe(&mut self, dir: i64) -> bool {
         let cur = self.playhead;

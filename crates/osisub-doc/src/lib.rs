@@ -2,6 +2,7 @@
 //!
 //! GUI (ve testler) yalnızca bu katmanla konuşur; böylece tüm düzenleme mantığı başsız test edilebilir.
 
+mod framecmds;
 pub mod sysclip;
 pub mod worker;
 

@@ -385,6 +385,25 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("split_karaoke", "Karaoke hecelerine böl (her hece bir satır)"),
     ("tool_persp", "Video aracı: perspektif (4 köşe)"),
     ("tool_draw", "Video aracı: çizim (\\p)"),
+    ("split_after", "Seçili satırları kareden sonra böl"),
+    ("split_before", "Seçili satırları kareden önce böl"),
+    ("snap_scene", "Sahneye yapıştır (çevreleyen anahtar kareler)"),
+    ("shift_to_frame", "Geçerli kareye kaydır"),
+    ("start_inc", "Başlangıcı 10 ms ileri"),
+    ("start_dec", "Başlangıcı 10 ms geri"),
+    ("length_inc", "Bitişi 10 ms ileri"),
+    ("length_dec", "Bitişi 10 ms geri"),
+    ("lead_in", "Giriş payı ekle (lead-in)"),
+    ("lead_out", "Çıkış payı ekle (lead-out)"),
+    ("boundary_next", "Sonraki satır sınırına git"),
+    ("boundary_prev", "Önceki satır sınırına git"),
+    ("frame_next_large", "10 kare ileri"),
+    ("frame_prev_large", "10 kare geri"),
+    ("select_visible", "Karede görünen satırları seç"),
+    ("insert_before_video", "Önüne video zamanında satır ekle"),
+    ("insert_after_video", "Arkasına video zamanında satır ekle"),
+    ("move_up", "Satırları yukarı taşı"),
+    ("move_down", "Satırları aşağı taşı"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -513,6 +532,11 @@ impl App {
         if settings.hotkey_defaults < 3 {
             crate::hotkeys::apply_default_list(&mut settings.macro_hotkeys, COMMAND_SCRIPT, crate::hotkeys::DEFAULT_COMMAND_KEYS_V3);
             settings.hotkey_defaults = 3;
+            settings.save();
+        }
+        if settings.hotkey_defaults < 4 {
+            crate::hotkeys::apply_default_list(&mut settings.macro_hotkeys, COMMAND_SCRIPT, crate::hotkeys::DEFAULT_COMMAND_KEYS_V4);
+            settings.hotkey_defaults = 4;
             settings.save();
         }
         // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
@@ -1502,6 +1526,67 @@ impl App {
             app.scroll_to = Some(r);
         };
         match id {
+            "split_after" | "split_before" => {
+                match self.media.cur_frame() {
+                    Some((fr, f)) => { let n = self.doc.split_lines_at_frame(&fr, f, id == "split_after"); self.scroll_to = Some(self.doc.active); self.status = trf!("{} satır bölündü", n); }
+                    None => self.status = tr("Önce video açın").into(),
+                }
+            }
+            "snap_scene" => {
+                match self.media.cur_frame() {
+                    Some((fr, f)) if !self.media.keyframes.is_empty() => {
+                        let mut kf: Vec<i64> = self.media.keyframes.iter().map(|&k| fr.frame_at(k)).collect();
+                        kf.sort_unstable();
+                        kf.dedup();
+                        let count = self.media.frame_count().unwrap_or(kf.last().copied().unwrap_or(0) + 1);
+                        self.doc.snap_to_scene(&fr, &kf, f, count);
+                    }
+                    _ => self.status = tr("Anahtar kareli video gerekli").into(),
+                }
+            }
+            "shift_to_frame" => { if let Some((fr, f)) = self.media.cur_frame() { self.doc.shift_to_frame(&fr, f); } else { self.status = tr("Önce video açın").into(); } }
+            "start_inc" => { self.doc.nudge_active(false, 10); }
+            "start_dec" => { self.doc.nudge_active(false, -10); }
+            "length_inc" => { self.doc.nudge_active(true, 10); }
+            "length_dec" => { self.doc.nudge_active(true, -10); }
+            "lead_in" => { self.doc.add_lead(self.settings.lead_in_ms, 0); }
+            "lead_out" => { self.doc.add_lead(0, self.settings.lead_out_ms); }
+            "frame_next_large" => self.media.step_frames(10),
+            "frame_prev_large" => self.media.step_frames(-10),
+            "boundary_next" | "boundary_prev" => {
+                // Aegisub video/frame/next|prev/boundary: etkin satırın ilk/son karesi, sonra komşu satır
+                if let (Some((fr, f)), Some(Entry::Dialogue(d))) = (self.media.cur_frame(), self.doc.script.entries.get(self.doc.active).cloned()) {
+                    let (s, e) = (fr.frame_at_start(d.start_time), fr.frame_at_end(d.end_time));
+                    let next = id == "boundary_next";
+                    let target = if next { [s, e].into_iter().find(|&t| t > f) } else { [e, s].into_iter().find(|&t| t < f) };
+                    match target {
+                        Some(t) => self.media.jump_frame(t),
+                        None => {
+                            let old = self.doc.active;
+                            step_line(self, if next { 1 } else { -1 });
+                            if self.doc.active != old {
+                                if let Some(Entry::Dialogue(n)) = self.doc.script.entries.get(self.doc.active) {
+                                    let t = if next { fr.frame_at_start(n.start_time) } else { fr.frame_at_end(n.end_time) };
+                                    self.media.jump_frame(t);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "select_visible" => {
+                match self.media.cur_frame() {
+                    Some((fr, f)) => { let n = self.doc.select_visible(&fr, f); self.scroll_to = Some(self.doc.active); self.status = trf!("{} satır seçildi (bu karede görünen)", n); }
+                    None => self.status = tr("Önce video açın").into(),
+                }
+            }
+            "insert_before_video" | "insert_after_video" => {
+                match self.media.cur_frame() {
+                    Some((fr, f)) => { if let Some(p) = self.doc.insert_at_frame(&fr, f, id == "insert_after_video", 2000) { self.scroll_to = Some(p); } }
+                    None => self.status = tr("Önce video açın").into(),
+                }
+            }
+            "move_up" | "move_down" => { if self.doc.move_selected(id == "move_up") { self.scroll_to = Some(self.doc.active); } }
             "split_frame" => { if let Some(fr) = &fr { if !self.doc.split_at_frame(fr, self.media.playhead) { self.status = tr("Bu kare satırın içinde değil").into(); } } }
             "dup_shift" => { if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); } }
             "play_line" => self.media.toggle_play(&self.doc, ctx),
@@ -2031,6 +2116,10 @@ impl App {
                     if ui.button(tr("Yer imleri listesi…")).clicked() { self.bookmarks_open = true; ui.close(); }
                 });
                 if ui.button(tr("İki satırı değiş tokuş et")).clicked() { self.run_command("swap_lines", ui.ctx()); ui.close(); }
+                if ui.button(tr("Karede görünen satırları seç")).on_hover_text(tr("Videonun geçerli karesinde görünen tüm satırlar (Aegisub: Select Visible)")).clicked() { self.run_command("select_visible", ui.ctx()); ui.close(); }
+                if ui.button(tr("Satırları yukarı taşı")).clicked() { self.run_command("move_up", ui.ctx()); ui.close(); }
+                if ui.button(tr("Satırları aşağı taşı")).clicked() { self.run_command("move_down", ui.ctx()); ui.close(); }
+                if ui.button(tr("Arkasına video zamanında satır ekle")).clicked() { self.run_command("insert_after_video", ui.ctx()); ui.close(); }
             });
             ui.menu_button(tr("Zamanlama"), |ui| {
                 if ui.button(tr("Kaydır / kareye oturt…")).clicked() { self.timing_open = true; ui.close(); }
@@ -2054,6 +2143,20 @@ impl App {
                     ui.close();
                     if let Some(fr) = &fr { self.doc.duplicate_shift_frames(fr, 1); self.scroll_to = Some(self.doc.active); }
                 }
+                ui.menu_button(tr("Kareye göre (Aegisub)"), |ui| {
+                    for (cmd, label, key, tip) in [
+                        ("split_after", "Kareden sonra böl", "Ctrl+Shift+D", "Seçili satırlar bu karede biter, kopyaları sonraki karede başlar; kare satırın dışındaysa kopya yalnız bu kareyi kaplar (kare kare tipografi)"),
+                        ("split_before", "Kareden önce böl", "", "Seçili satırlar önceki karede biter, kopyaları bu karede başlar"),
+                        ("snap_scene", "Sahneye yapıştır", "Ctrl+5", "Seçili satırları geçerli kareyi çevreleyen anahtar karelere ayarlar (Aegisub: Snap to Scene)"),
+                        ("shift_to_frame", "Geçerli kareye kaydır", "Ctrl+6", "Seçimi, etkin satır geçerli karede başlayacak kadar kaydırır"),
+                        ("lead_in", "Giriş payı ekle", "C", "Son-işleyicideki lead-in süresini etkin satıra ekler"),
+                        ("lead_out", "Çıkış payı ekle", "V", "Son-işleyicideki lead-out süresini etkin satıra ekler"),
+                    ] {
+                        let mut b = egui::Button::new(tr(label));
+                        if !key.is_empty() { b = b.shortcut_text(key); }
+                        if ui.add(b).on_hover_text(tr(tip)).clicked() { ui.close(); self.run_command(cmd, ui.ctx()); }
+                    }
+                });
                 ui.menu_button(tr("Sırala"), |ui| {
                     for (k, l) in [(qc::SortKey::Start, "Başlangıç zamanına göre"), (qc::SortKey::End, "Bitiş zamanına göre"), (qc::SortKey::Style, "Stile göre"), (qc::SortKey::Actor, "Konuşana göre"), (qc::SortKey::Effect, "Efekte göre"), (qc::SortKey::Layer, "Katmana göre"), (qc::SortKey::Text, "Metne göre")] {
                         if ui.button(l).clicked() {

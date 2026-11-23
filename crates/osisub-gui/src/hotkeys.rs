@@ -87,7 +87,30 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/play", "play_head"),
     ("edit/line/split/estimate", "split_cursor"),
     ("edit/line/split/video", "split_cursor_frame"),
-    ("edit/line/duplicate/shift", "dup_shift"),
+    // Aegisub 3.2+: duplicate/shift → split/after (hotkey.cpp göçü); eski ad da kabul edilir
+    ("edit/line/duplicate/shift", "split_after"),
+    ("edit/line/duplicate/shift_back", "split_before"),
+    ("edit/line/split/after", "split_after"),
+    ("edit/line/split/before", "split_before"),
+    ("time/snap/scene", "snap_scene"),
+    ("time/frame/current", "shift_to_frame"),
+    ("time/start/increase", "start_inc"),
+    ("time/start/decrease", "start_dec"),
+    ("time/length/increase", "length_inc"),
+    ("time/length/decrease", "length_dec"),
+    ("time/lead/in", "lead_in"),
+    ("time/lead/out", "lead_out"),
+    ("video/frame/next/boundary", "boundary_next"),
+    ("video/frame/prev/boundary", "boundary_prev"),
+    ("video/frame/next/large", "frame_next_large"),
+    ("video/frame/prev/large", "frame_prev_large"),
+    ("subtitle/select/visible", "select_visible"),
+    ("subtitle/insert/before/videotime", "insert_before_video"),
+    ("subtitle/insert/after/videotime", "insert_after_video"),
+    ("grid/move/up", "move_up"),
+    ("grid/move/down", "move_down"),
+    ("tool/style/assistant", "style_assist"),
+    ("tool/time/kanji", "kanji_timer"),
     ("tool/line/select", "select_lines"),
     ("video/tool/cross", "tool_none"),
     ("video/tool/drag", "tool_pos"),
@@ -121,6 +144,9 @@ pub const DEFAULT_COMMAND_KEYS: &[(&str, &str)] = &[
 pub const DEFAULT_COMMAND_KEYS_V2: &[(&str, &str)] = &[("hold_play", "Ctrl+Space")];
 /// 0.7.0: yer imleri (Subtitle Edit / VS Code alışkanlığı)
 pub const DEFAULT_COMMAND_KEYS_V3: &[(&str, &str)] = &[("bookmark_toggle", "Ctrl+F2"), ("bookmark_next", "F2"), ("bookmark_prev", "Shift+F2")];
+
+/// 0.10.0: Aegisub varsayılanları (Ctrl+D osisub'da çoğaltma, Alt+↑/↓ satır gezinme olarak kalır)
+pub const DEFAULT_COMMAND_KEYS_V4: &[(&str, &str)] = &[("snap_scene", "Ctrl+5"), ("shift_to_frame", "Ctrl+6"), ("split_after", "Ctrl+Shift+D"), ("lead_in", "C"), ("lead_out", "V")];
 
 /// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
 pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {
