@@ -409,6 +409,30 @@ pub fn render_coverage(ass_text: &str, width: u32, height: u32, times_ms: &[i64]
     r
 }
 
+/// Yalnız altyazılar, saydam arka plan (Aegisub `video/frame/save/subs`): `t_ms` anında `w`×`h`
+/// boyutunda siyah ve beyaz zeminde çizilip farktan alfa çıkarılır.
+pub fn render_subs_rgba(ass_text: &str, w: u32, h: u32, t_ms: i64, tmp: &Path) -> Result<Frame, String> {
+    let (w, h) = ((w.max(2) / 2 * 2) as usize, (h.max(2) / 2 * 2) as usize);
+    let _ = std::fs::create_dir_all(tmp);
+    let ass = tmp.join(format!("subsonly-{}.ass", std::process::id()));
+    std::fs::write(&ass, ass_text).map_err(|e| e.to_string())?;
+    let vf = ass_filter(&ass, "");
+    let src = |c: &str| format!("color=c={}:s={}x{}:r=25:d=0.5,format=rgb24,settb=1/1000,setpts={},{}", c, w, h, t_ms.max(0), vf);
+    let graph = format!("{}[b];{}[w];[b][w]vstack,format=rgb24[o]", src("black"), src("white"));
+    let r = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-filter_complex", &graph, "-map", "[o]", "-fps_mode", "passthrough", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    let _ = std::fs::remove_file(&ass);
+    let fs = w * h * 3;
+    if r.stdout.len() < fs * 2 {
+        return Err(format!("çizilemedi: {}", String::from_utf8_lossy(&r.stderr).trim()));
+    }
+    Ok(Frame { width: w as u32, height: h as u32, rgba: osisub_core::coverage::rgba_from_bw(&r.stdout[..fs], &r.stdout[fs..fs * 2]) })
+}
+
 fn render_coverage_file(ass: &Path, w: usize, h: usize, times_ms: &[i64]) -> Result<Vec<Option<osisub_core::coverage::Bounds>>, String> {
     let vf = ass_filter(ass, "");
     let mut out = Vec::with_capacity(times_ms.len());
@@ -627,6 +651,25 @@ mod tests {
         let part = pixel_crosses(&v, &info, fr.time_at(30), 1, 140, 100).unwrap();
         assert_eq!(part[0].row[140], all[30].row[140]);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn subs_only_transparent() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let ass = "[Script Info]\nPlayResX: 320\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H000000FF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,{\\an7\\pos(0,0)\\p1}m 100 50 l 220 50 220 130 100 130\n";
+        let tmp = std::env::temp_dir().join(format!("osisub-subsonly-{}", std::process::id()));
+        let f = render_subs_rgba(ass, 320, 180, 2500, &tmp).unwrap();
+        let px = |x: usize, y: usize| { let i = (y * 320 + x) * 4; [f.rgba[i], f.rgba[i + 1], f.rgba[i + 2], f.rgba[i + 3]] };
+        assert_eq!(px(5, 5)[3], 0);
+        let c = px(160, 90);
+        assert_eq!(c[3], 255);
+        assert!(c[0] > 240 && c[1] < 15, "{c:?}"); // kırmızı (BGR &H000000FF)
+        // satır görünmeden önce tamamen saydam
+        let g = render_subs_rgba(ass, 320, 180, 500, &tmp).unwrap();
+        assert!(g.rgba.chunks_exact(4).all(|p| p[3] == 0));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

@@ -15,6 +15,21 @@ pub struct Bounds {
     pub solid: bool,
 }
 
+/// Siyah ve beyaz zeminde çizilmiş aynı kareden (RGB) saydam RGBA görüntü: alfa = 1 − (beyaz − siyah),
+/// renk = siyah / alfa (Aegisub `video/frame/save/subs` gibi yalnız altyazılar, saydam arka plan).
+pub fn rgba_from_bw(black: &[u8], white: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(black.len() / 3 * 4);
+    for (b, w) in black.chunks_exact(3).zip(white.chunks_exact(3)) {
+        let d = (0..3).map(|k| w[k] as i32 - b[k] as i32).sum::<i32>() / 3;
+        let a = (255 - d).clamp(0, 255);
+        for k in 0..3 {
+            out.push(if a == 0 { 0 } else { ((b[k] as i32 * 255 + a / 2) / a).min(255) as u8 });
+        }
+        out.push(a as u8);
+    }
+    out
+}
+
 /// `black`/`white`: aynı karenin siyah ve beyaz zemindeki RGB24 görüntüleri. Hiçbir şey yoksa None.
 pub fn bounds_from_bw(black: &[u8], white: &[u8], w: usize, h: usize) -> Option<Bounds> {
     if black.len() < w * h * 3 || white.len() < w * h * 3 {
@@ -67,6 +82,18 @@ pub fn bounds_from_bw(black: &[u8], white: &[u8], w: usize, h: usize) -> Option<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transparent_from_black_white() {
+        // boş, tam opak kırmızı, %50 beyaz
+        let black = [0, 0, 0, 255, 0, 0, 128, 128, 128];
+        let white = [255, 255, 255, 255, 0, 0, 255, 255, 255];
+        let o = super::rgba_from_bw(&black, &white);
+        assert_eq!(&o[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&o[4..8], &[255, 0, 0, 255]);
+        assert_eq!(o[11], 128);
+        assert!(o[8] >= 254);
+    }
+
     use super::*;
 
     fn img(w: usize, h: usize, bg: u8, rects: &[(usize, usize, usize, usize, u8, f32)]) -> Vec<u8> {

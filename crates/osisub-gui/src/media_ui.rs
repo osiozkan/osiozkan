@@ -296,7 +296,12 @@ impl Media {
 
     /// Aegisub `video/frame/save|copy` (+ `/raw`): geçerli kareyi tam çözünürlükte PNG olarak kaydeder
     /// ya da panoya kopyalar; `subs` ise altyazılar çizilmiş olarak.
+    /// `subs_only`: yalnız altyazılar, saydam arka plan (Aegisub `video/frame/save|copy/subs`).
     pub fn export_frame(&mut self, doc: &Document, subs: bool, to_clipboard: bool, ctx: &egui::Context) {
+        self.export_frame_ex(doc, subs, false, to_clipboard, ctx)
+    }
+
+    pub fn export_frame_ex(&mut self, doc: &Document, subs: bool, subs_only: bool, to_clipboard: bool, ctx: &egui::Context) {
         let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) else {
             self.status = tr("Önce video açın").into();
             return;
@@ -311,7 +316,7 @@ impl Media {
             }
         };
         let t = self.playhead;
-        let ass = if subs {
+        let ass = if subs || subs_only {
             self.sync_preview_fonts(doc);
             let a = self.tmp_dir.join("frame-export.ass");
             let _ = std::fs::write(&a, self.preview_ass(doc, t - 1000, t + 1000));
@@ -323,7 +328,15 @@ impl Media {
         self.status = tr("Kare hazırlanıyor…").into();
         std::thread::spawn(move || {
             // tam çözünürlük: depolama genişliği (anamorfikte DAR'a göre yükseklik)
-            let msg = match osisub_media::render_frame(&p, ass.as_deref(), t, info.width, &info) {
+            let r = if subs_only {
+                let w = info.width;
+                let h = ((w as f64 / info.display_aspect() / 2.0).round() as u32).max(1) * 2;
+                let text = ass.as_ref().and_then(|a| std::fs::read_to_string(a).ok()).unwrap_or_default();
+                osisub_media::render_subs_rgba(&text, w, h, t, &std::env::temp_dir())
+            } else {
+                osisub_media::render_frame(&p, ass.as_deref(), t, info.width, &info)
+            };
+            let msg = match r {
                 Err(e) => trf!("Kare alınamadı: {}", e),
                 Ok(f) => match &out {
                     None => if osisub_doc::sysclip::set_image(f.width, f.height, &f.rgba) { trf!("Kare panoya kopyalandı ({}×{})", f.width, f.height) } else { tr("Pano kullanılamıyor").to_string() },

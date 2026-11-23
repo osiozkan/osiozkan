@@ -113,6 +113,7 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("tool/time/kanji", "kanji_timer"),
     ("video/frame/save", "frame_save"),
     ("video/frame/save/raw", "frame_save_raw"),
+    ("video/frame/save/subs", "frame_save_subs"),
     ("video/frame/copy", "frame_copy"),
     ("video/frame/copy/raw", "frame_copy_raw"),
     ("audio/save/clip", "audio_clip"),

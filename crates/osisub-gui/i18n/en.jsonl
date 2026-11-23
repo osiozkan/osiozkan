@@ -1333,3 +1333,6 @@
 ["Hizala", "Align"]
 ["Perspektif: \\org'u koru", "Perspective: keep \\org"]
 ["Satırda \\org varsa yerinde kalır, yalnız dönüş/ölçek oturtulur (izlenen tabelalarda; Aegisub: Keep \\org)", "If the line has \\org it stays in place; only rotation/scale are fitted (for tracked signs; Aegisub: Keep \\org)"]
+["Yalnız altyazılar, saydam (PNG)…", "Subtitles only, transparent (PNG)…"]
+["Videosuz, saydam arka planlı kare: tabelayı başka programda incelemek/düzenlemek için", "Frame without video, on a transparent background: to inspect/edit a sign in another program"]
+["Kareyi yalnız altyazılarla saydam PNG kaydet", "Save frame as transparent PNG, subtitles only"]

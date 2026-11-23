@@ -430,6 +430,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("frame_copy", "Kareyi panoya kopyala (altyazılı)"),
     ("frame_copy_raw", "Kareyi panoya kopyala (altyazısız)"),
     ("audio_clip", "Seçili satırların sesini kaydet (WAV)"),
+    ("frame_save_subs", "Kareyi yalnız altyazılarla saydam PNG kaydet"),
     ("find_next", "Sonrakini bul"),
     ("replace_next", "Sonrakini değiştir"),
     ("fold_create", "Seçimi katla"),
@@ -1859,6 +1860,7 @@ impl App {
             "split_cursor" => self.split_at_cursor(false),
             "frame_save" | "frame_save_raw" | "frame_copy" | "frame_copy_raw" => self.media.export_frame(&self.doc, !id.ends_with("_raw"), id.starts_with("frame_copy"), ctx),
             "audio_clip" => self.media.save_audio_clip(&self.doc, ctx),
+            "frame_save_subs" => self.media.export_frame_ex(&self.doc, true, true, false, ctx),
             "find_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_next(); } }
             "replace_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_replace_next(); } }
             "fold_create" => {
@@ -2459,6 +2461,7 @@ impl App {
                     if ui.add_enabled(ok, egui::Button::new(tr("PNG olarak kaydet (altyazısız)…"))).clicked() { ui.close(); self.media.export_frame(&self.doc, false, false, ui.ctx()); }
                     if ui.add_enabled(ok, egui::Button::new(tr("Panoya kopyala (altyazılı)"))).clicked() { ui.close(); self.media.export_frame(&self.doc, true, true, ui.ctx()); }
                     if ui.add_enabled(ok, egui::Button::new(tr("Panoya kopyala (altyazısız)"))).clicked() { ui.close(); self.media.export_frame(&self.doc, false, true, ui.ctx()); }
+                    if ui.add_enabled(ok, egui::Button::new(tr("Yalnız altyazılar, saydam (PNG)…"))).on_hover_text(tr("Videosuz, saydam arka planlı kare: tabelayı başka programda incelemek/düzenlemek için")).clicked() { ui.close(); self.media.export_frame_ex(&self.doc, true, true, false, ui.ctx()); }
                 });
                 if ui.add_enabled(self.media.info.as_ref().map_or(false, |i| i.has_audio), egui::Button::new(tr("Seçili satırların sesini kaydet (WAV)…"))).on_hover_text(tr("Seçili satırların kapladığı aralığın sesi (Aegisub: Save audio clip) — çevirmene/kontrolcüye göndermek için")).clicked() { ui.close(); self.media.save_audio_clip(&self.doc, ui.ctx()); }
                 ui.menu_button(tr("En-boy oranı"), |ui| {
