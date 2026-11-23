@@ -116,6 +116,7 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/frame/copy", "frame_copy"),
     ("video/frame/copy/raw", "frame_copy_raw"),
     ("audio/save/clip", "audio_clip"),
+    ("subtitle/find/next", "find_next"),
     ("tool/line/select", "select_lines"),
     ("video/tool/cross", "tool_none"),
     ("video/tool/drag", "tool_pos"),
@@ -151,7 +152,7 @@ pub const DEFAULT_COMMAND_KEYS_V2: &[(&str, &str)] = &[("hold_play", "Ctrl+Space
 pub const DEFAULT_COMMAND_KEYS_V3: &[(&str, &str)] = &[("bookmark_toggle", "Ctrl+F2"), ("bookmark_next", "F2"), ("bookmark_prev", "Shift+F2")];
 
 /// 0.10.0: Aegisub varsayılanları (Ctrl+D osisub'da çoğaltma, Alt+↑/↓ satır gezinme olarak kalır)
-pub const DEFAULT_COMMAND_KEYS_V4: &[(&str, &str)] = &[("snap_scene", "Ctrl+5"), ("shift_to_frame", "Ctrl+6"), ("split_after", "Ctrl+Shift+D"), ("lead_in", "C"), ("lead_out", "V")];
+pub const DEFAULT_COMMAND_KEYS_V4: &[(&str, &str)] = &[("snap_scene", "Ctrl+5"), ("shift_to_frame", "Ctrl+6"), ("split_after", "Ctrl+Shift+D"), ("lead_in", "C"), ("lead_out", "V"), ("find_next", "F3")];
 
 /// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
 pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {

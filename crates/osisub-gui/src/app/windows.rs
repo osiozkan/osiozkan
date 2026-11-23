@@ -1762,6 +1762,7 @@ impl App {
             });
             ui.horizontal(|ui| {
                 if ui.button(tr("Sonrakini bul")).clicked() { self.find_next(); }
+                if ui.button(tr("Değiştir")).on_hover_text(tr("Etkin satırdaki sonraki eşleşmeyi değiştirir; satırda kalmadıysa sonraki satıra geçer (Aegisub: Replace Next)")).clicked() { self.find_replace_next(); }
                 if ui.button(tr("Tümünü seç")).clicked() { self.find_select_all(); }
                 if ui.button(tr("Tümünü değiştir")).clicked() { self.find_replace_all(); }
             });
@@ -1787,6 +1788,39 @@ impl App {
             }
             Ok(_) => self.status = tr("Eşleşme yok").into(),
             Err(e) => self.status = trf!("Arama hatası: {}", e),
+        }
+    }
+
+    pub(super) fn find_replace_next(&mut self) {
+        let o = self.find_opts();
+        let Some(&f0) = o.fields.first() else { return };
+        for attempt in 0..2 {
+            let at = self.doc.active;
+            let (f, p) = self.find_pos.filter(|x| x.0 == at).map(|x| (x.1, x.2)).unwrap_or((f0, 0));
+            let mut s = self.doc.script.clone();
+            match search::replace_next(&mut s, &o, at, f, p) {
+                Err(e) => { self.status = trf!("Arama hatası: {}", e); return; }
+                Ok(Some((f2, p2))) => {
+                    self.doc.apply_new_script("Değiştir", s);
+                    self.find_pos = Some((at, f2, p2));
+                    let row = self.doc.script.entries[..at].iter().filter(|e| matches!(e, Entry::Dialogue(_))).count() + 1;
+                    self.status = trf!("Değiştirildi (satır {})", row);
+                    return;
+                }
+                Ok(None) if attempt == 0 => {
+                    // bu satırda kalmadı: sonraki eşleşen satıra geç ve orada değiştir
+                    match search::find_all(&self.doc.script, &o) {
+                        Ok(hits) => {
+                            let Some(h) = hits.iter().find(|h| h.entry > at).or(hits.first()).map(|h| h.entry) else { self.status = tr("Eşleşme yok").into(); return };
+                            self.doc.select(vec![h], h);
+                            self.scroll_to = Some(h);
+                            self.find_pos = Some((h, f0, 0));
+                        }
+                        Err(e) => { self.status = trf!("Arama hatası: {}", e); return; }
+                    }
+                }
+                Ok(None) => { self.status = tr("Eşleşme yok").into(); return; }
+            }
         }
     }
 

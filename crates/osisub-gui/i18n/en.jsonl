@@ -1258,3 +1258,6 @@
 ["Kareyi panoya kopyala (altyazılı)", "Copy frame to clipboard (with subtitles)"]
 ["Kareyi panoya kopyala (altyazısız)", "Copy frame to clipboard (no subtitles)"]
 ["Seçili satırların sesini kaydet (WAV)", "Save audio of selected lines (WAV)"]
+["Etkin satırdaki sonraki eşleşmeyi değiştirir; satırda kalmadıysa sonraki satıra geçer (Aegisub: Replace Next)", "Replaces the next match in the active line; moves to the next line when none is left (Aegisub: Replace Next)"]
+["Değiştirildi (satır {})", "Replaced (line {})"]
+["Sonrakini değiştir", "Replace next"]

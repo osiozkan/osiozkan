@@ -102,6 +102,8 @@ pub struct App {
     find_open: bool,
     find: search::Options,
     find_selection_only: bool,
+    /// "Değiştir" (sonrakini) için konum: (satır, alan, bayt)
+    find_pos: Option<(usize, osisub_core::search::Field, usize)>,
     resample_open: bool,
     res_x: i32,
     res_ar: osisub_core::timing::ArMode,
@@ -415,6 +417,8 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("frame_copy", "Kareyi panoya kopyala (altyazılı)"),
     ("frame_copy_raw", "Kareyi panoya kopyala (altyazısız)"),
     ("audio_clip", "Seçili satırların sesini kaydet (WAV)"),
+    ("find_next", "Sonrakini bul"),
+    ("replace_next", "Sonrakini değiştir"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -671,6 +675,7 @@ impl App {
             find_open: false,
             find: search::Options::default(),
             find_selection_only: false,
+            find_pos: None,
             resample_open: false,
             res_x: 1920,
             res_ar: Default::default(),
@@ -1718,6 +1723,8 @@ impl App {
             "split_cursor" => self.split_at_cursor(false),
             "frame_save" | "frame_save_raw" | "frame_copy" | "frame_copy_raw" => self.media.export_frame(&self.doc, !id.ends_with("_raw"), id.starts_with("frame_copy"), ctx),
             "audio_clip" => self.media.save_audio_clip(&self.doc, ctx),
+            "find_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_next(); } }
+            "replace_next" => { if self.find.pattern.is_empty() { self.find_open = true; self.find_focus = true; } else { self.find_replace_next(); } }
             "split_preserve" => {
                 let at = self.doc.active;
                 match self.editor_cursor.filter(|(l, _)| *l == at) {

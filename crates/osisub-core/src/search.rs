@@ -242,8 +242,97 @@ pub fn replace_all(script: &mut Script, o: &Options) -> Result<usize, String> {
     Ok(n)
 }
 
+/// Aegisub "Sonrakini değiştir": `entry` satırında, alanlar sırasıyla `(field, from)` konumundan
+/// (bayt) itibaren ilk eşleşmeyi değiştirir. `ignore_tags` ise etiket bloklarına ve `\N`/`\h`
+/// kaçışlarına değen eşleşmeler atlanır. Dönüş: değiştirilen alan ve sonraki arama konumu
+/// (yerleşen metnin sonu — yerine konan metin deseni içerse de döngüye girmez).
+pub fn replace_next(script: &mut Script, o: &Options, entry: usize, field: Field, from: usize) -> Result<Option<(Field, usize)>, String> {
+    let re = build(o)?;
+    let repl = convert_repl(&o.replacement, o.regex);
+    let Some(Entry::Dialogue(d)) = script.entries.get_mut(entry) else { return Ok(None) };
+    if !eligible(o, entry, d) {
+        return Ok(None);
+    }
+    let start_k = o.fields.iter().position(|f| *f == field).unwrap_or(0);
+    for (k, &f) in o.fields.iter().enumerate().skip(start_k) {
+        let cur = field_ref(d, f).to_string();
+        let from = if k == start_k { from.min(cur.len()) } else { 0 };
+        // yasak bölgeler: {…} blokları ve \N \n \h kaçışları
+        let mut banned: Vec<(usize, usize)> = vec![];
+        if f == Field::Text && o.ignore_tags {
+            let b = cur.as_bytes();
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'{' {
+                    let e = cur[i..].find('}').map_or(b.len(), |e| i + e + 1);
+                    banned.push((i, e));
+                    i = e;
+                } else if b[i] == b'\\' && matches!(b.get(i + 1), Some(b'N' | b'n' | b'h')) {
+                    banned.push((i, i + 2));
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        // yasak bölgeler aynı bayt uzunluğunda boşlukla maskelenir: tam sözcük `\N`'den sonra da eşleşsin
+        let mut masked = cur.clone().into_bytes();
+        for &(a, b) in &banned {
+            masked[a..b].fill(b' ');
+        }
+        let masked = String::from_utf8(masked).unwrap_or_else(|_| cur.clone());
+        let mut pos = from;
+        while pos <= cur.len() {
+            if !masked.is_char_boundary(pos) {
+                pos += 1;
+                continue;
+            }
+            let Some(c) = re.captures_from_pos(&masked, pos).map_err(|e| e.to_string())? else { break };
+            let m = c.get(0).unwrap();
+            if banned.iter().any(|&(a, b)| m.start() < b && m.end() > a) || (m.start() == m.end()) {
+                pos = m.end().max(m.start() + 1);
+                continue;
+            }
+            let mut rep = String::new();
+            c.expand(&repl, &mut rep);
+            let new = format!("{}{}{}", &cur[..m.start()], rep, &cur[m.end()..]);
+            let next = m.start() + rep.len();
+            match f {
+                Field::Text => d.text = new,
+                Field::Actor => d.actor = new,
+                Field::Effect => d.effect = new,
+                Field::Style => d.style = new,
+            }
+            return Ok(Some((f, next)));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn replace_next_one_at_a_time() {
+        let mut sc = Script::from_dialogues(vec![Dialogue { text: "{\\an8}an a an\\Nan".into(), ..Default::default() }]);
+        let e = sc.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        let o = Options { pattern: "an".into(), replacement: "anan".into(), whole_word: true, ignore_tags: true, ..Default::default() };
+        let (f, p) = replace_next(&mut sc, &o, e, Field::Text, 0).unwrap().unwrap();
+        let t = |sc: &Script| sc.dialogues().next().unwrap().text.clone();
+        assert_eq!(t(&sc), "{\\an8}anan a an\\Nan");
+        let (f, p) = replace_next(&mut sc, &o, e, f, p).unwrap().unwrap();
+        assert_eq!(t(&sc), "{\\an8}anan a anan\\Nan");
+        replace_next(&mut sc, &o, e, f, p).unwrap().unwrap();
+        assert_eq!(t(&sc), "{\\an8}anan a anan\\Nanan");
+        let n = t(&sc).len();
+        let last = replace_next(&mut sc, &o, e, Field::Text, n).unwrap();
+        assert!(last.is_none());
+        // düzenli ifade grupları
+        let mut sc = Script::from_dialogues(vec![Dialogue { text: "ab12 cd34".into(), ..Default::default() }]);
+        let o = Options { pattern: r"([a-z]+)(\d+)".into(), replacement: r"\2\1".into(), regex: true, match_case: true, ..Default::default() };
+        replace_next(&mut sc, &o, e, Field::Text, 0).unwrap().unwrap();
+        assert_eq!(t(&sc), "12ab cd34");
+    }
+
     use super::*;
 
     #[test]
