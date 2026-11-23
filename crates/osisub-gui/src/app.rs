@@ -111,6 +111,9 @@ pub struct App {
     info_new: (String, String),
     /// Stiller sekmesi: oluşturulacak katalog adı
     catalog_new: String,
+    /// Videoya hizala penceresi ve renk toleransı
+    align_open: bool,
+    align_tol: f64,
     /// Çözünürlük denetimi yapılan son ortam ve bekleyen soru (video genişliği, yüksekliği)
     res_checked: Option<PathBuf>,
     res_prompt: Option<(i32, i32)>,
@@ -281,7 +284,7 @@ pub struct App {
     /// Lua `aegisub.gui.set_selection/set_cursor` sonucu: (satır, bağlantı, imleç) karakter dizinleri; sonraki karede metin kutusuna uygulanır
     pending_text_sel: Option<(usize, usize, usize)>,
     /// Aegisub "initial line state": etkin satırın seçildiği andaki metni (geri al / orijinali ekle)
-    line_initial: (usize, String),
+    line_initial: (usize, String, usize),
     /// Stil önizlemesi: (anahtar, doku), bekleyen istek, örnek metin
     style_pv: Option<(u64, egui::TextureHandle)>,
     style_pv_rx: Option<std::sync::mpsc::Receiver<(u64, Result<osisub_media::Frame, String>)>>,
@@ -437,6 +440,9 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("fold_open_all", "Tüm katlamaları aç"),
     ("fold_close_all", "Tüm katlamaları kapat"),
     ("fold_clear_all", "Tüm katlamaları kaldır"),
+    ("jump_start", "Videoyu satırın başına götür"),
+    ("jump_end", "Videoyu satırın sonuna götür"),
+    ("align_video", "Videoya hizala (tabela zamanlama)…"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -636,7 +642,7 @@ impl App {
             editor_cursor: None,
             editor_sel: None,
             pending_text_sel: None,
-            line_initial: (usize::MAX, String::new()),
+            line_initial: (usize::MAX, String::new(), 0),
             style_pv: None,
             style_pv_rx: None,
             style_pv_text: "Aa Iı İi Ğğ Şş Çç Öö Üü 123".into(),
@@ -698,6 +704,8 @@ impl App {
             find_pos: None,
             info_new: Default::default(),
             catalog_new: String::new(),
+            align_open: false,
+            align_tol: 20.0,
             res_checked: None,
             res_prompt: None,
             resample_open: false,
@@ -1225,7 +1233,8 @@ impl App {
             props.push(("text_sel_end".to_string(), byte(cursor).to_string()));
         }
         props.push(("is_modified".to_string(), if self.doc.is_dirty() { "1" } else { "0" }.to_string()));
-        props.push(("active_row".to_string(), osisub_lua::lua_index_of(&self.doc.script, at).unwrap_or(0).to_string()));
+        // Aegisub Properties.active_row: olaylar içindeki 0 tabanlı satır (line->Row)
+        props.push(("active_row".to_string(), self.doc.script.entries[..at.min(self.doc.script.entries.len())].iter().filter(|e| matches!(e, Entry::Dialogue(_))).count().to_string()));
         // Aegisub gibi: seçim boşsa etkin satır seçili sayılır.
         let mut selection = self.doc.selection.clone();
         if selection.is_empty() && self.doc.active < self.doc.script.entries.len() { selection.push(self.doc.active); }
@@ -1412,9 +1421,10 @@ impl App {
     // ------------------------------------------------------------ önbellekler
 
     fn refresh_caches(&mut self) {
-        if self.line_initial.0 != self.doc.active {
+        // satır ekleme/silme aynı indekse başka satır getirebilir: girdi sayısı değişince de yenile
+        if self.line_initial.0 != self.doc.active || self.line_initial.2 != self.doc.script.entries.len() {
             if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active) {
-                self.line_initial = (self.doc.active, d.text.clone());
+                self.line_initial = (self.doc.active, d.text.clone(), self.doc.script.entries.len());
             }
         }
         let key = (self.doc.rev, self.filter.clone());
@@ -1616,6 +1626,48 @@ impl App {
             if ui.checkbox(&mut never, tr("Bir daha sorma")).changed() { self.settings.res_mismatch_ignore = never; self.settings.save(); }
         });
         if close { self.res_prompt = None; }
+    }
+
+    /// Aegisub "Videoya hizala" penceresi; sonuç gelince etkin satırın zamanını ayarlar.
+    fn align_window(&mut self, ctx: &egui::Context) {
+        if let Some(r) = self.media.align_result.take() {
+            match (r, self.media.framerate()) {
+                (Ok((a, b)), Some(fr)) => {
+                    let at = self.doc.active;
+                    let (s, e) = (fr.time_at_start(a), fr.time_at_end(b));
+                    if matches!(self.doc.script.entries.get(at), Some(Entry::Dialogue(_))) {
+                        self.doc.edit("Videoya hizala", |tx| tx.dialogue_mut(at, |d| { d.start_time = s; d.end_time = e; }));
+                        self.status = trf!("Hizalandı: kare {}–{} ({} – {})", a, b, time::format_ass(s), time::format_ass(e));
+                    }
+                }
+                (Err(e), _) => self.status = trf!("Videoya hizala: {}", e),
+                _ => {}
+            }
+        }
+        if !self.align_open { return; }
+        let mut open = true;
+        egui::Window::new(tr("Videoya hizala")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Tabelanın göründüğü bir karede, tabelanın düz renkli bir noktasını seçin. Aynı renk ve şekil önceki/sonraki karelerde aranır; etkin satır tabelanın göründüğü karelere ayarlanır.")).weak().small());
+            ui.horizontal(|ui| {
+                if ui.add_enabled(self.media.info.as_ref().map_or(false, |i| i.has_video), egui::Button::new(tr("Videoda nokta seç"))).clicked() { self.media.align_pick = true; }
+                if self.media.align_pick { ui.label(RichText::new(tr("videoya tıklayın (Esc: vazgeç)")).color(theme::ACCENT)); }
+            });
+            if let Some((x, y)) = self.media.align_point.as_mut() {
+                ui.horizontal(|ui| {
+                    ui.label("X"); ui.add(egui::DragValue::new(x));
+                    ui.label("Y"); ui.add(egui::DragValue::new(y));
+                });
+            }
+            ui.horizontal(|ui| {
+                ui.label(tr("Renk toleransı"));
+                ui.add(egui::DragValue::new(&mut self.align_tol).range(0.0..=255.0));
+            });
+            let ready = self.media.align_point.is_some() && !self.media.align_busy;
+            if ui.add_enabled(ready, egui::Button::new(if self.media.align_busy { tr("Aranıyor…") } else { tr("Hizala") })).clicked() {
+                if let Some((x, y)) = self.media.align_point { self.media.align_to_video(x, y, self.align_tol, ctx); }
+            }
+        });
+        if !open { self.align_open = false; self.media.align_pick = false; }
     }
 
     /// Yerleşik komutu çalıştırır (kısayoldan).
@@ -1826,6 +1878,13 @@ impl App {
                     osisub_core::folds::update_at(&mut sc, &t, f)
                 };
                 if n == 0 { self.status = tr("Katlama yok").into(); } else { self.doc.apply_new_script("Katlama", sc); }
+            }
+            "align_video" => self.align_open = true,
+            "jump_start" | "jump_end" => {
+                if let (Some(fr), Some(Entry::Dialogue(d))) = (self.media.framerate(), self.doc.script.entries.get(self.doc.active)) {
+                    let f = if id == "jump_start" { fr.frame_at_start(d.start_time) } else { fr.frame_at_end(d.end_time) };
+                    self.media.jump_frame(f);
+                }
             }
             "split_preserve" => {
                 let at = self.doc.active;
@@ -2310,6 +2369,7 @@ impl App {
                         ("shift_to_frame", "Geçerli kareye kaydır", "Ctrl+6", "Seçimi, etkin satır geçerli karede başlayacak kadar kaydırır"),
                         ("lead_in", "Giriş payı ekle", "C", "Son-işleyicideki lead-in süresini etkin satıra ekler"),
                         ("lead_out", "Çıkış payı ekle", "V", "Son-işleyicideki lead-out süresini etkin satıra ekler"),
+                        ("align_video", "Videoya hizala…", "", "Tabelanın bir noktasını seçin: aynı renk ve şekil önceki/sonraki karelerde aranır, satır tabelanın göründüğü karelere ayarlanır (Aegisub: Align to Video)"),
                     ] {
                         let mut b = egui::Button::new(tr(label));
                         if !key.is_empty() { b = b.shortcut_text(key); }
@@ -2884,6 +2944,7 @@ impl App {
         self.import_window(&ctx);
         self.resample_window(&ctx);
         self.res_mismatch_window(&ctx);
+        self.align_window(&ctx);
         self.autosave();
         self.schedule_wakeups(&ctx);
         if let Some((title, st)) = self.dialog.as_mut() {

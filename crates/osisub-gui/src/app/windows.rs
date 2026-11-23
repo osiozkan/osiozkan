@@ -1818,34 +1818,39 @@ impl App {
     pub(super) fn find_replace_next(&mut self) {
         let o = self.find_opts();
         let Some(&f0) = o.fields.first() else { return };
-        for attempt in 0..2 {
-            let at = self.doc.active;
-            let (f, p) = self.find_pos.filter(|x| x.0 == at).map(|x| (x.1, x.2)).unwrap_or((f0, 0));
+        let at = self.doc.active;
+        let (f, p) = self.find_pos.filter(|x| x.0 == at).map(|x| (x.1, x.2)).unwrap_or((f0, 0));
+        // önce etkin satırda kalan eşleşme, sonra sıradaki satırlar (find_all etiket içini de sayabilir:
+        // replace_next'in kabul ettiği ilk satıra kadar dene)
+        let mut cands: Vec<(usize, search::Field, usize)> = vec![(at, f, p)];
+        match search::find_all(&self.doc.script, &o) {
+            Ok(hits) => {
+                let mut es: Vec<usize> = hits.iter().map(|h| h.entry).collect();
+                es.dedup();
+                let k = es.iter().position(|&e| e > at).unwrap_or(es.len());
+                for &e in es[k..].iter().chain(es[..k].iter()) {
+                    if e != at { cands.push((e, f0, 0)); }
+                }
+                if es.contains(&at) { cands.push((at, f0, 0)); }
+            }
+            Err(e) => { self.status = trf!("Arama hatası: {}", e); return; }
+        }
+        for (e, f, p) in cands {
             let mut s = self.doc.script.clone();
-            match search::replace_next(&mut s, &o, at, f, p) {
-                Err(e) => { self.status = trf!("Arama hatası: {}", e); return; }
+            match search::replace_next(&mut s, &o, e, f, p) {
+                Err(err) => { self.status = trf!("Arama hatası: {}", err); return; }
                 Ok(Some((f2, p2))) => {
                     self.doc.apply_new_script("Değiştir", s);
-                    self.find_pos = Some((at, f2, p2));
-                    let row = self.doc.script.entries[..at].iter().filter(|e| matches!(e, Entry::Dialogue(_))).count() + 1;
+                    if e != at { self.doc.select(vec![e], e); self.scroll_to = Some(e); }
+                    self.find_pos = Some((e, f2, p2));
+                    let row = self.doc.script.entries[..e].iter().filter(|x| matches!(x, Entry::Dialogue(_))).count() + 1;
                     self.status = trf!("Değiştirildi (satır {})", row);
                     return;
                 }
-                Ok(None) if attempt == 0 => {
-                    // bu satırda kalmadı: sonraki eşleşen satıra geç ve orada değiştir
-                    match search::find_all(&self.doc.script, &o) {
-                        Ok(hits) => {
-                            let Some(h) = hits.iter().find(|h| h.entry > at).or(hits.first()).map(|h| h.entry) else { self.status = tr("Eşleşme yok").into(); return };
-                            self.doc.select(vec![h], h);
-                            self.scroll_to = Some(h);
-                            self.find_pos = Some((h, f0, 0));
-                        }
-                        Err(e) => { self.status = trf!("Arama hatası: {}", e); return; }
-                    }
-                }
-                Ok(None) => { self.status = tr("Eşleşme yok").into(); return; }
+                Ok(None) => {}
             }
         }
+        self.status = tr("Eşleşme yok").into();
     }
 
     pub(super) fn find_select_all(&mut self) {

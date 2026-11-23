@@ -37,11 +37,23 @@ pub fn list(script: &Script) -> Vec<Fold> {
     let all = script.extradata();
     let mut stack: Vec<(usize, bool, i64)> = vec![];
     let mut done: HashSet<i64> = HashSet::new();
+    // Aegisub FixFolds: tamamlanmış bir kimlik yeniden görülürse (ör. katlı blok kopyalanmış)
+    // yeni kimlikle ayrı bir katlama sayılır
+    let mut remap: std::collections::HashMap<i64, i64> = Default::default();
+    let mut max_id = script.entries.iter().filter_map(|e| marker(&all, e)).map(|m| m.2).max().unwrap_or(0);
     let mut out = vec![];
     for (i, e) in script.entries.iter().enumerate() {
-        let Some((side, col, id)) = marker(&all, e) else { continue };
+        let Some((side, col, mut id)) = marker(&all, e) else { continue };
+        let mut guard = 0;
+        while let Some(&n) = remap.get(&id) {
+            id = n;
+            guard += 1;
+            if guard > 10_000 { break; }
+        }
         if done.contains(&id) {
-            continue;
+            max_id += 1;
+            remap.insert(id, max_id);
+            id = max_id;
         }
         if !side {
             if !stack.iter().any(|s| s.2 == id) {
@@ -232,6 +244,28 @@ mod tests {
         assert_eq!(update_all(&mut back, |_| None), 2);
         assert!(list(&back).is_empty());
         assert!(!back.to_ass_string().contains("_aegi_folddata"));
+    }
+
+    #[test]
+    fn duplicated_fold_ids_become_separate_folds() {
+        let (mut s, f) = sc(6);
+        assert!(add(&mut s, f, f + 1));
+        // aynı kimlikli ikinci çift (kopyalanmış katlı blok)
+        let v = folds_val(&s, f);
+        set_line_value(&mut s, f + 3, KEY, Some(&v.0));
+        set_line_value(&mut s, f + 4, KEY, Some(&v.1));
+        let l = list(&s);
+        assert_eq!(l.iter().map(|x| (x.start - f, x.end - f)).collect::<Vec<_>>(), vec![(0, 1), (3, 4)]);
+        assert_ne!(l[0].id, l[1].id);
+        // ikincisini açmak dosyaya yeni kimliği yazar, ilki katlı kalır
+        update_at(&mut s, &[f + 3], |_| Some(false));
+        let l = list(&s);
+        assert_eq!((l[0].collapsed, l[1].collapsed), (true, false));
+    }
+
+    fn folds_val(s: &Script, f: usize) -> (String, String) {
+        let get = |i: usize| match &s.entries[i] { Entry::Dialogue(d) => s.extra_values(&d.extra).get(KEY).cloned().unwrap(), _ => unreachable!() };
+        (get(f), get(f + 1))
     }
 
     #[test]

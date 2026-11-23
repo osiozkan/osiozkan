@@ -87,9 +87,9 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/play", "play_head"),
     ("edit/line/split/estimate", "split_cursor"),
     ("edit/line/split/video", "split_cursor_frame"),
-    // Aegisub 3.2+: duplicate/shift → split/after (hotkey.cpp göçü); eski ad da kabul edilir
-    ("edit/line/duplicate/shift", "split_after"),
-    ("edit/line/duplicate/shift_back", "split_before"),
+    // Aegisub hotkey.cpp göçü: duplicate/shift → split/before, shift_back → split/after
+    ("edit/line/duplicate/shift", "split_before"),
+    ("edit/line/duplicate/shift_back", "split_after"),
     ("edit/line/split/after", "split_after"),
     ("edit/line/split/before", "split_before"),
     ("time/snap/scene", "snap_scene"),
@@ -117,6 +117,9 @@ pub const AEGISUB_COMMANDS: &[(&str, &str)] = &[
     ("video/frame/copy/raw", "frame_copy_raw"),
     ("audio/save/clip", "audio_clip"),
     ("subtitle/find/next", "find_next"),
+    ("time/align", "align_video"),
+    ("video/jump/start", "jump_start"),
+    ("video/jump/end", "jump_end"),
     ("grid/fold/create", "fold_create"),
     ("grid/fold/toggle", "fold_toggle"),
     ("grid/fold/open", "fold_open"),

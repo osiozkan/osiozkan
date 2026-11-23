@@ -16,6 +16,8 @@ enum Msg {
     Wave(Result<Waveform, String>),
     /// Arka plan işinin durum çubuğu iletisi (kare/ses kaydetme)
     Notice(String),
+    /// Videoya hizala sonucu: (ilk kare, son kare)
+    Aligned(Result<(i64, i64), String>),
     /// Spektrum için yüksek örnekleme hızlı ses (yol, sonuç)
     SpecWave(PathBuf, Result<Waveform, String>),
     /// `time` anından başlayan ardışık kareler (ilk kare = istenen kare)
@@ -156,6 +158,11 @@ pub struct Media {
     /// Spektrum sesi (`SPEC_RATE`); spektrum ilk açıldığında yüklenir. `spec_loading`: istek gönderildi
     spec_wave: Option<Arc<Waveform>>,
     spec_loading: bool,
+    /// Videoya hizala: videoda nokta seçme kipi, seçilen nokta (depolama pikseli), çalışıyor mu, sonuç
+    pub align_pick: bool,
+    pub align_point: Option<(u32, u32)>,
+    pub align_busy: bool,
+    pub align_result: Option<Result<(i64, i64), String>>,
     stream: Option<osisub_media::PlayStream>,
     audio: Option<osisub_media::audio::AudioPlayer>,
     stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
@@ -222,6 +229,10 @@ impl Media {
             spec_tex: None,
             spec_wave: None,
             spec_loading: false,
+            align_pick: false,
+            align_point: None,
+            align_busy: false,
+            align_result: None,
             stream: None,
             audio: None,
             stream_frames: Default::default(),
@@ -245,7 +256,7 @@ impl Media {
     pub fn step_frames(&mut self, n: i64) {
         self.playhead = match self.framerate() {
             // Önce en yakın kare başlangıcına oturt, sonra n kare git (VFR'de kare süreleri farklı olabilir).
-            Some(fr) => fr.time_at(fr.frame_at(fr.snap(self.playhead)) + n),
+            Some(fr) => fr.time_at(fr.frame_at(self.playhead) + n),
             None => self.playhead + n * 40,
         }
         .max(0);
@@ -346,7 +357,7 @@ impl Media {
     /// Kare hızı ve playhead'in bulunduğu kare (video açıksa).
     pub fn cur_frame(&self) -> Option<(Arc<osisub_core::vfr::Framerate>, i64)> {
         let fr = self.framerate()?;
-        let f = fr.frame_at(fr.snap(self.playhead));
+        let f = fr.frame_at(self.playhead);
         Some((fr, f))
     }
 
@@ -669,12 +680,13 @@ impl Media {
                 }
                 Msg::Wave(Err(e)) => self.status = trf!("Ses okunamadı: {}", e),
                 Msg::Notice(t) => self.status = t,
+                Msg::Aligned(r) => { self.align_busy = false; self.align_result = Some(r); }
                 // yalnızca hâlâ açık olan dosyanınki (başka dosya açıldıysa eski sonuç atılır)
                 Msg::SpecWave(p, r) => {
                     if self.path.as_ref() == Some(&p) {
                         match r {
                             Ok(w) => self.spec_wave = Some(Arc::new(w)),
-                            Err(e) => self.status = trf!("Ses okunamadı: {}", e),
+                            Err(e) => { self.status = trf!("Ses okunamadı: {}", e); self.spec_loading = false; self.spectrum = false; }
                         }
                     }
                 }
@@ -927,9 +939,64 @@ impl Media {
             }
             return;
         }
+        if self.align_pick {
+            // Videoya hizala: tabelanın bir noktasını seç
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.align_pick = false;
+            } else if let (Some((img, vis)), Some(info)) = (img_rect, self.info.clone()) {
+                let resp = ui.interact(vis, egui::Id::unique("align_pick"), Sense::click()).on_hover_cursor(egui::CursorIcon::Crosshair);
+                if let (true, Some(p)) = (resp.clicked(), resp.interact_pointer_pos()) {
+                    let (u, v) = (((p.x - img.left()) / img.width()).clamp(0.0, 1.0), ((p.y - img.top()) / img.height()).clamp(0.0, 1.0));
+                    self.align_point = Some((((u * info.width as f32) as u32).min(info.width.saturating_sub(1)), ((v * info.height as f32) as u32).min(info.height.saturating_sub(1))));
+                    self.align_pick = false;
+                }
+            }
+            return;
+        }
         if let (Some((img, vis)), true) = (img_rect, self.tool != VideoTool::None) {
             self.tool_ui(ui, img, vis, doc);
         }
+    }
+
+    /// Aegisub "Videoya hizala": geçerli karede (x, y) noktasındaki rengi ve çevresindeki alanın
+    /// sınırlarını önceki/sonraki karelerde arar (48 karelik parçalar halinde okunur).
+    pub fn align_to_video(&mut self, x: u32, y: u32, tol: f64, ctx: &egui::Context) {
+        let (Some(path), Some(info), Some((fr, cur)), Some(n)) = (self.path.clone(), self.info.clone(), self.cur_frame(), self.frame_count()) else {
+            self.status = tr("Önce video açın").into();
+            return;
+        };
+        self.align_busy = true;
+        let (tx, ctx2) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            use osisub_core::align;
+            let mut cache: std::collections::HashMap<i64, align::Cross> = std::collections::HashMap::new();
+            let fetch = |f: i64, back: bool, cache: &mut std::collections::HashMap<i64, align::Cross>| -> Result<(), String> {
+                const CH: i64 = 48;
+                let first = if back { (f - CH + 1).max(0) } else { f };
+                let v = osisub_media::pixel_crosses(&path, &info, fr.time_at(first), CH as usize, x, y)?;
+                for (k, c) in v.into_iter().enumerate() {
+                    cache.insert(first + k as i64, c);
+                }
+                Ok(())
+            };
+            let r = (|| -> Result<(i64, i64), String> {
+                fetch(cur, false, &mut cache)?;
+                let c0 = cache.get(&cur).ok_or("kare okunamadı")?.clone();
+                let lab = align::rgb2lab(*c0.row.get(x as usize).ok_or("geçersiz konum")?);
+                let base = align::extent(&c0, x as usize, y as usize, lab, tol).ok_or("seçilen nokta okunamadı")?;
+                let mut err = None;
+                let span = align::span(cur, n, |f| {
+                    if !cache.contains_key(&f) {
+                        if let Err(e) = fetch(f, f < cur, &mut cache) { err = Some(e); return false; }
+                    }
+                    cache.get(&f).map_or(false, |c| align::same(c, x as usize, y as usize, lab, tol, base))
+                });
+                if let Some(e) = err { return Err(e); }
+                Ok(span)
+            })();
+            let _ = tx.send(Msg::Aligned(r));
+            ctx2.request_repaint();
+        });
     }
 
     /// Pipet: o anki karenin (altyazısız, tam çözünürlük) göreli (u, v) noktasındaki rengi arka planda okur.

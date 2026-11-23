@@ -551,16 +551,21 @@ pub fn sort_by(script: &mut Script, key: SortKey) {
     script.entries.splice(first..first, slice);
 }
 
-/// Aegisub `grid/sort/*/selected`: yalnızca seçili diyalog satırlarını, kendi kapladıkları
-/// konumlar içinde (kararlı) sıralar; seçilmeyen satırlar yerinde kalır.
+/// Aegisub `grid/sort/*/selected` (`AssFile::Sort(comp, limit)`): seçimin her bitişik bloğu kendi
+/// içinde (kararlı) sıralanır; satırlar bloklar arasında yer değiştirmez, seçilmeyenler yerinde kalır.
 pub fn sort_selected(script: &mut Script, key: SortKey, sel: &[usize]) {
     let mut pos: Vec<usize> = sel.iter().copied().filter(|&i| matches!(script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
     pos.sort_unstable();
     pos.dedup();
-    let mut items: Vec<Entry> = pos.iter().map(|&i| script.entries[i].clone()).collect();
-    items.sort_by(|a, b| sort_cmp(a, b, key));
-    for (&i, e) in pos.iter().zip(items) {
-        script.entries[i] = e;
+    let mut k = 0;
+    while k < pos.len() {
+        let mut j = k + 1;
+        while j < pos.len() && pos[j] == pos[j - 1] + 1 {
+            j += 1;
+        }
+        let (a, b) = (pos[k], pos[j - 1]);
+        script.entries[a..=b].sort_by(|x, y| sort_cmp(x, y, key));
+        k = j;
     }
 }
 
@@ -921,12 +926,15 @@ mod tests {
             Dialogue { start_time: 200, text: "a".into(), ..Default::default() },
         ]);
         let f = sc.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        // iki blok: {f} ve {f+2, f+3} — bloklar ayrı sıralanır
         sort_selected(&mut sc, SortKey::Start, &[f, f + 2, f + 3]);
         let t: Vec<String> = sc.dialogues().map(|d| d.text.clone()).collect();
-        assert_eq!(t, vec!["{\\i1}b", "x", "a", "c"]);
-        sort_selected(&mut sc, SortKey::Text, &[f, f + 2]);
-        assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "x", "{\\i1}b", "c"]);
+        assert_eq!(t, vec!["c", "x", "{\\i1}b", "a"]);
+        sort_selected(&mut sc, SortKey::Text, &[f, f + 1, f + 2, f + 3]);
+        assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "{\\i1}b", "c", "x"]);
         sort_by(&mut sc, SortKey::TextRaw);
         assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "c", "x", "{\\i1}b"]);
+        // tek seçili satır ve sıra dışı girdiler sorun çıkarmaz
+        sort_selected(&mut sc, SortKey::Start, &[f + 1, 999]);
     }
 }

@@ -1156,8 +1156,11 @@ impl App {
                 self.doc.edit_keyed("Betik bilgisi", Some(&k), |tx| tx.replace(i, Entry::Info { key, value }));
             }
             None => {
+                // yeni girdi sonraki tüm satırları kaydırır: seçim/etkin satır apply_new_script ile yeniden eşlenir
                 let at = self.doc.script.entries.iter().rposition(|e| matches!(e, Entry::Info { .. })).map_or(1.min(self.doc.script.entries.len()), |i| i + 1);
-                self.doc.edit_keyed("Betik bilgisi", Some(&k), |tx| tx.insert(at, vec![Entry::Info { key, value }]));
+                let mut sc = self.doc.script.clone();
+                sc.entries.insert(at, Entry::Info { key, value });
+                self.doc.apply_new_script("Betik bilgisi", sc);
             }
         }
     }
@@ -1233,7 +1236,9 @@ impl App {
             }
         }
         if let Some(i) = del {
-            self.doc.edit("Betik bilgisini sil", |tx| tx.remove(i, 1));
+            let mut sc = self.doc.script.clone();
+            sc.entries.remove(i);
+            self.doc.apply_new_script("Betik bilgisini sil", sc);
         }
         ui.horizontal(|ui| {
             ui.add(TextEdit::singleline(&mut self.info_new.0).hint_text(tr("Anahtar")).desired_width(140.0));

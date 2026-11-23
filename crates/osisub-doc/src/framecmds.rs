@@ -112,8 +112,8 @@ impl Document {
         self.edit("Geçerli kareye kaydır", |tx| {
             for &i in &t {
                 tx.dialogue_mut(i, |d| {
-                    d.start_time += by;
-                    d.end_time += by;
+                    d.start_time = (d.start_time + by).max(0);
+                    d.end_time = (d.end_time + by).max(0);
                 });
             }
         });

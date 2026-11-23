@@ -596,6 +596,40 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn align_finds_sign_frames() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let d = std::env::temp_dir().join(format!("osisub-align-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let v = d.join("v.mkv");
+        // 24 fps, kırmızı kutu 1.0–2.0 sn (kare 24..=47)
+        let ok = Command::new(ffmpeg_bin())
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=24:d=4", "-vf", "drawbox=x=100:y=80:w=80:h=40:color=red:t=fill:enable='between(n,24,47)'", "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p"])
+            .arg(&v)
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        let info = probe(&v).unwrap();
+        let fr = osisub_core::vfr::Framerate::cfr(info.fps);
+        let all = pixel_crosses(&v, &info, 0, 96, 140, 100).unwrap();
+        assert!(all.len() >= 95, "{}", all.len());
+        let cur = 30usize;
+        let lab = osisub_core::align::rgb2lab(all[cur].row[140]);
+        let base = osisub_core::align::extent(&all[cur], 140, 100, lab, 20.0).unwrap();
+        // kenar pikselleri YUV→RGB dönüşümünde yumuşar: ±1 px
+        for (a, b) in base.iter().zip([99, 180, 79, 120]) {
+            assert!((a - b).abs() <= 2, "{base:?}");
+        }
+        let (a, b) = osisub_core::align::span(cur as i64, all.len() as i64, |f| osisub_core::align::same(&all[f as usize], 140, 100, lab, 20.0, base));
+        assert_eq!((a, b), (24, 47));
+        // ortadan istenen pencere de aynı kareyi verir
+        let part = pixel_crosses(&v, &info, fr.time_at(30), 1, 140, 100).unwrap();
+        assert_eq!(part[0].row[140], all[30].row[140]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn audio_clip_wav() {
         if !ffmpeg_available() {
             return;
@@ -888,8 +922,38 @@ mod tests {
     }
 }
 
-/// ffmpeg lavfi kaynağından (ör. sahte video) önbellek dosyası üretir; dosya varsa yeniden kullanır.
-/// Durağan görüntü olduğundan x264 ultrafast/stillimage ile küçük ve hızlıdır (30 dk 640×480 ≈ 20 sn, bir kez).
+/// Videoya hizala için: `time_ms` karesinden başlayarak `count` karenin (x, y)'den geçen satırı ve
+/// sütunu (depolama pikselleri, RGB). Tüm kare çözülür ama yalnız w+h piksel aktarılır.
+pub fn pixel_crosses(video: &Path, info: &MediaInfo, time_ms: i64, count: usize, x: u32, y: u32) -> Result<Vec<osisub_core::align::Cross>, String> {
+    let (w, h) = (info.width, info.height);
+    if !info.has_video || w == 0 || h == 0 || x >= w || y >= h {
+        return Err("geçersiz konum".into());
+    }
+    // 4:2:0 videoda 1 piksellik kırpma reddedilir: önce RGB
+    let vf = format!("{}format=rgb24,split[a][b];[a]crop={w}:1:0:{y}[r];[b]crop=1:{h}:{x}:0,transpose=2[c];[r][c]hstack=inputs=2", start_shift(info));
+    let coarse = (time_ms - 2000).max(0) as f64 / 1000.0;
+    let fine = ((time_ms.max(0) as f64 - 0.5).max(0.0)) / 1000.0;
+    let out = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-noautorotate", "-ss", &format!("{:.3}", coarse), "-copyts", "-i"])
+        .arg(video)
+        .args(["-ss", &format!("{:.4}", fine), "-an", "-sn", "-vf", &vf, "-frames:v", &count.max(1).to_string(), "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    let n = ((w + h) * 3) as usize;
+    if out.stdout.len() < n {
+        return Err(format!("kare okunamadı: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(out
+        .stdout
+        .chunks_exact(n)
+        .map(|c| {
+            let px: Vec<[u8; 3]> = c.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect();
+            osisub_core::align::Cross { row: px[..w as usize].to_vec(), col: px[w as usize..].to_vec() }
+        })
+        .collect())
+}
+
 /// Aegisub `audio/save/clip`: `[start_ms, end_ms)` aralığındaki sesi 16 bit PCM WAV olarak kaydeder
 /// (kaynağın kanal sayısı ve örnekleme hızıyla).
 pub fn save_audio_clip(src: &Path, start_ms: i64, end_ms: i64, out: &Path) -> Result<(), String> {
@@ -912,6 +976,8 @@ pub fn save_audio_clip(src: &Path, start_ms: i64, end_ms: i64, out: &Path) -> Re
     Ok(())
 }
 
+/// ffmpeg lavfi kaynağından (ör. sahte video) önbellek dosyası üretir; dosya varsa yeniden kullanır.
+/// Durağan görüntü olduğundan x264 ultrafast/stillimage ile küçük ve hızlıdır (30 dk 640×480 ≈ 20 sn, bir kez).
 pub fn render_lavfi(src: &str, out: &Path) -> Result<std::path::PathBuf, String> {
     if out.is_file() {
         return Ok(out.to_path_buf());

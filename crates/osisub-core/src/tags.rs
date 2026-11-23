@@ -31,7 +31,6 @@ pub fn split(text: &str) -> Vec<Part<'_>> {
     parts
 }
 
-/// Bloktaki son `\pN` çizim kipi ayarı (`\pos`/`\pbo` değil): Some(açık mı).
 /// Aegisub `edit/clear/text`: düz metni siler; etiket blokları, notlar ve çizimler (`\p1`) kalır.
 /// Tabelayı yeniden yazarken etiketleri korumak için.
 pub fn clear_text(text: &str) -> String {
@@ -54,6 +53,7 @@ pub fn clear_text(text: &str) -> String {
     out
 }
 
+/// Bloktaki son `\pN` çizim kipi ayarı (`\pos`/`\pbo` değil): Some(açık mı).
 pub fn drawing_mode(block: &str) -> Option<bool> {
     let b = block.as_bytes();
     let mut res = None;

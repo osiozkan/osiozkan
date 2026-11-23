@@ -293,9 +293,12 @@ impl App {
         self.rows = rows;
         if let Some(ei) = fold_req.get() {
             let mut sc = self.doc.script.clone();
+            let id = self.folds.iter().find(|f| f.start == ei).map(|f| f.id);
             if osisub_core::folds::update_at(&mut sc, &[ei], |c| Some(!c)) > 0 {
+                // Extradata bölümü olaylardan önceyse indeksler kayabilir: katlamayı kimliğiyle bul
+                let at = id.and_then(|id| osisub_core::folds::list(&sc).into_iter().find(|f| f.id == id)).map_or(ei, |f| f.start);
                 self.doc.apply_new_script("Katlama", sc);
-                self.doc.select(vec![ei], ei);
+                self.doc.select(vec![at], at);
             }
         }
     }
