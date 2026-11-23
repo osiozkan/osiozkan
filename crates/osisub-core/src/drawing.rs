@@ -109,6 +109,81 @@ pub fn push_point(cmds: &mut Vec<Cmd>, p: (f64, f64)) {
     }
 }
 
+/// Yeni şekil (kontur) başlatır: `m` noktası (Aegisub vektör kırpma "yeni şekil" kipi).
+pub fn push_move(cmds: &mut Vec<Cmd>, p: (f64, f64)) {
+    cmds.push(Cmd { kind: 'm', pts: vec![p] });
+}
+
+fn bez(p0: (f64, f64), c1: (f64, f64), c2: (f64, f64), p3: (f64, f64), t: f64) -> (f64, f64) {
+    let u = 1.0 - t;
+    (
+        u * u * u * p0.0 + 3.0 * u * u * t * c1.0 + 3.0 * u * t * t * c2.0 + t * t * t * p3.0,
+        u * u * u * p0.1 + 3.0 * u * u * t * c1.1 + 3.0 * u * t * t * c2.1 + t * t * t * p3.1,
+    )
+}
+
+/// Aegisub vektör kırpma "nokta ekle" kipi: `q`'ya `tol` uzaklıktan yakın en yakın parçayı o noktadan
+/// ikiye böler (düz parçaya `l` noktası; eğri de Casteljau ile iki eğriye ayrılır, şekli değişmez).
+/// Eklenen yoksa `false`.
+pub fn insert_point(cmds: &mut Vec<Cmd>, q: (f64, f64), tol: f64) -> bool {
+    let d2 = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2);
+    // en iyi: (uzaklık², komut, nokta/parça indeksi, t, nokta)
+    let mut best: Option<(f64, usize, usize, f64, (f64, f64))> = None;
+    let mut cur: Option<(f64, f64)> = None;
+    for (ci, c) in cmds.iter().enumerate() {
+        match c.kind {
+            'm' | 'n' => cur = c.pts.last().copied().or(cur),
+            'l' => {
+                for (pi, &b) in c.pts.iter().enumerate() {
+                    if let Some(a) = cur {
+                        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                        let len2 = dx * dx + dy * dy;
+                        let t = if len2 > 0.0 { (((q.0 - a.0) * dx + (q.1 - a.1) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                        let pt = (a.0 + dx * t, a.1 + dy * t);
+                        let dd = d2(pt, q);
+                        if t > 0.0 && t < 1.0 && best.map_or(true, |b| dd < b.0) {
+                            best = Some((dd, ci, pi, t, pt));
+                        }
+                    }
+                    cur = Some(b);
+                }
+            }
+            'b' => {
+                for (k, seg) in c.pts.chunks_exact(3).enumerate() {
+                    if let Some(a) = cur {
+                        for j in 1..48 {
+                            let t = j as f64 / 48.0;
+                            let pt = bez(a, seg[0], seg[1], seg[2], t);
+                            let dd = d2(pt, q);
+                            if best.map_or(true, |b| dd < b.0) {
+                                best = Some((dd, ci, k, t, pt));
+                            }
+                        }
+                    }
+                    cur = Some(seg[2]);
+                }
+            }
+            _ => cur = c.pts.last().copied().or(cur),
+        }
+    }
+    let Some((dd, ci, pi, t, pt)) = best.filter(|b| b.0 <= tol * tol) else { return false };
+    let _ = dd;
+    let r = |p: (f64, f64)| (p.0.round(), p.1.round());
+    if cmds[ci].kind == 'l' {
+        cmds[ci].pts.insert(pi, r(pt));
+    } else {
+        let start = if pi == 0 { cmds[..ci].iter().rev().find_map(|x| x.pts.last().copied()) } else { Some(cmds[ci].pts[pi * 3 - 1]) };
+        let Some(p0) = start else { return false };
+        let (c1, c2, p3) = (cmds[ci].pts[pi * 3], cmds[ci].pts[pi * 3 + 1], cmds[ci].pts[pi * 3 + 2]);
+        let lerp = |a: (f64, f64), b: (f64, f64)| (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+        let (ab, bc, cd) = (lerp(p0, c1), lerp(c1, c2), lerp(c2, p3));
+        let (abc, bcd) = (lerp(ab, bc), lerp(bc, cd));
+        let m = lerp(abc, bcd);
+        cmds[ci].pts.splice(pi * 3..pi * 3 + 3, [r(ab), r(abc), r(m), r(bcd), r(cd), p3]);
+    }
+    true
+}
+
 /// `(ci, pi)` noktasıyla biten düz `l` parçasını kübik eğriye (`b`) çevirir: kontrol noktaları
 /// önceki noktadan bu noktaya 1/3 ve 2/3'te. Önceki nokta yoksa ya da nokta `l` değilse `false`.
 pub fn line_to_bezier(cmds: &mut Vec<Cmd>, ci: usize, pi: usize) -> bool {
@@ -188,6 +263,25 @@ mod tests {
         assert_eq!(polylines(&c)[0].len(), 1 + 2 + 12);
         // büyük harf ve fazla boşluk
         assert_eq!(to_string(&parse("M 0 0  L 5 5")), "m 0 0 l 5 5");
+    }
+
+    #[test]
+    fn insert_point_and_new_shape() {
+        let mut c = parse("m 0 0 l 100 0 100 100");
+        assert!(insert_point(&mut c, (50.0, 3.0), 10.0));
+        assert_eq!(to_string(&c), "m 0 0 l 50 0 100 0 100 100");
+        assert!(!insert_point(&mut c, (500.0, 500.0), 10.0));
+        // eğri ikiye bölünür, uçlar korunur
+        let mut c = parse("m 0 0 b 0 100 100 100 100 0");
+        let mid = bez((0.0, 0.0), (0.0, 100.0), (100.0, 100.0), (100.0, 0.0), 0.5);
+        assert!(insert_point(&mut c, mid, 5.0));
+        assert_eq!(c[1].pts.len(), 6);
+        assert_eq!(c[1].pts[2], (50.0, 75.0));
+        assert_eq!(c[1].pts[5], (100.0, 0.0));
+        push_move(&mut c, (10.0, 10.0));
+        push_point(&mut c, (20.0, 10.0));
+        assert!(to_string(&c).ends_with("m 10 10 l 20 10"));
+        assert_eq!(polylines(&c).len(), 2);
     }
 
     #[test]

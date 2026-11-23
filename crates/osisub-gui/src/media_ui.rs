@@ -974,6 +974,22 @@ impl Media {
         }
     }
 
+    /// `set_tag` gibi, ama seçili diğer satırlara da aynı etiketi yazar (Aegisub kırpma araçları).
+    fn set_tag_all(doc: &mut Document, at: usize, text: &str, name: &str, arg: &str, desc: &str) {
+        let nt = osisub_core::overrides::set_initial(text, name, arg);
+        if nt == text {
+            return;
+        }
+        let others: Vec<usize> = doc.selection.iter().copied().filter(|&i| i != at && matches!(doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
+        let key = format!("vt:{}:{}", name, at);
+        doc.edit_keyed(desc, Some(&key), |tx| {
+            tx.dialogue_mut(at, |dd| dd.text = nt);
+            for &i in &others {
+                tx.dialogue_mut(i, |dd| dd.text = osisub_core::overrides::set_initial(&dd.text, name, arg));
+            }
+        });
+    }
+
     /// Seçili satırlar (etkin satır dahil) ve her birinin başlangıç değerleri.
     fn selected_vals(doc: &Document, at: usize, f: impl Fn(&osisub_core::ass::Dialogue) -> (f32, f32)) -> Vec<(usize, f32, f32)> {
         let mut lines = doc.target_lines();
@@ -1162,7 +1178,7 @@ impl Media {
                     let is_ctrl = cmds[*ci].kind == 'b';
                     if is_ctrl { p.circle_stroke(s, 4.0, Stroke::new(1.5, Color32::from_rgb(0x6b, 0xc5, 0xe5))); } else { p.rect_filled(Rect::from_center_size(s, egui::vec2(7.0, 7.0)), 1.0, col); }
                 }
-                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · Ctrl+tık: eğri · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
+                p.text(vis.left_top() + egui::vec2(6.0, 6.0), egui::Align2::LEFT_TOP, format!("\\{} vektör: {} nokta · tıkla: nokta ekle · Shift+tık: parçaya nokta · Alt+tık: yeni şekil · Ctrl+tık: eğri · sürükle: taşı · sağ tık: noktayı sil (boşta: kırpmayı kaldır)", tag_name, handles.len()), egui::FontId::proportional(11.0), Color32::from_rgba_unmultiplied(255, 255, 255, 190));
                 let hit = |q: Pos2| handles.iter().find(|(_, _, h)| scr(*h).distance(q) < 9.0).map(|(ci, pi, _)| (*ci, *pi));
                 let mut changed = false;
                 if r.drag_started() {
@@ -1182,7 +1198,21 @@ impl Media {
                 }
                 if r.clicked() {
                     if let Some(pos) = ptr {
+                        let m = ui.input(|i| i.modifiers);
                         match hit(pos) {
+                            // Shift+tık: en yakın parçaya nokta ekle (Aegisub "insert point")
+                            None if m.shift => {
+                                let (x, y) = to_script(pos);
+                                let (x2, _) = to_script(pos + egui::vec2(10.0, 0.0));
+                                let tol = ((x2 - x).abs() as f64 * mul).max(1.0);
+                                changed = drawing::insert_point(&mut cmds, (x as f64 * mul, y as f64 * mul), tol);
+                            }
+                            // Alt+tık: yeni şekil başlat (Aegisub "new shape"; birden çok kontur)
+                            None if m.alt => {
+                                let (x, y) = to_script(pos);
+                                drawing::push_move(&mut cmds, ((x as f64 * mul).round(), (y as f64 * mul).round()));
+                                changed = true;
+                            }
                             None => {
                                 let (x, y) = to_script(pos);
                                 drawing::push_point(&mut cmds, ((x as f64 * mul).round(), (y as f64 * mul).round()));
@@ -1212,8 +1242,20 @@ impl Media {
                         osisub_core::overrides::set_initial(&d.text, tag_name, &arg)
                     };
                     if nt != d.text {
+                        // Aegisub gibi: kırpma seçili tüm satırlara yazılır (tabelanın katmanları aynı maskeyi paylaşır)
+                        let arg = osisub_core::overrides::get_initial(&nt, tag_name).map(|t| t.arg);
+                        let others: Vec<usize> = doc.selection.iter().copied().filter(|&i| i != at && matches!(doc.script.entries.get(i), Some(Entry::Dialogue(_)))).collect();
                         let key = format!("vt:vclip:{}", at);
-                        doc.edit_keyed("Vektör kırpma", Some(&key), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                        doc.edit_keyed("Vektör kırpma", Some(&key), |tx| {
+                            tx.dialogue_mut(at, |dd| dd.text = nt);
+                            for &i in &others {
+                                tx.dialogue_mut(i, |dd| {
+                                    let other = if tag_name == "clip" { "iclip" } else { "clip" };
+                                    let t = osisub_core::overrides::remove_initial(&dd.text, other);
+                                    dd.text = match &arg { Some(a) => osisub_core::overrides::set_initial(&t, tag_name, a), None => osisub_core::overrides::remove_initial(&t, tag_name) };
+                                });
+                            }
+                        });
                     }
                 }
             }
@@ -1263,7 +1305,7 @@ impl Media {
                         let (x, y) = to_script(pos);
                         let (x, y) = (x.round() + 0.0, y.round() + 0.0);
                         let (ax, ay) = (anchor.0.round() + 0.0, anchor.1.round() + 0.0);
-                        Self::set_tag(doc, at, &d.text, clip_name, &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
+                        Self::set_tag_all(doc, at, &d.text, clip_name, &format!("({},{},{},{})", ax.min(x), ay.min(y), ax.max(x), ay.max(y)), "Kırpma");
                     }
                 }
                 if r.drag_stopped() {
