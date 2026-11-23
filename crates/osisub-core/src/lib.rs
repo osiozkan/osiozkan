@@ -33,6 +33,7 @@ pub mod names;
 pub mod ocrfix;
 pub mod motion;
 pub mod overrides;
+pub mod catalog;
 pub mod folds;
 pub mod perspective;
 pub mod pgs;

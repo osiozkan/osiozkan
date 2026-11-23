@@ -125,22 +125,46 @@ impl Default for OcrWin {
 }
 
 impl App {
+    /// Eski tek katalog (0.9 ve öncesi): "Default" kataloğu yoksa buradan okunur.
     pub(super) fn catalog_path() -> Option<PathBuf> {
         osisub_core::paths::config_dir().map(|d| d.join("styles.ass"))
     }
 
-    pub(super) fn catalog_styles() -> Vec<Style> {
-        Self::catalog_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::Script::parse(&t).styles().cloned().collect()).unwrap_or_default()
+    /// osisub'ın katalog klasörü, sonra Aegisub'ınkiler (`~/.aegisub/catalog`, `%APPDATA%\Aegisub\catalog`).
+    pub(super) fn catalog_dirs() -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = osisub_core::paths::config_dir().map(|d| d.join("catalog")).into_iter().collect();
+        for a in osisub_core::paths::aegisub_automation_dirs() {
+            if let Some(p) = a.parent().map(|p| p.join("catalog")).filter(|p| p.is_dir()) { v.push(p); }
+        }
+        v
     }
 
-    pub(super) fn save_catalog(styles: &[Style]) {
-        if let Some(p) = Self::catalog_path() {
-            if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
-            let mut s = osisub_core::Script::new_default();
-            s.entries.retain(|e| !matches!(e, Entry::Style(_)));
-            s.entries.extend(styles.iter().cloned().map(Entry::Style));
-            let _ = std::fs::write(p, s.to_ass_string());
+    /// Katalog adları ("Default" her zaman vardır).
+    pub(super) fn catalog_names() -> Vec<String> {
+        let mut v: Vec<String> = osisub_core::catalog::list(&Self::catalog_dirs()).into_iter().map(|x| x.0).collect();
+        if !v.iter().any(|n| n == "Default") { v.insert(0, "Default".into()); }
+        v
+    }
+
+    pub(super) fn catalog_styles_of(name: &str) -> Vec<Style> {
+        if let Some((_, p)) = osisub_core::catalog::list(&Self::catalog_dirs()).into_iter().find(|x| x.0 == name) {
+            return osisub_core::catalog::read(&p);
         }
+        if name == "Default" {
+            return Self::catalog_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| osisub_core::Script::parse(&t).styles().cloned().collect()).unwrap_or_default();
+        }
+        vec![]
+    }
+
+    pub(super) fn catalog_styles(&self) -> Vec<Style> {
+        Self::catalog_styles_of(&self.settings.style_catalog)
+    }
+
+    /// Seçili kataloğu osisub klasörüne yazar (Aegisub kataloğundan okunmuş olsa da kopyası osisub'a).
+    pub(super) fn save_catalog(&self, styles: &[Style]) -> Result<(), String> {
+        let d = osisub_core::paths::config_dir().ok_or("ayar klasörü yok")?.join("catalog");
+        let p = d.join(format!("{}.sty", osisub_core::catalog::safe_name(&self.settings.style_catalog)));
+        osisub_core::catalog::write(&p, styles).map_err(|e| e.to_string())
     }
 
     pub(super) fn add_styles(&mut self, list: Vec<Style>) {

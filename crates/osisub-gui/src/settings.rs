@@ -60,6 +60,8 @@ pub struct Settings {
     pub hotkey_defaults: u32,
     /// Video açılınca PlayRes ≠ video çözünürlüğü sorusu: 0 = sor, 1 = hiç sorma
     pub res_mismatch_ignore: bool,
+    /// Seçili stil kataloğu (Aegisub "Storage")
+    pub style_catalog: String,
     /// Makine çevirisi: sağlayıcı ("deepl" | "google" | "libre" | "claude"), anahtar, sunucu, diller, bağlam
     pub mt_provider: String,
     pub mt_key: String,
@@ -119,6 +121,7 @@ impl Default for Settings {
             volume: 1.0,
             hotkey_defaults: 0,
             res_mismatch_ignore: false,
+            style_catalog: "Default".into(),
             mt_provider: "deepl".into(),
             mt_key: String::new(),
             mt_url: "http://localhost:5000".into(),

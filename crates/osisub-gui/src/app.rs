@@ -109,6 +109,8 @@ pub struct App {
     find_pos: Option<(usize, osisub_core::search::Field, usize)>,
     /// Bilgi sekmesi: eklenecek yeni Script Info alanı (anahtar, değer)
     info_new: (String, String),
+    /// Stiller sekmesi: oluşturulacak katalog adı
+    catalog_new: String,
     /// Çözünürlük denetimi yapılan son ortam ve bekleyen soru (video genişliği, yüksekliği)
     res_checked: Option<PathBuf>,
     res_prompt: Option<(i32, i32)>,
@@ -695,6 +697,7 @@ impl App {
             find_selection_only: false,
             find_pos: None,
             info_new: Default::default(),
+            catalog_new: String::new(),
             res_checked: None,
             res_prompt: None,
             resample_open: false,

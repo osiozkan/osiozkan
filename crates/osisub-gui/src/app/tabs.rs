@@ -425,22 +425,18 @@ impl App {
                     }
                 }
             }
-            if ui.button(tr("Kataloğa kaydet")).on_hover_text(tr("~/.config/osisub/styles.ass")).clicked() {
-                if let Some(&i) = idxs.get(self.style_sel) {
-                    if let Entry::Style(st) = self.doc.script.entries[i].clone() {
-                        let mut cat = Self::catalog_styles();
-                        cat.retain(|c| c.name != st.name);
-                        cat.push(st);
-                        Self::save_catalog(&cat);
-                        self.status = tr("Stil kataloğa kaydedildi").into();
-                    }
-                }
+            if ui.button(tr("Yukarı")).on_hover_text(tr("Stili listede yukarı taşır")).clicked() && self.style_sel > 0 {
+                let (a, b) = (idxs[self.style_sel - 1], idxs[self.style_sel]);
+                let (ea, eb) = (self.doc.script.entries[a].clone(), self.doc.script.entries[b].clone());
+                self.doc.edit("Stili taşı", |tx| { tx.replace(a, eb); tx.replace(b, ea); });
+                self.style_sel -= 1;
             }
-            ui.menu_button(tr("Katalogdan ekle"), |ui| {
-                let cat = Self::catalog_styles();
-                if cat.is_empty() { ui.label(RichText::new(tr("Katalog boş")).weak()); }
-                for c in cat { if ui.button(&c.name).clicked() { self.add_styles(vec![c]); ui.close(); } }
-            });
+            if ui.button(tr("Aşağı")).on_hover_text(tr("Stili listede aşağı taşır")).clicked() && self.style_sel + 1 < idxs.len() {
+                let (a, b) = (idxs[self.style_sel], idxs[self.style_sel + 1]);
+                let (ea, eb) = (self.doc.script.entries[a].clone(), self.doc.script.entries[b].clone());
+                self.doc.edit("Stili taşı", |tx| { tx.replace(a, eb); tx.replace(b, ea); });
+                self.style_sel += 1;
+            }
             if ui.button(tr("Dosyadan içe aktar…")).clicked() {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass", "ssa"]).pick_file() {
                     match osisub_core::io::load(&p) {
@@ -458,6 +454,44 @@ impl App {
             if ui.button(tr("Sil")).clicked() && idxs.len() > 1 {
                 if let Some(&i) = idxs.get(self.style_sel) { self.doc.edit("Stil sil", |tx| tx.remove(i, 1)); }
             }
+        });
+        // Katalog (Aegisub Style Storage): gösteri başına ayrı katalog
+        ui.horizontal_wrapped(|ui| {
+            ui.label(tr("Katalog"));
+            let names = Self::catalog_names();
+            let mut cur = self.settings.style_catalog.clone();
+            egui::ComboBox::from_id_salt("style_catalog").selected_text(&cur).show_ui(ui, |ui| {
+                for n in &names { ui.selectable_value(&mut cur, n.clone(), n); }
+            });
+            if cur != self.settings.style_catalog { self.settings.style_catalog = cur; self.settings.save(); }
+            ui.add(TextEdit::singleline(&mut self.catalog_new).hint_text(tr("yeni katalog adı")).desired_width(110.0));
+            if ui.add_enabled(!self.catalog_new.trim().is_empty(), egui::Button::new(tr("Oluştur"))).clicked() {
+                self.settings.style_catalog = osisub_core::catalog::safe_name(&self.catalog_new);
+                self.catalog_new.clear();
+                match self.save_catalog(&[]) { Ok(()) => self.settings.save(), Err(e) => self.status = trf!("Hata: {}", e) }
+            }
+            if ui.button(tr("Kataloğa kaydet")).on_hover_text(tr("Seçili stili seçili kataloğa kaydeder (aynı adlı stilin yerine)")).clicked() {
+                if let Some(&i) = idxs.get(self.style_sel) {
+                    if let Entry::Style(st) = self.doc.script.entries[i].clone() {
+                        let mut cat = self.catalog_styles();
+                        cat.retain(|c| c.name != st.name);
+                        cat.push(st);
+                        self.status = match self.save_catalog(&cat) { Ok(()) => trf!("Stil kataloğa kaydedildi: {}", self.settings.style_catalog), Err(e) => trf!("Hata: {}", e) };
+                    }
+                }
+            }
+            if ui.button(tr("Tümünü kataloğa kaydet")).on_hover_text(tr("Belgedeki tüm stilleri seçili kataloğa kaydeder")).clicked() {
+                let mut cat = self.catalog_styles();
+                let mine: Vec<Style> = self.doc.script.styles().cloned().collect();
+                cat.retain(|c| !mine.iter().any(|m| m.name == c.name));
+                cat.extend(mine);
+                self.status = match self.save_catalog(&cat) { Ok(()) => trf!("Stil kataloğa kaydedildi: {}", self.settings.style_catalog), Err(e) => trf!("Hata: {}", e) };
+            }
+            ui.menu_button(tr("Katalogdan ekle"), |ui| {
+                let cat = self.catalog_styles();
+                if cat.is_empty() { ui.label(RichText::new(tr("Katalog boş")).weak()); } else if ui.button(tr("Tümü")).clicked() { self.add_styles(cat.clone()); ui.close(); }
+                for c in cat { if ui.button(&c.name).clicked() { self.add_styles(vec![c]); ui.close(); } }
+            });
         });
         ui.separator();
         if let Some(&i) = idxs.get(self.style_sel) {
