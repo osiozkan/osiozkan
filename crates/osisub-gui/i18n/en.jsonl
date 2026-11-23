@@ -1331,3 +1331,5 @@
 ["Renk toleransı", "Color tolerance"]
 ["Aranıyor…", "Searching…"]
 ["Hizala", "Align"]
+["Perspektif: \\org'u koru", "Perspective: keep \\org"]
+["Satırda \\org varsa yerinde kalır, yalnız dönüş/ölçek oturtulur (izlenen tabelalarda; Aegisub: Keep \\org)", "If the line has \\org it stays in place; only rotation/scale are fitted (for tracked signs; Aegisub: Keep \\org)"]

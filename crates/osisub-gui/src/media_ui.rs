@@ -136,6 +136,8 @@ pub struct Media {
     /// perspektif aracı için uygulamanın doldurduğu: etkin satırın kutusu (satır, metin, w, h) ve kamera uzaklığı
     pub persp_box: Option<(usize, String, (f64, f64))>,
     pub persp_dist: f64,
+    /// Perspektif aracı: satırdaki \org'u koru (Aegisub ORGMODE_KEEP)
+    pub persp_keep_org: bool,
     /// perspektif aracı LayoutRes'siz betiğe değer yazdı: uygulama LayoutRes'i ekler
     pub persp_need_layout: bool,
     /// önizleme klasörüne çıkarılmış gömülü yazı tiplerinin anahtarı (ad:boyut;…)
@@ -217,6 +219,7 @@ impl Media {
             ref_overlay: None,
             ar_override: None,
             persp_dist: osisub_core::perspective::DIST_PX,
+            persp_keep_org: false,
             persp_need_layout: false,
             vt_vdrag: None,
             shear_axis: None,
@@ -1603,7 +1606,11 @@ impl Media {
                             let (dx, dy) = ((x - anchor.0).round(), (y - anchor.1).round());
                             for c in q.iter_mut() { *c = (c.0 + dx, c.1 + dy); }
                         }
-                        if let Some((pr, org, _err)) = pp::fit(&q, bw, bh, dist) {
+                        let fitted = match (self.persp_keep_org, pair("org")) {
+                            (true, Some(o)) => pp::fit_org(&q, bw, bh, dist, o),
+                            _ => pp::fit(&q, bw, bh, dist),
+                        };
+                        if let Some((pr, org, _err)) = fitted {
                             let text = pp::apply(&d.text, &pr, org);
                             if text != d.text {
                                 let key = format!("vt:persp:{}", at);

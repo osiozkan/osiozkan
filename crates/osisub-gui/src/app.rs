@@ -2562,6 +2562,7 @@ impl App {
                     for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)"), (T::Shear, "Eğme (\\fax/\\fay)"), (T::Perspective, "Perspektif (4 köşeyi sürükle)"), (T::Drawing, "Çizim (\\p noktaları)")] {
                         if ui.radio_value(&mut self.media.tool, t, l).clicked() { ui.close(); }
                     }
+                    ui.checkbox(&mut self.media.persp_keep_org, tr("Perspektif: \\org'u koru")).on_hover_text(tr("Satırda \\org varsa yerinde kalır, yalnız dönüş/ölçek oturtulur (izlenen tabelalarda; Aegisub: Keep \\org)"));
                 });
                 if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Satırı oynat / durdur")).shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc, ui.ctx()); ui.close(); }
                 if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Playhead'den oynat / durdur")).shortcut_text("Shift+F5")).clicked() { self.media.toggle_play_from_playhead(&self.doc, ui.ctx()); ui.close(); }

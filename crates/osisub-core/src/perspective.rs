@@ -108,10 +108,15 @@ pub fn centroid(q: &[(f64, f64); 4]) -> (f64, f64) {
 /// `dist`: betik koordinatında kamera uzaklığı (`dist_for`).
 /// Dönüş: (değerler, `\org`, en büyük köşe hatası piksel). Uygun çözüm yoksa `None`.
 pub fn fit(quad: &[(f64, f64); 4], w: f64, h: f64, dist: f64) -> Option<(Params, (f64, f64), f64)> {
+    fit_org(quad, w, h, dist, centroid(quad))
+}
+
+/// `fit`, ama `\org` verilen noktada sabit (Aegisub perspektif aracı "\org'u koru" kipi;
+/// izlenen tabelada \org kareden kareye oynamasın diye).
+pub fn fit_org(quad: &[(f64, f64); 4], w: f64, h: f64, dist: f64, org: (f64, f64)) -> Option<(Params, (f64, f64), f64)> {
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let org = centroid(quad);
     let d = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
     let top = (quad[1].0 - quad[0].0, quad[1].1 - quad[0].1);
     let init = Params {
@@ -293,6 +298,16 @@ mod tests {
         for (a, b) in back.iter().zip(q.iter()) {
             assert!((a.0 - b.0).abs() < 0.05 && (a.1 - b.1).abs() < 0.05);
         }
+    }
+
+    #[test]
+    fn fit_with_kept_org() {
+        let truth = Params { pos: (500.0, 300.0), frx: 20.0, fry: -25.0, frz: 5.0, fscx: 130.0, fscy: 100.0, fax: 0.05 };
+        let org = (700.0, 380.0);
+        let q = corners(&truth, org, 625.0, 300.0, 80.0);
+        let (p, o, err) = fit_org(&q, 300.0, 80.0, 625.0, org).unwrap();
+        assert_eq!(o, org);
+        assert!(err < 0.05, "hata {err}: {p:?}");
     }
 
     #[test]
