@@ -14,6 +14,8 @@ use std::sync::Arc;
 enum Msg {
     Info(Result<MediaInfo, String>),
     Wave(Result<Waveform, String>),
+    /// Spektrum için yüksek örnekleme hızlı ses (yol, sonuç)
+    SpecWave(PathBuf, Result<Waveform, String>),
     /// `time` anından başlayan ardışık kareler (ilk kare = istenen kare)
     /// `first`: kare hızı biliniyorsa ilk çizilen karenin numarası (istenen karenin birkaç kare öncesi)
     Frame { time: i64, rev: u64, first: Option<i64>, res: Result<Vec<Frame>, String> },
@@ -149,6 +151,9 @@ pub struct Media {
     /// Video ayrı pencerede (Aegisub "Detach video")
     pub detached: bool,
     spec_tex: Option<((i64, i64, usize, usize, usize), TextureHandle)>,
+    /// Spektrum sesi (`SPEC_RATE`); spektrum ilk açıldığında yüklenir. `spec_loading`: istek gönderildi
+    spec_wave: Option<Arc<Waveform>>,
+    spec_loading: bool,
     stream: Option<osisub_media::PlayStream>,
     audio: Option<osisub_media::audio::AudioPlayer>,
     stream_frames: std::collections::VecDeque<(usize, Vec<u8>)>,
@@ -213,6 +218,8 @@ impl Media {
             play_opts: Default::default(),
             detached: false,
             spec_tex: None,
+            spec_wave: None,
+            spec_loading: false,
             stream: None,
             audio: None,
             stream_frames: Default::default(),
@@ -316,6 +323,8 @@ impl Media {
         self.stop_player();
         self.info = None;
         self.wave = None;
+        self.spec_wave = None;
+        self.spec_loading = false;
         self.keyframes.clear();
         if self.timecodes_auto {
             self.timecodes = None;
@@ -571,6 +580,15 @@ impl Media {
                     }
                 }
                 Msg::Wave(Err(e)) => self.status = trf!("Ses okunamadı: {}", e),
+                // yalnızca hâlâ açık olan dosyanınki (başka dosya açıldıysa eski sonuç atılır)
+                Msg::SpecWave(p, r) => {
+                    if self.path.as_ref() == Some(&p) {
+                        match r {
+                            Ok(w) => self.spec_wave = Some(Arc::new(w)),
+                            Err(e) => self.status = trf!("Ses okunamadı: {}", e),
+                        }
+                    }
+                }
                 Msg::Frame { time, rev, first, res } => {
                     self.frame_busy = false;
                     match res {
@@ -1344,7 +1362,7 @@ impl Media {
                     Some((l, t, q)) if *l == at && *t == d.text => *q,
                     _ => {
                         let an7 = num("an") == Some(7.0);
-                        if let (true, Some(pos), Some(org)) = (an7, pair("pos"), pair("org")) {
+                        if let (true, Some(pos), Some(org)) = (an7, pair("pos").or_else(|| pair("move")), pair("org")) {
                             let pr = pp::Params { pos, frx: num("frx").unwrap_or(0.0), fry: num("fry").unwrap_or(0.0), frz: num("frz").or(num("fr")).unwrap_or(0.0), fscx: num("fscx").unwrap_or(100.0), fscy: num("fscy").unwrap_or(100.0), fax: num("fax").unwrap_or(0.0) };
                             pp::corners(&pr, org, dist, bw, bh)
                         } else if let Some(q) = ov::get_initial(&d.text, "clip").and_then(|t| t.args().last().cloned()).and_then(|dr| pp::quad_from_clip(&dr)) {
@@ -1388,13 +1406,7 @@ impl Media {
                             for c in q.iter_mut() { *c = (c.0 + dx, c.1 + dy); }
                         }
                         if let Some((pr, org, _err)) = pp::fit(&q, bw, bh, dist) {
-                            let mut text = d.text.clone();
-                            for n in ["pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {
-                                text = ov::remove_initial(&text, n);
-                            }
-                            for t in ov::parse_block(&pp::tags(&pr, org)) {
-                                text = ov::set_initial(&text, &t.name, &t.arg);
-                            }
+                            let text = pp::apply(&d.text, &pr, org);
                             if text != d.text {
                                 let key = format!("vt:persp:{}", at);
                                 let t2 = text.clone();
@@ -1560,7 +1572,19 @@ impl Media {
             draw_lines(&p, doc);
         }
         // Spektrum
-        if let (true, Some(w)) = (self.spectrum, self.wave.clone()) {
+        if self.spectrum && self.spec_wave.is_none() && !self.spec_loading && self.wave.is_some() {
+            if let Some(p) = self.path.clone() {
+                self.spec_loading = true;
+                let (tx, ctx2) = (self.tx.clone(), ui.ctx().clone());
+                std::thread::spawn(move || {
+                    let r = osisub_media::load_audio(&p, osisub_media::SPEC_RATE);
+                    let _ = tx.send(Msg::SpecWave(p, r));
+                    ctx2.request_repaint();
+                });
+            }
+        }
+        // yüksek hızlı ses gelene kadar 8 kHz dalga verisinden (0..4 kHz)
+        if let (true, Some(w)) = (self.spectrum, self.spec_wave.clone().or_else(|| self.wave.clone())) {
             let bins = (rect.height() as usize).clamp(32, 256);
             // dalga formu nesnesi de anahtarda: başka dosya açılınca eski görüntü kalmasın
             let key = ((vs * 10.0) as i64, (mpp * 1000.0) as i64, w_px, bins, Arc::as_ptr(&w) as usize);

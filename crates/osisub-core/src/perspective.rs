@@ -213,6 +213,34 @@ pub fn tags(p: &Params, org: (f64, f64)) -> String {
     )
 }
 
+/// Satırın başlangıç bloğuna perspektif etiketlerini yazar (eski konum/dönüş/ölçek etiketleri silinir).
+/// Satırda `\move` varsa korunur: başlangıç noktası yeni konum olur, hareket farkı ve zamanlar
+/// aynı kalır (Aegisub perspektif aracı gibi; araç `\move` başlangıcını esas alır).
+pub fn apply(text: &str, p: &Params, org: (f64, f64)) -> String {
+    use crate::overrides as ov;
+    let mv: Option<Vec<f64>> = ov::get_initial(text, "move").and_then(|t| t.args().iter().map(|a| a.trim().parse::<f64>().ok()).collect());
+    let mut out = text.to_string();
+    for nm in ["pos", "move", "org", "frx", "fry", "frz", "fr", "fscx", "fscy", "fax", "fay", "an", "a"] {
+        out = ov::remove_initial(&out, nm);
+    }
+    for t in ov::parse_block(&tags(p, org)) {
+        if t.name == "pos" {
+            if let Some(m) = mv.as_ref().filter(|m| m.len() == 4 || m.len() == 6) {
+                let (x, y) = p.pos;
+                let (dx, dy) = (m[2] - m[0], m[3] - m[1]);
+                let mut a = format!("({},{},{},{}", n(x, 2), n(y, 2), n(x + dx, 2), n(y + dy, 2));
+                if m.len() == 6 {
+                    a += &format!(",{},{}", n(m[4], 0), n(m[5], 0));
+                }
+                out = ov::set_initial(&out, "move", &(a + ")"));
+                continue;
+            }
+        }
+        out = ov::set_initial(&out, &t.name, &t.arg);
+    }
+    out
+}
+
 /// Vektör kırpmadan dörtgen: ilk 4 nokta (m x y l x y x y x y). Sıra saat yönünde değilse
 /// düzeltilir; sol üst köşe en küçük x+y olan noktadır.
 pub fn quad_from_clip(drawing: &str) -> Option<[(f64, f64); 4]> {
@@ -234,6 +262,19 @@ pub fn quad_from_clip(drawing: &str) -> Option<[(f64, f64); 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apply_keeps_move() {
+        let p = Params { pos: (100.0, 50.0), frx: 10.0, fry: 0.0, frz: 0.0, fscx: 100.0, fscy: 100.0, fax: 0.0 };
+        let out = apply("{\\move(10,20,110,40,0,500)\\c&H0000FF&}Yazı", &p, (120.0, 60.0));
+        assert!(out.contains("\\move(100,50,200,70,0,500)"), "{out}");
+        assert!(!out.contains("\\pos"), "{out}");
+        assert!(out.contains("\\c&H0000FF&") && out.ends_with("}Yazı"), "{out}");
+        let out = apply("{\\move(0,0,5,5)}A", &p, (120.0, 60.0));
+        assert!(out.contains("\\move(100,50,105,55)"), "{out}");
+        let out = apply("{\\pos(1,2)\\fscx50}A", &p, (120.0, 60.0));
+        assert!(out.contains("\\pos(100,50)") && out.contains("\\fscx100") && !out.contains("move"), "{out}");
+    }
 
     #[test]
     fn identity_and_known_transform_roundtrip() {

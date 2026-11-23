@@ -149,12 +149,20 @@ pub struct Waveform {
 }
 
 pub const WAVE_RATE: u32 = 8000;
+/// Spektrum görünümü için ayrı yüklenen sesin örnekleme hızı (0 .. 11 kHz görünür; 8 kHz'lik
+/// dalga verisi ıslıklı sesleri ve 4 kHz üstünü göstermiyordu). Yalnız spektrum açılınca yüklenir.
+pub const SPEC_RATE: u32 = 22050;
 
 pub fn load_waveform(path: &Path) -> Result<Waveform, String> {
+    load_audio(path, WAVE_RATE)
+}
+
+/// Sesi mono 16 bit olarak `rate` Hz'de okur.
+pub fn load_audio(path: &Path, rate: u32) -> Result<Waveform, String> {
     let mut child = Command::new(ffmpeg_bin())
         .args(["-v", "error", "-i"])
         .arg(path)
-        .args(["-vn", "-ac", "1", "-ar", &WAVE_RATE.to_string(), "-f", "s16le", "-"])
+        .args(["-vn", "-ac", "1", "-ar", &rate.to_string(), "-f", "s16le", "-"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -163,7 +171,7 @@ pub fn load_waveform(path: &Path) -> Result<Waveform, String> {
     child.stdout.take().unwrap().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     let _ = child.wait();
     let samples = bytes.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect();
-    Ok(Waveform { sample_rate: WAVE_RATE, samples })
+    Ok(Waveform { sample_rate: rate, samples })
 }
 
 impl Waveform {
@@ -196,10 +204,12 @@ impl Waveform {
 }
 
 /// Spektrogram: `px` sütun × `bins` satır (satır 0 = en yüksek frekans), değerler 0..=255 (dB eşlemesi).
-/// Pencere 512 örnek (Hann). `bins` ≤ 256 (0 .. örnekleme_hızı/2).
+/// Pencere ~46 ms (Hann; 8 kHz'de 512, 22 kHz'de 1024 örnek). `bins` ≤ N/2 (0 .. örnekleme_hızı/2).
 pub fn spectrogram(w: &Waveform, start_ms: f64, ms_per_px: f64, px: usize, bins: usize) -> Vec<u8> {
     use rustfft::{num_complex::Complex, FftPlanner};
-    const N: usize = 512;
+    let n_fft = ((w.sample_rate.max(1) as usize * 46 / 1000).next_power_of_two()).clamp(256, 4096);
+    #[allow(non_snake_case)]
+    let N = n_fft;
     let bins = bins.clamp(1, N / 2);
     let fft = FftPlanner::<f32>::new().plan_fft_forward(N);
     let hann: Vec<f32> = (0..N).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / N as f32).cos()).collect();
@@ -706,6 +716,14 @@ mod tests {
         let bin = 255 - best;
         assert!((62..=66).contains(&bin), "bin {}", bin);
         assert!(bv > 200);
+        // 22 kHz'de 7 kHz ıslık sesi (8 kHz dalga verisinde görünmezdi): 256 satır 0..11025 Hz
+        let sr = 22050usize;
+        let samples: Vec<i16> = (0..sr).map(|i| ((2.0 * std::f32::consts::PI * 7000.0 * i as f32 / sr as f32).sin() * 16000.0) as i16).collect();
+        let w = Waveform { sample_rate: sr as u32, samples };
+        let img = spectrogram(&w, 100.0, 10.0, 20, 256);
+        let best = (0..256).max_by_key(|row| img[row * 20 + col]).unwrap();
+        let hz = (255 - best) as f64 * 11025.0 / 256.0;
+        assert!((hz - 7000.0).abs() < 100.0, "{hz} Hz");
     }
 
     #[test]
