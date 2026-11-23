@@ -1111,20 +1111,105 @@ impl App {
         ui.add(TextEdit::multiline(&mut self.log.as_str()).desired_width(f32::INFINITY).desired_rows(12).font(egui::TextStyle::Monospace));
     }
 
+    /// Script Info anahtarını ayarlar (yoksa son bilgi satırının arkasına ekler); ardışık yazım tek geri-al adımı.
+    fn set_info_keyed(&mut self, key: &str, value: &str) {
+        let pos = self.doc.script.entries.iter().position(|e| matches!(e, Entry::Info { key: k, .. } if k.eq_ignore_ascii_case(key)));
+        let k = format!("info:{}", key.to_ascii_lowercase());
+        let (key, value) = (key.to_string(), value.to_string());
+        match pos {
+            Some(i) => {
+                if matches!(&self.doc.script.entries[i], Entry::Info { value: v, .. } if *v == value) { return; }
+                self.doc.edit_keyed("Betik bilgisi", Some(&k), |tx| tx.replace(i, Entry::Info { key, value }));
+            }
+            None => {
+                let at = self.doc.script.entries.iter().rposition(|e| matches!(e, Entry::Info { .. })).map_or(1.min(self.doc.script.entries.len()), |i| i + 1);
+                self.doc.edit_keyed("Betik bilgisi", Some(&k), |tx| tx.insert(at, vec![Entry::Info { key, value }]));
+            }
+        }
+    }
+
     pub(super) fn info_tab(&mut self, ui: &mut egui::Ui) {
+        // Aegisub "Script Properties": sık alanlar her zaman görünür (yoksa yazınca eklenir)
+        ui.heading(tr("Betik özellikleri"));
+        egui::Grid::new("script_props").num_columns(2).striped(false).show(ui, |ui| {
+            for (key, label) in [("Title", "Başlık"), ("Original Script", "Özgün metin"), ("Translation", "Çeviri"), ("Editing", "Redaksiyon"), ("Timing", "Zamanlama"), ("Synch Point", "Eşleme noktası"), ("Updated By", "Güncelleyen"), ("Update Details", "Güncelleme notu")] {
+                ui.label(tr(label));
+                let cur = self.doc.script.info(key).unwrap_or("").to_string();
+                let mut v = cur.clone();
+                ui.add(TextEdit::singleline(&mut v).desired_width(f32::INFINITY));
+                if v != cur { self.set_info_keyed(key, &v); }
+                ui.end_row();
+            }
+            ui.label(tr("Çözünürlük"));
+            ui.horizontal(|ui| {
+                let (mut x, mut y) = self.doc.script.res();
+                let (ox, oy) = (x, y);
+                ui.add(egui::DragValue::new(&mut x).range(1..=16384));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut y).range(1..=16384));
+                if let Some((w, h)) = self.media.info.as_ref().filter(|i| i.has_video && i.width > 0).map(|i| (i.width as i32, i.height as i32)) {
+                    if ui.button(tr("Videodan al")).on_hover_text(tr("PlayRes'i video çözünürlüğü yapar (satırları ölçeklemez; ölçeklemek için Araçlar → Çözünürlüğü yeniden örnekle)")).clicked() { x = w; y = h; }
+                }
+                if (x, y) != (ox, oy) {
+                    self.set_info_keyed("PlayResX", &x.to_string());
+                    self.set_info_keyed("PlayResY", &y.to_string());
+                }
+            });
+            ui.end_row();
+            ui.label(tr("Satır kırma"));
+            let cur: i32 = self.doc.script.info("WrapStyle").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+            let names = ["0: Akıllı (üst satır daha geniş)", "1: Satır sonunda kır", "2: Kırma yok (yalnız \\N)", "3: Akıllı (alt satır daha geniş)"];
+            let mut sel = cur.clamp(0, 3);
+            egui::ComboBox::from_id_salt("wrapstyle").selected_text(tr(names[sel as usize])).width(260.0).show_ui(ui, |ui| {
+                for (k, n) in names.iter().enumerate() { ui.selectable_value(&mut sel, k as i32, tr(n)); }
+            });
+            if sel != cur { self.set_info_keyed("WrapStyle", &sel.to_string()); }
+            ui.end_row();
+            ui.label(tr("Kenarlığı ölçekle"));
+            let cur = self.doc.script.info("ScaledBorderAndShadow").map_or(false, |v| v.trim().eq_ignore_ascii_case("yes"));
+            let mut on = cur;
+            ui.checkbox(&mut on, tr("Kenarlık ve gölge çözünürlükle ölçeklenir (ScaledBorderAndShadow)"));
+            if on != cur { self.set_info_keyed("ScaledBorderAndShadow", if on { "yes" } else { "no" }); }
+            ui.end_row();
+            ui.label(tr("Renk matrisi"));
+            let cur = self.doc.script.info("YCbCr Matrix").unwrap_or("").to_string();
+            let mut m = cur.clone();
+            egui::ComboBox::from_id_salt("ycbcr").selected_text(if m.is_empty() { tr("(yok)").to_string() } else { m.clone() }).show_ui(ui, |ui| {
+                for v in ["None", "TV.601", "PC.601", "TV.709", "PC.709", "TV.FCC", "PC.FCC", "TV.240M", "PC.240M"] { ui.selectable_value(&mut m, v.to_string(), v); }
+            });
+            if m != cur { self.set_info_keyed("YCbCr Matrix", &m); }
+            ui.end_row();
+        });
+        ui.separator();
+        ui.label(RichText::new(tr("Tüm [Script Info] alanları")).strong());
         let idxs: Vec<usize> = self.doc.script.entries.iter().enumerate().filter(|(_, e)| matches!(e, Entry::Info { .. })).map(|(i, _)| i).collect();
+        let mut del = None;
         for i in idxs {
             if let Entry::Info { key, value } = self.doc.script.entries[i].clone() {
                 let mut v = value.clone();
                 ui.horizontal(|ui| {
+                    if ui.small_button("x").on_hover_text(tr("Alanı sil")).clicked() { del = Some(i); }
                     ui.label(RichText::new(&key).strong());
                     ui.add(TextEdit::singleline(&mut v).desired_width(f32::INFINITY));
                 });
                 if v != value {
-                    let k = format!("info:{}", i);
+                    let k = format!("info:{}", key.to_ascii_lowercase());
                     self.doc.edit_keyed("Betik bilgisi", Some(&k), |tx| tx.replace(i, Entry::Info { key, value: v }));
                 }
             }
         }
+        if let Some(i) = del {
+            self.doc.edit("Betik bilgisini sil", |tx| tx.remove(i, 1));
+        }
+        ui.horizontal(|ui| {
+            ui.add(TextEdit::singleline(&mut self.info_new.0).hint_text(tr("Anahtar")).desired_width(140.0));
+            ui.add(TextEdit::singleline(&mut self.info_new.1).hint_text(tr("Değer")).desired_width(200.0));
+            let k = self.info_new.0.trim().to_string();
+            if ui.add_enabled(!k.is_empty() && !k.contains(':') && !k.starts_with(';'), egui::Button::new(tr("Alan ekle"))).clicked() {
+                let v = self.info_new.1.clone();
+                self.set_info_keyed(&k, &v);
+                self.info_new = Default::default();
+            }
+        });
     }
 }

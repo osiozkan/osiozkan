@@ -104,6 +104,11 @@ pub struct App {
     find_selection_only: bool,
     /// "Değiştir" (sonrakini) için konum: (satır, alan, bayt)
     find_pos: Option<(usize, osisub_core::search::Field, usize)>,
+    /// Bilgi sekmesi: eklenecek yeni Script Info alanı (anahtar, değer)
+    info_new: (String, String),
+    /// Çözünürlük denetimi yapılan son ortam ve bekleyen soru (video genişliği, yüksekliği)
+    res_checked: Option<PathBuf>,
+    res_prompt: Option<(i32, i32)>,
     resample_open: bool,
     res_x: i32,
     res_ar: osisub_core::timing::ArMode,
@@ -676,6 +681,9 @@ impl App {
             find: search::Options::default(),
             find_selection_only: false,
             find_pos: None,
+            info_new: Default::default(),
+            res_checked: None,
+            res_prompt: None,
             resample_open: false,
             res_x: 1920,
             res_ar: Default::default(),
@@ -1061,6 +1069,8 @@ impl App {
         }
         if let Some(m) = video.or(audio) {
             self.status = trf!("Ortam otomatik açıldı: {}", m.display());
+            // Aegisub gibi: projeyle birlikte açılan videoda çözünürlük sorulmaz (yalnız PlayRes yoksa ayarlanır)
+            if self.doc.script.info("PlayResX").is_some() || self.doc.script.info("PlayResY").is_some() { self.res_checked = Some(m.clone()); }
             self.media.open(m, ctx);
             self.show_media = true;
         }
@@ -1532,6 +1542,53 @@ impl App {
         } else {
             self.status = tr("Bu konumda bölünemez (etiket içi, satır başı/sonu ya da süre dışı)").into();
         }
+    }
+
+    /// Aegisub "Resolution mismatch": video açılınca PlayRes video çözünürlüğünden farklıysa sorar
+    /// (PlayRes hiç yoksa sessizce videoya ayarlar).
+    fn res_mismatch_window(&mut self, ctx: &egui::Context) {
+        if let (Some(p), Some(i)) = (self.media.path.clone(), self.media.info.clone()) {
+            if self.res_checked.as_ref() != Some(&p) {
+                self.res_checked = Some(p);
+                if i.has_video && i.width > 0 && i.height > 0 && self.media.dummy.is_none() {
+                    let (vw, vh) = (i.width as i32, i.height as i32);
+                    let has = self.doc.script.info("PlayResX").is_some() || self.doc.script.info("PlayResY").is_some();
+                    if !has {
+                        let mut s = self.doc.script.clone();
+                        s.set_info("PlayResX", &vw.to_string());
+                        s.set_info("PlayResY", &vh.to_string());
+                        self.doc.apply_new_script("Çözünürlüğü videoya ayarla", s);
+                    } else if self.doc.script.res() != (vw, vh) && !self.settings.res_mismatch_ignore
+                        // tam katlar (alt piksel hassasiyeti için 2× PlayRes) eşit sayılır
+                        && !(self.doc.script.res().0 % vw == 0 && self.doc.script.res().1 % vh == 0) {
+                        self.res_prompt = Some((vw, vh));
+                    }
+                }
+            }
+        }
+        let Some((vw, vh)) = self.res_prompt else { return };
+        let (sx, sy) = self.doc.script.res();
+        let mut close = false;
+        egui::Window::new(tr("Çözünürlük uyuşmuyor")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0)).show(ctx, |ui| {
+            ui.label(trf!("Betik çözünürlüğü {}×{}, video {}×{}.", sx, sy, vw, vh));
+            ui.label(RichText::new(tr("Betik başka çözünürlükteki bir video için hazırlanmışsa yeniden örnekleyin; tabelalar ve kenarlıklar doğru ölçeklenir.")).weak().small());
+            ui.horizontal(|ui| {
+                if ui.button(tr("Yeniden örnekle…")).on_hover_text(tr("Stilleri, konumları, kenarlıkları ve çizimleri yeni çözünürlüğe ölçekler")).clicked() {
+                    self.res_x = vw; self.res_y = vh; self.resample_open = true; close = true;
+                }
+                if ui.button(tr("Yalnız çözünürlüğü değiştir")).on_hover_text(tr("PlayRes'i video çözünürlüğü yapar; satırlar ölçeklenmez")).clicked() {
+                    let mut s = self.doc.script.clone();
+                    s.set_info("PlayResX", &vw.to_string());
+                    s.set_info("PlayResY", &vh.to_string());
+                    self.doc.apply_new_script("Çözünürlüğü videoya ayarla", s);
+                    close = true;
+                }
+                if ui.button(tr("Yoksay")).clicked() { close = true; }
+            });
+            let mut never = self.settings.res_mismatch_ignore;
+            if ui.checkbox(&mut never, tr("Bir daha sorma")).changed() { self.settings.res_mismatch_ignore = never; self.settings.save(); }
+        });
+        if close { self.res_prompt = None; }
     }
 
     /// Yerleşik komutu çalıştırır (kısayoldan).
@@ -2776,6 +2833,7 @@ impl App {
         self.song_window(&ctx);
         self.import_window(&ctx);
         self.resample_window(&ctx);
+        self.res_mismatch_window(&ctx);
         self.autosave();
         self.schedule_wakeups(&ctx);
         if let Some((title, st)) = self.dialog.as_mut() {

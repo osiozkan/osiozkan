@@ -58,6 +58,8 @@ pub struct Settings {
     pub volume: f64,
     /// Uygulanan varsayılan kısayol sürümü (yeni varsayılanlar bir kez eklenir; kullanıcı silerse geri gelmez)
     pub hotkey_defaults: u32,
+    /// Video açılınca PlayRes ≠ video çözünürlüğü sorusu: 0 = sor, 1 = hiç sorma
+    pub res_mismatch_ignore: bool,
     /// Makine çevirisi: sağlayıcı ("deepl" | "google" | "libre" | "claude"), anahtar, sunucu, diller, bağlam
     pub mt_provider: String,
     pub mt_key: String,
@@ -116,6 +118,7 @@ impl Default for Settings {
             play_speed: 1.0,
             volume: 1.0,
             hotkey_defaults: 0,
+            res_mismatch_ignore: false,
             mt_provider: "deepl".into(),
             mt_key: String::new(),
             mt_url: "http://localhost:5000".into(),
