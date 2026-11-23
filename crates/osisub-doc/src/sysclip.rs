@@ -18,3 +18,10 @@ pub fn set(text: &str) -> bool {
     let Ok(mut g) = cell().lock() else { return false };
     g.as_mut().map_or(false, |c| c.set_text(text.to_string()).is_ok())
 }
+
+/// Panoya RGBA görüntü yazar (Aegisub "Copy image to clipboard"); başarıysa `true`.
+pub fn set_image(width: u32, height: u32, rgba: &[u8]) -> bool {
+    let Ok(mut g) = cell().lock() else { return false };
+    let img = arboard::ImageData { width: width as usize, height: height as usize, bytes: std::borrow::Cow::Borrowed(rgba) };
+    g.as_mut().map_or(false, |c| c.set_image(img).is_ok())
+}

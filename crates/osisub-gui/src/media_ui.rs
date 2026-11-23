@@ -14,6 +14,8 @@ use std::sync::Arc;
 enum Msg {
     Info(Result<MediaInfo, String>),
     Wave(Result<Waveform, String>),
+    /// Arka plan işinin durum çubuğu iletisi (kare/ses kaydetme)
+    Notice(String),
     /// Spektrum için yüksek örnekleme hızlı ses (yol, sonuç)
     SpecWave(PathBuf, Result<Waveform, String>),
     /// `time` anından başlayan ardışık kareler (ilk kare = istenen kare)
@@ -273,6 +275,72 @@ impl Media {
         let mut i = self.info.clone()?;
         if let Some(ar) = self.ar_override { i.dar = ar; }
         Some(i)
+    }
+
+    /// Aegisub `video/frame/save|copy` (+ `/raw`): geçerli kareyi tam çözünürlükte PNG olarak kaydeder
+    /// ya da panoya kopyalar; `subs` ise altyazılar çizilmiş olarak.
+    pub fn export_frame(&mut self, doc: &Document, subs: bool, to_clipboard: bool, ctx: &egui::Context) {
+        let (Some(p), Some(info)) = (self.path.clone(), self.info.clone()) else {
+            self.status = tr("Önce video açın").into();
+            return;
+        };
+        let out = if to_clipboard {
+            None
+        } else {
+            let name = format!("{}_{}.png", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), osisub_core::time::format_ass(self.playhead).replace([':', '.'], "-"));
+            match rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name(&name).save_file() {
+                Some(o) => Some(o),
+                None => return,
+            }
+        };
+        let t = self.playhead;
+        let ass = if subs {
+            self.sync_preview_fonts(doc);
+            let a = self.tmp_dir.join("frame-export.ass");
+            let _ = std::fs::write(&a, self.preview_ass(doc, t - 1000, t + 1000));
+            Some(a)
+        } else {
+            None
+        };
+        let (tx, ctx2) = (self.tx.clone(), ctx.clone());
+        self.status = tr("Kare hazırlanıyor…").into();
+        std::thread::spawn(move || {
+            // tam çözünürlük: depolama genişliği (anamorfikte DAR'a göre yükseklik)
+            let msg = match osisub_media::render_frame(&p, ass.as_deref(), t, info.width, &info) {
+                Err(e) => trf!("Kare alınamadı: {}", e),
+                Ok(f) => match &out {
+                    None => if osisub_doc::sysclip::set_image(f.width, f.height, &f.rgba) { trf!("Kare panoya kopyalandı ({}×{})", f.width, f.height) } else { tr("Pano kullanılamıyor").to_string() },
+                    Some(o) => match image::save_buffer(o, &f.rgba, f.width, f.height, image::ExtendedColorType::Rgba8) {
+                        Ok(()) => trf!("Kare kaydedildi: {}", o.display()),
+                        Err(e) => trf!("Kare kaydedilemedi: {}", e),
+                    },
+                },
+            };
+            let _ = tx.send(Msg::Notice(msg));
+            ctx2.request_repaint();
+        });
+    }
+
+    /// Aegisub `audio/save/clip`: seçili satırların kapladığı aralığın sesini WAV olarak kaydeder.
+    pub fn save_audio_clip(&mut self, doc: &Document, ctx: &egui::Context) {
+        let Some(p) = self.path.clone().filter(|_| self.info.as_ref().map_or(false, |i| i.has_audio)) else {
+            self.status = tr("Sesli ortam açık değil").into();
+            return;
+        };
+        let t = doc.target_lines();
+        let ds: Vec<&osisub_core::ass::Dialogue> = t.iter().filter_map(|&i| match doc.script.entries.get(i) { Some(osisub_core::ass::Entry::Dialogue(d)) => Some(d), _ => None }).collect();
+        let (Some(a), Some(b)) = (ds.iter().map(|d| d.start_time).min(), ds.iter().map(|d| d.end_time).max()) else { return };
+        let name = format!("{}_{}-{}.wav", p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(), osisub_core::time::format_ass(a).replace([':', '.'], "-"), osisub_core::time::format_ass(b).replace([':', '.'], "-"));
+        let Some(out) = rfd::FileDialog::new().add_filter("WAV", &["wav"]).set_file_name(&name).save_file() else { return };
+        let (tx, ctx2) = (self.tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let msg = match osisub_media::save_audio_clip(&p, a, b, &out) {
+                Ok(()) => trf!("Ses kaydedildi: {}", out.display()),
+                Err(e) => e,
+            };
+            let _ = tx.send(Msg::Notice(msg));
+            ctx2.request_repaint();
+        });
     }
 
     /// Kare hızı ve playhead'in bulunduğu kare (video açıksa).
@@ -600,6 +668,7 @@ impl Media {
                     }
                 }
                 Msg::Wave(Err(e)) => self.status = trf!("Ses okunamadı: {}", e),
+                Msg::Notice(t) => self.status = t,
                 // yalnızca hâlâ açık olan dosyanınki (başka dosya açıldıysa eski sonuç atılır)
                 Msg::SpecWave(p, r) => {
                     if self.path.as_ref() == Some(&p) {

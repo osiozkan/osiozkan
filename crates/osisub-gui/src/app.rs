@@ -410,6 +410,11 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("clear_text", "Metni temizle (etiketler kalır)"),
     ("revert_line", "Satırı geri al (seçildiği andaki metin)"),
     ("insert_original", "Orijinal metni imlece ekle"),
+    ("frame_save", "Kareyi PNG olarak kaydet (altyazılı)"),
+    ("frame_save_raw", "Kareyi PNG olarak kaydet (altyazısız)"),
+    ("frame_copy", "Kareyi panoya kopyala (altyazılı)"),
+    ("frame_copy_raw", "Kareyi panoya kopyala (altyazısız)"),
+    ("audio_clip", "Seçili satırların sesini kaydet (WAV)"),
 ];
 pub(crate) const COMMAND_SCRIPT: &str = "@komut";
 
@@ -1711,6 +1716,8 @@ impl App {
                 self.status = trf!("{n} boşluk/örtüşme kapatıldı");
             }
             "split_cursor" => self.split_at_cursor(false),
+            "frame_save" | "frame_save_raw" | "frame_copy" | "frame_copy_raw" => self.media.export_frame(&self.doc, !id.ends_with("_raw"), id.starts_with("frame_copy"), ctx),
+            "audio_clip" => self.media.save_audio_clip(&self.doc, ctx),
             "split_preserve" => {
                 let at = self.doc.active;
                 match self.editor_cursor.filter(|(l, _)| *l == at) {
@@ -2272,6 +2279,14 @@ impl App {
                     self.open_dummy_window();
                 }
                 ui.checkbox(&mut self.show_media, tr("Medya panelini göster"));
+                ui.menu_button(tr("Kareyi kaydet / kopyala"), |ui| {
+                    let ok = self.media.info.as_ref().map_or(false, |i| i.has_video);
+                    if ui.add_enabled(ok, egui::Button::new(tr("PNG olarak kaydet (altyazılı)…"))).clicked() { ui.close(); self.media.export_frame(&self.doc, true, false, ui.ctx()); }
+                    if ui.add_enabled(ok, egui::Button::new(tr("PNG olarak kaydet (altyazısız)…"))).clicked() { ui.close(); self.media.export_frame(&self.doc, false, false, ui.ctx()); }
+                    if ui.add_enabled(ok, egui::Button::new(tr("Panoya kopyala (altyazılı)"))).clicked() { ui.close(); self.media.export_frame(&self.doc, true, true, ui.ctx()); }
+                    if ui.add_enabled(ok, egui::Button::new(tr("Panoya kopyala (altyazısız)"))).clicked() { ui.close(); self.media.export_frame(&self.doc, false, true, ui.ctx()); }
+                });
+                if ui.add_enabled(self.media.info.as_ref().map_or(false, |i| i.has_audio), egui::Button::new(tr("Seçili satırların sesini kaydet (WAV)…"))).on_hover_text(tr("Seçili satırların kapladığı aralığın sesi (Aegisub: Save audio clip) — çevirmene/kontrolcüye göndermek için")).clicked() { ui.close(); self.media.save_audio_clip(&self.doc, ui.ctx()); }
                 ui.menu_button(tr("En-boy oranı"), |ui| {
                     let cur = self.media.ar_override;
                     let auto = self.media.info.as_ref().map(|i| i.display_aspect()).unwrap_or(16.0 / 9.0);

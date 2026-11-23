@@ -595,6 +595,24 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn audio_clip_wav() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let d = std::env::temp_dir().join(format!("osisub-clip-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let src = d.join("a.wav");
+        let ok = Command::new(ffmpeg_bin()).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000:duration=3"]).arg(&src).status().unwrap();
+        assert!(ok.success());
+        let out = d.join("klip.wav");
+        save_audio_clip(&src, 1000, 1500, &out).unwrap();
+        let w = load_waveform(&out).unwrap();
+        assert!((w.duration_ms() - 500).abs() <= 5, "{}", w.duration_ms());
+        assert!(save_audio_clip(&src, 10, 10, &out).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// TS yayın kaydı (başlangıç zamanı 1.4 sn): önizleme ve anahtar kareler 0'dan sayar
     #[test]
     fn ts_baslangic_ofseti() {
@@ -872,6 +890,28 @@ mod tests {
 
 /// ffmpeg lavfi kaynağından (ör. sahte video) önbellek dosyası üretir; dosya varsa yeniden kullanır.
 /// Durağan görüntü olduğundan x264 ultrafast/stillimage ile küçük ve hızlıdır (30 dk 640×480 ≈ 20 sn, bir kez).
+/// Aegisub `audio/save/clip`: `[start_ms, end_ms)` aralığındaki sesi 16 bit PCM WAV olarak kaydeder
+/// (kaynağın kanal sayısı ve örnekleme hızıyla).
+pub fn save_audio_clip(src: &Path, start_ms: i64, end_ms: i64, out: &Path) -> Result<(), String> {
+    if end_ms <= start_ms {
+        return Err("boş aralık".into());
+    }
+    let st = Command::new(ffmpeg_bin())
+        .args(["-v", "error", "-y", "-ss", &format!("{:.3}", start_ms.max(0) as f64 / 1000.0), "-i"])
+        .arg(src)
+        .args(["-t", &format!("{:.3}", (end_ms - start_ms.max(0)) as f64 / 1000.0), "-vn", "-sn", "-c:a", "pcm_s16le", "-f", "wav"])
+        .arg(out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg çalıştırılamadı: {}", e))?;
+    if !st.status.success() {
+        let _ = std::fs::remove_file(out);
+        return Err(format!("ses kaydedilemedi: {}", String::from_utf8_lossy(&st.stderr).trim()));
+    }
+    Ok(())
+}
+
 pub fn render_lavfi(src: &str, out: &Path) -> Result<std::path::PathBuf, String> {
     if out.is_file() {
         return Ok(out.to_path_buf());
