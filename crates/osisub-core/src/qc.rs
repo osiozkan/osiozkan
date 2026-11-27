@@ -287,7 +287,7 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
             if !f.is_empty() {
                 add(Kind::Note, format!("Yazım: {}", f.iter().map(|(a, b)| format!("{a} → {b}")).collect::<Vec<_>>().join(", ")));
             }
-            let dw = crate::trfix::double_words(&d.text);
+            let dw = crate::trfix::double_words_visible(&visible);
             if !dw.is_empty() {
                 add(Kind::Note, format!("Yinelenen sözcük: {}", dw.join(", ")));
             }

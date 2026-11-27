@@ -64,11 +64,24 @@ fn llm_system(cfg: &MtConfig) -> String {
     system
 }
 
-/// YZ yanıtındaki JSON'u bulur (``` çitleri, öncesinde/sonrasında açıklama olabilir).
+/// YZ yanıtındaki JSON'u bulur: ``` çitleri, öncesinde/sonrasında açıklama, `<think>…</think>` akıl
+/// yürütme bölümü (qwen3, deepseek-r1) olabilir. Her `{`'den akışlı ayrıştırılır; `translations`/`changes`
+/// içeren ilk nesne (yoksa ilk nesne) alınır.
 fn extract_json(text: &str) -> Option<Value> {
-    if let Ok(v) = serde_json::from_str::<Value>(text.trim()) { return Some(v); }
-    let (a, b) = (text.find('{')?, text.rfind('}')?);
-    (a < b).then(|| serde_json::from_str(&text[a..=b]).ok()).flatten()
+    let mut t = text.to_string();
+    while let (Some(a), Some(b)) = (t.find("<think>"), t.find("</think>")) {
+        if b < a { break; }
+        t.replace_range(a..b + "</think>".len(), "");
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(t.trim()) { return Some(v); }
+    let mut first = None;
+    for (i, _) in t.match_indices('{') {
+        if let Some(Ok(v)) = serde_json::Deserializer::from_str(&t[i..]).into_iter::<Value>().next() {
+            if v.get("translations").is_some() || v.get("changes").is_some() { return Some(v); }
+            if first.is_none() && v.is_object() { first = Some(v); }
+        }
+    }
+    first
 }
 
 /// Satırı (başlangıç etiketleri, metin) diye ayırır; metindeki `\N` → "\n".
@@ -515,5 +528,14 @@ mod tests {
         let resp = json!({"stop_reason": "end_turn", "content": [{"type": "text", "text": "{\"changes\": [{\"id\": 1, \"text\": \"Eve gidiyorum.\", \"reason\": \"yazım\"}, {\"id\": 2, \"text\": \"Peki.\", \"reason\": \"bağlam\"}, {\"id\": 9, \"text\": \"x\", \"reason\": \"\"}]}"}]});
         assert_eq!(review_parse(&c, &items, &resp).unwrap(), vec![ReviewFix { id: 1, text: "Eve gidiyorum.".into(), reason: "yazım".into() }]);
         assert!(review_request(&cfg(Provider::DeepL), &items).is_err());
+    }
+
+    #[test]
+    fn json_after_reasoning() {
+        let v = extract_json("<think>Keep {\\i1} tags.</think>\n{\"translations\":[\"a\"]}").unwrap();
+        assert_eq!(v["translations"][0], "a");
+        let w = extract_json("Not: {\\an8} korunur. Sonuç: {\"changes\": []} bitti").unwrap();
+        assert!(w["changes"].is_array());
+        assert!(extract_json("yok").is_none());
     }
 }

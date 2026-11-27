@@ -41,15 +41,19 @@ pub fn parse_rows(text: &str, sep: char) -> Vec<Vec<String>> {
     rows
 }
 
-/// İlk satırlarda en tutarlı ayraç: sekme, `;`, `,`, `|`.
+/// En tutarlı ayraç (sekme, `;`, `,`, `|`): her aday tırnak kurallarıyla ayrıştırılır; ilk satırlarda
+/// sütun sayısı en çok satırda aynı (ve >1) olan seçilir, eşitse daha çok sütun.
 pub fn detect_sep(text: &str) -> char {
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(10).collect();
+    let head: String = text.lines().take(60).collect::<Vec<_>>().join("\n");
     ['\t', ';', ',', '|']
         .into_iter()
         .max_by_key(|&c| {
-            let counts: Vec<usize> = lines.iter().map(|l| l.matches(c).count()).collect();
-            let min = counts.iter().copied().min().unwrap_or(0);
-            (min, counts.iter().sum::<usize>())
+            let rows = parse_rows(&head, c);
+            let rows = &rows[..rows.len().min(20)];
+            let mut counts: std::collections::HashMap<usize, usize> = Default::default();
+            for r in rows { *counts.entry(r.len()).or_default() += 1; }
+            let (cols, same) = counts.into_iter().max_by_key(|&(k, v)| (v, k)).unwrap_or((1, 0));
+            (cols > 1, same, cols)
         })
         .unwrap_or(',')
 }
@@ -73,14 +77,16 @@ pub struct Columns {
     pub style: Option<usize>,
 }
 
-/// Başlık adlarından sütunları tahmin eder (Türkçe/İngilizce).
+/// Başlık adlarından sütunları tahmin eder (Türkçe/İngilizce). Başlık sözcüklere ayrılır ("Start Time",
+/// "end_time"); her alan için anahtarlar öncelik sırasıyla aranır.
 pub fn guess_columns(header: &[String]) -> Option<Columns> {
-    let find = |keys: &[&str]| header.iter().position(|h| { let h = crate::qc::tr_lower(h.trim()); keys.iter().any(|k| h == *k || (k.chars().count() >= 4 && h.starts_with(k))) });
+    let words: Vec<Vec<String>> = header.iter().map(|h| crate::qc::tr_lower(h.trim()).split(|c: char| c.is_whitespace() || c == '_' || c == '-' || c == '.').filter(|w| !w.is_empty()).map(String::from).collect()).collect();
+    let find = |keys: &[&str]| keys.iter().find_map(|k| words.iter().position(|ws| ws.iter().any(|w| w == k)));
     Some(Columns {
-        start: find(&["start", "başlangıç", "baslangic", "in", "begin"])?,
-        end: find(&["end", "bitiş", "bitis", "out", "stop"])?,
-        text: find(&["text", "metin", "çeviri", "ceviri", "translation", "dialogue", "line"])?,
-        actor: find(&["actor", "name", "speaker", "konuşan", "konusan", "karakter", "character"]),
+        start: find(&["start", "başlangıç", "baslangic", "begin", "in"])?,
+        end: find(&["end", "bitiş", "bitis", "stop", "out"])?,
+        text: find(&["text", "metin", "çeviri", "ceviri", "translation", "subtitle", "altyazı", "dialogue", "dialog"])?,
+        actor: find(&["actor", "konuşan", "konusan", "speaker", "character", "karakter", "name"]),
         style: find(&["style", "stil"]),
     })
 }
@@ -162,5 +168,17 @@ mod tests {
         // başlıksız: başlangıç, bitiş, metin
         let t = load("1.0\t2.5\tSelam\n3\t4\tNasılsın");
         assert_eq!(t.dialogues().map(|d| d.text.as_str()).collect::<Vec<_>>(), vec!["Selam", "Nasılsın"]);
+    }
+
+    #[test]
+    fn excel_semicolon_and_headers() {
+        let text = "Başlangıç;Bitiş;Çeviri\n1,5;2,5;\"Evet, hayır, şey,\nyani, tamam\"\n3;4;Bir, iki\n";
+        assert_eq!(detect_sep(text), ';');
+        let s = load(text);
+        assert_eq!(s.dialogues().map(|d| (d.start_time, d.text.as_str())).collect::<Vec<_>>(), vec![(1500, "Evet, hayır, şey,\\Nyani, tamam"), (3000, "Bir, iki")]);
+        let c = guess_columns(&["Line".into(), "Start".into(), "End".into(), "Text".into()]).unwrap();
+        assert_eq!((c.start, c.end, c.text), (1, 2, 3));
+        let t = load("#,Start Time,End Time,Text\n1,0:00:01.00,0:00:02.00,Merhaba");
+        assert_eq!(t.dialogues().map(|d| (d.start_time, d.end_time, d.text.as_str())).collect::<Vec<_>>(), vec![(1000, 2000, "Merhaba")]);
     }
 }

@@ -190,7 +190,11 @@ const DOUBLE_OK: &[&str] = &[
 /// sözcük (harf duyarsız, Türkçe i/ı). İkilemeler (`yavaş yavaş`), -A ulaçları (`koşa koşa`, `güle güle`)
 /// ve ünlemler (`hayır hayır`) atlanır; noktalama araya girerse (`Evet, evet`) yineleme sayılmaz.
 pub fn double_words(text: &str) -> Vec<String> {
-    let vis = crate::tags::visible_text(text);
+    double_words_visible(&crate::tags::visible_text(text))
+}
+
+/// `double_words`, görünür metin hazırken (QC sıcak yolu).
+pub fn double_words_visible(vis: &str) -> Vec<String> {
     let mut out = vec![];
     for line in vis.lines() {
         let toks: Vec<&str> = line.split(' ').filter(|t| !t.is_empty()).collect();
@@ -200,6 +204,12 @@ pub fn double_words(text: &str) -> Vec<String> {
             if !a.chars().last().is_some_and(|c| c.is_alphanumeric()) { continue; }
             let core_b = b.trim_end_matches(|c: char| !c.is_alphanumeric());
             if !a.chars().all(|c| c.is_alphabetic() || c == '\'') || core_b.is_empty() { continue; }
+            // ucuz eleme: harf sayısı ve ilk harf (büyük/küçük duyarsız) aynı değilse yineleme değil
+            if a.chars().count() != core_b.chars().count() { continue; }
+            match (a.chars().next(), core_b.chars().next()) {
+                (Some(x), Some(y)) if x == y || x.to_lowercase().eq(y.to_lowercase()) || matches!((x, y), ('İ', 'i') | ('i', 'İ') | ('I', 'ı') | ('ı', 'I')) => {}
+                _ => continue,
+            }
             let (la, lb) = (crate::qc::tr_lower(a), crate::qc::tr_lower(core_b));
             if la != lb { continue; }
             let n = la.chars().count();

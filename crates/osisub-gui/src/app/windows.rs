@@ -1602,7 +1602,8 @@ impl App {
         if start {
             if let Some((idx, texts, from_ref)) = self.mt_sources() {
                 let blocks = osisub_media::mt::cp_blocks(&texts, SEP, 4500);
-                self.cp = Some(CpState { idx, texts, from_ref, blocks, cur: 0, paste: String::new(), err: None, rev: self.doc.rev });
+                let orig = idx.iter().map(|&i| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => d.text.clone(), _ => String::new() }).collect();
+                self.cp = Some(CpState { idx, texts, from_ref, blocks, cur: 0, paste: String::new(), err: None, orig });
             }
         }
         if apply {
@@ -1612,14 +1613,13 @@ impl App {
                 Err(e) => cp.err = Some(e),
                 Ok(out) => {
                     let (idx, from_ref) = (cp.idx[a..b].to_vec(), cp.from_ref);
-                    // satırlar eklenip silindiyse dizinler kaymış olabilir
-                    if self.doc.rev != cp.rev && idx.iter().any(|&i| !matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))) {
+                    // satırlar eklenip silindiyse ya da düzenlendiyse dizinler/metinler tutmaz: yanlış satıra yazılmasın
+                    let moved = idx.iter().zip(&cp.orig[a..b]).any(|(&i, o)| !matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if &d.text == o));
+                    if moved {
                         cp.err = Some(tr("Belge değişti; yeniden bloklara ayırın").into());
                     } else {
                         self.apply_mt(&idx, &out, from_ref, "Kopyala-yapıştır çeviri");
-                        let rev = self.doc.rev;
                         let cp = self.cp.as_mut().unwrap();
-                        cp.rev = rev;
                         cp.err = None;
                         cp.paste.clear();
                         cp.cur += 1;
@@ -2791,7 +2791,11 @@ impl App {
             for i in self.doc.target_lines() {
                 if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) {
                     let span = (d.duration() as f64 * pct).round() as i64;
-                    let nt = osisub_core::reveal::apply(&d.text, unit, (span - fade).max(0), fade);
+                    // stilin görünür saydamlıkları (yarı saydam gölge belirince opaklaşmasın)
+                    let st = self.doc.script.styles().find(|s| s.name == d.style);
+                    let al = |c: Option<&String>| c.and_then(|c| osisub_core::color::Color::parse(c)).map_or(0, |c| c.a);
+                    let target = [al(st.map(|s| &s.color1)), al(st.map(|s| &s.color3)), al(st.map(|s| &s.color4))];
+                    let nt = osisub_core::reveal::apply_alpha(&d.text, unit, (span - fade).max(0), fade, target);
                     if nt != d.text { changes.push((i, nt)); }
                 }
             }
@@ -3509,7 +3513,8 @@ pub(crate) struct CpState {
     cur: usize,
     paste: String,
     err: Option<String>,
-    rev: u64,
+    /// gönderildiği andaki satır metinleri (uygularken satır değişmiş mi diye)
+    orig: Vec<String>,
 }
 
 /// YZ ile gözden geçirme durumu: öneriler (öneri, satırın gönderildiği andaki metni).

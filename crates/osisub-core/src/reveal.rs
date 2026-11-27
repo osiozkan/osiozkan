@@ -14,6 +14,12 @@ pub enum Unit {
 /// `fade_ms` sürede saydamdan görünüre geçer (0 = anında, daktilo). Etiket blokları, `\N` ve boşluklar
 /// birim sayılmaz; çizim (`\p1`) satırına dokunulmaz.
 pub fn apply(text: &str, unit: Unit, span_ms: i64, fade_ms: i64) -> String {
+    apply_alpha(text, unit, span_ms, fade_ms, [0, 0, 0])
+}
+
+/// `apply`, ama görünür hâldeki saydamlıklar verilir: [birincil, kenar, gölge] (ASS alfa, stilden).
+/// Yarı saydam gölgesi olan stillerde gölge belirdikten sonra opaklaşmasın diye kanallar ayrı canlandırılır.
+pub fn apply_alpha(text: &str, unit: Unit, span_ms: i64, fade_ms: i64, target: [u8; 3]) -> String {
     if (1..=9).any(|k| text.contains(&format!("\\p{k}"))) {
         return text.to_string();
     }
@@ -62,7 +68,11 @@ pub fn apply(text: &str, unit: Unit, span_ms: i64, fade_ms: i64) -> String {
                     out.push_str(&t[last..bi]);
                     let a = (k as f64 * step).round() as i64;
                     let b = a + fade_ms.max(1);
-                    out.push_str(&format!("{{\\alpha&HFF&\\t({a},{b},\\alpha&H00&)}}"));
+                    if target == [0, 0, 0] {
+                        out.push_str(&format!("{{\\alpha&HFF&\\t({a},{b},\\alpha&H00&)}}"));
+                    } else {
+                        out.push_str(&format!("{{\\alpha&HFF&\\t({a},{b},\\1a&H{:02X}&\\3a&H{:02X}&\\4a&H{:02X}&)}}", target[0], target[1], target[2]));
+                    }
                     last = bi;
                     k += 1;
                 }
@@ -90,5 +100,11 @@ mod tests {
         assert_eq!(tags::strip_tags(&apply("Çağ ışık", Unit::Char, 600, 0)), "Çağ ışık");
         assert_eq!(apply("{\\p1}m 0 0 l 1 1", Unit::Char, 100, 0), "{\\p1}m 0 0 l 1 1");
         assert_eq!(apply("{\\an8}", Unit::Word, 100, 0), "{\\an8}");
+    }
+
+    #[test]
+    fn keeps_style_transparency() {
+        let t = apply_alpha("ab", Unit::Word, 100, 0, [0, 0, 0x80]);
+        assert_eq!(t, "{\\alpha&HFF&\\t(0,1,\\1a&H00&\\3a&H00&\\4a&H80&)}ab");
     }
 }

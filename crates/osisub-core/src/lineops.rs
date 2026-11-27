@@ -137,6 +137,11 @@ fn text_spaces(t: &str) -> Vec<usize> {
 /// içi etiketler sözcükle gider; iki satır `max` karaktere göre yeniden dengelenir. Taşınacak sözcük yoksa None.
 pub fn move_word(a: &str, b: &str, forward: bool, max: usize) -> Option<(String, String)> {
     use crate::linebreak::{balance, unbreak};
+    // iki konuşmacılı satır ("- Ne?\N- Hiç."): düzleştirmek çizgi yapısını bozar — dokunulmaz
+    let dialog = |t: &str| t.split("\\N").skip(1).any(|seg| { let v = crate::tags::strip_tags(seg); let v = v.trim_start(); v.starts_with('-') || v.starts_with('–') || v.starts_with('—') });
+    if dialog(a) || dialog(b) {
+        return None;
+    }
     let (fa, fb) = (unbreak(a), unbreak(b));
     let (la, lb) = (crate::tags::leading_blocks(&fa).to_string(), crate::tags::leading_blocks(&fb).to_string());
     let (ba, bb) = (fa[la.len()..].trim().to_string(), fb[lb.len()..].trim().to_string());
@@ -231,6 +236,8 @@ mod tests {
         assert_eq!(move_word("a", "{\\i1}", false, 42), None);
         // etiket içindeki boşluk sözcük sınırı sayılmaz
         assert_eq!(move_word("x {\\fnArial Black}y", "z", true, 42), Some(("x".into(), "{\\fnArial Black}y z".into())));
+        assert_eq!(move_word("- Ne?\\N- Hiç.", "Sonra gel.", true, 42), None);
+        assert_eq!(move_word("Tamam.", "- Ne?\\N- Hiç.", false, 42), None);
         // uzun sonuç dengelenir
         let (_, nb) = move_word("bir iki üç", "dört beş altı yedi sekiz dokuz on onbir oniki onüç ondört", true, 30).unwrap();
         assert!(nb.contains("\\N"));
