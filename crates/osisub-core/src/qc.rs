@@ -287,6 +287,10 @@ pub fn check(script: &Script, rules: &Rules) -> Vec<Issue> {
             if !f.is_empty() {
                 add(Kind::Note, format!("Yazım: {}", f.iter().map(|(a, b)| format!("{a} → {b}")).collect::<Vec<_>>().join(", ")));
             }
+            let dw = crate::trfix::double_words(&d.text);
+            if !dw.is_empty() {
+                add(Kind::Note, format!("Yinelenen sözcük: {}", dw.join(", ")));
+            }
         }
         if visible.trim().is_empty() && !(1..=9).any(|k| d.text.contains(&format!("\\p{k}"))) {
             add(Kind::Empty, "Boş metin".into());

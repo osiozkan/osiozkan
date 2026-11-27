@@ -176,6 +176,41 @@ pub fn findings(text: &str) -> Vec<(String, String)> {
     v
 }
 
+/// Bilerek yinelenen sözcükler (Türkçe ikilemeler, ünlemler, İngilizce "had had").
+const DOUBLE_OK: &[&str] = &[
+    "yavaş", "tek", "bir", "iki", "üç", "ara", "sık", "kat", "ufak", "parça", "sıra", "yan", "çabuk", "hızlı", "derin", "kapı", "ev", "yıl",
+    "gün", "saat", "adım", "ayrı", "damla", "bölük", "grup", "kucak", "avuç", "sıcak", "soğuk", "yeni", "güzel", "iyi", "renk", "çeşit", "türlü",
+    "yer", "köşe", "dal", "taze", "ince", "kalın", "uzun", "kısa", "büyük", "küçük", "öbek", "deste", "tane", "kilo", "metre", "saniye", "dakika",
+    "hayır", "evet", "hey", "oh", "ah", "aa", "ha", "he", "hı", "hm", "tamam", "dur", "bekle", "hadi", "haydi", "gel", "git", "koş", "yok", "çok",
+    "no", "yes", "oh", "wait", "come", "go", "hey", "okay", "ok", "very", "so", "had", "that", "bye", "now", "run", "stop", "please", "sorry",
+    "la", "na", "da", "ya", "ra", "ta", "lala", "dum", "boom", "bang", "knock", "tık", "pat", "çat", "güm", "hop",
+];
+
+/// Arka arkaya yinelenen sözcükler (Subtitle Edit "Find double words"): yalnız boşlukla ayrılmış aynı
+/// sözcük (harf duyarsız, Türkçe i/ı). İkilemeler (`yavaş yavaş`), -A ulaçları (`koşa koşa`, `güle güle`)
+/// ve ünlemler (`hayır hayır`) atlanır; noktalama araya girerse (`Evet, evet`) yineleme sayılmaz.
+pub fn double_words(text: &str) -> Vec<String> {
+    let vis = crate::tags::visible_text(text);
+    let mut out = vec![];
+    for line in vis.lines() {
+        let toks: Vec<&str> = line.split(' ').filter(|t| !t.is_empty()).collect();
+        for w in toks.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            // ilk sözcükte sondaki noktalama yinelemeyi böler
+            if !a.chars().last().is_some_and(|c| c.is_alphanumeric()) { continue; }
+            let core_b = b.trim_end_matches(|c: char| !c.is_alphanumeric());
+            if !a.chars().all(|c| c.is_alphabetic() || c == '\'') || core_b.is_empty() { continue; }
+            let (la, lb) = (crate::qc::tr_lower(a), crate::qc::tr_lower(core_b));
+            if la != lb { continue; }
+            let n = la.chars().count();
+            let gerund = n >= 4 && (la.ends_with('a') || la.ends_with('e'));
+            if DOUBLE_OK.contains(&la.as_str()) || gerund { continue; }
+            out.push(format!("{a} {core_b}"));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +237,17 @@ mod tests {
         for (w, want) in [("gelecekmisin", "gelecek misin"), ("hazırmıyız", "hazır mıyız"), ("geliyormusun", "geliyor musun"), ("iyimisin", "iyi misin"), ("yapabilirmiyim", "yapabilir miyim"), ("gelmişmiydi", "gelmiş miydi")] {
             assert_eq!(fix_text(w).0, want);
         }
+    }
+
+    #[test]
+    fn double_words_found() {
+        assert_eq!(double_words("I saw the the cat"), vec!["the the"]);
+        assert_eq!(double_words("{\\i1}Bunu bunu{\\i0} yapma\\Nve ve git"), vec!["Bunu bunu", "ve ve"]);
+        assert_eq!(double_words("Kim kim? Sen sen!"), vec!["Kim kim", "Sen sen"]);
+        // ikilemeler, ulaçlar, ünlemler, noktalama
+        assert!(double_words("Yavaş yavaş, koşa koşa, güle güle! Hayır hayır. Evet, evet. Bir bir saydı.").is_empty());
+        assert!(double_words("A-a-ama 3 3").is_empty());
+        // satır sonu yinelemeyi bölmez ama satırlar arası sayılmaz
+        assert!(double_words("sen\\Nsen").is_empty());
     }
 }

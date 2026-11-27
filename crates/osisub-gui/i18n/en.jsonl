@@ -1386,3 +1386,4 @@
 ["Belge değişti; yeniden bloklara ayırın", "The document changed; split into blocks again"]
 ["Seçili {} satırı bloklara ayır", "Split {} selected lines into blocks"]
 ["Blok {} / {} — {} satır", "Block {} / {} — {} lines"]
+["Yinelenen sözcük: {}", "Repeated word: {}"]
