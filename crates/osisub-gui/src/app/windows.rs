@@ -1423,11 +1423,11 @@ impl App {
         })
     }
 
-    /// Seçili satırları arka planda çevirir. Kaynak: referans altyazı yüklüyse zamanca en çok örtüşen
-    /// referans satırı, değilse satırın kendi metni.
-    pub(super) fn start_mt(&mut self) {
-        let Some(cfg) = self.mt_config() else { return };
+    /// Çevrilecek satırlar ve kaynak metinleri. Kaynak: referans altyazı yüklüyse zamanca en çok örtüşen
+    /// referans satırı, değilse satırın kendi metni. Tabela/karaoke/çizim satırları atlanır.
+    fn mt_sources(&mut self) -> Option<(Vec<usize>, Vec<String>, bool)> {
         // tabela/karaoke/çizim satırları çevrilmez (çizim komutları ve \k satırları bozulurdu)
+
         let targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment && !qc::is_typeset(d) && !qc::is_karaoke(d) && !osisub_core::tags::strip_tags(&d.text).trim().is_empty())).collect();
         let mut idx = vec![];
         let mut texts = vec![];
@@ -1444,9 +1444,16 @@ impl App {
             idx.push(i);
             texts.push(src);
         }
-        if texts.is_empty() { self.status = tr("Çevrilecek metin yok (satır seçin; referans kullanıyorsanız eşleşen referans satırı olmalı)").into(); return; }
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        if texts.is_empty() { self.status = tr("Çevrilecek metin yok (satır seçin; referans kullanıyorsanız eşleşen referans satırı olmalı)").into(); return None; }
+        Some((idx, texts, from_ref))
+    }
+
+    /// Seçili satırları arka planda çevirir. Kaynak: referans altyazı yüklüyse zamanca en çok örtüşen
+    /// referans satırı, değilse satırın kendi metni.
+    pub(super) fn start_mt(&mut self) {
+        let Some(cfg) = self.mt_config() else { return };
+        let Some((idx, texts, from_ref)) = self.mt_sources() else { return };
+        let (tx, rx) = std::sync::mpsc::channel();        std::thread::spawn(move || {
             let mut out = vec![];
             for chunk in texts.chunks(if cfg.provider == osisub_media::mt::Provider::OpenAi { 15 } else { 40 }) {
                 // 429 (hız sınırı) / geçici hata: artan beklemeyle 3 kez daha dene
@@ -1474,6 +1481,19 @@ impl App {
         self.status = tr("Makine çevirisi çalışıyor…").into();
     }
 
+    fn apply_mt(&mut self, idx: &[usize], out: &[String], from_ref: bool, desc: &str) {
+        if out.is_empty() { return; }
+        let mut s = self.doc.script.clone();
+        for (&i, t) in idx.iter().zip(out.iter()) {
+            if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) {
+                // referanstan çevrildiyse satırın kendi baş etiketleri ({\an8}, {\pos}) korunur
+                let head = if from_ref && !t.starts_with('{') { osisub_core::tags::leading_blocks(&d.text).to_string() } else { String::new() };
+                d.text = head + t;
+            }
+        }
+        self.doc.apply_new_script(desc, s);
+    }
+
     pub(super) fn poll_mt(&mut self, ctx: &egui::Context) {
         let Some(rx) = &self.mt_rx else { return };
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -1483,17 +1503,7 @@ impl App {
             self.status = tr("Makine çevirisi: belge bu arada değişti, sonuç uygulanmadı").into();
             return;
         }
-        if !out.is_empty() {
-            let mut s = self.doc.script.clone();
-            for (&i, t) in idx.iter().zip(out.iter()) {
-                if let Some(Entry::Dialogue(d)) = s.entries.get_mut(i) {
-                    // referanstan çevrildiyse satırın kendi baş etiketleri ({\an8}, {\pos}) korunur
-                    let head = if self.mt_from_ref && !t.starts_with('{') { osisub_core::tags::leading_blocks(&d.text).to_string() } else { String::new() };
-                    d.text = head + t;
-                }
-            }
-            self.doc.apply_new_script("Makine çevirisi", s);
-        }
+        self.apply_mt(&idx, &out, self.mt_from_ref, "Makine çevirisi");
         self.status = match err {
             None => trf!("{} satır çevrildi (gözden geçirin!)", out.len()),
             Some(e) => trf!("Makine çevirisi: {} satır çevrildi, sonra hata: {}", out.len(), e),
@@ -1504,18 +1514,22 @@ impl App {
         if !self.mt_open { return; }
         let mut open = true;
         let mut go = false;
+        let mut cp_ui = false;
         let mut changed = false;
         egui::Window::new(tr("Makine çevirisi")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
             let st = &mut self.settings;
             egui::Grid::new("mt_grid").num_columns(2).show(ui, |ui| {
                 ui.label(tr("Sağlayıcı"));
-                egui::ComboBox::from_id_salt("mt_prov").selected_text(osisub_media::mt::Provider::ALL.iter().find(|p| p.0 == st.mt_provider).map(|p| p.1).unwrap_or("—")).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("mt_prov").selected_text(if st.mt_provider == "copypaste" { tr("Kopyala-yapıştır (web çevirmeni / sohbet YZ; ücretsiz)") } else { osisub_media::mt::Provider::ALL.iter().find(|p| p.0 == st.mt_provider).map(|p| p.1).unwrap_or("—") }).show_ui(ui, |ui| {
                     for (id, l) in osisub_media::mt::Provider::ALL { changed |= ui.selectable_value(&mut st.mt_provider, id.to_string(), *l).changed(); }
+                    changed |= ui.selectable_value(&mut st.mt_provider, "copypaste".to_string(), tr("Kopyala-yapıştır (web çevirmeni / sohbet YZ; ücretsiz)")).changed();
                 });
                 ui.end_row();
-                ui.label(tr("API anahtarı"));
-                changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_key).password(true).desired_width(260.0)).changed();
-                ui.end_row();
+                if st.mt_provider != "copypaste" {
+                    ui.label(tr("API anahtarı"));
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_key).password(true).desired_width(260.0)).changed();
+                    ui.end_row();
+                }
                 if st.mt_provider == "libre" {
                     ui.label(tr("Sunucu"));
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_url).desired_width(260.0)).changed();
@@ -1544,11 +1558,77 @@ impl App {
             });
             ui.label(RichText::new(tr("Anahtar settings.json'da düz metin saklanır. Kaynak: referans altyazı yüklüyse eşleşen referans satırı, değilse satırın metni. Etiketler korunur. Sonucu mutlaka gözden geçirin.")).small().weak());
             let n = self.doc.target_lines().len();
-            if ui.add_enabled(self.mt_rx.is_none(), egui::Button::new(format!("Seçili {n} satırı çevir"))).clicked() { go = true; }
+            if self.settings.mt_provider == "copypaste" {
+                cp_ui = true;
+            } else if ui.add_enabled(self.mt_rx.is_none(), egui::Button::new(format!("Seçili {n} satırı çevir"))).clicked() { go = true; }
         });
+        if cp_ui { self.copy_paste_ui(ctx); } else { self.cp = None; }
         if changed { self.settings.save(); }
         if go { self.start_mt(); }
         if !open { self.mt_open = false; }
+    }
+
+    /// Kopyala-yapıştır çeviri: bloğu panoya kopyala → çevirmene/sohbete yapıştır → sonucu buraya yapıştır.
+    fn copy_paste_ui(&mut self, ctx: &egui::Context) {
+        const SEP: &str = ".";
+        let mut start = false;
+        let mut apply = false;
+        let mut stop = false;
+        egui::Window::new(tr("Kopyala-yapıştır çeviri")).collapsible(false).default_width(460.0).show(ctx, |ui| {
+            match &mut self.cp {
+                None => {
+                    ui.label(RichText::new(tr("Seçili satırlar ~4500 karakterlik bloklara paketlenir; satırlar arasında yalnız \".\" içeren ayraç satırı olur. Bloğu Google Çeviri, DeepL web ya da bir sohbet YZ'sine yapıştırın, çeviriyi buraya geri yapıştırın. Etiketler korunur.")).small());
+                    if ui.button(trf!("Seçili {} satırı bloklara ayır", self.doc.target_lines().len())).clicked() { start = true; }
+                }
+                Some(cp) => {
+                    let (a, b, text) = cp.blocks[cp.cur].clone();
+                    ui.label(RichText::new(trf!("Blok {} / {} — {} satır", cp.cur + 1, cp.blocks.len(), b - a)).strong());
+                    ui.horizontal(|ui| {
+                        if ui.button(tr("Bloğu panoya kopyala")).clicked() { ui.ctx().copy_text(text.clone()); }
+                        ui.label(RichText::new(trf!("{} karakter", text.chars().count())).weak());
+                    });
+                    ui.label(tr("Çeviriyi buraya yapıştırın:"));
+                    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                        ui.add(egui::TextEdit::multiline(&mut cp.paste).desired_rows(8).desired_width(f32::INFINITY));
+                    });
+                    if let Some(e) = &cp.err { ui.colored_label(egui::Color32::from_rgb(0xe5, 0x6b, 0x6b), e); }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!cp.paste.trim().is_empty(), egui::Button::new(if cp.cur + 1 < cp.blocks.len() { tr("Uygula ve sonraki blok") } else { tr("Uygula ve bitir") })).clicked() { apply = true; }
+                        if ui.button(tr("Vazgeç")).clicked() { stop = true; }
+                    });
+                }
+            }
+        });
+        if start {
+            if let Some((idx, texts, from_ref)) = self.mt_sources() {
+                let blocks = osisub_media::mt::cp_blocks(&texts, SEP, 4500);
+                self.cp = Some(CpState { idx, texts, from_ref, blocks, cur: 0, paste: String::new(), err: None, rev: self.doc.rev });
+            }
+        }
+        if apply {
+            let Some(cp) = self.cp.as_mut() else { return };
+            let (a, b, _) = cp.blocks[cp.cur].clone();
+            match osisub_media::mt::cp_unpack(&cp.texts[a..b], &cp.paste, SEP) {
+                Err(e) => cp.err = Some(e),
+                Ok(out) => {
+                    let (idx, from_ref) = (cp.idx[a..b].to_vec(), cp.from_ref);
+                    // satırlar eklenip silindiyse dizinler kaymış olabilir
+                    if self.doc.rev != cp.rev && idx.iter().any(|&i| !matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(_)))) {
+                        cp.err = Some(tr("Belge değişti; yeniden bloklara ayırın").into());
+                    } else {
+                        self.apply_mt(&idx, &out, from_ref, "Kopyala-yapıştır çeviri");
+                        let rev = self.doc.rev;
+                        let cp = self.cp.as_mut().unwrap();
+                        cp.rev = rev;
+                        cp.err = None;
+                        cp.paste.clear();
+                        cp.cur += 1;
+                        if cp.cur >= cp.blocks.len() { self.status = trf!("{} satır çevrildi (gözden geçirin!)", cp.idx.len()); stop = true; }
+                    }
+                }
+            }
+        }
+        if stop { self.cp = None; }
     }
 
     pub(super) fn export_window(&mut self, ctx: &egui::Context) {
@@ -3049,4 +3129,16 @@ impl App {
             self.scroll_to = Some(e);
         }
     }
+}
+
+/// Kopyala-yapıştır çeviri oturumu.
+pub(crate) struct CpState {
+    idx: Vec<usize>,
+    texts: Vec<String>,
+    from_ref: bool,
+    blocks: Vec<(usize, usize, String)>,
+    cur: usize,
+    paste: String,
+    err: Option<String>,
+    rev: u64,
 }

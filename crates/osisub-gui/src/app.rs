@@ -278,6 +278,8 @@ pub struct App {
     /// Makine çevirisi sonucu: (entry dizinleri, sonuç)
     mt_rx: Option<std::sync::mpsc::Receiver<(Vec<usize>, Vec<String>, Option<String>)>>,
     mt_from_ref: bool,
+    /// Kopyala-yapıştır çeviri oturumu (Subtitle Edit)
+    cp: Option<windows::CpState>,
     resync_rx: Option<std::sync::mpsc::Receiver<Result<Vec<osisub_media::resync::Group>, String>>>,
     /// Izgara yazım göstergesi önbelleği: (belge sürümü, entry → hatalı sözcük var mı)
     spell_rows: std::cell::RefCell<(u64, std::collections::HashMap<usize, bool>)>,
@@ -655,6 +657,7 @@ impl App {
             mt_open: false,
             mt_rx: None,
             mt_from_ref: false,
+            cp: None,
             editor_cursor: None,
             editor_sel: None,
             pending_text_sel: None,
@@ -839,6 +842,7 @@ impl App {
         }
         match open_win.as_deref() {
             Some("find") => app.find_open = true,
+            Some("mt") => app.mt_open = true,
             Some("karamode") => { app.media.kara_mode = true; app.media.kara_sel = Some((app.doc.active, 2)); }
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,

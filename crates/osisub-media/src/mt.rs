@@ -91,6 +91,49 @@ fn rejoin(lead: &str, text: &str) -> String {
     format!("{}{}", lead, text.trim().replace("\r\n", "\n").replace('\n', "\\N"))
 }
 
+/// Kopyala-yapıştır çeviri (Subtitle Edit Copy-paste translate): satırların görünür metinlerini, aralarında
+/// yalnız `sep` içeren satırla, en çok `max` karakterlik bloklara paketler. (başlangıç, bitiş, blok metni).
+pub fn cp_blocks(texts: &[String], sep: &str, max: usize) -> Vec<(usize, usize, String)> {
+    let mut out = vec![];
+    let (mut start, mut cur) = (0, String::new());
+    let join = format!("\n{}\n", sep);
+    for (i, t) in texts.iter().enumerate() {
+        let body = split_leading_tags(t).1.trim().replace("\n\n", "\n");
+        if !cur.is_empty() && cur.len() + join.len() + body.len() > max {
+            out.push((start, i, std::mem::take(&mut cur)));
+            start = i;
+        }
+        if i > start { cur.push_str(&join); }
+        cur.push_str(&body);
+    }
+    if start < texts.len() {
+        out.push((start, texts.len(), cur));
+    }
+    out
+}
+
+/// Yapıştırılan çeviriyi `sep` satırlarından böler; parça sayısı kaynak satır sayısına eşit olmalı.
+/// Kaynak satırların baştaki etiketleri geri eklenir, satır içi satır sonları `\N` olur.
+pub fn cp_unpack(srcs: &[String], pasted: &str, sep: &str) -> Result<Vec<String>, String> {
+    let mut parts: Vec<String> = vec![String::new()];
+    for line in pasted.replace("\r\n", "\n").lines() {
+        if line.trim() == sep.trim() {
+            parts.push(String::new());
+        } else {
+            let p = parts.last_mut().unwrap();
+            if !p.is_empty() { p.push('\n'); }
+            p.push_str(line.trim_end());
+        }
+    }
+    // baş/son boş parçalar (çevirmenin eklediği boş satırlar) yok sayılır
+    while parts.len() > srcs.len() && parts.last().is_some_and(|p| p.trim().is_empty()) { parts.pop(); }
+    while parts.len() > srcs.len() && parts.first().is_some_and(|p| p.trim().is_empty()) { parts.remove(0); }
+    if parts.len() != srcs.len() {
+        return Err(format!("{} satır bekleniyordu, {} parça geldi (ayraç \"{}\" satırları kaybolmuş olabilir)", srcs.len(), parts.len(), sep.trim()));
+    }
+    Ok(srcs.iter().zip(parts).map(|(s, t)| rejoin(&split_leading_tags(s).0, t.trim())).collect())
+}
+
 /// (adres, başlıklar, gövde) — ağ katmanından bağımsız.
 pub fn build_request(cfg: &MtConfig, texts: &[String]) -> (String, Vec<(String, String)>, Value) {
     let plain: Vec<String> = texts.iter().map(|t| split_leading_tags(t).1).collect();
@@ -324,5 +367,18 @@ mod tests {
         assert!(!req.to_ascii_lowercase().contains("authorization"));
         c.model = " ".into();
         assert!(translate(&c, &["x".to_string()]).unwrap_err().contains("Model"));
+    }
+
+    #[test]
+    fn copy_paste_blocks_roundtrip() {
+        let texts: Vec<String> = vec!["{\\an8}Hello\\Nthere".into(), "Second".into(), "Third line".into()];
+        let b = cp_blocks(&texts, ".", 5000);
+        assert_eq!(b, vec![(0, 3, "Hello\nthere\n.\nSecond\n.\nThird line".to_string())]);
+        // küçük sınırda bölünür, satır bölünmez
+        let b2 = cp_blocks(&texts, ".", 19);
+        assert_eq!(b2.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), vec![(0, 1), (1, 3)]);
+        let pasted = "\r\nMerhaba\r\noradaki\r\n.\r\nİkinci\r\n .\r\nÜçüncü satır\r\n\r\n";
+        assert_eq!(cp_unpack(&texts, pasted, ".").unwrap(), vec!["{\\an8}Merhaba\\Noradaki", "İkinci", "Üçüncü satır"]);
+        assert!(cp_unpack(&texts, "Merhaba. İkinci. Üçüncü", ".").unwrap_err().contains("3 satır"));
     }
 }
