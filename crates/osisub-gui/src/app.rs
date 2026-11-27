@@ -378,6 +378,8 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
+    ("silence_next", "Ses: sonraki sessizliğe atla"),
+    ("silence_prev", "Ses: önceki sessizliğe atla"),
     ("word_to_next", "Son sözcüğü sonraki satırın başına taşı"),
     ("word_from_next", "Sonraki satırın ilk sözcüğünü bu satıra al"),
     ("word_to_prev", "İlk sözcüğü önceki satırın sonuna taşı"),
@@ -1862,6 +1864,16 @@ impl App {
             }
             "ready_check" => self.ready_open = true,
             "multi_replace" => self.open_mrep(),
+            "silence_next" | "silence_prev" => {
+                // Subtitle Edit Seek silence: ≥0.3 sn, tepe ≤ %10
+                match self.media.waveform() {
+                    None => self.status = tr("Önce ses/video açın (dalga formu yüklenmeli)").into(),
+                    Some(w) => match w.seek_silence(self.media.playhead, id == "silence_next", 300, 0.10) {
+                        Some(t) => self.media.playhead = t,
+                        None => self.status = tr("Bu yönde sessiz bölüm yok").into(),
+                    },
+                }
+            }
             "word_to_next" | "word_from_next" | "word_to_prev" | "word_from_prev" => {
                 // Subtitle Edit: sözcüğü komşu satıra taşı (ızgara sırasıyla komşu; iki satır dengelenir)
                 let at = self.doc.active;
@@ -2657,6 +2669,10 @@ impl App {
                 });
                 if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Satırı oynat / durdur")).shortcut_text("F5")).clicked() { self.media.toggle_play(&self.doc, ui.ctx()); ui.close(); }
                 if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Playhead'den oynat / durdur")).shortcut_text("Shift+F5")).clicked() { self.media.toggle_play_from_playhead(&self.doc, ui.ctx()); ui.close(); }
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("< Sessizlik"))).on_hover_text(tr("Ses: önceki sessizliğe atla")).clicked() { self.run_command("silence_prev", ui.ctx()); }
+                    if ui.add_enabled(self.media.is_open(), egui::Button::new(tr("Sessizlik >"))).on_hover_text(tr("Ses: sonraki sessizliğe atla (en az 0.3 sn, tepe ≤ %10)")).clicked() { self.run_command("silence_next", ui.ctx()); }
+                });
             });
             ui.menu_button(tr("Otomasyon"), |ui| {
                 if self.macros.is_empty() { ui.label(RichText::new(tr("Yüklü makro yok")).weak()); }

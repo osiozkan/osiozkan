@@ -179,6 +179,37 @@ impl Waveform {
         self.samples.len() as i64 * 1000 / self.sample_rate.max(1) as i64
     }
 
+    /// Subtitle Edit "sessizliğe atla": `from_ms`'den ileri (ya da geri) en az `min_ms` süren, tepe
+    /// değeri dosyanın en yüksek tepesinin `max_frac` katını aşmayan ilk sessiz bölümün BAŞLANGICI (ms).
+    /// Geri yönde `from_ms`'den önce başlayan son sessiz bölüm. 10 ms'lik bloklarla çalışır.
+    pub fn seek_silence(&self, from_ms: i64, forward: bool, min_ms: i64, max_frac: f64) -> Option<i64> {
+        let blk = (self.sample_rate as usize / 100).max(1);
+        let peaks: Vec<u16> = self.samples.chunks(blk).map(|c| c.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0)).collect();
+        let top = *peaks.iter().max()? as f64;
+        let thr = (top * max_frac) as u16;
+        let need = ((min_ms + 9) / 10).max(1) as usize;
+        // sessiz koşular: (başlangıç bloğu, uzunluk)
+        let mut runs: Vec<(usize, usize)> = vec![];
+        let mut start = None;
+        for (i, &p) in peaks.iter().chain(std::iter::once(&u16::MAX)).enumerate() {
+            match (p <= thr, start) {
+                (true, None) => start = Some(i),
+                (false, Some(a)) => {
+                    if i - a >= need { runs.push((a, i - a)); }
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        let ms = |b: usize| (b * 10) as i64;
+        if forward {
+            // içinde bulunulan sessizlik atlanır: başlangıcı şimdiden sonra olan ilk koşu
+            runs.iter().find(|r| ms(r.0) > from_ms).map(|r| ms(r.0))
+        } else {
+            runs.iter().rev().find(|r| ms(r.0) < from_ms - 10).map(|r| ms(r.0))
+        }
+    }
+
     /// `[start_ms, start_ms + px * ms_per_px)` aralığı için piksel başına (min, max).
     pub fn peaks(&self, start_ms: f64, ms_per_px: f64, px: usize) -> Vec<(i16, i16)> {
         let sr = self.sample_rate as f64 / 1000.0;
@@ -619,6 +650,24 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn seek_silence_finds_gaps() {
+        // 8 kHz: 0–1 sn ses, 1–1.2 sn sessiz (kısa), 1.2–2 sn ses, 2–2.5 sn sessiz, 2.5–3 sn ses
+        let mut v = vec![];
+        for i in 0..24000usize {
+            let t = i as f64 / 8000.0;
+            let loud = !((1.0..1.2).contains(&t) || (2.0..2.5).contains(&t));
+            v.push(if loud { ((i as f64 * 0.3).sin() * 20000.0) as i16 } else { 50 });
+        }
+        let w = super::Waveform { sample_rate: 8000, samples: v };
+        assert_eq!(w.seek_silence(0, true, 300, 0.1), Some(2000));
+        assert_eq!(w.seek_silence(0, true, 150, 0.1), Some(1000));
+        assert_eq!(w.seek_silence(2100, true, 300, 0.1), None);
+        assert_eq!(w.seek_silence(2900, false, 300, 0.1), Some(2000));
+        assert_eq!(w.seek_silence(1500, false, 300, 0.1), None);
+        assert_eq!(super::Waveform { sample_rate: 8000, samples: vec![] }.seek_silence(0, true, 300, 0.1), None);
+    }
+
     #[test]
     fn align_finds_sign_frames() {
         if !ffmpeg_available() {
