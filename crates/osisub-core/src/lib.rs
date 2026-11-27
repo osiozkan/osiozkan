@@ -45,6 +45,7 @@ pub mod chapters;
 pub mod honorifics;
 pub mod paths;
 pub mod qc;
+pub mod reveal;
 pub mod search;
 pub mod select;
 pub mod splitlines;

@@ -2723,6 +2723,47 @@ impl App {
     }
 
     /// Yayın öncesi kontrol listesi: mevcut denetimlerin özeti; satıra tıklayınca ilgili yere.
+    /// Metin belirme efekti (core::reveal): seçili satırlara tek satırlık \t belirme etiketleri.
+    pub(super) fn reveal_window(&mut self, ctx: &egui::Context) {
+        if !self.reveal.0 { return; }
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new(tr("Belirme efekti")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut self.reveal.1, false, tr("Harf harf"));
+                ui.radio_value(&mut self.reveal.1, true, tr("Sözcük sözcük"));
+            });
+            ui.horizontal(|ui| {
+                ui.label(tr("Belirme süresi"));
+                ui.add(egui::Slider::new(&mut self.reveal.2, 5.0..=100.0).suffix(" %").integer());
+            }).response.on_hover_text(tr("Satır süresinin bu kadarında tüm metin görünür olur; kalan sürede okunur"));
+            ui.horizontal(|ui| {
+                ui.label(tr("Solma (ms)"));
+                ui.add(egui::DragValue::new(&mut self.reveal.3).range(0..=2000).speed(10));
+                ui.label(RichText::new(tr("0 = daktilo (anında)")).weak());
+            });
+            let n = self.doc.target_lines().len();
+            if ui.button(trf!("Seçili {} satıra uygula", n)).clicked() { go = true; }
+            ui.label(RichText::new(tr("Var olan \\alpha etiketleri olan satırlarda sonuç farklı olabilir. Ctrl+Z geri alır.")).small().weak());
+        });
+        if go {
+            let unit = if self.reveal.1 { osisub_core::reveal::Unit::Word } else { osisub_core::reveal::Unit::Char };
+            let (pct, fade) = (self.reveal.2 as f64 / 100.0, self.reveal.3);
+            let mut changes = vec![];
+            for i in self.doc.target_lines() {
+                if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) {
+                    let span = (d.duration() as f64 * pct).round() as i64;
+                    let nt = osisub_core::reveal::apply(&d.text, unit, (span - fade).max(0), fade);
+                    if nt != d.text { changes.push((i, nt)); }
+                }
+            }
+            let n = changes.len();
+            if n > 0 { self.doc.edit("Belirme efekti", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
+            self.status = trf!("Belirme efekti {} satıra uygulandı", n);
+        }
+        if !open { self.reveal.0 = false; }
+    }
+
     pub(super) fn ready_window(&mut self, ctx: &egui::Context) {
         if !self.ready_open { return; }
         use osisub_core::qc::Kind;

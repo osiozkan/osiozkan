@@ -150,6 +150,8 @@ pub struct App {
     bookmarks_open: bool,
     backups_open: bool,
     ready_open: bool,
+    /// Belirme efekti penceresi: (açık, sözcük mü, süre yüzdesi, solma ms)
+    reveal: (bool, bool, f32, i64),
     /// Çoklu değiştir: kurallar ve önizleme sonuçları (açıksa Some)
     mrep: Option<(Vec<osisub_core::multireplace::Rule>, Vec<Result<usize, String>>, bool)>,
     mrep_key: Option<(u64, usize, Option<usize>, bool)>,
@@ -376,6 +378,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("merge_keep", "Birleştir (ilkini koru)"),
     ("merge_kara", "Karaoke olarak birleştir"),
     ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
+    ("reveal_fx", "Belirme efekti (daktilo / sözcük sözcük / solarak)"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
     ("silence_next", "Ses: sonraki sessizliğe atla"),
@@ -760,6 +763,7 @@ impl App {
             bookmarks_open: false,
             backups_open: false,
             ready_open: false,
+            reveal: (false, false, 50.0, 0),
             mrep: None,
             mrep_key: None,
             console_code: "-- subs, sel, active kullanılabilir; örnek (Türkçe uyumlu büyük harf):\nlocal osisub = require \"osisub\"\nfor _, i in ipairs(sel) do\n  local l = subs[i]\n  l.text = osisub.text.upper(l.text)\n  subs[i] = l\nend\naegisub.log(#sel .. \" satır\\n\")".into(),
@@ -847,6 +851,7 @@ impl App {
         }
         match open_win.as_deref() {
             Some("find") => app.find_open = true,
+            Some("reveal") => app.reveal.0 = true,
             Some("mt") => app.mt_open = true,
             Some("karamode") => { app.media.kara_mode = true; app.media.kara_sel = Some((app.doc.active, 2)); }
             Some("timing") => app.timing_open = true,
@@ -1870,6 +1875,7 @@ impl App {
                 }
             }
             "ready_check" => self.ready_open = true,
+            "reveal_fx" => self.reveal.0 = true,
             "multi_replace" => self.open_mrep(),
             "silence_next" | "silence_prev" => {
                 // Subtitle Edit Seek silence: ≥0.3 sn, tepe ≤ %10
@@ -2760,6 +2766,7 @@ impl App {
                     self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
                 }
                 ui.separator();
+                if ui.button(tr("Belirme efekti…")).on_hover_text(tr("Seçili satırların metni harf harf ya da sözcük sözcük belirir (daktilo / solarak); tek satır, yerleşim kaymaz")).clicked() { self.reveal.0 = true; ui.close(); }
                 if ui.button(tr("Yayına hazır mı?…")).on_hover_text(tr("Yayın öncesi kontrol listesi: başlık, zamanlama, metin, etiket, çeviri, yazım, notlar — tek bakışta")).clicked() { self.ready_open = true; ui.close(); }
                 if ui.button(tr("Kalite kontrolü göster")).clicked() { self.tab = Tab::Quality; ui.close(); }
                 if ui.button(tr("Metni temizle (etiket + boşluk)")).clicked() {
@@ -3022,6 +3029,7 @@ impl App {
         self.bookmarks_window(&ctx);
         self.backups_window(&ctx);
         self.ready_window(&ctx);
+        self.reveal_window(&ctx);
         self.mrep_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
