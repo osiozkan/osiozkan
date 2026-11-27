@@ -12,7 +12,11 @@ Bu gece Subtitle Edit ile özellik özellik karşılaştırma yapıldı (bağım
 **Düzenleme:** *Sözcük taşı* — son/ilk sözcüğü komşu satıra taşı ya da komşudan al (Düzen menüsü), iki satır yeniden dengelenir.
 **Kalite:** yinelenen sözcükler ("the the", "ve ve"; Türkçe ikilemeler ve ünlemler hariç); *Özel kurallar* — ekibinizin stil kılavuzu için düzenli ifade kuralları.
 **Dışa aktarma:** *Özel metin biçimi* — başlık/satır/son şablonlarıyla çeviri notu, kontrol çizelgesi, dublaj metni.
-**Hata düzeltmeleri:** karaoke kipinde son satırın son hecesinde *Sonraki* ilk heceye dönüyordu; hecesiz satırda satır zamanı değişiyordu (bağımsız inceleme).
+**Bas/bırak zamanlama (F8):** video oynarken F8'e basılı tutun — bastığınız an satırın başlangıcı, bıraktığınız an bitişi olur ve sonraki satıra geçilir.
+**YZ ile gözden geçirme** (Araçlar): Claude ya da yerel YZ çevirinizi (referans varsa kaynağıyla karşılaştırarak) okur, yalnız sorunlu satırlar için gerekçeli öneri verir; tek tek ya da topluca kabul edin.
+**Numaralı kısayollar ve konuşan seçici** (Düzen): konuşan 1–9, stil 1–9, sarmala 1–4 (ör. `{\i1}…{\i0}`, `♪ … ♪`) yuvalarına kısayol atayın; konuşanlar sayılarıyla listelenir, tıklayınca seçili satırlara atanır.
+**CSV/TSV açma:** elektronik tabloda çeviri yapan ekipler için — ayraç ve sütunlar (Başlangıç/Bitiş/Metin/Konuşan/Stil) kendiliğinden bulunur. Çok noktalı senkronda hedef, referans altyazının satırından seçilebilir.
+**Hata düzeltmeleri:** karaoke kipinde son satırın son hecesinde *Sonraki* ilk heceye dönüyordu; hecesiz satırda satır zamanı değişiyordu; kopyala-yapıştır çeviri belge değişince yanlış satırlara yazabiliyordu; sözcük taşı iki konuşmacılı satırları bozuyordu; belirme efekti yarı saydam gölgeyi opaklaştırıyordu (iki bağımsız inceleme). Kalite denetimi yeni denetimlere rağmen eski hızında (100 bin satır ~0.6 sn).
 
 ## 0.10.0 — 2026-11-23 (onuncu gece)
 

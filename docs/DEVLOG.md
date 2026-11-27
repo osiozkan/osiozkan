@@ -183,3 +183,12 @@ Dal: `claude/vibrant-clarke-45iosu` (`-otq6e9` ileri sarıldı; 2026-11-24…26 
 - Tuzak: GUI testlerinde `rm -rf $HOME` tarzı temizlik güvenlik denetimince engellenir; her test için yeni `HOME=<scratchpad>/homeN` klasörü kullan.
 - Tuzak: xdotool `type` Xvfb'de Türkçe harfleri (ü, ı) yazamıyor (kesiliyor) — GUI testlerinde ASCII metin kullan.
 - Tuzak: `--open` ile açılan pencereler (`karamode`, `mt`, `reveal`, `bgbox`) ekran görüntüsü testleri içindir.
+- (devam) Bas/bırak zamanlama (F8), numaralı kısayollar + konuşan seçici, CSV/TSV açma, YZ ile gözden geçirme (sahte OpenAI sunucusuyla `python3 -I srv.py` uçtan uca doğrulandı), çok noktalı senkronda referans satırından hedef.
+- **İkinci bağımsız inceleme** (alt ajan, bu gecenin yeni kodu): 6 hata, hepsi düzeltildi — kopyala-yapıştır çeviri belge değişince kayık satırlara yazıyordu (en önemlisi; artık gönderilen metinlerle karşılaştırılır), `move_word` iki konuşmacılı satırı bozuyordu, CSV ayraç sezimi tırnakları saymıyordu (Türkçe Excel `;` + ondalık virgül), `guess_columns` "Line"/"Start Time" başlıklarında yanlış sütun, belirme efekti yarı saydam gölgeyi opaklaştırıyordu, `<think>` akıl yürütmeli yerel model yanıtında JSON bulunamıyordu.
+- Performans gerilemesi yakalandı: yinelenen sözcük denetimi QC'yi 100k satırda 582 → 849 ms yaptı (her sözcük çiftinde `tr_lower`); ucuz ön eleme ile 572 ms.
+- Bırakılan: "Her zaman kullan" listesi harf duyarlı (gidiyom ≠ Gidiyom); belirme efekti satır içi `\3a`/`\4a` geçersiz kılmalarını değil stilin saydamlıklarını hedefler; arka plan kutusu `\move`'da başlangıç konumunda kalır; XLSX içe aktarma yok.
+
+### Gece sonu durumu (2026-11-27, v0.11.0)
+- Tüm testler yeşil (core 295, media, lua, gui); uçtan uca GUI testi TAMAM; QC 100k satır 572 ms.
+- Subtitle Edit denetimindeki 15 eksikten 14'ü eklendi (XLSX hariç); Aegisub karaoke kipi tamam.
+- Doğrulanmayanlar: gerçek ses aygıtıyla karaoke kipi ve bas/bırak zamanlama (xvfb'de ses yok, playhead saatle ilerliyor), gerçek Ollama/LM Studio sunucusu (sahte sunucuyla denendi), kullanıcının kendi Lua betikleri (hâlâ depoda yok).
