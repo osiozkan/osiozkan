@@ -502,6 +502,16 @@ pub fn screen_collisions(script: &osisub_core::Script, tmp: &Path) -> Result<Vec
     })
 }
 
+/// Satırın ortasındaki anda (tek başına, konumsuz diğer satırların yığılması korunarak) libass ile çizilmiş
+/// sınırları, betik çözünürlüğünde. Görünür bir şey yoksa None.
+pub fn line_bounds(script: &osisub_core::Script, entry: usize, tmp: &Path) -> Result<Option<osisub_core::coverage::Bounds>, String> {
+    let Some(osisub_core::ass::Entry::Dialogue(d)) = script.entries.get(entry) else { return Ok(None) };
+    let t = d.start_time + d.duration().max(0) / 2;
+    let (w, h) = script.script_resolution();
+    let one = osisub_core::collide::single_line(script, entry);
+    Ok(render_coverage(&one.to_ass_string(), w.max(1) as u32, h.max(1) as u32, &[t], tmp)?.into_iter().next().flatten())
+}
+
 /// Bir zaman aralığı için kare akışı: ffmpeg çocuk süreci + kare baytlarını yollayan kanal.
 pub struct PlayStream {
     pub child: std::process::Child,
@@ -650,6 +660,31 @@ pub fn keyframes(path: &Path) -> Result<Vec<i64>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn background_box_covers_text() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let ass = "[Script Info]\nPlayResX: 640\nPlayResY: 360\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,10,10,20,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Kutu testi\n";
+        let mut sc = osisub_core::Script::parse(ass);
+        let at = sc.entries.iter().position(|e| matches!(e, osisub_core::ass::Entry::Dialogue(_))).unwrap();
+        let tmp = std::env::temp_dir().join(format!("osisub-bgbox-{}", std::process::id()));
+        let b = line_bounds(&sc, at, &tmp).unwrap().expect("metin çizilmeli");
+        // alt orta: dikey olarak 360 - 20 (MarginV) civarında biter, yatayda ortalı
+        assert!((b.x + b.w / 2 - 320).abs() <= 3 && (b.y + b.h - 340).abs() <= 12, "{b:?}");
+        let osisub_core::ass::Entry::Dialogue(d) = sc.entries[at].clone() else { unreachable!() };
+        let st = osisub_core::bgbox::BoxStyle { pad_x: 10, pad_y: 6, alpha: 0, color: [255, 0, 0], radius: 0 };
+        sc.entries.insert(at, osisub_core::ass::Entry::Dialogue(osisub_core::bgbox::box_line(&d, &b, &st)));
+        let f = render_subs_rgba(&sc.to_ass_string(), 640, 360, 2000, &tmp).unwrap();
+        let px = |x: i64, y: i64| { let i = ((y * 640 + x) * 4) as usize; [f.rgba[i], f.rgba[i + 1], f.rgba[i + 2], f.rgba[i + 3]] };
+        // kutunun iç köşesi kırmızı ve opak, kutunun dışı saydam; metin kutunun üstünde (beyaz piksel var)
+        assert_eq!(px(b.x - 8, b.y - 4), [255, 0, 0, 255]);
+        assert_eq!(px(b.x - 14, b.y - 10)[3], 0);
+        let white = (b.y..b.y + b.h).any(|y| (b.x..b.x + b.w).any(|x| px(x, y)[0] > 240 && px(x, y)[1] > 240));
+        assert!(white, "metin kutunun altında kaldı");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn seek_silence_finds_gaps() {
         // 8 kHz: 0–1 sn ses, 1–1.2 sn sessiz (kısa), 1.2–2 sn ses, 2–2.5 sn sessiz, 2.5–3 sn ses

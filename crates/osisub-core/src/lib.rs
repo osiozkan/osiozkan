@@ -1,6 +1,7 @@
 //! osisub-core: altyazı veri modeli, biçim okuyucu/yazıcıları ve kalite araçları.
 pub mod ass;
 pub mod attach;
+pub mod bgbox;
 pub mod bookmarks;
 pub mod backup;
 pub mod batch;

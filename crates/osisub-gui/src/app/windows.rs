@@ -2764,6 +2764,79 @@ impl App {
         if !open { self.reveal.0 = false; }
     }
 
+    /// Arka plan kutusu (core::bgbox): sınırlar arka planda ffmpeg/libass ile ölçülür, sonra kutular eklenir.
+    pub(super) fn bgbox_window(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.bgbox_rx {
+            match rx.try_recv() {
+                Ok((rev, st, res)) => {
+                    self.bgbox_rx = None;
+                    if rev != self.doc.rev {
+                        self.status = tr("Arka plan kutusu: belge bu arada değişti, uygulanmadı").into();
+                    } else {
+                        let mut s = self.doc.script.clone();
+                        let (mut n, mut err) = (0, None);
+                        // sondan başa: eklenen satırlar önceki dizinleri kaydırmasın
+                        for (i, r) in res.into_iter().rev() {
+                            match r {
+                                Ok(Some(b)) => {
+                                    if let Some(Entry::Dialogue(d)) = s.entries.get(i).cloned() {
+                                        s.entries.insert(i, Entry::Dialogue(osisub_core::bgbox::box_line(&d, &b, &st)));
+                                        n += 1;
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(e) => err = Some(e),
+                            }
+                        }
+                        if n > 0 { self.doc.apply_new_script("Arka plan kutusu", s); }
+                        self.status = match err { Some(e) => trf!("Arka plan kutusu: {} satır, hata: {}", n, e), None => trf!("{} satıra arka plan kutusu eklendi (Efekt: kutu)", n) };
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(150)),
+                Err(_) => self.bgbox_rx = None,
+            }
+        }
+        let Some(mut st) = self.bgbox else { return };
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new(tr("Arka plan kutusu")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+            egui::Grid::new("bgbox").num_columns(2).show(ui, |ui| {
+                ui.label(tr("Dolgu (yatay / dikey)"));
+                ui.horizontal(|ui| { ui.add(egui::DragValue::new(&mut st.pad_x).range(0..=400)); ui.add(egui::DragValue::new(&mut st.pad_y).range(0..=400)); });
+                ui.end_row();
+                ui.label(tr("Köşe yarıçapı"));
+                ui.add(egui::DragValue::new(&mut st.radius).range(0..=400));
+                ui.end_row();
+                ui.label(tr("Renk"));
+                ui.color_edit_button_srgb(&mut st.color);
+                ui.end_row();
+                ui.label(tr("Opaklık"));
+                let mut op = 255 - st.alpha as i32;
+                ui.add(egui::Slider::new(&mut op, 0..=255));
+                st.alpha = (255 - op) as u8;
+                ui.end_row();
+            });
+            let n = self.doc.target_lines().len();
+            if self.bgbox_rx.is_some() { ui.spinner(); } else if ui.button(trf!("Seçili {} satıra uygula", n)).clicked() { go = true; }
+            ui.label(RichText::new(tr("Kutu satırın ortasındaki karede ölçülür; \\move'lu satırda başlangıç konumunda kalır. Kutu, metin satırının hemen önüne aynı katmanda eklenir.")).small().weak());
+        });
+        self.bgbox = open.then_some(st);
+        if go && self.bgbox_rx.is_none() {
+            let mut targets: Vec<usize> = self.doc.target_lines().into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment)).collect();
+            targets.sort_unstable();
+            let (script, rev, ctx2) = (self.doc.script.clone(), self.doc.rev, ctx.clone());
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.bgbox_rx = Some(rx);
+            std::thread::spawn(move || {
+                let tmp = std::env::temp_dir().join(format!("osisub-bgbox-{}", std::process::id()));
+                let res: Vec<_> = targets.into_iter().map(|i| (i, osisub_media::line_bounds(&script, i, &tmp))).collect();
+                let _ = std::fs::remove_dir_all(&tmp);
+                let _ = tx.send((rev, st, res));
+                ctx2.request_repaint();
+            });
+        }
+    }
+
     pub(super) fn ready_window(&mut self, ctx: &egui::Context) {
         if !self.ready_open { return; }
         use osisub_core::qc::Kind;
