@@ -1,5 +1,19 @@
 # Değişiklik günlüğü
 
+## 0.11.0 — 2026-11-27 (on birinci gece)
+
+Bu gece Subtitle Edit ile özellik özellik karşılaştırma yapıldı (bağımsız denetim, 15 eksik); en yararlıları eklendi. Aegisub'dan kalan karaoke kipi de tamamlandı.
+
+**Karaoke kipi (Aegisub):** Video → *Karaoke kipi*. Dalga formunda heceye tıklayın (sağ tık = heceyi çal); Sonraki/Önceki (X/Z) heceden heceye gider, S heceyi çalar, başlangıç/uzunluk ±10 ms komutları seçili heceye uygulanır (Shift'li sürüm sonraki heceleri de kaydırır). Hece toplamı satır süresine eşitlenir (Aegisub gibi) — ayrılmış `{\k0}` satırları artık zamanlanabiliyor.
+**Yazım denetimi:** kendi düzeltmenizi yazın; *Değiştir* / *Tümünü değiştir* / *Her zaman kullan* (liste kalıcıdır, sonraki denetimlerde ve başka dosyalarda kendiliğinden düzeltir).
+**Çeviri:** *Yerel YZ / OpenAI uyumlu* sağlayıcı (Ollama, LM Studio, llama.cpp, OpenRouter — yerel olanlar ücretsiz ve anahtarsız); *Kopyala-yapıştır çeviri* (bloğu panoya kopyalayıp Google Çeviri/DeepL web/sohbet YZ'ye yapıştırın, sonucu geri yapıştırın — etiketler korunur).
+**Tipografi:** *Arka plan kutusu* (satırın libass ile ölçülen gerçek sınırlarına göre, yuvarlak köşe/renk/opaklık); *Belirme efekti* (harf harf ya da sözcük sözcük, daktilo ya da solarak — tek satırda, ortalı metin kaymaz). Vektör kırpmada Ctrl+tık eğriyi düz çizgiye de çevirir.
+**Zamanlama:** *Çok noktalı senkron* (reklam arası eklenmiş yayınlar için istediğiniz kadar nokta); *Sessizliğe atla* (Video menüsü); Ctrl+←/→ satır sınırına atlar (metin kutusunda sözcük atlama olarak kalır).
+**Düzenleme:** *Sözcük taşı* — son/ilk sözcüğü komşu satıra taşı ya da komşudan al (Düzen menüsü), iki satır yeniden dengelenir.
+**Kalite:** yinelenen sözcükler ("the the", "ve ve"; Türkçe ikilemeler ve ünlemler hariç); *Özel kurallar* — ekibinizin stil kılavuzu için düzenli ifade kuralları.
+**Dışa aktarma:** *Özel metin biçimi* — başlık/satır/son şablonlarıyla çeviri notu, kontrol çizelgesi, dublaj metni.
+**Hata düzeltmeleri:** karaoke kipinde son satırın son hecesinde *Sonraki* ilk heceye dönüyordu; hecesiz satırda satır zamanı değişiyordu (bağımsız inceleme).
+
 ## 0.10.0 — 2026-11-23 (onuncu gece)
 
 Bu gece Aegisub kaynağıyla komut komut karşılaştırma yapıldı (bağımsız denetim, 24 eksik); en çok kullanılanlar eklendi. Davranışlar Aegisub kaynağından birebir alındı.

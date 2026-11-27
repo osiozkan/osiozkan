@@ -173,3 +173,13 @@ Dal: `claude/vibrant-clarke-otq6e9` (`-0m2nvf` ileri sarıldı). `tools/ship.sh`
 - Doğrulama: her kullanıcı görünür değişiklik xdotool/ekran görüntüsüyle (kare böl, makro imleç seçimi, metni temizle, Değiştir, katlama + kayıt biçimi, vektör kırpma, kare panoya kopyala (xclip), videoya hizala 12–70. kareler, çözünürlük sorusu); `tools/ui-e2e.sh` hepsi TAMAM.
 - Not: `--media` ile ekran görüntüsü alınırken PlayRes ≠ video ise çözünürlük sorusu penceresi görünür (Yoksay ile kapanır).
 
+
+## 2026-11-27 (on birinci gece, v0.11.0)
+Dal: `claude/vibrant-clarke-45iosu` (`-otq6e9` ileri sarıldı; 2026-11-24…26 gecelerine ait dal yok). `tools/ship.sh` oturum bağlantısı güncellendi. Drive'da `.lua`/`.moon` dosyası aranıp bulunamadı.
+- **Karaoke kipi** (Aegisub `audio/karaoke`, AudioTimingControllerKaraoke birebir): `media_ui` `kara_mode`/`kara_sel`; core `karaoke::modify_length/modify_start/normalize/syl_at_ms/syl_range_ms`. Bağımsız inceleme (alt ajan) 3 hata buldu, düzeltildi: hece toplamı satır süresine normalleştirilmiyordu (`{\k0}` satırında hiçbir sınır oynamıyordu), son satırın son hecesinde Sonraki ilk heceye dönüyordu, hecesiz satırda satır zamanı değişiyordu. Bilinçli bırakılan: `{\k0}` boş heceler Aegisub'da atlanır, burada gezinmede durulur; hece sınırı sürüklemede anahtar kareye yapışma yok.
+- **Subtitle Edit özellik denetimi** (alt ajan, SE Avalonia kaynağı `/tmp/claude-0/se-src`): 15 eksik. Eklenenler: yazım Tümünü değiştir/Her zaman kullan, yerel YZ (OpenAI uyumlu) MT, kopyala-yapıştır çeviri, yinelenen sözcükler, sözcük taşı, sessizliğe atla, çok noktalı senkron, özel QC kuralları, belirme efekti (SE'den farklı: tek satır + `\t`), arka plan kutusu, özel metin dışa aktarma. Kalanlar ROADMAP'te.
+- Ctrl+←/→ varsayılanı (satır sınırı): metin kutusu odaktayken ok/Home/End/sil tuşlu kısayollar tetiklenmez (`hotkeys::is_text_nav_key`); `hotkey_defaults` 5.
+- CI: `subs_only_transparent` CI'da 235/16 veriyordu — betikte `YCbCr Matrix` yokken yeni libass/ffmpeg renkleri TV.601 uyumluluğu için kaydırıyor (test betiğine `YCbCr Matrix: None`). ui-e2e yer imi adımı CI'da tuş kaybına karşı yeniden dener.
+- Tuzak: GUI testlerinde `rm -rf $HOME` tarzı temizlik güvenlik denetimince engellenir; her test için yeni `HOME=<scratchpad>/homeN` klasörü kullan.
+- Tuzak: xdotool `type` Xvfb'de Türkçe harfleri (ü, ı) yazamıyor (kesiliyor) — GUI testlerinde ASCII metin kullan.
+- Tuzak: `--open` ile açılan pencereler (`karamode`, `mt`, `reveal`, `bgbox`) ekran görüntüsü testleri içindir.

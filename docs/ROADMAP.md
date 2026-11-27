@@ -10,6 +10,17 @@
 5. libmpv ile donanım hızlandırmalı oynatma.
 6. Karaoke: furigana tamam (okunuş romajiden otomatik: kanji zamanlayıcı); romaji satırı olmayan şarkılar için kanji okunuş sözlüğü düşünülebilir.
 
+## Subtitle Edit eşdeğerliği (2026-11-27 denetimi)
+- [x] Yazım: Tümünü değiştir / Her zaman kullan / elle düzeltme
+- [x] Kopyala-yapıştır çeviri; yerel YZ (OpenAI uyumlu: Ollama, LM Studio) MT sağlayıcısı
+- [x] Yinelenen sözcükler (QC notu), sözcük taşı (komşu satırlar), sessizliğe atla, çok noktalı senkron, özel QC kuralları
+- [x] Belirme efekti (daktilo/sözcük/solma — tek satır), arka plan kutusu (libass sınırları), özel metin biçimiyle dışa aktarma
+- [ ] YZ ile çeviri gözden geçirme (SE AiReview: cümle birimleri, bağlam satırları, yalnız değişen satırlar JSON, tek tek kabul/ret)
+- [ ] Numaralı kısayollar: konuşan 1–10, stil 1–10, sarmala 1–8 (öncesi/sonrası etiket), renk 1–8; konuşan seçici (satır sayılarıyla)
+- [ ] Başka altyazıyla nokta senkronu (iki dosyada satır eşleştirme → çok noktalı senkron)
+- [ ] Tuşa bas/bırak ile zamanlama (oynatırken bas = başlangıç, bırak = bitiş, sonraki satır)
+- [ ] CSV/XLSX içe aktarma (sütun eşleme: başlangıç/bitiş/metin/konuşan/stil, başlık satırı, ayraç)
+
 ## Aegisub eşdeğerliği (2026-11-23 komut denetimi)
 - [x] Kare komutları: split before/after, snap to scene, shift to frame, start/length ±10 ms, lead in/out, boundary/large frame steps, select visible, insert at video time, grid move up/down, video jump start/end
 - [x] Videoya hizala (time/align), ızgara katlamaları (grid/fold/*; `_aegi_folddata`), Replace Next + F3, split preserve, clear text, revert / insert original, `\2c` düğmesi
