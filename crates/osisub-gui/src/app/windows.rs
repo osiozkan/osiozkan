@@ -2866,6 +2866,124 @@ impl App {
         }
     }
 
+    /// YZ ile çeviri gözden geçirme (Subtitle Edit AI review): 25 satırlık parçalar, her yanda 2 bağlam satırı.
+    pub(super) fn review_window(&mut self, ctx: &egui::Context) {
+        let Some(mut rw) = self.review.take() else { return };
+        if let Some(rx) = &rw.rx {
+            loop {
+                match rx.try_recv() {
+                    Ok((fx, err, n)) => {
+                        rw.done += n;
+                        for f in fx { if let Some(o) = rw.sent.get(&f.id).cloned() { rw.fixes.push((f, o)); } }
+                        if err.is_some() { rw.err = err; }
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => { ctx.request_repaint_after(std::time::Duration::from_millis(200)); break; }
+                    Err(_) => { rw.rx = None; break; }
+                }
+            }
+        }
+        let mut open = true;
+        let mut start = false;
+        let mut accept: Vec<usize> = vec![];
+        let mut reject: Vec<usize> = vec![];
+        egui::Window::new(tr("YZ ile gözden geçirme")).open(&mut open).default_width(560.0).show(ctx, |ui| {
+            let prov = self.settings.mt_provider.clone();
+            if prov != "claude" && prov != "openai" {
+                ui.label(RichText::new(tr("Araçlar → Makine çevirisi penceresinde sağlayıcı olarak Claude ya da Yerel YZ seçin.")).color(theme::WARN));
+            }
+            if rw.rx.is_none() && rw.total == 0 {
+                let sel = self.doc.target_lines().len();
+                ui.label(RichText::new(tr("Birden çok satır seçiliyse yalnız onlar, değilse tüm diyalog satırları gönderilir (tabela/karaoke hariç). Referans altyazı yüklüyse kaynak metin olarak eklenir. Bağlam/sözlük ayarı kullanılır.")).small());
+                if ui.add_enabled(prov == "claude" || prov == "openai", egui::Button::new(if sel > 1 { trf!("Seçili {} satırı gözden geçir", sel) } else { tr("Tüm dosyayı gözden geçir").to_string() })).clicked() { start = true; }
+            }
+            if rw.rx.is_some() {
+                ui.horizontal(|ui| { ui.spinner(); ui.label(trf!("{} / {} satır gözden geçirildi", rw.done, rw.total)); });
+            }
+            if let Some(e) = &rw.err { ui.colored_label(theme::WARN, e); }
+            if !rw.fixes.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(trf!("{} öneri", rw.fixes.len())).strong());
+                    if ui.button(tr("Tümünü kabul et")).clicked() { accept = (0..rw.fixes.len()).collect(); }
+                });
+            } else if rw.rx.is_none() && rw.total > 0 && rw.err.is_none() {
+                ui.label(tr("Öneri yok — çeviri temiz görünüyor."));
+            }
+            egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                for (k, (f, orig)) in rw.fixes.iter().enumerate() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        let n = self.rows.iter().position(|&r| r == f.id).map(|p| p + 1).unwrap_or(f.id + 1);
+                        ui.horizontal(|ui| {
+                            if ui.link(trf!("Satır {}", n)).clicked() { self.doc.select(vec![f.id], f.id); self.scroll_to = Some(f.id); }
+                            ui.label(RichText::new(&f.reason).weak());
+                        });
+                        ui.label(RichText::new(orig).strikethrough().color(egui::Color32::from_rgb(0xd0, 0x80, 0x80)));
+                        ui.label(RichText::new(&f.text).color(egui::Color32::from_rgb(0x80, 0xd0, 0x90)));
+                        ui.horizontal(|ui| {
+                            if ui.small_button(tr("Kabul")).clicked() { accept.push(k); }
+                            if ui.small_button(tr("Ret")).clicked() { reject.push(k); }
+                        });
+                    });
+                }
+            });
+        });
+        if !accept.is_empty() {
+            let mut changes = vec![];
+            let mut stale = 0;
+            for &k in &accept {
+                let (f, orig) = &rw.fixes[k];
+                match self.doc.script.entries.get(f.id) {
+                    // satır bu arada değiştiyse öneri uygulanmaz
+                    Some(Entry::Dialogue(d)) if &d.text == orig => changes.push((f.id, f.text.clone())),
+                    _ => stale += 1,
+                }
+            }
+            let n = changes.len();
+            if n > 0 { self.doc.edit("YZ önerisi", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); }); }
+            self.status = if stale > 0 { trf!("{} öneri uygulandı, {} satır bu arada değiştiği için atlandı", n, stale) } else { trf!("{} öneri uygulandı", n) };
+            reject.extend(accept);
+        }
+        reject.sort_unstable();
+        reject.dedup();
+        for k in reject.into_iter().rev() { if k < rw.fixes.len() { rw.fixes.remove(k); } }
+        if start {
+            if let Some(cfg) = self.mt_config() {
+                let mut ids = self.doc.target_lines();
+                if ids.len() <= 1 { ids = (0..self.doc.script.entries.len()).collect(); }
+                let ids: Vec<usize> = ids.into_iter().filter(|&i| matches!(self.doc.script.entries.get(i), Some(Entry::Dialogue(d)) if !d.comment && !qc::is_typeset(d) && !qc::is_karaoke(d) && !osisub_core::tags::strip_tags(&d.text).trim().is_empty())).collect();
+                let item = |i: usize, ctx: bool| -> (usize, String, String, bool, String) {
+                    let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) else { return (i, String::new(), String::new(), true, String::new()) };
+                    let src = self.ref_lines.iter().filter(|r| r.1 > d.start_time && r.0 < d.end_time).max_by_key(|r| r.1.min(d.end_time) - r.0.max(d.start_time)).map(|r| r.2.replace(" ⏎ ", "\\N")).unwrap_or_default();
+                    (i, src, d.text.clone(), ctx, d.actor.clone())
+                };
+                let mut batches = vec![];
+                for (c, chunk) in ids.chunks(25).enumerate() {
+                    let mut b = vec![];
+                    let lo = c * 25;
+                    for &i in &ids[lo.saturating_sub(2)..lo] { b.push(item(i, true)); }
+                    for &i in chunk { b.push(item(i, false)); }
+                    for &i in ids.iter().skip(lo + chunk.len()).take(2) { b.push(item(i, true)); }
+                    batches.push(b);
+                }
+                rw.sent = ids.iter().filter_map(|&i| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some((i, d.text.clone())), _ => None }).collect();
+                rw.total = ids.len();
+                let (tx, rx) = std::sync::mpsc::channel();
+                rw.rx = Some(rx);
+                let ctx2 = ctx.clone();
+                std::thread::spawn(move || {
+                    for b in batches {
+                        let n = b.iter().filter(|x| !x.3).count();
+                        match osisub_media::mt::review(&cfg, &b) {
+                            Ok(f) => { let _ = tx.send((f, None, n)); }
+                            Err(e) => { let _ = tx.send((vec![], Some(e), n)); break; }
+                        }
+                        ctx2.request_repaint();
+                    }
+                });
+            }
+        }
+        if open { self.review = Some(rw); }
+    }
+
     pub(super) fn ready_window(&mut self, ctx: &egui::Context) {
         if !self.ready_open { return; }
         use osisub_core::qc::Kind;
@@ -3276,4 +3394,15 @@ pub(crate) struct CpState {
     paste: String,
     err: Option<String>,
     rev: u64,
+}
+
+/// YZ ile gözden geçirme durumu: öneriler (öneri, satırın gönderildiği andaki metni).
+#[derive(Default)]
+pub(crate) struct ReviewWin {
+    rx: Option<std::sync::mpsc::Receiver<(Vec<osisub_media::mt::ReviewFix>, Option<String>, usize)>>,
+    fixes: Vec<(osisub_media::mt::ReviewFix, String)>,
+    sent: std::collections::HashMap<usize, String>,
+    err: Option<String>,
+    done: usize,
+    total: usize,
 }

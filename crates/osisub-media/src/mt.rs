@@ -244,6 +244,124 @@ pub fn parse_response(cfg: &MtConfig, texts: &[String], body: &Value) -> Result<
     Ok(texts.iter().zip(raw).map(|(src, tr)| rejoin(&split_leading_tags(src).0, &tr)).collect())
 }
 
+/// YZ ile çeviri gözden geçirme (Subtitle Edit AI review): öneri.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewFix {
+    pub id: usize,
+    pub text: String,
+    pub reason: String,
+}
+
+fn review_system(cfg: &MtConfig) -> String {
+    let mut s = format!(
+        "You are a meticulous anime subtitle editor reviewing a translation into the language with ISO code '{}'. \
+         Fix only real problems: mistranslations (compare with the source line when given), grammar and spelling errors, \
+         unnatural phrasing, inconsistent names or honorifics, and lines too long to read. Do not rewrite lines that are fine; \
+         keep the translator's style. Keep ASS tags in curly braces and \\N line breaks. Lines marked context=true are only \
+         context: never change them. Return ONLY the lines you change, as JSON {{\"changes\": [{{\"id\": <id>, \"text\": \"<corrected line>\", \"reason\": \"<short reason in Turkish>\"}}]}}; \
+         return {{\"changes\": []}} when everything is fine.",
+        cfg.target
+    );
+    if !cfg.context.trim().is_empty() {
+        s.push_str("\n\nContext and glossary from the user:\n");
+        s.push_str(cfg.context.trim());
+    }
+    s
+}
+
+/// İstek: `items` = (kimlik, kaynak/referans metni, çeviri, yalnız bağlam mı, konuşan).
+pub fn review_request(cfg: &MtConfig, items: &[(usize, String, String, bool, String)]) -> Result<(String, Vec<(String, String)>, Value), String> {
+    let lines: Vec<Value> = items
+        .iter()
+        .map(|(id, src, tr, ctx, actor)| {
+            let mut v = json!({ "id": id, "translation": tr });
+            if !src.is_empty() { v["source"] = json!(src); }
+            if !actor.is_empty() { v["speaker"] = json!(actor); }
+            if *ctx { v["context"] = json!(true); }
+            v
+        })
+        .collect();
+    let user = serde_json::to_string(&json!({ "lines": lines })).unwrap_or_default();
+    match cfg.provider {
+        Provider::Claude => {
+            let schema = json!({
+                "type": "object",
+                "properties": { "changes": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "text": { "type": "string" }, "reason": { "type": "string" } }, "required": ["id", "text", "reason"], "additionalProperties": false } } },
+                "required": ["changes"],
+                "additionalProperties": false
+            });
+            let body = json!({
+                "model": CLAUDE_MODEL,
+                "max_tokens": 16000,
+                "system": review_system(cfg),
+                "fallbacks": "default",
+                "output_config": { "effort": "medium", "format": { "type": "json_schema", "schema": schema } },
+                "messages": [{ "role": "user", "content": user }]
+            });
+            Ok(("https://api.anthropic.com/v1/messages".into(), vec![("x-api-key".into(), cfg.key.trim().to_string()), ("anthropic-version".into(), "2026-10-21".into()), ("anthropic-beta".into(), "server-side-fallback-2026-07-01".into())], body))
+        }
+        Provider::OpenAi => {
+            let body = json!({ "model": cfg.model.trim(), "temperature": 0.2, "stream": false, "messages": [{ "role": "system", "content": review_system(cfg) }, { "role": "user", "content": user }] });
+            let headers = if cfg.key.trim().is_empty() { vec![] } else { vec![("Authorization".into(), format!("Bearer {}", cfg.key.trim()))] };
+            Ok((format!("{}/chat/completions", cfg.url.trim().trim_end_matches('/')), headers, body))
+        }
+        _ => Err("Gözden geçirme yalnız Claude ya da yerel YZ / OpenAI uyumlu sağlayıcıyla yapılır".into()),
+    }
+}
+
+/// Yanıttan önerileri çıkarır; bağlam satırlarına ve bilinmeyen kimliklere öneri yok sayılır.
+pub fn review_parse(cfg: &MtConfig, items: &[(usize, String, String, bool, String)], body: &Value) -> Result<Vec<ReviewFix>, String> {
+    let text: String = match cfg.provider {
+        Provider::Claude => {
+            if body["stop_reason"].as_str() == Some("refusal") { return Err("Claude isteği reddetti".into()); }
+            if body["stop_reason"].as_str() == Some("max_tokens") { return Err("Claude yanıtı kesildi (daha az satır seçin)".into()); }
+            body["content"].as_array().ok_or("Claude: beklenmeyen yanıt")?.iter().filter(|b| b["type"] == "text").filter_map(|b| b["text"].as_str()).collect()
+        }
+        _ => body["choices"][0]["message"]["content"].as_str().ok_or_else(|| format!("YZ: beklenmeyen yanıt ({})", body["error"]["message"].as_str().unwrap_or("choices yok")))?.to_string(),
+    };
+    let v = extract_json(&text).ok_or("YZ: yanıtta JSON bulunamadı")?;
+    let arr = v["changes"].as_array().ok_or("YZ: changes yok")?;
+    Ok(arr
+        .iter()
+        .filter_map(|c| {
+            let id = c["id"].as_u64()? as usize;
+            let it = items.iter().find(|x| x.0 == id && !x.3)?;
+            let t = c["text"].as_str()?.replace('\n', "\\N");
+            (t.trim() != it.2.trim() && !t.trim().is_empty()).then(|| ReviewFix { id, text: t, reason: c["reason"].as_str().unwrap_or("").to_string() })
+        })
+        .collect())
+}
+
+/// Ağ çağrısı: gözden geçirme.
+pub fn review(cfg: &MtConfig, items: &[(usize, String, String, bool, String)]) -> Result<Vec<ReviewFix>, String> {
+    if cfg.provider == Provider::OpenAi && cfg.model.trim().is_empty() {
+        return Err("Model adı girilmemiş".into());
+    }
+    if cfg.provider == Provider::Claude && cfg.key.trim().is_empty() {
+        return Err("API anahtarı girilmemiş (Araçlar → Makine çevirisi ayarları)".into());
+    }
+    let (url, headers, body) = review_request(cfg, items)?;
+    let v = post_json(&url, &headers, &body, 600)?;
+    review_parse(cfg, items, &v)
+}
+
+fn post_json(url: &str, headers: &[(String, String)], body: &Value, secs: u64) -> Result<Value, String> {
+    let mut req = ureq::post(url).timeout(std::time::Duration::from_secs(secs)).set("Content-Type", "application/json");
+    for (k, v) in headers {
+        req = req.set(k, v);
+    }
+    let resp = match req.send_string(&body.to_string()) {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, r)) => {
+            let t = r.into_string().unwrap_or_default();
+            let msg = serde_json::from_str::<Value>(&t).ok().and_then(|v| v["error"]["message"].as_str().or(v["message"].as_str()).or(v["error"].as_str()).map(String::from)).unwrap_or(t);
+            return Err(format!("HTTP {code}: {msg}"));
+        }
+        Err(e) => return Err(format!("bağlantı hatası: {e}")),
+    };
+    serde_json::from_str(&resp.into_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
 /// Ağ çağrısı (engelleyici; arka plan iş parçacığında çağırın). Hata iletisi API'nin kendi iletisini içerir.
 pub fn translate(cfg: &MtConfig, texts: &[String]) -> Result<Vec<String>, String> {
     if texts.is_empty() {
@@ -380,5 +498,22 @@ mod tests {
         let pasted = "\r\nMerhaba\r\noradaki\r\n.\r\nİkinci\r\n .\r\nÜçüncü satır\r\n\r\n";
         assert_eq!(cp_unpack(&texts, pasted, ".").unwrap(), vec!["{\\an8}Merhaba\\Noradaki", "İkinci", "Üçüncü satır"]);
         assert!(cp_unpack(&texts, "Merhaba. İkinci. Üçüncü", ".").unwrap_err().contains("3 satır"));
+    }
+
+    #[test]
+    fn review_request_and_parse() {
+        let items = vec![
+            (1, "I'm going home.".to_string(), "Eve gidiyorm.".to_string(), false, "Saki".to_string()),
+            (2, String::new(), "Tamam.".to_string(), true, String::new()),
+        ];
+        let c = cfg(Provider::Claude);
+        let (_, _, body) = review_request(&c, &items).unwrap();
+        assert_eq!(body["output_config"]["format"]["schema"]["required"][0], "changes");
+        let user: Value = serde_json::from_str(body["messages"][0]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(user["lines"][0]["source"], "I'm going home.");
+        assert_eq!(user["lines"][1]["context"], true);
+        let resp = json!({"stop_reason": "end_turn", "content": [{"type": "text", "text": "{\"changes\": [{\"id\": 1, \"text\": \"Eve gidiyorum.\", \"reason\": \"yazım\"}, {\"id\": 2, \"text\": \"Peki.\", \"reason\": \"bağlam\"}, {\"id\": 9, \"text\": \"x\", \"reason\": \"\"}]}"}]});
+        assert_eq!(review_parse(&c, &items, &resp).unwrap(), vec![ReviewFix { id: 1, text: "Eve gidiyorum.".into(), reason: "yazım".into() }]);
+        assert!(review_request(&cfg(Provider::DeepL), &items).is_err());
     }
 }

@@ -154,6 +154,8 @@ pub struct App {
     reveal: (bool, bool, f32, i64),
     /// Arka plan kutusu penceresi (açıksa ayarlar) ve arka planda ölçülen sınırlar
     bgbox: Option<osisub_core::bgbox::BoxStyle>,
+    /// YZ ile gözden geçirme penceresi
+    review: Option<windows::ReviewWin>,
     bgbox_rx: Option<std::sync::mpsc::Receiver<(u64, osisub_core::bgbox::BoxStyle, Vec<(usize, Result<Option<osisub_core::coverage::Bounds>, String>)>)>>,
     /// Çoklu değiştir: kurallar ve önizleme sonuçları (açıksa Some)
     mrep: Option<(Vec<osisub_core::multireplace::Rule>, Vec<Result<usize, String>>, bool)>,
@@ -385,6 +387,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
     ("reveal_fx", "Belirme efekti (daktilo / sözcük sözcük / solarak)"),
     ("bg_box", "Arka plan kutusu (satırın ölçülen sınırlarına göre)"),
+    ("ai_review", "Çeviriyi YZ ile gözden geçir (Claude / yerel YZ)"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
     ("spot_hold", "Bas/bırak zamanlama: oynatırken basılı tut = satır başlangıcı → bırak = bitiş, sonraki satır"),
@@ -772,6 +775,7 @@ impl App {
             ready_open: false,
             reveal: (false, false, 50.0, 0),
             bgbox: None,
+            review: None,
             bgbox_rx: None,
             mrep: None,
             mrep_key: None,
@@ -863,6 +867,7 @@ impl App {
             Some("find") => app.find_open = true,
             Some("reveal") => app.reveal.0 = true,
             Some("bgbox") => app.bgbox = Some(Default::default()),
+            Some("review") => app.review = Some(Default::default()),
             Some("mt") => app.mt_open = true,
             Some("karamode") => { app.media.kara_mode = true; app.media.kara_sel = Some((app.doc.active, 2)); }
             Some("timing") => app.timing_open = true,
@@ -1888,6 +1893,7 @@ impl App {
             "ready_check" => self.ready_open = true,
             "reveal_fx" => self.reveal.0 = true,
             "bg_box" => self.bgbox = Some(Default::default()),
+            "ai_review" => self.review = Some(Default::default()),
             "multi_replace" => self.open_mrep(),
             "silence_next" | "silence_prev" => {
                 // Subtitle Edit Seek silence: ≥0.3 sn, tepe ≤ %10
@@ -2803,6 +2809,7 @@ impl App {
                     self.res_x = x; self.res_y = y; self.resample_open = true; ui.close();
                 }
                 ui.separator();
+                if ui.button(tr("Çeviriyi YZ ile gözden geçir…")).on_hover_text(tr("Claude ya da yerel YZ çeviriyi (referans varsa kaynağıyla karşılaştırarak) okur; yalnız sorunlu satırlar için gerekçeli öneri verir, siz tek tek kabul edersiniz")).clicked() { self.review = Some(Default::default()); ui.close(); }
                 if ui.button(tr("Arka plan kutusu…")).on_hover_text(tr("Seçili satırların arkasına, libass ile ölçülen gerçek sınırlarına göre kutu çizer (yuvarlak köşe, renk, saydamlık; ffmpeg gerekir)")).clicked() { self.bgbox = Some(Default::default()); ui.close(); }
                 if ui.button(tr("Belirme efekti…")).on_hover_text(tr("Seçili satırların metni harf harf ya da sözcük sözcük belirir (daktilo / solarak); tek satır, yerleşim kaymaz")).clicked() { self.reveal.0 = true; ui.close(); }
                 if ui.button(tr("Yayına hazır mı?…")).on_hover_text(tr("Yayın öncesi kontrol listesi: başlık, zamanlama, metin, etiket, çeviri, yazım, notlar — tek bakışta")).clicked() { self.ready_open = true; ui.close(); }
@@ -3069,6 +3076,7 @@ impl App {
         self.ready_window(&ctx);
         self.reveal_window(&ctx);
         self.bgbox_window(&ctx);
+        self.review_window(&ctx);
         self.mrep_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
