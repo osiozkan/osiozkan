@@ -271,8 +271,16 @@ impl App {
                 // "Her zaman kullan" listesindeki sözcükler kendiliğinden düzeltilir (Subtitle Edit)
                 let always = self.settings.spell_always.clone();
                 let mut n = 0;
-                for (from, to) in always {
-                    if self.misses.iter().any(|x| x.word == from) { n += self.spell_replace_all(&from, &to); }
+                // harf biçiminden bağımsız: "gidiyom → gidiyorum" kuralı "Gidiyom"u "Gidiyorum" yapar
+                let mut words: Vec<String> = self.misses.iter().map(|x| x.word.clone()).collect();
+                words.sort();
+                words.dedup();
+                for w in words {
+                    let lw = osisub_core::qc::tr_lower(&w);
+                    if let Some((_, to)) = always.iter().find(|(f, _)| osisub_core::qc::tr_lower(f) == lw) {
+                        let repl = osisub_spell::thesaurus::match_case(&w, to);
+                        n += self.spell_replace_all(&w, &repl);
+                    }
                 }
                 if n > 0 { self.status = trf!("Yazım: \"her zaman kullan\" listesinden {n} yer düzeltildi (Ctrl+Z geri alır)"); }
             }
