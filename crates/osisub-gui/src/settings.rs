@@ -12,6 +12,8 @@ pub struct Settings {
     pub shift_history: Vec<(i64, bool, u8)>,
     /// Yazım denetimi "Her zaman kullan" listesi (Subtitle Edit Use always): (yanlış, doğru) — denetimde otomatik düzeltilir
     pub spell_always: Vec<(String, String)>,
+    /// Kalite: özel kurallar (açık, ad, düzenli ifade, harf duyarlı)
+    pub qc_custom: Vec<(bool, String, String, bool)>,
     pub max_cps: f64,
     pub max_line_len: usize,
     pub max_lines: usize,
@@ -91,6 +93,7 @@ impl Default for Settings {
             recent: vec![],
             shift_history: vec![],
             spell_always: vec![],
+            qc_custom: vec![],
             max_cps: r.max_cps,
             max_line_len: r.max_line_len,
             max_lines: r.max_lines,

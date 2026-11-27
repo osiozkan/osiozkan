@@ -497,6 +497,40 @@ pub fn linear_retime(script: &mut Script, a: (i64, i64), b: (i64, i64)) {
     }
 }
 
+/// Ekip stil kılavuzu için özel kurallar (Subtitle Edit Custom error rules): (ad, düzenli ifade, harf duyarlı).
+/// Yorum olmayan diyalog satırlarının görünür metninde eşleşen her satır için not üretir. Geçersiz
+/// ifade atlanır (`custom_rule_error` ile denetlenir).
+pub fn custom_rules(script: &Script, rules: &[(String, String, bool)]) -> Vec<Issue> {
+    let compiled: Vec<(&str, fancy_regex::Regex)> = rules
+        .iter()
+        .filter(|r| !r.1.trim().is_empty())
+        .filter_map(|(n, p, cs)| fancy_regex::Regex::new(&if *cs { p.clone() } else { format!("(?i){p}") }).ok().map(|re| (n.as_str(), re)))
+        .collect();
+    let mut out = vec![];
+    if compiled.is_empty() {
+        return out;
+    }
+    for (i, e) in script.entries.iter().enumerate() {
+        let Entry::Dialogue(d) = e else { continue };
+        if d.comment || d.effect.eq_ignore_ascii_case("fx") {
+            continue;
+        }
+        let vis = tags::visible_text(&d.text);
+        for (name, re) in &compiled {
+            if let Ok(Some(m)) = re.find(&vis) {
+                let hit: String = m.as_str().chars().take(40).collect();
+                out.push(Issue { entry: i, kind: Kind::Note, message: format!("Kural «{}»: {}", name, hit) });
+            }
+        }
+    }
+    out
+}
+
+/// Özel kuralın düzenli ifadesi geçersizse hata iletisi.
+pub fn custom_rule_error(pattern: &str) -> Option<String> {
+    fancy_regex::Regex::new(pattern).err().map(|e| e.to_string())
+}
+
 /// Çok noktalı senkron (Subtitle Edit Point sync): (eski, yeni) ms çiftleri arasında parça parça doğrusal
 /// eşleme; uçlarda ilk/son parçanın eğimiyle sürdürülür. Tek nokta = kaydırma. Aynı kaynak zamanlı
 /// çiftlerden ilki kullanılır.
@@ -992,5 +1026,21 @@ mod tests {
         let mut u = mk(&[0, 10000]);
         piecewise_retime(&mut u, &[(10000, 20000), (0, 0), (0, 999)]);
         assert_eq!(starts(&u), vec![0, 20000]);
+    }
+
+    #[test]
+    fn custom_rules_match_visible_text() {
+        let mut s = Script::default();
+        for t in ["Okay, gidelim.", "{\\i1}Tamam{\\i0}", "OKAY!", "okayyy"] {
+            let mut d = Dialogue::default();
+            d.text = t.into();
+            s.entries.push(Entry::Dialogue(d));
+        }
+        let r = vec![("İngilizce okay".to_string(), r"\bokay\b".to_string(), false), ("bozuk".to_string(), "(".to_string(), false), ("etiket".to_string(), r"\\i1".to_string(), true)];
+        let v = custom_rules(&s, &r);
+        let base = s.entries.iter().position(|e| matches!(e, Entry::Dialogue(_))).unwrap();
+        assert_eq!(v.iter().map(|x| x.entry - base).collect::<Vec<_>>(), vec![0, 2]);
+        assert_eq!(v[0].message, "Kural «İngilizce okay»: Okay");
+        assert!(custom_rule_error("(").is_some() && custom_rule_error(r"\bx").is_none());
     }
 }

@@ -1078,6 +1078,27 @@ impl App {
             ui.label(tr("En uzun süre (ms)")); changed |= ui.add(egui::DragValue::new(&mut self.rules.max_duration_ms).speed(50)).changed(); ui.end_row();
             ui.label(tr("En küçük boşluk (ms)")); changed |= ui.add(egui::DragValue::new(&mut self.rules.min_gap_ms).speed(10)).changed(); ui.end_row();
         });
+        // Ekip stil kılavuzu: özel düzenli ifade kuralları (Subtitle Edit Custom error rules)
+        egui::CollapsingHeader::new(trf!("Özel kurallar ({})", self.settings.qc_custom.iter().filter(|r| r.0).count())).id_salt("qc_custom").show(ui, |ui| {
+            ui.label(RichText::new(tr("Görünür metinde eşleşen satırlar not olarak listelenir (ör. yasak İngilizce sözcükler, saygı eki politikası, \"...\" yerine \"…\"). Düzenli ifade; harf duyarsız varsayılan.")).small().weak());
+            let mut del = None;
+            let mut rchanged = false;
+            for (k, r) in self.settings.qc_custom.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    rchanged |= ui.checkbox(&mut r.0, "").changed();
+                    rchanged |= ui.add(egui::TextEdit::singleline(&mut r.1).hint_text(tr("ad")).desired_width(90.0)).changed();
+                    rchanged |= ui.add(egui::TextEdit::singleline(&mut r.2).hint_text(r"okay").desired_width(140.0).font(egui::TextStyle::Monospace)).changed();
+                    rchanged |= ui.checkbox(&mut r.3, "Aa").on_hover_text(tr("Harf duyarlı")).changed();
+                    if ui.small_button("x").clicked() { del = Some(k); }
+                });
+                if let Some(e) = qc::custom_rule_error(&r.2).filter(|_| !r.2.is_empty()) {
+                    ui.label(RichText::new(e).small().color(theme::WARN));
+                }
+            }
+            if let Some(k) = del { self.settings.qc_custom.remove(k); rchanged = true; }
+            if ui.button(tr("+ Kural ekle")).clicked() { self.settings.qc_custom.push((true, String::new(), String::new(), false)); }
+            if rchanged { self.save_settings(); changed = true; }
+        });
         if changed { self.recheck(); }
         ui.horizontal_wrapped(|ui| {
             let apply = |app: &mut App, name: &str, f: &dyn Fn(&mut osisub_core::Script)| {

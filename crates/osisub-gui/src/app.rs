@@ -1542,6 +1542,7 @@ impl App {
             let vdur = self.media.info.as_ref().filter(|i| i.has_video).map(|i| i.duration_ms).unwrap_or(0);
             if self.doc.script.entries.len() < 5000 {
                 let mut issues = qc::check(&self.doc.script, &self.rules);
+                issues.extend(qc::custom_rules(&self.doc.script, &self.custom_rules()));
                 issues.extend(qc::beyond_end(&self.doc.script, vdur));
                 issues.extend(osisub_core::untranslated::check(&self.doc.script, self.reference.as_ref()));
                 issues.extend(osisub_core::consistency::check(&self.doc.script, self.reference.as_ref()));
@@ -1561,8 +1562,10 @@ impl App {
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.qc_rx = Some(rx);
                 let (script, rules, rev, reference) = (self.doc.script.clone(), self.rules.clone(), self.doc.rev, self.reference.clone());
+                let custom = self.custom_rules();
                 std::thread::spawn(move || {
                     let mut issues = qc::check(&script, &rules);
+                    issues.extend(qc::custom_rules(&script, &custom));
                     issues.extend(qc::beyond_end(&script, vdur));
                     issues.extend(osisub_core::untranslated::check(&script, reference.as_ref()));
                     issues.extend(osisub_core::consistency::check(&script, reference.as_ref()));
@@ -1696,6 +1699,11 @@ impl App {
             }
         });
         if !open { self.align_open = false; self.media.align_pick = false; }
+    }
+
+    /// Açık özel QC kuralları (ad, ifade, harf duyarlı).
+    pub(crate) fn custom_rules(&self) -> Vec<(String, String, bool)> {
+        self.settings.qc_custom.iter().filter(|r| r.0).map(|r| (r.1.clone(), r.2.clone(), r.3)).collect()
     }
 
     /// Yerleşik komutu çalıştırır (kısayoldan).
