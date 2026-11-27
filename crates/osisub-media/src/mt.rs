@@ -1,5 +1,6 @@
 //! Makine çevirisi bağlayıcıları (kullanıcının kendi API anahtarıyla): DeepL, Google Cloud
-//! Translation v2, LibreTranslate ve Claude. Altyazı etiketleri (`{...}`) ve `\N` korunur:
+//! Translation v2, LibreTranslate, Claude ve OpenAI uyumlu sohbet sunucuları (Ollama, LM Studio,
+//! llama.cpp, OpenRouter… — yerel olanlar anahtarsız ve ücretsiz). Altyazı etiketleri (`{...}`) ve `\N` korunur:
 //! DeepL/Google/Libre'ye yalnızca görünür metin gider, etiketler başa geri eklenir; Claude'a
 //! etiketleri koruması söylenir. İstek/yanıt biçimleri saf fonksiyonlardır (çevrimdışı testli).
 use serde_json::{json, Value};
@@ -10,6 +11,8 @@ pub enum Provider {
     Google,
     Libre,
     Claude,
+    /// OpenAI uyumlu `/chat/completions` (url = taban adres, ör. `http://localhost:11434/v1`)
+    OpenAi,
 }
 
 impl Provider {
@@ -19,10 +22,11 @@ impl Provider {
             "google" => Some(Provider::Google),
             "libre" => Some(Provider::Libre),
             "claude" => Some(Provider::Claude),
+            "openai" => Some(Provider::OpenAi),
             _ => None,
         }
     }
-    pub const ALL: &'static [(&'static str, &'static str)] = &[("deepl", "DeepL"), ("google", "Google Cloud Translation"), ("libre", "LibreTranslate"), ("claude", "Claude (Anthropic)")];
+    pub const ALL: &'static [(&'static str, &'static str)] = &[("deepl", "DeepL"), ("google", "Google Cloud Translation"), ("libre", "LibreTranslate"), ("claude", "Claude (Anthropic)"), ("openai", "Yerel YZ / OpenAI uyumlu (Ollama, LM Studio…)")];
 }
 
 #[derive(Clone, Debug)]
@@ -35,11 +39,37 @@ pub struct MtConfig {
     pub target: String,
     /// kaynak dil ("" = otomatik)
     pub source: String,
-    /// Claude için ek bağlam (ör. terim sözlüğü, dizi adı)
+    /// Claude/YZ için ek bağlam (ör. terim sözlüğü, dizi adı)
     pub context: String,
+    /// OpenAI uyumlu sunucuda model adı (ör. "qwen2.5:14b")
+    pub model: String,
 }
 
 pub const CLAUDE_MODEL: &str = "claude-opus-5-5";
+
+/// Claude ve OpenAI uyumlu YZ için ortak sistem istemi.
+fn llm_system(cfg: &MtConfig) -> String {
+    let mut system = format!(
+                "You are a professional anime subtitle translator. Translate each subtitle line into the language with ISO code '{}'{}. \
+                 Keep ASS override tags in curly braces (e.g. {{\\i1}}) and line breaks written as \\N exactly where they belong. \
+                 Write natural, concise subtitle language that fits on screen; keep honorifics and names as they are. \
+                 Return exactly one translation per input line, in the same order.",
+        cfg.target,
+        if cfg.source.is_empty() { String::new() } else { format!(" from '{}'", cfg.source) }
+    );
+    if !cfg.context.trim().is_empty() {
+        system.push_str("\n\nContext and glossary from the user:\n");
+        system.push_str(cfg.context.trim());
+    }
+    system
+}
+
+/// YZ yanıtındaki JSON'u bulur (``` çitleri, öncesinde/sonrasında açıklama olabilir).
+fn extract_json(text: &str) -> Option<Value> {
+    if let Ok(v) = serde_json::from_str::<Value>(text.trim()) { return Some(v); }
+    let (a, b) = (text.find('{')?, text.rfind('}')?);
+    (a < b).then(|| serde_json::from_str(&text[a..=b]).ok()).flatten()
+}
 
 /// Satırı (başlangıç etiketleri, metin) diye ayırır; metindeki `\N` → "\n".
 pub fn split_leading_tags(line: &str) -> (String, String) {
@@ -87,19 +117,21 @@ pub fn build_request(cfg: &MtConfig, texts: &[String]) -> (String, Vec<(String, 
             }
             (format!("{}/translate", cfg.url.trim_end_matches('/')), vec![], body)
         }
+        Provider::OpenAi => {
+            let body = json!({
+                "model": cfg.model.trim(),
+                "temperature": 0.2,
+                "stream": false,
+                "messages": [
+                    { "role": "system", "content": llm_system(cfg) + "\n\nAnswer ONLY with a JSON object of the form {\"translations\": [\"...\", ...]} and nothing else." },
+                    { "role": "user", "content": serde_json::to_string(&json!({ "lines": texts })).unwrap_or_default() }
+                ]
+            });
+            let headers = if cfg.key.trim().is_empty() { vec![] } else { vec![("Authorization".into(), format!("Bearer {}", cfg.key.trim()))] };
+            (format!("{}/chat/completions", cfg.url.trim().trim_end_matches('/')), headers, body)
+        }
         Provider::Claude => {
-            let mut system = format!(
-                "You are a professional anime subtitle translator. Translate each subtitle line into the language with ISO code '{}'{}. \
-                 Keep ASS override tags in curly braces (e.g. {{\\i1}}) and line breaks written as \\N exactly where they belong. \
-                 Write natural, concise subtitle language that fits on screen; keep honorifics and names as they are. \
-                 Return exactly one translation per input line, in the same order.",
-                cfg.target,
-                if cfg.source.is_empty() { String::new() } else { format!(" from '{}'", cfg.source) }
-            );
-            if !cfg.context.trim().is_empty() {
-                system.push_str("\n\nContext and glossary from the user:\n");
-                system.push_str(cfg.context.trim());
-            }
+            let system = llm_system(cfg);
             let schema = json!({
                 "type": "object",
                 "properties": { "translations": { "type": "array", "items": { "type": "string" } } },
@@ -137,6 +169,16 @@ pub fn parse_response(cfg: &MtConfig, texts: &[String], body: &Value) -> Result<
             Value::String(s) => vec![s.clone()],
             _ => return Err(format!("LibreTranslate: {}", body["error"].as_str().unwrap_or("beklenmeyen yanıt"))),
         },
+        Provider::OpenAi => {
+            let text = body["choices"][0]["message"]["content"].as_str().ok_or_else(|| format!("YZ: beklenmeyen yanıt ({})", body["error"]["message"].as_str().or(body["error"].as_str()).unwrap_or("choices yok")))?;
+            let v = extract_json(text).ok_or("YZ: yanıtta JSON bulunamadı (daha büyük/talimat izleyen bir model deneyin)")?;
+            let arr = v["translations"].as_array().or(v.as_array()).ok_or("YZ: translations yok")?;
+            let out: Vec<String> = arr.iter().map(|t| t.as_str().unwrap_or("").to_string()).collect();
+            if out.len() != texts.len() {
+                return Err(format!("YZ: {} satır istendi, {} geldi (daha az satır seçin)", texts.len(), out.len()));
+            }
+            return Ok(out.into_iter().map(|t| t.replace('\n', "\\N")).collect());
+        }
         Provider::Claude => {
             if body["stop_reason"].as_str() == Some("refusal") {
                 return Err("Claude isteği reddetti (güvenlik sınıflandırıcısı)".into());
@@ -164,11 +206,15 @@ pub fn translate(cfg: &MtConfig, texts: &[String]) -> Result<Vec<String>, String
     if texts.is_empty() {
         return Ok(vec![]);
     }
-    if cfg.key.trim().is_empty() && cfg.provider != Provider::Libre {
+    if cfg.provider == Provider::OpenAi && cfg.model.trim().is_empty() {
+        return Err("Model adı girilmemiş (ör. qwen2.5:14b; Ollama'da `ollama list`)".into());
+    }
+    if cfg.key.trim().is_empty() && cfg.provider != Provider::Libre && cfg.provider != Provider::OpenAi {
         return Err("API anahtarı girilmemiş (Araçlar → Makine çevirisi ayarları)".into());
     }
     let (url, headers, body) = build_request(cfg, texts);
-    let mut req = ureq::post(&url).timeout(std::time::Duration::from_secs(120)).set("Content-Type", "application/json");
+    let secs = if cfg.provider == Provider::OpenAi { 600 } else { 120 }; // yerel modeller yavaş
+    let mut req = ureq::post(&url).timeout(std::time::Duration::from_secs(secs)).set("Content-Type", "application/json");
     for (k, v) in &headers {
         req = req.set(k, v);
     }
@@ -190,7 +236,7 @@ mod tests {
     use super::*;
 
     fn cfg(p: Provider) -> MtConfig {
-        MtConfig { provider: p, key: "abc:fx".into(), url: "http://localhost:5000/".into(), target: "tr".into(), source: String::new(), context: "Sözlük: senpai = senpai".into() }
+        MtConfig { provider: p, key: "abc:fx".into(), url: "http://localhost:5000/".into(), target: "tr".into(), source: String::new(), context: "Sözlük: senpai = senpai".into(), model: "qwen2.5:14b".into() }
     }
 
     #[test]
@@ -223,5 +269,60 @@ mod tests {
         let resp = json!({"stop_reason": "end_turn", "content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"translations\": [\"{\\\\i1}Senpai!\", \"Bekle\\nbeni\"]}"}]});
         assert_eq!(parse_response(&cfg(Provider::Claude), &texts, &resp).unwrap(), vec!["{\\i1}Senpai!", "Bekle\\Nbeni"]);
         assert!(parse_response(&cfg(Provider::Claude), &texts, &json!({"stop_reason": "refusal", "content": []})).unwrap_err().contains("reddetti"));
+    }
+
+    #[test]
+    fn openai_compatible_request_and_response() {
+        let texts = vec!["{\\i1}Senpai!".to_string(), "Wait\\Nfor me".to_string()];
+        let mut c = cfg(Provider::OpenAi);
+        c.url = "http://localhost:11434/v1/".into();
+        c.key = String::new();
+        let (url, h, body) = build_request(&c, &texts);
+        assert_eq!(url, "http://localhost:11434/v1/chat/completions");
+        assert!(h.is_empty());
+        assert_eq!(body["model"], "qwen2.5:14b");
+        assert!(body["messages"][0]["content"].as_str().unwrap().contains("senpai"));
+        // çitli ve açıklamalı yanıt da okunur
+        let resp = json!({"choices": [{"message": {"content": "Sure!\n```json\n{\"translations\": [\"{\\\\i1}Senpai!\", \"Bekle\\nbeni\"]}\n```"}}]});
+        assert_eq!(parse_response(&c, &texts, &resp).unwrap(), vec!["{\\i1}Senpai!", "Bekle\\Nbeni"]);
+        assert!(parse_response(&c, &texts, &json!({"choices": [{"message": {"content": "{\"translations\": [\"x\"]}"}}]})).unwrap_err().contains("2 satır"));
+        assert!(parse_response(&c, &texts, &json!({"error": {"message": "model not found"}})).unwrap_err().contains("model not found"));
+        c.key = "sk-1".into();
+        assert_eq!(build_request(&c, &texts).1[0].1, "Bearer sk-1");
+    }
+
+    #[test]
+    fn openai_compatible_over_http() {
+        // yerel sahte sunucu: isteği okur, sabit yanıt döner (Ollama /v1/chat/completions gibi)
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = std::thread::spawn(move || {
+            let (mut c, _) = l.accept().unwrap();
+            let mut buf = vec![0u8; 65536];
+            let mut got = Vec::new();
+            loop {
+                let n = c.read(&mut buf).unwrap();
+                got.extend_from_slice(&buf[..n]);
+                let t = String::from_utf8_lossy(&got).to_string();
+                if let Some(he) = t.find("\r\n\r\n") {
+                    let len: usize = t.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
+                    if got.len() >= he + 4 + len { break; }
+                }
+                if n == 0 { break; }
+            }
+            let body = r#"{"choices":[{"message":{"role":"assistant","content":"{\"translations\":[\"Merhaba\"]}"}}]}"#;
+            write!(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).unwrap();
+            String::from_utf8_lossy(&got).to_string()
+        });
+        let mut c = cfg(Provider::OpenAi);
+        c.key = String::new();
+        c.url = format!("http://127.0.0.1:{port}/v1");
+        assert_eq!(translate(&c, &["Hello".to_string()]).unwrap(), vec!["Merhaba"]);
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /v1/chat/completions"));
+        assert!(!req.to_ascii_lowercase().contains("authorization"));
+        c.model = " ".into();
+        assert!(translate(&c, &["x".to_string()]).unwrap_err().contains("Model"));
     }
 }

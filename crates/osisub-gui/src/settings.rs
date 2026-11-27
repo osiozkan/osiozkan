@@ -68,6 +68,9 @@ pub struct Settings {
     pub mt_provider: String,
     pub mt_key: String,
     pub mt_url: String,
+    /// OpenAI uyumlu (yerel YZ) sunucu taban adresi ve model adı
+    pub mt_oa_url: String,
+    pub mt_model: String,
     pub mt_target: String,
     pub mt_source: String,
     pub mt_context: String,
@@ -128,6 +131,8 @@ impl Default for Settings {
             mt_provider: "deepl".into(),
             mt_key: String::new(),
             mt_url: "http://localhost:5000".into(),
+            mt_oa_url: "http://localhost:11434/v1".into(),
+            mt_model: String::new(),
             mt_target: "tr".into(),
             mt_source: String::new(),
             mt_context: String::new(),

@@ -1415,10 +1415,11 @@ impl App {
         Some(osisub_media::mt::MtConfig {
             provider: osisub_media::mt::Provider::from_id(&st.mt_provider)?,
             key: st.mt_key.clone(),
-            url: st.mt_url.clone(),
+            url: if st.mt_provider == "openai" { st.mt_oa_url.clone() } else { st.mt_url.clone() },
             target: st.mt_target.clone(),
             source: st.mt_source.clone(),
             context: st.mt_context.clone(),
+            model: st.mt_model.clone(),
         })
     }
 
@@ -1447,7 +1448,7 @@ impl App {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut out = vec![];
-            for chunk in texts.chunks(40) {
+            for chunk in texts.chunks(if cfg.provider == osisub_media::mt::Provider::OpenAi { 15 } else { 40 }) {
                 // 429 (hız sınırı) / geçici hata: artan beklemeyle 3 kez daha dene
                 let mut r = osisub_media::mt::translate(&cfg, chunk);
                 for wait in [2u64, 5, 10] {
@@ -1520,6 +1521,14 @@ impl App {
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_url).desired_width(260.0)).changed();
                     ui.end_row();
                 }
+                if st.mt_provider == "openai" {
+                    ui.label(tr("Sunucu"));
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_oa_url).desired_width(260.0)).on_hover_text(tr("Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · llama.cpp: http://localhost:8080/v1 (anahtar gerekmez)")).changed();
+                    ui.end_row();
+                    ui.label(tr("Model"));
+                    changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_model).hint_text("qwen2.5:14b").desired_width(260.0)).changed();
+                    ui.end_row();
+                }
                 ui.label(tr("Kaynak / hedef dil"));
                 ui.horizontal(|ui| {
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_source).hint_text(tr("otomatik")).desired_width(70.0)).changed();
@@ -1527,7 +1536,7 @@ impl App {
                     changed |= ui.add(egui::TextEdit::singleline(&mut st.mt_target).desired_width(70.0)).changed();
                 });
                 ui.end_row();
-                if st.mt_provider == "claude" {
+                if st.mt_provider == "claude" || st.mt_provider == "openai" {
                     ui.label(tr("Bağlam / sözlük"));
                     changed |= ui.add(egui::TextEdit::multiline(&mut st.mt_context).desired_rows(3).desired_width(260.0).hint_text(tr("Dizi adı, karakterler, terimler (senpai = senpai)…"))).changed();
                     ui.end_row();

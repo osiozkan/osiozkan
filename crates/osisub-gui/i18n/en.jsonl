@@ -1374,3 +1374,4 @@
 ["Yazım: \"her zaman kullan\" listesinden {n} yer düzeltildi (Ctrl+Z geri alır)", "Spelling: {n} places fixed from the \"use always\" list (Ctrl+Z undoes)"]
 ["{n} yer değiştirildi", "{n} places replaced"]
 ["Her zaman kullan listesi ({})", "Use-always list ({})"]
+["Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · llama.cpp: http://localhost:8080/v1 (anahtar gerekmez)", "Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1 · llama.cpp: http://localhost:8080/v1 (no key needed)"]
