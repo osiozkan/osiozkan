@@ -16,6 +16,10 @@ pub struct Settings {
     pub qc_custom: Vec<(bool, String, String, bool)>,
     /// Özel metin biçimi şablonu: (başlık, satır, son, zaman biçimi, satır sonu yerine)
     pub custom_text: (String, String, String, String, String),
+    /// Numaralı kısayol yuvaları: konuşan 1–9, stil 1–9 (boş = otomatik), sarmala 1–4 (öncesi, sonrası)
+    pub slot_actors: Vec<String>,
+    pub slot_styles: Vec<String>,
+    pub slot_wraps: Vec<(String, String)>,
     pub max_cps: f64,
     pub max_line_len: usize,
     pub max_lines: usize,
@@ -96,6 +100,9 @@ impl Default for Settings {
             shift_history: vec![],
             spell_always: vec![],
             qc_custom: vec![],
+            slot_actors: vec![String::new(); 9],
+            slot_styles: vec![String::new(); 9],
+            slot_wraps: vec![("{\\i1}".into(), "{\\i0}".into()), ("♪ ".into(), " ♪".into()), ("[".into(), "]".into()), ("(".into(), ")".into())],
             custom_text: {
                 let t = osisub_core::customtext::Template::default();
                 (t.header, t.line, t.footer, t.time_format, t.newline)

@@ -2984,6 +2984,113 @@ impl App {
         if open { self.review = Some(rw); }
     }
 
+    /// Belgedeki konuşanlar, sıklığa göre (eşitse ada göre).
+    fn actors_by_count(&self) -> Vec<(String, usize)> {
+        let mut m: std::collections::HashMap<&str, usize> = Default::default();
+        for d in self.doc.script.dialogues() {
+            if !d.comment && !d.actor.trim().is_empty() { *m.entry(d.actor.as_str()).or_default() += 1; }
+        }
+        let mut v: Vec<(String, usize)> = m.into_iter().map(|(a, n)| (a.to_string(), n)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        v
+    }
+
+    fn set_actor_selected(&mut self, actor: &str) {
+        let targets = self.doc.target_lines();
+        let a = actor.to_string();
+        self.doc.edit("Konuşan", |tx| for i in targets { tx.dialogue_mut(i, |d| d.actor = a.clone()); });
+        self.status = trf!("Konuşan: {}", actor);
+    }
+
+    /// Numaralı yuva: `kind` = actor | style | wrap, `n` 1 tabanlı.
+    pub(super) fn apply_slot(&mut self, kind: &str, n: usize) {
+        let k = n.saturating_sub(1);
+        match kind {
+            "actor" => {
+                let a = self.settings.slot_actors.get(k).filter(|s| !s.trim().is_empty()).cloned().or_else(|| self.actors_by_count().get(k).map(|x| x.0.clone()));
+                match a { Some(a) => self.set_actor_selected(&a), None => self.status = trf!("Konuşan yuvası {} boş", n) }
+            }
+            "style" => {
+                let st = self.settings.slot_styles.get(k).filter(|s| !s.trim().is_empty()).cloned().or_else(|| self.doc.script.styles().nth(k).map(|s| s.name.clone()));
+                match st {
+                    Some(st) => {
+                        let targets = self.doc.target_lines();
+                        let s2 = st.clone();
+                        self.doc.edit("Stil", |tx| for i in targets { tx.dialogue_mut(i, |d| d.style = s2.clone()); });
+                        self.status = trf!("Stil: {}", st);
+                    }
+                    None => self.status = trf!("Stil yuvası {} boş", n),
+                }
+            }
+            _ => {
+                let Some((a, b)) = self.settings.slot_wraps.get(k).cloned().filter(|w| !(w.0.is_empty() && w.1.is_empty())) else { self.status = trf!("Sarmala yuvası {} boş", n); return };
+                let targets = self.doc.target_lines();
+                let mut changes = vec![];
+                for i in targets {
+                    if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(i) {
+                        // baştaki etiket blokları ({\an8}) dışarıda kalır
+                        let lead = osisub_core::tags::leading_blocks(&d.text).to_string();
+                        let body = &d.text[lead.len()..];
+                        changes.push((i, format!("{lead}{a}{body}{b}")));
+                    }
+                }
+                self.doc.edit("Sarmala", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); });
+            }
+        }
+    }
+
+    /// Numaralı kısayollar ve konuşan seçici (Subtitle Edit Set actor/style/surround 1–N, Actor picker).
+    pub(super) fn slots_window(&mut self, ctx: &egui::Context) {
+        if !self.slots_open { return; }
+        self.settings.slot_actors.resize(9, String::new());
+        self.settings.slot_styles.resize(9, String::new());
+        let mut open = true;
+        let mut pick: Option<String> = None;
+        let mut changed = false;
+        let actors = self.actors_by_count();
+        let styles: Vec<String> = self.doc.script.styles().map(|s| s.name.clone()).collect();
+        egui::Window::new(tr("Numaralı kısayollar")).open(&mut open).default_width(520.0).show(ctx, |ui| {
+            ui.label(RichText::new(tr("Yuvalara Yardım → Kısayolları düzenle'den tuş atayın (ör. Alt+1). Boş konuşan yuvası belgede en sık N'inci konuşanı, boş stil yuvası N'inci stili kullanır.")).small().weak());
+            ui.columns(2, |cols| {
+                cols[0].strong(tr("Konuşanlar (tıkla = seçili satırlara ata)"));
+                egui::ScrollArea::vertical().id_salt("actors").max_height(260.0).show(&mut cols[0], |ui| {
+                    if actors.is_empty() { ui.label(RichText::new(tr("Belgede konuşan yok")).weak()); }
+                    for (a, n) in &actors {
+                        if ui.button(format!("{a}  ({n})")).clicked() { pick = Some(a.clone()); }
+                    }
+                });
+                let ui = &mut cols[1];
+                egui::Grid::new("slots_grid").num_columns(3).show(ui, |ui| {
+                    ui.strong("#"); ui.strong(tr("Konuşan")); ui.strong(tr("Stil")); ui.end_row();
+                    for k in 0..9 {
+                        ui.label((k + 1).to_string());
+                        let hint = actors.get(k).map(|x| x.0.clone()).unwrap_or_default();
+                        changed |= ui.add(egui::TextEdit::singleline(&mut self.settings.slot_actors[k]).hint_text(hint).desired_width(90.0)).changed();
+                        let cur = self.settings.slot_styles[k].clone();
+                        let auto = styles.get(k).cloned().unwrap_or_default();
+                        egui::ComboBox::from_id_salt(("slot_style", k)).width(90.0).selected_text(if cur.is_empty() { RichText::new(auto).weak() } else { RichText::new(cur) }).show_ui(ui, |ui| {
+                            changed |= ui.selectable_value(&mut self.settings.slot_styles[k], String::new(), tr("(otomatik)")).changed();
+                            for st in &styles { changed |= ui.selectable_value(&mut self.settings.slot_styles[k], st.clone(), st).changed(); }
+                        });
+                        ui.end_row();
+                    }
+                });
+                ui.separator();
+                ui.strong(tr("Sarmala (öncesi / sonrası)"));
+                for k in 0..self.settings.slot_wraps.len().min(4) {
+                    ui.horizontal(|ui| {
+                        ui.label((k + 1).to_string());
+                        changed |= ui.add(egui::TextEdit::singleline(&mut self.settings.slot_wraps[k].0).desired_width(80.0).font(egui::TextStyle::Monospace)).changed();
+                        changed |= ui.add(egui::TextEdit::singleline(&mut self.settings.slot_wraps[k].1).desired_width(80.0).font(egui::TextStyle::Monospace)).changed();
+                    });
+                }
+            });
+        });
+        if changed { self.settings.save(); }
+        if let Some(a) = pick { self.set_actor_selected(&a); }
+        if !open { self.slots_open = false; }
+    }
+
     pub(super) fn ready_window(&mut self, ctx: &egui::Context) {
         if !self.ready_open { return; }
         use osisub_core::qc::Kind;

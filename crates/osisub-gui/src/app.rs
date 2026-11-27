@@ -156,6 +156,7 @@ pub struct App {
     bgbox: Option<osisub_core::bgbox::BoxStyle>,
     /// YZ ile gözden geçirme penceresi
     review: Option<windows::ReviewWin>,
+    slots_open: bool,
     bgbox_rx: Option<std::sync::mpsc::Receiver<(u64, osisub_core::bgbox::BoxStyle, Vec<(usize, Result<Option<osisub_core::coverage::Bounds>, String>)>)>>,
     /// Çoklu değiştir: kurallar ve önizleme sonuçları (açıksa Some)
     mrep: Option<(Vec<osisub_core::multireplace::Rule>, Vec<Result<usize, String>>, bool)>,
@@ -388,6 +389,29 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("reveal_fx", "Belirme efekti (daktilo / sözcük sözcük / solarak)"),
     ("bg_box", "Arka plan kutusu (satırın ölçülen sınırlarına göre)"),
     ("ai_review", "Çeviriyi YZ ile gözden geçir (Claude / yerel YZ)"),
+    ("actor_1", "Konuşan yuvası 1"),
+    ("actor_2", "Konuşan yuvası 2"),
+    ("actor_3", "Konuşan yuvası 3"),
+    ("actor_4", "Konuşan yuvası 4"),
+    ("actor_5", "Konuşan yuvası 5"),
+    ("actor_6", "Konuşan yuvası 6"),
+    ("actor_7", "Konuşan yuvası 7"),
+    ("actor_8", "Konuşan yuvası 8"),
+    ("actor_9", "Konuşan yuvası 9"),
+    ("style_1", "Stil yuvası 1"),
+    ("style_2", "Stil yuvası 2"),
+    ("style_3", "Stil yuvası 3"),
+    ("style_4", "Stil yuvası 4"),
+    ("style_5", "Stil yuvası 5"),
+    ("style_6", "Stil yuvası 6"),
+    ("style_7", "Stil yuvası 7"),
+    ("style_8", "Stil yuvası 8"),
+    ("style_9", "Stil yuvası 9"),
+    ("wrap_1", "Sarmala yuvası 1 (öncesi/sonrası metin)"),
+    ("wrap_2", "Sarmala yuvası 2 (öncesi/sonrası metin)"),
+    ("wrap_3", "Sarmala yuvası 3 (öncesi/sonrası metin)"),
+    ("wrap_4", "Sarmala yuvası 4 (öncesi/sonrası metin)"),
+    ("slots", "Numaralı kısayollar ve konuşan seçici"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
     ("spot_hold", "Bas/bırak zamanlama: oynatırken basılı tut = satır başlangıcı → bırak = bitiş, sonraki satır"),
@@ -776,6 +800,7 @@ impl App {
             reveal: (false, false, 50.0, 0),
             bgbox: None,
             review: None,
+            slots_open: false,
             bgbox_rx: None,
             mrep: None,
             mrep_key: None,
@@ -868,6 +893,7 @@ impl App {
             Some("reveal") => app.reveal.0 = true,
             Some("bgbox") => app.bgbox = Some(Default::default()),
             Some("review") => app.review = Some(Default::default()),
+            Some("slots") => app.slots_open = true,
             Some("mt") => app.mt_open = true,
             Some("karamode") => { app.media.kara_mode = true; app.media.kara_sel = Some((app.doc.active, 2)); }
             Some("timing") => app.timing_open = true,
@@ -1894,6 +1920,12 @@ impl App {
             "reveal_fx" => self.reveal.0 = true,
             "bg_box" => self.bgbox = Some(Default::default()),
             "ai_review" => self.review = Some(Default::default()),
+            "slots" => self.slots_open = true,
+            _ if id.starts_with("actor_") || id.starts_with("style_") || id.starts_with("wrap_") => {
+                // Subtitle Edit numaralı kısayollar: yuva boşsa konuşan = belgede en sık N'inci, stil = N'inci stil
+                let n: usize = id.rsplit('_').next().and_then(|x| x.parse().ok()).unwrap_or(1);
+                self.apply_slot(&id[..id.find('_').unwrap_or(0)], n);
+            }
             "multi_replace" => self.open_mrep(),
             "silence_next" | "silence_prev" => {
                 // Subtitle Edit Seek silence: ≥0.3 sn, tepe ≤ %10
@@ -2468,6 +2500,7 @@ impl App {
                 if ui.button(tr("Karaoke olarak birleştir")).on_hover_text(tr("Her satır bir hece olur; \\k = satırın süresi")).clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
                 if ui.button(tr("Satırları yeniden birleştir")).on_hover_text(tr("Aegisub Recombine Lines: örtüşen konuşmalar için bölünmüş \"A\" / \"A\\NB\" / \"B\" satırlarını her cümle tek satır olacak şekilde geri birleştirir")).clicked() { self.run_command("recombine", ui.ctx()); ui.close(); }
                 if ui.button(tr("Çakışan satırları seç")).on_hover_text(tr("Aynı stil ve katmanda zamanı çakışan diyalog satırları (Aegisub: Select overlaps)")).clicked() { self.run_command("select_overlaps", ui.ctx()); ui.close(); }
+                if ui.button(tr("Numaralı kısayollar / konuşan seçici…")).on_hover_text(tr("Konuşan 1–9, stil 1–9 ve sarmala 1–4 yuvaları (kısayol atanabilir); konuşanları sayılarıyla listeleyip seçili satırlara atar")).clicked() { self.slots_open = true; ui.close(); }
                 ui.menu_button(tr("Sözcük taşı"), |ui| {
                     for (id, l) in [("word_to_next", "Son sözcüğü sonraki satırın başına taşı"), ("word_from_next", "Sonraki satırın ilk sözcüğünü bu satıra al"), ("word_to_prev", "İlk sözcüğü önceki satırın sonuna taşı"), ("word_from_prev", "Önceki satırın son sözcüğünü bu satıra al")] {
                         if ui.button(tr(l)).clicked() { self.run_command(id, ui.ctx()); ui.close(); }
@@ -3077,6 +3110,7 @@ impl App {
         self.reveal_window(&ctx);
         self.bgbox_window(&ctx);
         self.review_window(&ctx);
+        self.slots_window(&ctx);
         self.mrep_window(&ctx);
         self.split_window(&ctx);
         self.recovery_window(&ctx);
