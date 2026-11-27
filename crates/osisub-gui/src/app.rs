@@ -412,6 +412,9 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("start_dec", "Başlangıcı 10 ms geri"),
     ("length_inc", "Bitişi 10 ms ileri"),
     ("length_dec", "Bitişi 10 ms geri"),
+    ("length_inc_shift", "Bitişi 10 ms ileri (karaoke: sonraki heceler de kayar)"),
+    ("length_dec_shift", "Bitişi 10 ms geri (karaoke: sonraki heceler de kayar)"),
+    ("kara_mode", "Ses: karaoke kipi aç/kapat (hece hece zamanlama)"),
     ("lead_in", "Giriş payı ekle (lead-in)"),
     ("lead_out", "Çıkış payı ekle (lead-out)"),
     ("boundary_next", "Sonraki satır sınırına git"),
@@ -828,6 +831,7 @@ impl App {
         }
         match open_win.as_deref() {
             Some("find") => app.find_open = true,
+            Some("karamode") => { app.media.kara_mode = true; app.media.kara_sel = Some((app.doc.active, 2)); }
             Some("timing") => app.timing_open = true,
             Some("resample") => app.resample_open = true,
             Some("dummy") => app.open_dummy_window(),
@@ -1710,10 +1714,17 @@ impl App {
                 }
             }
             "shift_to_frame" => { if let Some((fr, f)) = self.media.cur_frame() { self.doc.shift_to_frame(&fr, f); } else { self.status = tr("Önce video açın").into(); } }
-            "start_inc" => { self.doc.nudge_active(false, 10); }
-            "start_dec" => { self.doc.nudge_active(false, -10); }
-            "length_inc" => { self.doc.nudge_active(true, 10); }
-            "length_dec" => { self.doc.nudge_active(true, -10); }
+            // karaoke kipinde (Aegisub AudioTimingControllerKaraoke) seçili hece 1 cs değişir
+            "start_inc" => { if !self.media.kara_modify(&mut self.doc, true, 1, false) { self.doc.nudge_active(false, 10); } }
+            "start_dec" => { if !self.media.kara_modify(&mut self.doc, true, -1, false) { self.doc.nudge_active(false, -10); } }
+            "length_inc" => { if !self.media.kara_modify(&mut self.doc, false, 1, false) { self.doc.nudge_active(true, 10); } }
+            "length_dec" => { if !self.media.kara_modify(&mut self.doc, false, -1, false) { self.doc.nudge_active(true, -10); } }
+            "length_inc_shift" => { if !self.media.kara_modify(&mut self.doc, false, 1, true) { self.doc.nudge_active(true, 10); } }
+            "length_dec_shift" => { if !self.media.kara_modify(&mut self.doc, false, -1, true) { self.doc.nudge_active(true, -10); } }
+            "kara_mode" => {
+                self.media.kara_mode = !self.media.kara_mode;
+                self.status = if self.media.kara_mode { tr("Karaoke kipi açık: tık = hece seç, sağ tık = heceyi oynat, Sonraki/Önceki heceden heceye") } else { tr("Karaoke kipi kapalı") }.into();
+            }
             "lead_in" => { self.doc.add_lead(self.settings.lead_in_ms, 0); }
             "lead_out" => { self.doc.add_lead(0, self.settings.lead_out_ms); }
             "frame_next_large" => self.media.step_frames(10),
@@ -1771,12 +1782,25 @@ impl App {
             "case_lower" => self.change_case(osisub_core::casing::Case::Lower),
             "case_title" => self.change_case(osisub_core::casing::Case::Title),
             "case_sentence" => self.change_case(osisub_core::casing::Case::Sentence),
+            "play_sel" if self.media.kara_syls(&self.doc).is_some() => { if self.media.is_playing() { self.media.stop(); } else { self.media.play_syl(&self.doc, ctx); } }
             "play_sel" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Selection),
             "play_before" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Before),
             "play_after" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::After),
             "play_begin" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::Begin),
             "play_end" => self.media.play_part(&self.doc, ctx, crate::media_ui::PlayPart::End),
             "play_stop" => self.media.stop(),
+            "commit_next" if self.media.kara_syls(&self.doc).is_some() => {
+                // karaoke kipi: sonraki hece; son hecedeyse sonraki satır (Aegisub yeni satır açmaz)
+                if !self.media.kara_step(&self.doc, ctx, 1) { step_line(self, 1); self.media.play_syl(&self.doc, ctx); }
+            }
+            "line_prev" if self.media.kara_syls(&self.doc).is_some() => {
+                if !self.media.kara_step(&self.doc, ctx, -1) {
+                    let old = self.doc.active;
+                    step_line(self, -1);
+                    if self.doc.active != old { self.media.kara_sel = Some((self.doc.active, usize::MAX)); }
+                    self.media.play_syl(&self.doc, ctx);
+                }
+            }
             "commit_next" => {
                 // Aegisub time/next: son satırdaysa bitişinden başlayan yeni satır
                 if self.rows.last() == Some(&self.doc.active) || self.rows.is_empty() {
@@ -2575,6 +2599,7 @@ impl App {
                 ui.checkbox(&mut self.media.spectrum, tr("Spektrum göster"));
                 ui.checkbox(&mut self.media.snap, tr("Karelere yapış"));
                 ui.checkbox(&mut self.media.snap_kf, tr("Anahtar karelere yapış"));
+                ui.checkbox(&mut self.media.kara_mode, tr("Karaoke kipi (hece hece zamanlama)")).on_hover_text(tr("Dalga formunda tık = hece seç, sağ tık = heceyi oynat; Sonraki/Önceki (X/Z) heceden heceye, S heceyi oynatır; başlangıç/uzunluk ±10 ms komutları (kısayol atanabilir) seçili heceye uygulanır"));
                 ui.menu_button(tr("Video aracı"), |ui| {
                     use crate::media_ui::VideoTool as T;
                     for (t, l) in [(T::None, "Yok"), (T::Pos, "Konum (\\pos sürükle)"), (T::Move, "Hareket (\\move başlangıç/bitiş; sağ tık = \\pos)"), (T::Clip, "Kırpma (\\clip dikdörtgen; sağ tık = kaldır)"), (T::VClip, "Vektör kırpma (\\clip çizim: tıkla = nokta, sürükle, sağ tık = sil)"), (T::Rotate, "Döndürme (\\frz; Shift = 15°)"), (T::RotateXY, "3B döndürme (\\frx/\\fry)"), (T::Scale, "Ölçek (\\fscx/\\fscy)"), (T::Shear, "Eğme (\\fax/\\fay)"), (T::Perspective, "Perspektif (4 köşeyi sürükle)"), (T::Drawing, "Çizim (\\p noktaları)")] {

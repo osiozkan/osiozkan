@@ -115,6 +115,11 @@ pub struct Media {
     /// `timecodes` videodan otomatik mi geldi (yeni video açılınca sıfırlanır)
     pub timecodes_auto: bool,
     pub snap_kf: bool,
+    /// Aegisub karaoke kipi: zamanlama komutları (sonraki/önceki, uzunluk/başlangıç ±10 ms, seçimi oynat)
+    /// satır yerine seçili heceye uygulanır.
+    pub kara_mode: bool,
+    /// Karaoke kipinde seçili hece: (satırın ham dizini, hece). Başka satırda 0. hece sayılır.
+    pub kara_sel: Option<(usize, usize)>,
     /// Videoda \pos sürükleme aracı.
     pub tool: VideoTool,
     vt_drag: Option<(u8, (f32, f32))>,
@@ -210,6 +215,8 @@ impl Media {
             timecodes: None,
             timecodes_auto: false,
             snap_kf: true,
+            kara_mode: false,
+            kara_sel: None,
             tool: VideoTool::None,
             vt_drag: None,
             vt_press: None,
@@ -550,6 +557,62 @@ impl Media {
         if dur > 0 {
             self.play_range(doc, ctx, from, dur);
         }
+    }
+
+    /// Karaoke kipi açıksa ve etkin satırda en az iki hece varsa (öncü metin, heceler).
+    pub fn kara_syls(&self, doc: &Document) -> Option<(String, Vec<osisub_core::karaoke::Syl>)> {
+        if !self.kara_mode { return None; }
+        let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active) else { return None };
+        let (lead, v) = osisub_core::karaoke::parse_with_lead(&d.text);
+        (v.len() > 1).then_some((lead, v))
+    }
+
+    /// Etkin satırdaki seçili hece (satır değiştiyse 0; `usize::MAX` = son hece).
+    pub fn kara_cur(&self, doc: &Document, n: usize) -> usize {
+        match self.kara_sel {
+            Some((e, i)) if e == doc.active => i.min(n.saturating_sub(1)),
+            _ => 0,
+        }
+    }
+
+    /// Seçili heceyi oynatır (Aegisub PlayPrimaryRange).
+    pub fn play_syl(&mut self, doc: &Document, ctx: &egui::Context) {
+        let Some((_, v)) = self.kara_syls(doc) else { return };
+        let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active) else { return };
+        let i = self.kara_cur(doc, v.len());
+        if let Some((a, b)) = osisub_core::karaoke::syl_range_ms(&v, i) {
+            if self.is_playing() { self.stop_all(); }
+            self.play_range(doc, ctx, d.start_time + a, (b - a).max(50));
+        }
+    }
+
+    /// Karaoke kipinde heceden heceye geçer (Aegisub time/next, time/prev). Satırın sınırına
+    /// gelindiyse false döner (çağıran satır değiştirir; önceki satıra geçişte son hece seçilir).
+    pub fn kara_step(&mut self, doc: &Document, ctx: &egui::Context, dir: i32) -> bool {
+        let Some((_, v)) = self.kara_syls(doc) else { return false };
+        let i = self.kara_cur(doc, v.len());
+        let ni = i as i64 + dir as i64;
+        if ni < 0 || ni >= v.len() as i64 {
+            self.kara_sel = Some((usize::MAX, 0));
+            return false;
+        }
+        self.kara_sel = Some((doc.active, ni as usize));
+        self.play_syl(doc, ctx);
+        true
+    }
+
+    /// Karaoke kipinde seçili hecenin uzunluğu/başlangıcı (cs). `start`: başlangıç, değilse bitiş;
+    /// `shift`: sonraki sınırlar da kayar. Karaoke kipi yoksa false (çağıran satırı düzenler).
+    pub fn kara_modify(&mut self, doc: &mut Document, start: bool, delta_cs: i64, shift: bool) -> bool {
+        let Some((lead, mut v)) = self.kara_syls(doc) else { return false };
+        let at = doc.active;
+        let i = self.kara_cur(doc, v.len());
+        let changed = if start { osisub_core::karaoke::modify_start(&mut v, i, delta_cs) } else { osisub_core::karaoke::modify_length(&mut v, i, delta_cs, shift) };
+        if changed {
+            let nt = osisub_core::karaoke::build_with_lead(&lead, &v);
+            doc.edit_keyed("Hece süresi", Some(&format!("kara-len:{}", at)), |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+        }
+        true
     }
 
     pub fn stop(&mut self) {
@@ -1902,6 +1965,16 @@ impl Media {
         // Karaoke kipi: \k heceleri dalga formunda; iç sınırlar sürüklenebilir (Aegisub karaoke modu)
         let (k_lead, k_syls) = osisub_core::karaoke::parse_with_lead(&d.text);
         let mut k_bounds: Vec<f32> = vec![]; // iç sınırların x konumları (i: i ile i+1 arası)
+        let kara_on = self.kara_mode && k_syls.len() > 1;
+        if kara_on {
+            // seçili hece vurgusu (Aegisub karaoke kipi birincil aralığı)
+            let ci = self.kara_cur(doc, k_syls.len());
+            if let Some((a, b)) = osisub_core::karaoke::syl_range_ms(&k_syls, ci) {
+                let (xa, xb) = (x_of((d.start_time + a) as f64, vs, mpp), x_of((d.start_time + b) as f64, vs, mpp));
+                let r = Rect::from_x_y_ranges(xa.max(rect.left())..=xb.min(rect.right()).max(xa.max(rect.left())), rect.y_range());
+                p.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(0x60, 0xa0, 0xf0, 50));
+            }
+        }
         if k_syls.len() > 1 {
             let mut t = d.start_time;
             let top = rect.top() + 4.0;
@@ -1995,6 +2068,19 @@ impl Media {
             if let Some(pos) = resp.hover_pos() {
                 if (pos.x - xs).abs() <= 7.0 || (pos.x - xe).abs() <= 7.0 || k_bounds.iter().any(|x| (pos.x - x).abs() <= 5.0) {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                }
+            }
+        }
+        // Karaoke kipi (Aegisub): sol tık heceyi seçer, sağ tık seçip oynatır
+        if kara_on && (resp.clicked() || resp.secondary_clicked()) && !ui.input(|i| i.modifiers.shift) {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                let m = ms_of(pos.x) as i64;
+                if m >= d.start_time && m <= d.end_time {
+                    let i = osisub_core::karaoke::syl_at_ms(&k_syls, m - d.start_time);
+                    self.kara_sel = Some((act, i));
+                    if resp.secondary_clicked() { self.play_syl(doc, ui.ctx()); }
+                    if resp.clicked() { self.playhead = self.snap_ms(m).max(0); }
+                    return;
                 }
             }
         }

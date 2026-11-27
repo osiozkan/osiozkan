@@ -170,6 +170,78 @@ pub fn move_boundary(syls: &mut [Syl], i: usize, delta: i64) {
     syls[i + 1].dur -= d;
 }
 
+/// Hece sınırları (iç işaretçiler, satır başından santisaniye): `i` → `i` ile `i+1` arası.
+fn markers(syls: &[Syl]) -> Vec<i64> {
+    let mut t = 0;
+    syls.iter().take(syls.len().saturating_sub(1)).map(|s| { t += s.dur; t }).collect()
+}
+
+fn from_markers(syls: &mut [Syl], m: &[i64], total: i64) {
+    let mut prev = 0;
+    for (i, s) in syls.iter_mut().enumerate() {
+        let b = m.get(i).copied().unwrap_or(total);
+        s.dur = b - prev;
+        prev = b;
+    }
+}
+
+/// Aegisub karaoke kipi `time/length/increase|decrease[/shift]` (AudioTimingControllerKaraoke::ModifyLength):
+/// `cur` hecesinin bitişini `delta_cs` kadar kaydırır; `shift` ise sonraki tüm sınırlar da kayar.
+/// Satır süresi değişmez (sınırlar satır başı/sonu ve komşularıyla kıstırılır). Son hece için işlem yok.
+/// Değişiklik olduysa true.
+pub fn modify_length(syls: &mut [Syl], cur: usize, delta_cs: i64, shift: bool) -> bool {
+    let n = syls.len();
+    if n < 2 || cur + 1 >= n || delta_cs == 0 {
+        return false;
+    }
+    let total: i64 = syls.iter().map(|s| s.dur).sum();
+    let mut m = markers(syls);
+    let old = m.clone();
+    let last = m.len() - 1;
+    let mv = |m: &mut Vec<i64>, k: usize| {
+        let lo = if k == 0 { 0 } else { m[k - 1] };
+        let hi = if k == last { total } else { m[k + 1] };
+        let v = m[k] + delta_cs;
+        m[k] = if lo <= hi { v.clamp(lo, hi) } else { v };
+    };
+    let range: Vec<usize> = if shift { (cur..=last).collect() } else { vec![cur] };
+    // Aegisub sırası: uzatırken sağdan sola, kısaltırken soldan sağa (komşu önce yer açar)
+    if delta_cs > 0 {
+        for &k in range.iter().rev() { mv(&mut m, k); }
+    } else {
+        for &k in &range { mv(&mut m, k); }
+    }
+    if m == old {
+        return false;
+    }
+    from_markers(syls, &m, total);
+    true
+}
+
+/// Aegisub karaoke kipi `time/start/increase|decrease` (ModifyStart): `cur` hecesinin başlangıcını kaydırır
+/// (önceki heceyle arasındaki sınır). İlk hece için işlem yok.
+pub fn modify_start(syls: &mut [Syl], cur: usize, delta_cs: i64) -> bool {
+    if cur == 0 || cur >= syls.len() {
+        return false;
+    }
+    let before: Vec<i64> = syls.iter().map(|s| s.dur).collect();
+    move_boundary(syls, cur - 1, delta_cs);
+    syls.iter().map(|s| s.dur).collect::<Vec<_>>() != before
+}
+
+/// Hecenin satır başına göre [başlangıç, bitiş) aralığı (ms).
+pub fn syl_range_ms(syls: &[Syl], i: usize) -> Option<(i64, i64)> {
+    let s = syls.get(i)?;
+    let a: i64 = syls.iter().take(i).map(|s| s.dur).sum::<i64>() * 10;
+    Some((a, a + s.dur.max(0) * 10))
+}
+
+/// Satır başına göre `ms` anının düştüğü hece (Aegisub OnLeftClick: `lower_bound(markers, ms)`).
+pub fn syl_at_ms(syls: &[Syl], ms: i64) -> usize {
+    let m = markers(syls);
+    m.iter().position(|&b| b * 10 >= ms).unwrap_or(m.len())
+}
+
 fn weight(s: &Syl) -> f64 {
     let v = s.visible();
     let letters = v.chars().filter(|c| !c.is_whitespace()).count() as f64;
@@ -780,5 +852,68 @@ mod aegisub_parse_tests {
         assert_eq!(view("{yorum}{\\k5}a")[0].3, "{yorum}a");
         assert_eq!(view("a{b")[0].3, "a{b");
         assert_eq!(p("")[0].dur_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod modify_tests {
+    use super::*;
+    fn durs(v: &[Syl]) -> Vec<i64> { v.iter().map(|s| s.dur).collect() }
+    fn syls(d: &[i64]) -> Vec<Syl> { d.iter().map(|&x| Syl { dur: x, kind: "k".into(), text: "a".into() }).collect() }
+
+    #[test]
+    fn length_without_shift_takes_from_next() {
+        let mut v = syls(&[10, 20, 30]);
+        assert!(modify_length(&mut v, 0, 1, false));
+        assert_eq!(durs(&v), vec![11, 19, 30]);
+        assert!(modify_length(&mut v, 1, -1, false));
+        assert_eq!(durs(&v), vec![11, 18, 31]);
+        // son hece: işlem yok (bitiş satır sonu)
+        assert!(!modify_length(&mut v, 2, 1, false));
+    }
+
+    #[test]
+    fn length_with_shift_moves_following() {
+        let mut v = syls(&[10, 20, 30]);
+        assert!(modify_length(&mut v, 0, 1, true));
+        // tüm sınırlar 1 cs sağa: son hece kısalır, satır süresi aynı
+        assert_eq!(durs(&v), vec![11, 20, 29]);
+        assert!(modify_length(&mut v, 0, -1, true));
+        assert_eq!(durs(&v), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn clamped_at_neighbours_and_line_end() {
+        let mut v = syls(&[10, 0, 5]);
+        // sonraki hece 0: sınır ilerleyemez (komşuya kıstırılır)
+        assert!(!modify_length(&mut v, 0, 1, false));
+        // kaydırmalı: önce sağdaki sınır ilerler, sonra bu
+        assert!(modify_length(&mut v, 0, 1, true));
+        assert_eq!(durs(&v), vec![11, 0, 4]);
+        let mut w = syls(&[10, 0]);
+        assert!(!modify_length(&mut w, 0, 1, true));
+        let mut z = syls(&[0, 10]);
+        assert!(!modify_length(&mut z, 0, -1, false));
+    }
+
+    #[test]
+    fn start_moves_previous_boundary() {
+        let mut v = syls(&[10, 20, 30]);
+        assert!(!modify_start(&mut v, 0, 1));
+        assert!(modify_start(&mut v, 2, 1));
+        assert_eq!(durs(&v), vec![10, 21, 29]);
+        assert!(modify_start(&mut v, 1, -3));
+        assert_eq!(durs(&v), vec![7, 24, 29]);
+    }
+
+    #[test]
+    fn ranges_and_hit() {
+        let v = syls(&[10, 20, 30]);
+        assert_eq!(syl_range_ms(&v, 1), Some((100, 300)));
+        assert_eq!(syl_at_ms(&v, 0), 0);
+        assert_eq!(syl_at_ms(&v, 99), 0);
+        assert_eq!(syl_at_ms(&v, 150), 1);
+        assert_eq!(syl_at_ms(&v, 301), 2);
+        assert_eq!(syl_at_ms(&v, 9999), 2);
     }
 }
