@@ -1401,3 +1401,7 @@
 ["< Sessizlik", "< Silence"]
 ["Sessizlik >", "Silence >"]
 ["Ses: sonraki sessizliğe atla (en az 0.3 sn, tepe ≤ %10)", "Audio: seek to next silence (at least 0.3 s, peak ≤ 10%)"]
+["Noktadan senkron (çok noktalı)", "Point sync (multi-point)"]
+["Bir satır seçin, oynatma imlecini (playhead) o satırın doğru başlangıcına getirip nokta ekleyin. Tek nokta = kaydırma; iki ve daha fazla nokta arası doğrusal ölçeklenir (reklam arası/kesik eklenen yayınlar için).", "Select a line, move the playhead to its correct start and add a point. One point = shift; between two or more points times are scaled linearly (for broadcasts with ad breaks or cuts)."]
+["Nokta ekle (etkin satır → playhead)", "Add point (active line → playhead)"]
+["Senkron uygulandı ({} nokta)", "Sync applied ({} points)"]

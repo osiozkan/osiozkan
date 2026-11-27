@@ -497,6 +497,31 @@ pub fn linear_retime(script: &mut Script, a: (i64, i64), b: (i64, i64)) {
     }
 }
 
+/// Çok noktalı senkron (Subtitle Edit Point sync): (eski, yeni) ms çiftleri arasında parça parça doğrusal
+/// eşleme; uçlarda ilk/son parçanın eğimiyle sürdürülür. Tek nokta = kaydırma. Aynı kaynak zamanlı
+/// çiftlerden ilki kullanılır.
+pub fn piecewise_retime(script: &mut Script, pts: &[(i64, i64)]) {
+    let mut p: Vec<(i64, i64)> = pts.to_vec();
+    p.sort_by_key(|x| x.0);
+    p.dedup_by_key(|x| x.0);
+    if p.is_empty() {
+        return;
+    }
+    let f = |t: i64| -> i64 {
+        if p.len() == 1 {
+            return (t + p[0].1 - p[0].0).max(0);
+        }
+        let k = p.windows(2).position(|w| t < w[1].0).unwrap_or(p.len() - 2);
+        let (a, b) = (p[k], p[k + 1]);
+        let scale = (b.1 - a.1) as f64 / (b.0 - a.0) as f64;
+        (a.1 as f64 + (t - a.0) as f64 * scale).round().max(0.0) as i64
+    };
+    for d in script.dialogues_mut() {
+        d.start_time = f(d.start_time);
+        d.end_time = f(d.end_time);
+    }
+}
+
 pub fn fps_convert(script: &mut Script, from_fps: f64, to_fps: f64) {
     let r = from_fps / to_fps;
     for d in script.dialogues_mut() {
@@ -940,5 +965,32 @@ mod tests {
         assert_eq!(sc.dialogues().map(|d| d.text.clone()).collect::<Vec<_>>(), vec!["a", "c", "x", "{\\i1}b"]);
         // tek seçili satır ve sıra dışı girdiler sorun çıkarmaz
         sort_selected(&mut sc, SortKey::Start, &[f + 1, 999]);
+    }
+
+    #[test]
+    fn piecewise_retime_segments() {
+        let mk = |ts: &[i64]| {
+            let mut s = Script::default();
+            for &t in ts {
+                let mut d = Dialogue::default();
+                d.start_time = t;
+                d.end_time = t + 1000;
+                s.entries.push(Entry::Dialogue(d));
+            }
+            s
+        };
+        let starts = |s: &Script| s.dialogues().map(|d| d.start_time).collect::<Vec<_>>();
+        // 0–10 sn: +1 sn kayık; 10 sn sonra araya 2 sn reklam eklenmiş (+3 sn)
+        let mut s = mk(&[0, 5000, 10000, 20000, 30000]);
+        piecewise_retime(&mut s, &[(5000, 6000), (20000, 23000), (30000, 33000)]);
+        assert_eq!(starts(&s), vec![333, 6000, 11667, 23000, 33000]);
+        // tek nokta = kaydırma
+        let mut t = mk(&[1000, 2000]);
+        piecewise_retime(&mut t, &[(1000, 1500)]);
+        assert_eq!(starts(&t), vec![1500, 2500]);
+        // sırasız ve yinelenen noktalar
+        let mut u = mk(&[0, 10000]);
+        piecewise_retime(&mut u, &[(10000, 20000), (0, 0), (0, 999)]);
+        assert_eq!(starts(&u), vec![0, 20000]);
     }
 }

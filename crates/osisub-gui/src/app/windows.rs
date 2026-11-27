@@ -1772,46 +1772,38 @@ impl App {
                 }
             });
             ui.separator();
-            ui.strong(tr("Noktadan senkron (iki nokta, doğrusal)"));
-            ui.label(RichText::new(tr("Etkin satırı A/B noktası yapın, oynatma imlecini (playhead) hedef zaman olarak alın; uygulayınca tüm zamanlar kayar ve ölçeklenir.")).weak().small());
-            for (name, slot_is_a) in [("A", true), ("B", false)] {
+            ui.strong(tr("Noktadan senkron (çok noktalı)"));
+            ui.label(RichText::new(tr("Bir satır seçin, oynatma imlecini (playhead) o satırın doğru başlangıcına getirip nokta ekleyin. Tek nokta = kaydırma; iki ve daha fazla nokta arası doğrusal ölçeklenir (reklam arası/kesik eklenen yayınlar için).")).weak().small());
+            let mut del = None;
+            for (k, (i, target)) in self.sync_pts.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.label(trf!("{} noktası:", name));
-                    if ui.button(tr("Etkin satır")).clicked() {
-                        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active) {
-                            let v = Some((self.doc.active, d.start_time));
-                            if slot_is_a { self.sync_a = v.map(|(i, t)| (i, t)); } else { self.sync_b = v.map(|(i, t)| (i, t)); }
-                        }
-                    }
-                    let slot = if slot_is_a { &mut self.sync_a } else { &mut self.sync_b };
-                    match slot {
-                        Some((i, target)) => {
-                            let src = match self.doc.script.entries.get(*i) { Some(Entry::Dialogue(d)) => d.start_time, _ => 0 };
-                            ui.label(RichText::new(format!("{} →", time::format_ass(src))).monospace());
-                            let mut t = *target;
-                            if ui.button(tr("Playhead")).clicked() { t = self.media.playhead; }
-                            ui.add(egui::DragValue::new(&mut t).speed(10).suffix(" ms"));
-                            *target = t;
-                            ui.label(RichText::new(time::format_ass(t)).monospace());
-                        }
-                        None => { ui.label(RichText::new(tr("seçilmedi")).weak()); }
-                    }
+                    let src = match self.doc.script.entries.get(*i) { Some(Entry::Dialogue(d)) => d.start_time, _ => 0 };
+                    ui.label(RichText::new(format!("{}. {} →", k + 1, time::format_ass(src))).monospace());
+                    if ui.small_button(tr("Playhead")).clicked() { *target = self.media.playhead; }
+                    ui.add(egui::DragValue::new(target).speed(10).suffix(" ms"));
+                    ui.label(RichText::new(time::format_ass(*target)).monospace());
+                    if ui.small_button("x").clicked() { del = Some(k); }
                 });
             }
-            if ui.add_enabled(self.sync_a.is_some() && self.sync_b.is_some(), egui::Button::new(tr("Senkronu uygula"))).clicked() {
-                if let (Some((ia, ta)), Some((ib, tb))) = (self.sync_a, self.sync_b) {
-                    let src = |i: usize| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some(d.start_time), _ => None };
-                    if let (Some(sa), Some(sb)) = (src(ia), src(ib)) {
-                        if sa == sb { self.status = tr("A ve B farklı zamanlarda olmalı").into(); } else {
-                            let mut sc = self.doc.script.clone();
-                            qc::linear_retime(&mut sc, (sa, ta), (sb, tb));
-                            self.doc.apply_new_script("Noktadan senkron", sc);
-                            self.sync_a = None; self.sync_b = None;
-                            self.status = tr("Senkron uygulandı").into();
-                        }
+            if let Some(k) = del { self.sync_pts.remove(k); }
+            ui.horizontal(|ui| {
+                if ui.button(tr("Nokta ekle (etkin satır → playhead)")).clicked() {
+                    if let Some(Entry::Dialogue(_)) = self.doc.script.entries.get(self.doc.active) {
+                        let a = self.doc.active;
+                        self.sync_pts.retain(|p| p.0 != a);
+                        self.sync_pts.push((a, self.media.playhead));
                     }
                 }
-            }
+                if ui.add_enabled(!self.sync_pts.is_empty(), egui::Button::new(tr("Senkronu uygula"))).clicked() {
+                    let pts: Vec<(i64, i64)> = self.sync_pts.iter().filter_map(|&(i, t)| match self.doc.script.entries.get(i) { Some(Entry::Dialogue(d)) => Some((d.start_time, t)), _ => None }).collect();
+                    let mut sc = self.doc.script.clone();
+                    qc::piecewise_retime(&mut sc, &pts);
+                    self.doc.apply_new_script("Noktadan senkron", sc);
+                    self.sync_pts.clear();
+                    self.status = trf!("Senkron uygulandı ({} nokta)", pts.len());
+                }
+                if !self.sync_pts.is_empty() && ui.button(tr("Temizle")).clicked() { self.sync_pts.clear(); }
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 ui.label(tr("FPS dönüştür"));
