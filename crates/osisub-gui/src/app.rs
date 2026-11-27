@@ -587,6 +587,11 @@ impl App {
             settings.hotkey_defaults = 4;
             settings.save();
         }
+        if settings.hotkey_defaults < 5 {
+            crate::hotkeys::apply_default_list(&mut settings.macro_hotkeys, COMMAND_SCRIPT, crate::hotkeys::DEFAULT_COMMAND_KEYS_V5);
+            settings.hotkey_defaults = 5;
+            settings.save();
+        }
         // Kurulu Aegisub'ın autoload betikleri (osisub'da aynı adda betik yoksa)
         if settings.aegisub_autoload {
             for d in osisub_core::paths::aegisub_automation_dirs() {
@@ -2054,7 +2059,9 @@ impl App {
                 // Metin yazarken değiştiricisiz harf kısayolları yazmayı bozmasın (F tuşları hariç)
                 let plain = !(sc.modifiers.command || sc.modifiers.ctrl || sc.modifiers.alt);
                 let fkey = sc.logical_key.name().starts_with('F') && sc.logical_key.name().len() > 1;
-                if typing_now && plain && !fkey {
+                // Ctrl/Shift+ok, Home/End, sil tuşları metin kutusunda imleç/sözcük gezintisidir (Ctrl+←/→ vb.)
+                let text_nav = !sc.modifiers.alt && crate::hotkeys::is_text_nav_key(sc.logical_key);
+                if typing_now && ((plain && !fkey) || text_nav) {
                     continue;
                 }
                 if script == COMMAND_SCRIPT && name == "hold_play" {

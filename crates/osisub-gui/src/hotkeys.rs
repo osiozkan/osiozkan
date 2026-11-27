@@ -171,6 +171,15 @@ pub const DEFAULT_COMMAND_KEYS_V3: &[(&str, &str)] = &[("bookmark_toggle", "Ctrl
 /// 0.10.0: Aegisub varsayılanları (Ctrl+D osisub'da çoğaltma, Alt+↑/↓ satır gezinme olarak kalır)
 pub const DEFAULT_COMMAND_KEYS_V4: &[(&str, &str)] = &[("snap_scene", "Ctrl+5"), ("shift_to_frame", "Ctrl+6"), ("split_after", "Ctrl+Shift+D"), ("lead_in", "C"), ("lead_out", "V"), ("find_next", "F3")];
 
+/// 0.11.0: Aegisub Ctrl+←/→ (satır sınırı); metin kutusu odaktayken çalışmaz (sözcük atlama korunur)
+pub const DEFAULT_COMMAND_KEYS_V5: &[(&str, &str)] = &[("boundary_prev", "Ctrl+ArrowLeft"), ("boundary_next", "Ctrl+ArrowRight")];
+
+/// Metin kutusunda imleç gezintisi/silme için kullanılan tuşlar: yazarken kısayol olarak tetiklenmez.
+pub fn is_text_nav_key(k: Key) -> bool {
+    use Key::*;
+    matches!(k, ArrowLeft | ArrowRight | ArrowUp | ArrowDown | Home | End | Backspace | Delete | PageUp | PageDown)
+}
+
 /// `DEFAULT_COMMAND_KEYS`'i ekler (komutun ya da tuşun ataması varsa atlar). Eklenen sayısı.
 pub fn apply_defaults(binds: &mut Vec<crate::settings::MacroHotkey>, command_script: &str) -> usize {
     apply_default_list(binds, command_script, DEFAULT_COMMAND_KEYS)
@@ -324,5 +333,15 @@ mod tests {
         assert!(!b.iter().any(|h| h.keys == "Q"));
         assert!(b.iter().any(|h| h.name == "commit_next" && h.keys == "X"));
         assert_eq!(apply_defaults(&mut b, "@komut"), 0);
+    }
+
+    #[test]
+    fn ctrl_arrow_defaults_parse() {
+        for (_, k) in DEFAULT_COMMAND_KEYS_V5 {
+            let sc = parse(k).expect("ayrıştırılmalı");
+            assert!(sc.modifiers.command || sc.modifiers.ctrl);
+            assert!(is_text_nav_key(sc.logical_key));
+        }
+        assert!(!is_text_nav_key(Key::X));
     }
 }
