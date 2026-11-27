@@ -563,8 +563,14 @@ impl Media {
     pub fn kara_syls(&self, doc: &Document) -> Option<(String, Vec<osisub_core::karaoke::Syl>)> {
         if !self.kara_mode { return None; }
         let Some(Entry::Dialogue(d)) = doc.script.entries.get(doc.active) else { return None };
-        let (lead, v) = osisub_core::karaoke::parse_with_lead(&d.text);
-        (v.len() > 1).then_some((lead, v))
+        let (lead, mut v) = osisub_core::karaoke::parse_with_lead(&d.text);
+        if v.len() <= 1 {
+            // hecesiz/tek heceli satır: tüm satır tek hece (Aegisub; düzenleme yapılamaz, oynatma tüm satır)
+            return Some((String::new(), vec![osisub_core::karaoke::Syl { dur: (d.duration() / 10).max(0), kind: "k".into(), text: d.text.clone() }]));
+        }
+        // Aegisub gibi toplam satır süresine eşitlenir (son hece uzar / taşanlar kırpılır)
+        osisub_core::karaoke::normalize(&mut v, ((d.end_time - d.start_time) as f64 / 10.0).round() as i64);
+        Some((lead, v))
     }
 
     /// Etkin satırdaki seçili hece (satır değiştiyse 0; `usize::MAX` = son hece).
@@ -593,7 +599,7 @@ impl Media {
         let i = self.kara_cur(doc, v.len());
         let ni = i as i64 + dir as i64;
         if ni < 0 || ni >= v.len() as i64 {
-            self.kara_sel = Some((usize::MAX, 0));
+            // satır değişirse çağıran seçimi sıfırlar; değişmezse (son satır) hece yerinde kalır
             return false;
         }
         self.kara_sel = Some((doc.active, ni as usize));
@@ -1963,7 +1969,11 @@ impl Media {
             }
         }
         // Karaoke kipi: \k heceleri dalga formunda; iç sınırlar sürüklenebilir (Aegisub karaoke modu)
-        let (k_lead, k_syls) = osisub_core::karaoke::parse_with_lead(&d.text);
+        let (k_lead, mut k_syls) = osisub_core::karaoke::parse_with_lead(&d.text);
+        if k_syls.len() > 1 {
+            // Aegisub: hece toplamı satır süresine eşitlenir (son hece satır sonuna kadar; taşanlar kırpılır)
+            osisub_core::karaoke::normalize(&mut k_syls, ((d.end_time - d.start_time) as f64 / 10.0).round() as i64);
+        }
         let mut k_bounds: Vec<f32> = vec![]; // iç sınırların x konumları (i: i ile i+1 arası)
         let kara_on = self.kara_mode && k_syls.len() > 1;
         if kara_on {

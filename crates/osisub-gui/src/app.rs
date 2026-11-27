@@ -1796,7 +1796,12 @@ impl App {
             "play_stop" => self.media.stop(),
             "commit_next" if self.media.kara_syls(&self.doc).is_some() => {
                 // karaoke kipi: sonraki hece; son hecedeyse sonraki satır (Aegisub yeni satır açmaz)
-                if !self.media.kara_step(&self.doc, ctx, 1) { step_line(self, 1); self.media.play_syl(&self.doc, ctx); }
+                if !self.media.kara_step(&self.doc, ctx, 1) {
+                    let old = self.doc.active;
+                    step_line(self, 1);
+                    if self.doc.active != old { self.media.kara_sel = Some((self.doc.active, 0)); }
+                    self.media.play_syl(&self.doc, ctx);
+                }
             }
             "line_prev" if self.media.kara_syls(&self.doc).is_some() => {
                 if !self.media.kara_step(&self.doc, ctx, -1) {

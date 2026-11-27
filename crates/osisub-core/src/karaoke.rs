@@ -170,6 +170,27 @@ pub fn move_boundary(syls: &mut [Syl], i: usize, delta: i64) {
     syls[i + 1].dur -= d;
 }
 
+/// Aegisub AssKaraoke normalize: hece toplamı satır süresinden (cs) kısaysa son hece uzatılır,
+/// uzunsa satır sonunu aşan heceler kırpılır. Değişiklik olduysa true.
+pub fn normalize(syls: &mut [Syl], line_cs: i64) -> bool {
+    let Some(last) = syls.len().checked_sub(1) else { return false };
+    let line_cs = line_cs.max(0);
+    let sum: i64 = syls.iter().map(|s| s.dur).sum();
+    if sum < line_cs {
+        syls[last].dur += line_cs - sum;
+        return true;
+    }
+    let mut changed = false;
+    let mut t = 0;
+    for s in syls.iter_mut() {
+        let start = t;
+        t += s.dur;
+        let nd = if start >= line_cs { 0 } else { s.dur.min(line_cs - start) };
+        if nd != s.dur { s.dur = nd; changed = true; }
+    }
+    changed
+}
+
 /// Hece sınırları (iç işaretçiler, satır başından santisaniye): `i` → `i` ile `i+1` arası.
 fn markers(syls: &[Syl]) -> Vec<i64> {
     let mut t = 0;
@@ -915,5 +936,29 @@ mod modify_tests {
         assert_eq!(syl_at_ms(&v, 150), 1);
         assert_eq!(syl_at_ms(&v, 301), 2);
         assert_eq!(syl_at_ms(&v, 9999), 2);
+    }
+
+    #[test]
+    fn normalize_like_aegisub() {
+        let mut v = syls(&[0, 0, 0]);
+        assert!(normalize(&mut v, 300));
+        assert_eq!(durs(&v), vec![0, 0, 300]);
+        // artık sınırlar oynatılabilir (ayrık satır hiç düzenlenemiyordu)
+        // (Aegisub'da da ilk sınır sağdaki 0 noktasına kıstırılır; kaydırmalı ya da sonraki sınır oynar)
+        assert!(!modify_length(&mut v, 0, 1, false));
+        assert!(modify_length(&mut v, 1, 5, false));
+        assert_eq!(durs(&v), vec![0, 5, 295]);
+        assert!(modify_length(&mut v, 0, 2, true));
+        assert_eq!(durs(&v), vec![2, 5, 293]);
+        let mut w = syls(&[10, 20]);
+        normalize(&mut w, 300);
+        assert_eq!(durs(&w), vec![10, 290]);
+        assert_eq!(syl_range_ms(&w, 1), Some((100, 3000)));
+        let mut x = syls(&[100, 150, 100]);
+        assert!(normalize(&mut x, 200));
+        assert_eq!(durs(&x), vec![100, 100, 0]);
+        assert!(!normalize(&mut x, 200));
+        let mut e: Vec<Syl> = vec![];
+        assert!(!normalize(&mut e, 100));
     }
 }

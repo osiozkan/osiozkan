@@ -16,11 +16,11 @@
 - [x] Betik özellikleri iletişim kutusu + çözünürlük uyuşmazlığı sorusu, stil katalogları (.sty) + stil sırası, sort selected / text with tags
 - [x] Kare PNG kaydet/kopyala, ses klibi WAV, spektrum 0–11 kHz, perspektif `\move` + keep `\org`, vektör kırpma nokta ekle / yeni şekil, kırpma tüm seçime
 - [x] Lua `aegisub.gui.*`, `set_status_text`, `project_properties` tam alanlar
-- [ ] Karaoke kipinde `time/next|prev` heceden heceye ve `/shift` uzunluk tuşları (ses görünümünde hece seçimi gerekli)
+- [x] Karaoke kipi (0.11.0): dalga formunda hece seçimi, `time/next|prev` heceden heceye, başlangıç/uzunluk ±10 ms ve `/shift` seçili heceye (AudioTimingControllerKaraoke birebir)
 - [ ] Perspektif: `\org` "no \fax" kipi, dış düzlem (outer/lock outer), ızgara katmanı
-- [ ] Vektör kırpma serbest çizim (freehand / smooth freehand), eğriyi düz çizgiye çevirme
-- [ ] Video yakınlaştırma ön ayarları (50/100/200 %), altyazıyı saydam arka planla kare olarak kaydet (`video/frame/save/subs`)
-- [ ] Ctrl+←/→ (satır sınırı) varsayılan tuşu: metin kutusunda sözcük atlamayla çakıştığı için atanmadı
+- [x] Vektör kırpma serbest çizim (0.10.0), Ctrl+tık çizgi ↔ eğri (0.11.0)
+- [x] Video yakınlaştırma ön ayarları (50/100/200 %), altyazıyı saydam arka planla kare olarak kaydet (`video/frame/save/subs`) (0.10.0)
+- [x] Ctrl+←/→ (satır sınırı) varsayılan tuşu (0.11.0): metin kutusu odaktayken ok/Home/End tuşlu kısayollar tetiklenmez
 
 ## Çekirdek
 - [x] ASS/SSA oku-yaz, bilinmeyen bölümleri koru, CRLF algıla, UTF-8/16/Windows-1254
