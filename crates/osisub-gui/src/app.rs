@@ -179,6 +179,8 @@ pub struct App {
     goto_focus: bool,
     /// "Basılı tutarak oynat" tuşu basılı ve çalıyor
     hold_playing: bool,
+    /// Bas/bırak zamanlaması: tuş basılı (başlangıç yazıldı, bitiş bekleniyor)
+    spot_down: bool,
     /// Pencereye en son gönderilen başlık
     last_title: Option<String>,
     /// Arka plan iş parçacıklarının arayüzü uyandırması için
@@ -385,6 +387,7 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("bg_box", "Arka plan kutusu (satırın ölçülen sınırlarına göre)"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
+    ("spot_hold", "Bas/bırak zamanlama: oynatırken basılı tut = satır başlangıcı → bırak = bitiş, sonraki satır"),
     ("silence_next", "Ses: sonraki sessizliğe atla"),
     ("silence_prev", "Ses: önceki sessizliğe atla"),
     ("word_to_next", "Son sözcüğü sonraki satırın başına taşı"),
@@ -787,6 +790,7 @@ impl App {
             theme_dirty: true,
             goto_open: false,
             hold_playing: false,
+            spot_down: false,
             last_title: None,
             egui_ctx: cc.egui_ctx.clone(),
             script_watch: crate::script_watch::ScriptWatch::spawn(cc.egui_ctx.clone()),
@@ -2131,6 +2135,31 @@ impl App {
                 // Ctrl/Shift+ok, Home/End, sil tuşları metin kutusunda imleç/sözcük gezintisidir (Ctrl+←/→ vb.)
                 let text_nav = !sc.modifiers.alt && crate::hotkeys::is_text_nav_key(sc.logical_key);
                 if typing_now && ((plain && !fkey) || text_nav) {
+                    continue;
+                }
+                if script == COMMAND_SCRIPT && name == "spot_hold" {
+                    // Subtitle Edit: oynatırken bas = etkin satırın başlangıcı, bırak = bitişi ve sonraki satır
+                    let down = ctx.input_mut(|i| {
+                        let _ = i.consume_shortcut(&sc);
+                        i.key_down(sc.logical_key) && i.modifiers.matches_logically(sc.modifiers)
+                    });
+                    if down && !self.spot_down {
+                        self.spot_down = true;
+                        if !self.media.is_playing() { self.media.toggle_play_from_playhead(&self.doc, ctx); }
+                        let t = self.media.framerate().map_or(self.media.playhead, |fr| fr.time_at_start(fr.frame_at(self.media.playhead)));
+                        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active).cloned() {
+                            self.doc.set_times(self.doc.active, t, d.end_time.max(t));
+                        }
+                    } else if !down && self.spot_down {
+                        self.spot_down = false;
+                        let t = self.media.framerate().map_or(self.media.playhead, |fr| fr.time_at_end(fr.frame_at(self.media.playhead)));
+                        if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(self.doc.active).cloned() {
+                            self.doc.set_times(self.doc.active, d.start_time, t.max(d.start_time));
+                            self.doc.seal();
+                        }
+                        // sonraki satır (sonuncudaysa yeni satır): oynatma sürer, bir sonraki konuşma beklenir
+                        self.run_command("commit_next", ctx);
+                    }
                     continue;
                 }
                 if script == COMMAND_SCRIPT && name == "hold_play" {

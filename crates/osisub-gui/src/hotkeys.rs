@@ -172,7 +172,7 @@ pub const DEFAULT_COMMAND_KEYS_V3: &[(&str, &str)] = &[("bookmark_toggle", "Ctrl
 pub const DEFAULT_COMMAND_KEYS_V4: &[(&str, &str)] = &[("snap_scene", "Ctrl+5"), ("shift_to_frame", "Ctrl+6"), ("split_after", "Ctrl+Shift+D"), ("lead_in", "C"), ("lead_out", "V"), ("find_next", "F3")];
 
 /// 0.11.0: Aegisub Ctrl+←/→ (satır sınırı); metin kutusu odaktayken çalışmaz (sözcük atlama korunur)
-pub const DEFAULT_COMMAND_KEYS_V5: &[(&str, &str)] = &[("boundary_prev", "Ctrl+ArrowLeft"), ("boundary_next", "Ctrl+ArrowRight")];
+pub const DEFAULT_COMMAND_KEYS_V5: &[(&str, &str)] = &[("boundary_prev", "Ctrl+ArrowLeft"), ("boundary_next", "Ctrl+ArrowRight"), ("spot_hold", "F8")];
 
 /// Metin kutusunda imleç gezintisi/silme için kullanılan tuşlar: yazarken kısayol olarak tetiklenmez.
 pub fn is_text_nav_key(k: Key) -> bool {
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn ctrl_arrow_defaults_parse() {
-        for (_, k) in DEFAULT_COMMAND_KEYS_V5 {
+        for (_, k) in DEFAULT_COMMAND_KEYS_V5.iter().filter(|x| x.0.starts_with("boundary")) {
             let sc = parse(k).expect("ayrıştırılmalı");
             assert!(sc.modifiers.command || sc.modifiers.ctrl);
             assert!(is_text_nav_key(sc.logical_key));
