@@ -116,6 +116,42 @@ pub fn overlapping(script: &Script, same_style: bool) -> Vec<usize> {
     out
 }
 
+/// Etiket blokları dışındaki boşlukların bayt konumları.
+fn text_spaces(t: &str) -> Vec<usize> {
+    let mut v = vec![];
+    let mut pos = 0;
+    for part in crate::tags::split(t) {
+        match part {
+            crate::tags::Part::Block(b) => pos += b.len() + 2,
+            crate::tags::Part::Text(x) => {
+                v.extend(x.match_indices(' ').map(|(k, _)| pos + k));
+                pos += x.len();
+            }
+        }
+    }
+    v
+}
+
+/// Subtitle Edit "sözcüğü komşu satıra taşı": `forward` ise `a`'nın SON sözcüğü `b`'nin başına, değilse
+/// `b`'nin İLK sözcüğü `a`'nın sonuna taşınır. Baştaki etiket blokları (`{\an8}`) yerinde kalır, satır
+/// içi etiketler sözcükle gider; iki satır `max` karaktere göre yeniden dengelenir. Taşınacak sözcük yoksa None.
+pub fn move_word(a: &str, b: &str, forward: bool, max: usize) -> Option<(String, String)> {
+    use crate::linebreak::{balance, unbreak};
+    let (fa, fb) = (unbreak(a), unbreak(b));
+    let (la, lb) = (crate::tags::leading_blocks(&fa).to_string(), crate::tags::leading_blocks(&fb).to_string());
+    let (ba, bb) = (fa[la.len()..].trim().to_string(), fb[lb.len()..].trim().to_string());
+    let (na, nb) = if forward {
+        if crate::tags::strip_tags(&ba).trim().is_empty() { return None; }
+        let (rest, w) = match text_spaces(&ba).last() { Some(&k) => (ba[..k].trim_end(), ba[k + 1..].trim()), None => ("", ba.as_str()) };
+        (format!("{la}{rest}"), format!("{lb}{w}{}{bb}", if bb.is_empty() { "" } else { " " }))
+    } else {
+        if crate::tags::strip_tags(&bb).trim().is_empty() { return None; }
+        let (w, rest) = match text_spaces(&bb).first() { Some(&k) => (bb[..k].trim_end(), bb[k + 1..].trim()), None => (bb.as_str(), "") };
+        (format!("{la}{ba}{}{w}", if ba.is_empty() { "" } else { " " }), format!("{lb}{rest}"))
+    };
+    Some((balance(&na, max), balance(&nb, max)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +219,20 @@ mod tests {
         let mut s = sc(&[(0, 1000, "A\\NB")]);
         let i = idx(&s);
         assert!(recombine(&mut s, &i).is_empty());
+    }
+
+    #[test]
+    fn move_word_between_lines() {
+        assert_eq!(move_word("Ben de seninle", "gelmek istiyorum.", true, 42), Some(("Ben de".into(), "seninle gelmek istiyorum.".into())));
+        assert_eq!(move_word("Ben de", "seninle gelmek istiyorum.", false, 42), Some(("Ben de seninle".into(), "gelmek istiyorum.".into())));
+        // baştaki etiket yerinde kalır, satır içi etiket sözcükle gider; \N açılır
+        assert_eq!(move_word("{\\an8}Bir\\N{\\i1}iki{\\i0}", "{\\an8}üç", true, 42), Some(("{\\an8}Bir".into(), "{\\an8}{\\i1}iki{\\i0} üç".into())));
+        assert_eq!(move_word("tek", "", true, 42), Some(("".into(), "tek".into())));
+        assert_eq!(move_word("a", "{\\i1}", false, 42), None);
+        // etiket içindeki boşluk sözcük sınırı sayılmaz
+        assert_eq!(move_word("x {\\fnArial Black}y", "z", true, 42), Some(("x".into(), "{\\fnArial Black}y z".into())));
+        // uzun sonuç dengelenir
+        let (_, nb) = move_word("bir iki üç", "dört beş altı yedi sekiz dokuz on onbir oniki onüç ondört", true, 30).unwrap();
+        assert!(nb.contains("\\N"));
     }
 }

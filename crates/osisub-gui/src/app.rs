@@ -378,6 +378,10 @@ pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("ready_check", "Yayına hazır mı? (kontrol listesi)"),
     ("multi_replace", "Çoklu değiştir…"),
     ("select_overlaps", "Çakışan satırları seç"),
+    ("word_to_next", "Son sözcüğü sonraki satırın başına taşı"),
+    ("word_from_next", "Sonraki satırın ilk sözcüğünü bu satıra al"),
+    ("word_to_prev", "İlk sözcüğü önceki satırın sonuna taşı"),
+    ("word_from_prev", "Önceki satırın son sözcüğünü bu satıra al"),
     ("ocr_fix", "OCR hatalarını düzelt (yazım sözlüğüyle)"),
     ("bookmark_toggle", "Yer imi koy / kaldır"),
     ("bookmark_next", "Sonraki yer imi"),
@@ -1858,6 +1862,26 @@ impl App {
             }
             "ready_check" => self.ready_open = true,
             "multi_replace" => self.open_mrep(),
+            "word_to_next" | "word_from_next" | "word_to_prev" | "word_from_prev" => {
+                // Subtitle Edit: sözcüğü komşu satıra taşı (ızgara sırasıyla komşu; iki satır dengelenir)
+                let at = self.doc.active;
+                let p = self.rows.iter().position(|&r| r == at);
+                let next = id.ends_with("next");
+                let nb = p.and_then(|p| if next { self.rows.get(p + 1) } else { p.checked_sub(1).and_then(|q| self.rows.get(q)) }).copied();
+                let (Some(nb), Some(Entry::Dialogue(cur))) = (nb, self.doc.script.entries.get(at).cloned()) else { self.status = tr("Komşu satır yok").into(); return; };
+                let Some(Entry::Dialogue(other)) = self.doc.script.entries.get(nb).cloned() else { return };
+                // (önceki/üst, sonraki/alt) çifti ve yön
+                let (a, b, ia, ib, forward) = match id {
+                    "word_to_next" => (&cur, &other, at, nb, true),
+                    "word_from_next" => (&cur, &other, at, nb, false),
+                    "word_to_prev" => (&other, &cur, nb, at, false),
+                    _ => (&other, &cur, nb, at, true),
+                };
+                match osisub_core::lineops::move_word(&a.text, &b.text, forward, self.rules.max_line_len.max(10)) {
+                    Some((ta, tb)) => self.doc.edit("Sözcük taşı", |tx| { tx.dialogue_mut(ia, |d| d.text = ta); tx.dialogue_mut(ib, |d| d.text = tb); }),
+                    None => self.status = tr("Taşınacak sözcük yok").into(),
+                }
+            }
             "select_overlaps" => {
                 let v = osisub_core::lineops::overlapping(&self.doc.script, true);
                 if let Some(&a) = v.first() { self.scroll_to = Some(a); self.doc.select(v.clone(), a); }
@@ -2376,6 +2400,11 @@ impl App {
                 if ui.button(tr("Karaoke olarak birleştir")).on_hover_text(tr("Her satır bir hece olur; \\k = satırın süresi")).clicked() { self.run_command("merge_kara", ui.ctx()); ui.close(); }
                 if ui.button(tr("Satırları yeniden birleştir")).on_hover_text(tr("Aegisub Recombine Lines: örtüşen konuşmalar için bölünmüş \"A\" / \"A\\NB\" / \"B\" satırlarını her cümle tek satır olacak şekilde geri birleştirir")).clicked() { self.run_command("recombine", ui.ctx()); ui.close(); }
                 if ui.button(tr("Çakışan satırları seç")).on_hover_text(tr("Aynı stil ve katmanda zamanı çakışan diyalog satırları (Aegisub: Select overlaps)")).clicked() { self.run_command("select_overlaps", ui.ctx()); ui.close(); }
+                ui.menu_button(tr("Sözcük taşı"), |ui| {
+                    for (id, l) in [("word_to_next", "Son sözcüğü sonraki satırın başına taşı"), ("word_from_next", "Sonraki satırın ilk sözcüğünü bu satıra al"), ("word_to_prev", "İlk sözcüğü önceki satırın sonuna taşı"), ("word_from_prev", "Önceki satırın son sözcüğünü bu satıra al")] {
+                        if ui.button(tr(l)).clicked() { self.run_command(id, ui.ctx()); ui.close(); }
+                    }
+                });
                 ui.menu_button(tr("Yer imleri"), |ui| {
                     if ui.add(egui::Button::new(tr("Yer imi koy / kaldır")).shortcut_text("Ctrl+F2")).clicked() { self.run_command("bookmark_toggle", ui.ctx()); ui.close(); }
                     if ui.add(egui::Button::new(tr("Sonraki yer imi")).shortcut_text("F2")).clicked() { self.run_command("bookmark_next", ui.ctx()); ui.close(); }
