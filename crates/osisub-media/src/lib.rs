@@ -658,13 +658,14 @@ mod tests {
         if !ffmpeg_available() {
             return;
         }
-        let ass = "[Script Info]\nPlayResX: 320\nPlayResY: 180\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H000000FF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,{\\an7\\pos(0,0)\\p1}m 100 50 l 220 50 220 130 100 130\n";
+        let ass = "[Script Info]\nPlayResX: 320\nPlayResY: 180\nYCbCr Matrix: None\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,40,&H000000FF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,10,10,10,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,{\\an7\\pos(0,0)\\p1}m 100 50 l 220 50 220 130 100 130\n";
         let tmp = std::env::temp_dir().join(format!("osisub-subsonly-{}", std::process::id()));
         let f = render_subs_rgba(ass, 320, 180, 2500, &tmp).unwrap();
         let px = |x: usize, y: usize| { let i = (y * 320 + x) * 4; [f.rgba[i], f.rgba[i + 1], f.rgba[i + 2], f.rgba[i + 3]] };
         assert_eq!(px(5, 5)[3], 0);
         let c = px(160, 90);
         assert_eq!(c[3], 255);
+        // (YCbCr Matrix: None — yeni ffmpeg/libass matrissiz betikte renkleri TV.601 uyumluluğu için kaydırır: 235/16)
         assert!(c[0] > 240 && c[1] < 15, "{c:?}"); // kırmızı (BGR &H000000FF)
         // satır görünmeden önce tamamen saydam
         let g = render_subs_rgba(ass, 320, 180, 500, &tmp).unwrap();

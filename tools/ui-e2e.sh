@@ -52,6 +52,9 @@ checkno "makro tek adımda geri alındı" "0:00:02.00,0:00:04.20,Default,Sakura"
 ls "${XDG_DATA_HOME:-$HOME/.local/share}/osisub/autoback/" 2>/dev/null | grep -q '^t\.' && echo "TAMAM: autoback yedeği var" || { echo "HATA: autoback yok"; fail=1; }
 # yer imi (Ctrl+F2) dosyada Extradata olarak saklanır
 click 200 129; sleep 1; k ctrl+F2; sleep 0.5; k ctrl+s; sleep 1.5
+# CI'da ara sıra tuş kayboluyor: önce yalnız kaydı, sonra tüm adımı bir kez daha dene
+if ! grep -q "osisub.bookmark" "$TMP/t.ass"; then k ctrl+s; sleep 2; fi
+if ! grep -q "osisub.bookmark" "$TMP/t.ass"; then click 200 129; sleep 1.5; k ctrl+F2; sleep 1; k ctrl+s; sleep 2; fi
 check "yer imi kaydedildi" "osisub.bookmark"
 
 kill $APID 2>/dev/null; kill $XPID 2>/dev/null
