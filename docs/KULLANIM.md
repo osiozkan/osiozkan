@@ -52,6 +52,20 @@ Daha hızlısı: **Video aracı → Perspektif**; satırın çevresinde 4 köşe
 
 **Komut satırı.** `osisub --help`: dönüştürme, toplu dönüştürme, düzeltmeler, zamanlama, bul/değiştir, yeniden örnekleme, yazı tipi kontrolü, Lua makrosu çalıştırma, birleştirme (`merge`), hareket izleme (`motion`). Biçimler: ASS/SSA, SRT, VTT, LRC, MicroDVD, SubViewer, SBV, SAMI, TTML/DFXP (Netflix, EBU-TT), iTunes iTT, yayıncı **EBU STL** (ikili, Türkçe karakterler ISO 6937) (+ TXT/CSV yazma). SRT/VTT'ye aktarırken `{\an8}` üst konum korunur (VTT'de `line:0`). OCR: `osisub ocr`.
 
+**Karaoke kipi (hece hece zamanlama).** *Video → Karaoke kipi*. Dalga formunda heceye tıklayın (sağ tık: heceyi çal). X/Z sonraki/önceki heceye geçer ve çalar, S seçili heceyi çalar; *Başlangıç/Bitiş ±10 ms* komutları seçili heceyi oynatır (Shift'li sürüm sonraki heceleri de kaydırır). Son hecede X sonraki satıra geçer.
+
+**Bas/bırak zamanlama (F8).** Video oynarken her konuşma başladığında F8'e basın, bitince bırakın: satırın başlangıç/bitişi yazılır, sonraki satıra geçilir.
+
+**Çeviri yardımcıları.** *Araçlar → Makine çevirisi*: DeepL, Google, LibreTranslate, Claude, **Yerel YZ** (Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`; model adını yazın, anahtar gerekmez) ya da **Kopyala-yapıştır** (bloğu kopyala → web çevirmenine/sohbete yapıştır → sonucu geri yapıştır; ücretsiz). *Araçlar → Çeviriyi YZ ile gözden geçir*: yalnız sorunlu satırlar için gerekçeli öneriler, tek tek kabul/ret. Elektronik tabloda çeviri yapıyorsanız `.csv`/`.tsv` dosyasını doğrudan açın (Başlangıç/Bitiş/Metin/Konuşan sütunları kendiliğinden bulunur).
+
+**Yazım.** Yazım sekmesinde bir hatayı seçin: öneriye tıklayın ya da kendi düzeltmenizi yazıp *Değiştir* / *Tümünü değiştir* / *Her zaman kullan* (liste kalıcı; sonraki denetimlerde kendiliğinden düzeltilir).
+
+**Tipografi.** *Araçlar → Arka plan kutusu* (satırın arkasına ölçülmüş kutu), *Araçlar → Belirme efekti* (harf harf / sözcük sözcük, daktilo ya da solarak). Vektör kırpmada Ctrl+tık parçayı çizgi ↔ eğri yapar.
+
+**Kalite ve ekip kuralları.** Kalite sekmesinde *Özel kurallar*: ekibinizin yasak sözcükleri/yazım kuralları için düzenli ifadeler. Yinelenen sözcükler ("ve ve") not olarak görünür.
+
+**Hızlı düzenleme.** *Düzen → Sözcük taşı* (sözcüğü komşu satıra), *Düzen → Numaralı kısayollar / konuşan seçici* (konuşan/stil/sarmala yuvalarına tuş atayın; konuşanlar sayılarıyla listelenir). Ctrl+←/→ önceki/sonraki satır sınırına atlar. *Zamanlama → Noktadan senkron*: istediğiniz kadar nokta (reklam aralı yayınlar), hedef referans altyazıdan seçilebilir. *Video → Sessizlik >* sonraki sessiz bölüme atlar. *Dışa aktar → Özel metin biçimi*: şablonla çeviri notu/kontrol çizelgesi.
+
 ## Dosyalar
 
 - Ayarlar: `~/.config/osisub/settings.json` (Windows: `%APPDATA%\osisub`)
