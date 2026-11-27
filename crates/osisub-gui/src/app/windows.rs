@@ -1809,6 +1809,15 @@ impl App {
                     let src = match self.doc.script.entries.get(*i) { Some(Entry::Dialogue(d)) => d.start_time, _ => 0 };
                     ui.label(RichText::new(format!("{}. {} →", k + 1, time::format_ass(src))).monospace());
                     if ui.small_button(tr("Playhead")).clicked() { *target = self.media.playhead; }
+                    // Subtitle Edit "Point sync via other subtitle": hedef = referans altyazının eşleşen satırı
+                    if !self.ref_lines.is_empty() {
+                        egui::ComboBox::from_id_salt(("sync_ref", k)).width(120.0).selected_text(tr("Referans…")).show_ui(ui, |ui| {
+                            for r in &self.ref_lines {
+                                let txt: String = r.2.chars().take(40).collect();
+                                if ui.selectable_label(r.0 == *target, format!("{}  {}", time::format_ass(r.0), txt)).clicked() { *target = r.0; }
+                            }
+                        });
+                    }
                     ui.add(egui::DragValue::new(target).speed(10).suffix(" ms"));
                     ui.label(RichText::new(time::format_ass(*target)).monospace());
                     if ui.small_button("x").clicked() { del = Some(k); }

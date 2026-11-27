@@ -15,11 +15,11 @@
 - [x] Kopyala-yapıştır çeviri; yerel YZ (OpenAI uyumlu: Ollama, LM Studio) MT sağlayıcısı
 - [x] Yinelenen sözcükler (QC notu), sözcük taşı (komşu satırlar), sessizliğe atla, çok noktalı senkron, özel QC kuralları
 - [x] Belirme efekti (daktilo/sözcük/solma — tek satır), arka plan kutusu (libass sınırları), özel metin biçimiyle dışa aktarma
-- [ ] YZ ile çeviri gözden geçirme (SE AiReview: cümle birimleri, bağlam satırları, yalnız değişen satırlar JSON, tek tek kabul/ret)
-- [ ] Numaralı kısayollar: konuşan 1–10, stil 1–10, sarmala 1–8 (öncesi/sonrası etiket), renk 1–8; konuşan seçici (satır sayılarıyla)
-- [ ] Başka altyazıyla nokta senkronu (iki dosyada satır eşleştirme → çok noktalı senkron)
-- [ ] Tuşa bas/bırak ile zamanlama (oynatırken bas = başlangıç, bırak = bitiş, sonraki satır)
-- [ ] CSV/XLSX içe aktarma (sütun eşleme: başlangıç/bitiş/metin/konuşan/stil, başlık satırı, ayraç)
+- [x] YZ ile çeviri gözden geçirme (SE AiReview: cümle birimleri, bağlam satırları, yalnız değişen satırlar JSON, tek tek kabul/ret)
+- [x] Numaralı kısayollar: konuşan 1–10, stil 1–10, sarmala 1–8 (öncesi/sonrası etiket), renk 1–8; konuşan seçici (satır sayılarıyla)
+- [x] Başka altyazıyla nokta senkronu (çok noktalı senkronda hedef = referans altyazının satırı)
+- [x] Tuşa bas/bırak ile zamanlama (F8) (oynatırken bas = başlangıç, bırak = bitiş, sonraki satır)
+- [x] CSV/TSV içe aktarma (XLSX yok) (sütun eşleme: başlangıç/bitiş/metin/konuşan/stil, başlık satırı, ayraç)
 
 ## Aegisub eşdeğerliği (2026-11-23 komut denetimi)
 - [x] Kare komutları: split before/after, snap to scene, shift to frame, start/length ±10 ms, lead in/out, boundary/large frame steps, select visible, insert at video time, grid move up/down, video jump start/end
