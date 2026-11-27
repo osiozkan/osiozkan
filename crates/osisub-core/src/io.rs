@@ -8,7 +8,7 @@ pub fn ext_of(p: &Path) -> String {
 }
 
 /// Açılabilen altyazı uzantıları (GUI dosya süzgeçleri, sürükle-bırak, toplu dönüştürme).
-pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "itt", "stl", "smi", "sami", "txt"];
+pub const OPEN_EXTS: &[&str] = &["ass", "ssa", "srt", "vtt", "lrc", "sub", "sbv", "ttml", "dfxp", "itt", "stl", "smi", "sami", "txt", "csv", "tsv"];
 
 /// Başlıksız SubViewer: ilk dolu satır "00:00:01.00,00:00:02.00" biçiminde.
 fn looks_subviewer(text: &str) -> bool {
@@ -26,6 +26,7 @@ pub fn load_str(text: &str, ext: &str) -> Script {
         "sub" if text.contains("[INFORMATION]") || text.contains("[SUBTITLE]") || looks_subviewer(text) => Script::from_dialogues(crate::formats::parse_subviewer(text)),
         "smi" | "sami" => Script::from_dialogues(crate::formats::parse_sami(text)),
         "sbv" => Script::from_dialogues(crate::formats::parse_sbv(text)),
+        "csv" | "tsv" => crate::csvimport::load(text),
         "ttml" | "dfxp" | "xml" | "itt" => Script::from_dialogues(crate::formats::parse_ttml(text)),
         // ASS bölümü olmayan düz metin: her satır bir altyazı (okuma hızıyla zamanlanır)
         "txt" if !text.contains("[Events]") && !text.to_ascii_lowercase().contains("[script info]") => {
