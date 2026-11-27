@@ -202,6 +202,8 @@ pub struct App {
     miss_rx: Option<std::sync::mpsc::Receiver<Vec<osisub_spell::Miss>>>,
     miss_sel: Option<usize>,
     suggestions: Vec<String>,
+    /// Yazım: elle yazılan düzeltme (öneri tıklanınca dolar)
+    spell_custom: String,
     spell_ignore: std::collections::HashSet<String>,
     /// Eş anlamlılar sözlükleri (arka planda yüklenir; tr_TR, en_US…)
     thesauri: std::sync::Arc<std::sync::OnceLock<Vec<osisub_spell::thesaurus::Thesaurus>>>,
@@ -791,6 +793,7 @@ impl App {
             miss_rx: None,
             miss_sel: None,
             suggestions: vec![],
+            spell_custom: String::new(),
             spell_ignore: Default::default(),
             thesauri: Default::default(),
             ctx_word: None,

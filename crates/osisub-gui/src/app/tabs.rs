@@ -263,9 +263,44 @@ impl App {
             }
         }
         if let Some(rx) = &self.miss_rx {
-            if let Ok(m) = rx.try_recv() { self.misses = m; self.miss_rx = None; self.miss_sel = None; self.suggestions.clear(); }
+            if let Ok(m) = rx.try_recv() {
+                self.misses = m;
+                self.miss_rx = None;
+                self.miss_sel = None;
+                self.suggestions.clear();
+                // "Her zaman kullan" listesindeki sözcükler kendiliğinden düzeltilir (Subtitle Edit)
+                let always = self.settings.spell_always.clone();
+                let mut n = 0;
+                for (from, to) in always {
+                    if self.misses.iter().any(|x| x.word == from) { n += self.spell_replace_all(&from, &to); }
+                }
+                if n > 0 { self.status = trf!("Yazım: \"her zaman kullan\" listesinden {n} yer düzeltildi (Ctrl+Z geri alır)"); }
+            }
             else { ctx.request_repaint_after(std::time::Duration::from_millis(150)); }
         }
+    }
+
+    /// `word` sözcüğünü tüm diyalog satırlarında `repl` ile değiştirir (tek geri alma adımı); değişen yer sayısı.
+    pub(super) fn spell_replace_all(&mut self, word: &str, repl: &str) -> usize {
+        let mut changes: Vec<(usize, String)> = vec![];
+        let mut count = 0;
+        for (i, e) in self.doc.script.entries.iter().enumerate() {
+            if let Entry::Dialogue(d) = e {
+                if d.comment { continue; }
+                let nt = osisub_spell::replace_word(&d.text, word, repl, true);
+                if nt != d.text {
+                    count += self.misses.iter().filter(|m| m.entry == i && m.word == word).count().max(1);
+                    changes.push((i, nt));
+                }
+            }
+        }
+        if !changes.is_empty() {
+            self.doc.edit("Yazım: tümünü değiştir", |tx| for (i, t) in changes { tx.dialogue_mut(i, |d| d.text = t); });
+        }
+        self.misses.retain(|m| m.word != word);
+        self.miss_sel = None;
+        self.spell_rows.borrow_mut().0 = u64::MAX;
+        count
     }
 
     pub(super) fn start_spellcheck(&mut self) {
@@ -350,6 +385,7 @@ impl App {
             self.doc.select(vec![e], e);
             self.scroll_to = Some(e);
             self.suggestions = self.spell.as_ref().map(|s| s.suggest(&misses[i].word, 8)).unwrap_or_default();
+            self.spell_custom = self.suggestions.first().cloned().unwrap_or_else(|| misses[i].word.clone());
         }
         if let Some(i) = self.miss_sel.filter(|&i| i < misses.len()) {
             let m = misses[i].clone();
@@ -369,6 +405,32 @@ impl App {
                 }
                 if self.suggestions.is_empty() { ui.label(RichText::new(tr("öneri yok")).weak()); }
             });
+            // Subtitle Edit: elle düzeltme, tümünü değiştir, her zaman kullan
+            ui.horizontal_wrapped(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.spell_custom).desired_width(140.0).hint_text(tr("düzeltme")));
+                let repl = self.spell_custom.trim().to_string();
+                let ok = !repl.is_empty() && repl != m.word;
+                if ui.add_enabled(ok, egui::Button::new(tr("Değiştir"))).on_hover_text(tr("Yalnız bu satırda")).clicked() {
+                    let at = m.entry;
+                    if let Some(Entry::Dialogue(d)) = self.doc.script.entries.get(at).cloned() {
+                        let nt = osisub_spell::replace_word(&d.text, &m.word, &repl, false);
+                        self.doc.edit("Yazım düzelt", |tx| tx.dialogue_mut(at, |dd| dd.text = nt));
+                    }
+                    self.misses.remove(i);
+                    self.miss_sel = None;
+                }
+                if ui.add_enabled(ok, egui::Button::new(tr("Tümünü değiştir"))).on_hover_text(tr("Bu sözcüğü dosyadaki tüm satırlarda değiştirir")).clicked() {
+                    let n = self.spell_replace_all(&m.word, &repl);
+                    self.status = trf!("{n} yer değiştirildi");
+                }
+                if ui.add_enabled(ok, egui::Button::new(tr("Her zaman kullan"))).on_hover_text(tr("Tümünü değiştirir ve listeye ekler: sonraki denetimlerde (başka dosyalarda da) kendiliğinden düzeltilir")).clicked() {
+                    self.settings.spell_always.retain(|(f, _)| f != &m.word);
+                    self.settings.spell_always.push((m.word.clone(), repl.clone()));
+                    self.save_settings();
+                    let n = self.spell_replace_all(&m.word, &repl);
+                    self.status = trf!("{n} yer değiştirildi");
+                }
+            });
             ui.horizontal(|ui| {
                 if ui.button(tr("Yoksay")).clicked() {
                     self.ignore_word(&m.word);
@@ -376,6 +438,19 @@ impl App {
                 if ui.button(tr("Sözlüğe ekle")).clicked() {
                     self.add_user_word(&m.word);
                 }
+            });
+        }
+        if !self.settings.spell_always.is_empty() {
+            ui.separator();
+            egui::CollapsingHeader::new(trf!("Her zaman kullan listesi ({})", self.settings.spell_always.len())).id_salt("spell_always").show(ui, |ui| {
+                let mut del = None;
+                for (k, (f, t)) in self.settings.spell_always.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{f} → {t}"));
+                        if ui.small_button("x").on_hover_text(tr("Listeden çıkar")).clicked() { del = Some(k); }
+                    });
+                }
+                if let Some(k) = del { self.settings.spell_always.remove(k); self.save_settings(); }
             });
         }
     }

@@ -10,6 +10,8 @@ pub struct Settings {
     pub recent: Vec<String>,
     /// Zaman kaydırma geçmişi (Aegisub Shift Times gibi; en yeni başta): (miktar, kare mi, 0=ikisi 1=başlangıç 2=bitiş)
     pub shift_history: Vec<(i64, bool, u8)>,
+    /// Yazım denetimi "Her zaman kullan" listesi (Subtitle Edit Use always): (yanlış, doğru) — denetimde otomatik düzeltilir
+    pub spell_always: Vec<(String, String)>,
     pub max_cps: f64,
     pub max_line_len: usize,
     pub max_lines: usize,
@@ -85,6 +87,7 @@ impl Default for Settings {
         Settings {
             recent: vec![],
             shift_history: vec![],
+            spell_always: vec![],
             max_cps: r.max_cps,
             max_line_len: r.max_line_len,
             max_lines: r.max_lines,
