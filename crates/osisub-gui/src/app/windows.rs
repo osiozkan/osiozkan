@@ -1652,6 +1652,35 @@ impl App {
             ui.checkbox(&mut b.strip_notes, tr("Metindeki {notları} sil"));
             ui.checkbox(&mut b.clean_tags, tr("Gereksiz etiketleri sil"));
             ui.label(RichText::new(tr("Seçili Lua filtreleri öncelik sırasıyla (büyükten küçüğe), ardından yerleşikler çalışır; belge değişmez, sonuç dosyaya yazılır.")).weak().small());
+            ui.separator();
+            // Subtitle Edit "Export custom text format"
+            egui::CollapsingHeader::new(tr("Özel metin biçimi (çeviri notu, kontrol çizelgesi…)")).id_salt("custom_text").show(ui, |ui| {
+                let ct = &mut self.settings.custom_text;
+                let mut ch = false;
+                egui::Grid::new("ct_grid").num_columns(2).show(ui, |ui| {
+                    ui.label(tr("Başlık")); ch |= ui.add(egui::TextEdit::singleline(&mut ct.0).desired_width(320.0).font(egui::TextStyle::Monospace)).changed(); ui.end_row();
+                    ui.label(tr("Satır")); ch |= ui.add(egui::TextEdit::singleline(&mut ct.1).desired_width(320.0).font(egui::TextStyle::Monospace)).changed(); ui.end_row();
+                    ui.label(tr("Son")); ch |= ui.add(egui::TextEdit::singleline(&mut ct.2).desired_width(320.0).font(egui::TextStyle::Monospace)).changed(); ui.end_row();
+                    ui.label(tr("Zaman biçimi")); ch |= ui.add(egui::TextEdit::singleline(&mut ct.3).desired_width(140.0).font(egui::TextStyle::Monospace)).changed(); ui.end_row();
+                    ui.label(tr("\\N yerine")); ch |= ui.add(egui::TextEdit::singleline(&mut ct.4).desired_width(80.0).font(egui::TextStyle::Monospace)).changed(); ui.end_row();
+                });
+                ui.label(RichText::new("{number} {start} {end} {duration} {text} {text_tags} {actor} {style} {effect} {layer} {tab} {newline} · {title} {count} · hh h mm ss s zzz zz").small().weak().monospace());
+                let tpl = osisub_core::customtext::Template { header: ct.0.clone(), line: ct.1.clone(), footer: ct.2.clone(), time_format: ct.3.clone(), newline: ct.4.clone() };
+                let title = self.doc.path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                // önizleme: ilk 4 satır
+                let mut few = self.doc.script.clone();
+                let mut k = 0;
+                few.entries.retain(|e| !matches!(e, Entry::Dialogue(d) if !d.comment && { k += 1; k > 4 }));
+                let prev = osisub_core::customtext::render(&few, &tpl, &title);
+                egui::ScrollArea::vertical().max_height(110.0).id_salt("ct_prev").show(ui, |ui| { ui.label(RichText::new(prev).monospace().small()); });
+                if ch { self.settings.save(); }
+                if ui.button(tr("Metin dosyası olarak kaydet…")).clicked() {
+                    if let Some(p) = rfd::FileDialog::new().set_file_name(format!("{title}.txt")).add_filter("Metin", &["txt", "csv", "tsv", "html", "md"]).save_file() {
+                        let out = osisub_core::customtext::render(&self.doc.script, &tpl, &title);
+                        self.status = match std::fs::write(&p, out) { Ok(()) => trf!("Dışa aktarıldı: {}", p.display()), Err(e) => trf!("Hata: {}", e) };
+                    }
+                }
+            });
             if ui.add_enabled(self.running.is_none(), egui::Button::new(tr("Dışa aktar…"))).clicked() {
                 if let Some(p) = rfd::FileDialog::new().add_filter("ASS", &["ass"]).add_filter("SRT", &["srt"]).add_filter("WebVTT", &["vtt"]).add_filter("Düz metin", &["txt"]).save_file() {
                     let mut queue: Vec<usize> = filters.iter().filter(|f| self.export_sel.contains(&f.0)).map(|f| f.0).collect();

@@ -1435,3 +1435,8 @@
 ["Arka plan kutusu: {} satır, hata: {}", "Background box: {} lines, error: {}"]
 ["{} satıra arka plan kutusu eklendi (Efekt: kutu)", "Background box added to {} lines (Effect: kutu)"]
 ["Arka plan kutusu (satırın ölçülen sınırlarına göre)", "Background box (fitted to the line's measured bounds)"]
+["Özel metin biçimi (çeviri notu, kontrol çizelgesi…)", "Custom text format (translation notes, check sheets…)"]
+["Son", "Footer"]
+["Zaman biçimi", "Time format"]
+["\\N yerine", "Instead of \\N"]
+["Metin dosyası olarak kaydet…", "Save as text file…"]

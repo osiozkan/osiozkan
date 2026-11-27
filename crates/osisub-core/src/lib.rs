@@ -8,6 +8,7 @@ pub mod batch;
 pub mod casing;
 pub mod color;
 pub mod compare;
+pub mod customtext;
 pub mod consistency;
 pub mod drawing;
 pub mod drawxf;
